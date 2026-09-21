@@ -1,0 +1,5 @@
+/build/
+/build-host/
+/gfxprobe.elf
+/gfxprobe.nro
+/gfxprobe-host-report.jsonl
