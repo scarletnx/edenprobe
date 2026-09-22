@@ -6,7 +6,7 @@
 
 HOSTCC   ?= cc
 HOSTOUT  := build-host/gfxprobe-host
-HOSTSRC  := source/report.c source/check.c source/picture.c \
+HOSTSRC  := source/report.c source/check.c source/picture.c source/ui.c \
             source/raster.c source/intref.c source/blendref.c source/texref.c \
             source/fmathref.c \
             source/tests/t_selfcheck.c source/tests/t_support.c source/tests/t_reference.c \

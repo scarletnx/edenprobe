@@ -9,12 +9,14 @@
 #include "picture.h"
 #include "report.h"
 #include "tests/tests.h"
+#include "viewer.h"
 
 // Where the run leaves its report on the machine it ran on. On an emulator this is a plain
 // directory on the host; on the console it is the memory card. The pictures of the failing
 // cases go under the same directory, so one folder is the whole of what a run leaves behind.
 static const char *const REPORT_DIRECTORY = "sdmc:/gfxprobe";
 static const char *const REPORT_PATH = "sdmc:/gfxprobe/report.jsonl";
+static const char *const MODE_PATH = "sdmc:/gfxprobe/mode";
 
 int main(int argc, char **argv) {
     (void)argc;
@@ -24,7 +26,13 @@ int main(int argc, char **argv) {
     // interface, so a bring-up problem on a new machine is never "did the screen work".
     mkdir(REPORT_DIRECTORY, 0777);
 
+    // Asked before anything is reported, and acted on only after everything has been. What the
+    // mode changes is whether the finished pictures are kept in memory and shown afterwards;
+    // it changes no verdict, writes no line, and the two modes leave the same report behind.
+    const UiMode mode = ViewerModeAtLaunch(MODE_PATH);
     PictureSetRoot(REPORT_DIRECTORY);
+    PictureWriteEveryCase(mode.every_case);
+    PictureRetain(mode.detailed);
 
     ReportOpen(REPORT_PATH);
 
@@ -51,6 +59,12 @@ int main(int argc, char **argv) {
     snprintf(done, sizeof(done), "GFXPROBE DONE passed=%zu failed=%zu", ReportPassed(),
              ReportFailed());
     svcOutputDebugString(done, strlen(done));
+
+    // Last, and only now: the report is written, counted and closed, so nothing a person does
+    // in front of the screen can reach it.
+    if (mode.detailed) {
+        ViewerRun();
+    }
 
     return ReportFailed() == 0 ? 0 : 1;
 }
