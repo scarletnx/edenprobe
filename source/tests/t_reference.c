@@ -420,7 +420,9 @@ static void CheckBlendArithmetic(void) {
     uint8_t first_did[4] = { 0, 0, 0, 0 };
     for (size_t index = 0; index < BlendCaseCount(); ++index) {
         const BlendCase *const test = BlendCaseAt(index);
-        uint8_t said[4];
+        // Initialised, because the reader below may give up part way through a
+        // sentence that does not end in a colour and the failure path copies all four.
+        uint8_t said[4] = { 0, 0, 0, 0 };
         uint8_t did[4];
         BlendReference(&test->spec, test->source, test->destination, did);
         if (!ArithmeticSentenceColor(test->arithmetic, said) || memcmp(said, did, 4) != 0) {
@@ -578,7 +580,7 @@ static void CheckTextureCoordinates(void) {
         }
     }
     CHECK_TRUE(SUITE, "one texture across the target puts sixteen pixels on each texel",
-               CHECK_NONE, wrong == 0 && closest > 0.03,
+               CHECK_NONE, wrong == 0 && closest >= 1.0 / 32.0,
                "%u of 64 pixels disagreed, and the closest came within %.6f of a texel boundary",
                (unsigned)wrong, closest);
 
@@ -593,7 +595,7 @@ static void CheckTextureCoordinates(void) {
         }
     }
     CHECK_TRUE(SUITE, "three copies across the target still miss every texel boundary",
-               CHECK_NONE, closest > 0.03,
+               CHECK_NONE, closest >= 1.0 / 32.0,
                "the closest pixel came within %.6f of a texel boundary", closest);
 
     // The layout the linear case draws: one texel per pixel, shifted by half a pixel, so the
@@ -717,26 +719,29 @@ static void CheckFloatArithmetic(void) {
                "%u of 40960 reference values were not finite", (unsigned)not_finite);
 
     // And every budget, stated here so that loosening one is a change to this file as well as to
-    // the one that hands it out. All ten, not a sample: the two that were wrong when this file
-    // only pinned five were the two nobody was checking.
+    // the one that hands it out. All ten, not a sample: the ones that were wrong when this file
+    // pinned five were among the five it did not pin.
     static const struct {
         FMathMode mode;
         bool absolute;
-        float value;
+        float constant;
+        float per_argument;
     } EXPECTED_BUDGETS[] = {
-        { FMATH_UNIFORM, false, 0.0f },
-        { FMATH_ADD, false, 0.0f },
-        { FMATH_MULTIPLY, false, 0.0f },
-        { FMATH_MULTIPLY_ADD, false, 1.0f },
-        // 2.5 from the specification and a half for the reference's own rounding.
-        { FMATH_DIVIDE, false, 3.0f },
-        // 3 and a half, the same way. Three would be the specification's number with nothing
-        // left over, and the reference is not exact.
-        { FMATH_SQUARE_ROOT, false, 3.5f },
-        { FMATH_EXP2, false, 3.5f },
-        { FMATH_LOG2, false, 3.5f },
-        { FMATH_SINE, true, 1.0f / 2048.0f },
-        { FMATH_COSINE, true, 1.0f / 2048.0f },
+        { FMATH_UNIFORM, false, 0.0f, 0.0f },
+        { FMATH_ADD, false, 0.0f, 0.0f },
+        { FMATH_MULTIPLY, false, 0.0f, 0.0f },
+        // Three roundings against the fused reference's one, each at most half a unit of a
+        // result that is larger than either operand.
+        { FMATH_MULTIPLY_ADD, false, 1.5f, 0.0f },
+        // 2.5 from the core table and a half for the reference's own rounding.
+        { FMATH_DIVIDE, false, 3.0f, 0.0f },
+        // Inherited from one over the inverse square root: 2 and 2.5, and a half again.
+        { FMATH_SQUARE_ROOT, false, 5.0f, 0.0f },
+        // Three plus twice the magnitude of the argument, and a half on the constant.
+        { FMATH_EXP2, false, 3.5f, 2.0f },
+        { FMATH_LOG2, false, 3.5f, 0.0f },
+        { FMATH_SINE, true, 1.0f / 2048.0f, 0.0f },
+        { FMATH_COSINE, true, 1.0f / 2048.0f, 0.0f },
     };
     uint32_t wrong_budgets = 0;
     const char *first_wrong_budget = "";
@@ -745,7 +750,8 @@ static void CheckFloatArithmetic(void) {
         const FMathBudget got = FMathBudgetFor(EXPECTED_BUDGETS[i].mode);
         const float value = got.absolute ? got.limit : got.ulps;
         if (got.absolute != EXPECTED_BUDGETS[i].absolute ||
-            value != EXPECTED_BUDGETS[i].value) {
+            value != EXPECTED_BUDGETS[i].constant ||
+            got.ulps_per_argument != EXPECTED_BUDGETS[i].per_argument) {
             if (wrong_budgets == 0) {
                 first_wrong_budget = FMathName(EXPECTED_BUDGETS[i].mode);
                 said = (double)value;
@@ -753,24 +759,102 @@ static void CheckFloatArithmetic(void) {
             ++wrong_budgets;
         }
     }
-    CHECK_TRUE(SUITE, "every float budget is the one the README names", CHECK_NONE,
+    CHECK_TRUE(SUITE, "every float budget is the one the tables give", CHECK_NONE,
                wrong_budgets == 0, "%u of %u disagreed, first was \"%s\" at %g",
                (unsigned)wrong_budgets,
                (unsigned)(sizeof(EXPECTED_BUDGETS) / sizeof(EXPECTED_BUDGETS[0])),
                first_wrong_budget, said);
 
-    // And the reason each one gives has to mention the number it is. A budget whose explanation
-    // has drifted from its value is how the square root came to claim three was conservative
-    // when three was the whole of what the specification allowed.
+    // And the reason each one gives has to begin with the number it is, built here from the
+    // value rather than read from the text, so a budget changed without its explanation fails.
     uint32_t unexplained = 0;
+    const char *first_unexplained = "";
     for (uint32_t mode = 0; mode < FMATH_MODE_COUNT; ++mode) {
         const FMathBudget got = FMathBudgetFor((FMathMode)mode);
-        if (got.reason == NULL || got.reason[0] == '\0') {
+        char wanted[64];
+        if (got.absolute) {
+            snprintf(wanted, sizeof(wanted), "%g absolute", (double)got.limit);
+        } else if (got.ulps_per_argument != 0.0f) {
+            snprintf(wanted, sizeof(wanted), "%g plus %g per unit", (double)got.ulps,
+                     (double)got.ulps_per_argument);
+        } else {
+            snprintf(wanted, sizeof(wanted), "%g units in the last place", (double)got.ulps);
+        }
+        if (got.reason == NULL || strstr(got.reason, wanted) == NULL) {
+            if (unexplained == 0) {
+                first_unexplained = FMathName((FMathMode)mode);
+            }
             ++unexplained;
         }
     }
-    CHECK_TRUE(SUITE, "every float budget says why it is what it is", CHECK_NONE,
-               unexplained == 0, "%u budgets had no reason", (unsigned)unexplained);
+    CHECK_TRUE(SUITE, "every float budget's reason begins with the number it is", CHECK_NONE,
+               unexplained == 0, "%u budgets did not, first was \"%s\"", (unsigned)unexplained,
+               first_unexplained);
+
+    // The power of two is the one budget that is not a constant, so the allowance it hands out
+    // has to move with the argument rather than sit at whatever the middle of the sweep gets.
+    const float at_middle = FMathAllowedUlps(FMATH_EXP2, 31, 0);
+    const float at_end = FMathAllowedUlps(FMATH_EXP2, 63, 0);
+    CHECK_TRUE(SUITE, "the power of two's allowance grows with its argument", CHECK_NONE,
+               at_end > at_middle && at_end == 11.5f,
+               "the allowance was %g in the middle of the sweep and %g at the end, expected "
+               "11.5 at the end",
+               (double)at_middle, (double)at_end);
+
+    // The libm answers, written down. Each is the correctly rounded single precision value,
+    // computed away from any C library, so a runtime that drifts has to be wrong by more than
+    // half a unit to move one. Otherwise it would move the expected value on one machine only,
+    // and every float case would report a difference that was never in the graphics unit.
+    static const struct {
+        FMathMode mode;
+        uint32_t x;
+        uint32_t expected;
+    } LIBM_BY_HAND[] = {
+        // the square root of 0.015625, 0.375 and 1
+        { FMATH_SQUARE_ROOT, 0, 0x3E000000u },
+        { FMATH_SQUARE_ROOT, 23, 0x3F1CC471u },
+        { FMATH_SQUARE_ROOT, 63, 0x3F800000u },
+        // two to the power of -3.875, -1 and 4
+        { FMATH_EXP2, 0, 0x3D8B95C2u },
+        { FMATH_EXP2, 23, 0x3F000000u },
+        { FMATH_EXP2, 63, 0x41800000u },
+        // the logarithm to base two of 0.00390625, 0.09375 and 0.25
+        { FMATH_LOG2, 0, 0xC1000000u },
+        { FMATH_LOG2, 23, 0xC05A8FF9u },
+        { FMATH_LOG2, 63, 0xC0000000u },
+        // the sine of -2.90625, -0.75 and 3
+        { FMATH_SINE, 0, 0xBE6EC5BEu },
+        { FMATH_SINE, 23, 0xBF2E7FE1u },
+        { FMATH_SINE, 63, 0x3E1081C3u },
+        // the cosine of the same three angles
+        { FMATH_COSINE, 0, 0xBF78F178u },
+        { FMATH_COSINE, 23, 0x3F3B4FF6u },
+        { FMATH_COSINE, 63, 0xBF7D7026u },
+    };
+    uint32_t libm_wrong = 0;
+    const char *first_libm = "";
+    uint32_t libm_got = 0;
+    uint32_t libm_want = 0;
+    for (size_t i = 0; i < sizeof(LIBM_BY_HAND) / sizeof(LIBM_BY_HAND[0]); ++i) {
+        const float value =
+            FMathReference(LIBM_BY_HAND[i].mode, LIBM_BY_HAND[i].x, 0, 0.0f);
+        uint32_t pattern;
+        memcpy(&pattern, &value, sizeof(pattern));
+        if (pattern != LIBM_BY_HAND[i].expected) {
+            if (libm_wrong == 0) {
+                first_libm = FMathName(LIBM_BY_HAND[i].mode);
+                libm_got = pattern;
+                libm_want = LIBM_BY_HAND[i].expected;
+            }
+            ++libm_wrong;
+        }
+    }
+    CHECK_TRUE(SUITE, "the runtime's transcendentals give the answers written down here",
+               CHECK_NONE, libm_wrong == 0,
+               "%u of %u differed, first was \"%s\" at 0x%08x, expected 0x%08x",
+               (unsigned)libm_wrong,
+               (unsigned)(sizeof(LIBM_BY_HAND) / sizeof(LIBM_BY_HAND[0])), first_libm,
+               (unsigned)libm_got, (unsigned)libm_want);
 }
 
 void RunReference(void) {

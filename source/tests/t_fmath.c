@@ -72,6 +72,10 @@ static float PixelValue(const uint8_t *pixels, uint32_t x, uint32_t y) {
 }
 
 /// Compares all 4096 pixels against the reference under the case's own budget.
+///
+/// The budget is asked for per pixel, not once, because one of them is not a constant: the power
+/// of two's allowance grows with its argument, so a case that took the middle of the sweep would
+/// fail a correct machine at the ends and one that took the ends would wave the middle through.
 static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget budget,
                             char *detail, size_t detail_size) {
     uint32_t wrong = 0;
@@ -79,7 +83,11 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
     uint32_t first_y = 0;
     float first_got = 0.0f;
     float first_want = 0.0f;
-    float worst_ulps = 0.0f;
+    float first_allowed = 0.0f;
+    float worst_error = 0.0f;
+    float worst_share = 0.0f;
+    float tightest = 0.0f;
+    float loosest = 0.0f;
     double worst_absolute = 0.0;
 
     for (uint32_t y = 0; y < TARGET_HEIGHT; ++y) {
@@ -87,18 +95,38 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
             const float got = PixelValue(pixels, x, y);
             const float want = FMathReference(mode, x, y, UNIFORM_PROBE);
 
-            const bool within = budget.absolute ? CheckFloatAbs(got, want, budget.limit)
-                                                : CheckFloatUlp(got, want, budget.ulps);
+            bool within;
+            float allowed = 0.0f;
             if (budget.absolute) {
+                within = CheckFloatAbs(got, want, budget.limit);
                 const double difference = (double)got - (double)want;
                 const double magnitude = difference < 0.0 ? -difference : difference;
                 if (magnitude > worst_absolute) {
                     worst_absolute = magnitude;
                 }
             } else {
+                allowed = FMathAllowedUlps(mode, x, y);
                 const float error = CheckFloatUlpError(got, want);
-                if (error > worst_ulps) {
-                    worst_ulps = error;
+                within = error <= allowed;
+                if (error > worst_error) {
+                    worst_error = error;
+                }
+                // How much of its own allowance the worst pixel used, which is the number that
+                // means the same thing across a sweep whose allowance moves.
+                const float share =
+                    allowed > 0.0f ? error / allowed : (error > 0.0f ? 1.0e30f : 0.0f);
+                if (share > worst_share) {
+                    worst_share = share;
+                }
+                if (x == 0 && y == 0) {
+                    tightest = allowed;
+                    loosest = allowed;
+                }
+                if (allowed < tightest) {
+                    tightest = allowed;
+                }
+                if (allowed > loosest) {
+                    loosest = allowed;
                 }
             }
 
@@ -110,6 +138,7 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
                 first_y = y;
                 first_got = got;
                 first_want = want;
+                first_allowed = allowed;
             }
             ++wrong;
         }
@@ -119,10 +148,16 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
         if (budget.absolute) {
             snprintf(detail, detail_size, "worst was %.9g of an allowed %.9g", worst_absolute,
                      (double)budget.limit);
+        } else if (tightest != loosest) {
+            snprintf(detail, detail_size,
+                     "worst was %.4f units in the last place, %.4f of the allowance there; the "
+                     "allowance ran from %g to %g",
+                     (double)worst_error, (double)worst_share, (double)tightest,
+                     (double)loosest);
         } else {
             snprintf(detail, detail_size,
                      "worst was %.4f of an allowed %g units in the last place",
-                     (double)worst_ulps, (double)budget.ulps);
+                     (double)worst_error, (double)tightest);
         }
         return true;
     }
@@ -135,10 +170,12 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
                  (unsigned)first_y, (double)first_got, (double)first_want, worst_absolute);
     } else {
         snprintf(detail, detail_size,
-                 "%u of %u pixels outside %g units in the last place, first at (%u,%u) is %.9g, "
-                 "expected %.9g; worst was %.4f",
-                 (unsigned)wrong, (unsigned)PIXEL_COUNT, (double)budget.ulps, (unsigned)first_x,
-                 (unsigned)first_y, (double)first_got, (double)first_want, (double)worst_ulps);
+                 "%u of %u pixels outside their allowance, first at (%u,%u) is %.9g, expected "
+                 "%.9g, where %g units in the last place were allowed; worst used %.4f of its "
+                 "allowance",
+                 (unsigned)wrong, (unsigned)PIXEL_COUNT, (unsigned)first_x, (unsigned)first_y,
+                 (double)first_got, (double)first_want, (double)first_allowed,
+                 (double)worst_share);
     }
     return false;
 }
