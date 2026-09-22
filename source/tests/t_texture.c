@@ -196,14 +196,16 @@ static void SampleCase(GpuContext *gpu, const DkShader *vertex_shader,
     GpuDataRewind(gpu, mark);
 
     if (!drawn) {
-        ReportCase(SUITE, name, CHECK_EXACT, false, gpu->failure);
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure : "the draw was not recorded");
         return;
     }
 
     const uint8_t *const pixels = GpuReadBack(gpu);
     if (pixels == NULL) {
-        ReportCase(SUITE, name, CHECK_EXACT, false,
-                   gpu->ready ? "the readback handed back nothing" : gpu->failure);
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure
+                                            : "the readback handed back nothing");
         return;
     }
 
@@ -296,10 +298,18 @@ void RunTexture(void) {
         return;
     }
 
-    GpuUploadTexture(&gpu, &nearest_image, DkImageFormat_RGBA8_Unorm, TEXTURE_SIZE, TEXTURE_SIZE,
-                     NEAREST_TEXELS);
-    GpuUploadTexture(&gpu, &linear_image, DkImageFormat_RGBA8_Unorm, TEXTURE_SIZE, TEXTURE_SIZE,
-                     linear_texels);
+    const bool uploaded =
+        GpuUploadTexture(&gpu, &nearest_image, DkImageFormat_RGBA8_Unorm, TEXTURE_SIZE,
+                         TEXTURE_SIZE, NEAREST_TEXELS) &&
+        GpuUploadTexture(&gpu, &linear_image, DkImageFormat_RGBA8_Unorm, TEXTURE_SIZE,
+                         TEXTURE_SIZE, linear_texels);
+    // Reported rather than assumed: an upload that did nothing and a sampler reading the wrong
+    // texels look identical in every case below this line.
+    CHECK_TRUE(SUITE, "the texels reach the textures", CHECK_NONE, uploaded, "%s", gpu.failure);
+    if (!uploaded) {
+        GpuClose(&gpu);
+        return;
+    }
 
     // Arrays the hardware indexes into with the handle a draw carries, so they are allocated
     // once and bound unchanged by every case. The barrier at the top of every pass is what

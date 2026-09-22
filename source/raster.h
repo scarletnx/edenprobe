@@ -51,6 +51,19 @@ typedef enum {
     RASTER_NEAR_EDGE = 2,
 } RasterVerdict;
 
+/// The geometry the rasterisation suite draws, in clip space, as three x and y pairs.
+///
+/// Here rather than in the suite, so the reference suite projects the very values a draw carries
+/// rather than a restatement of where they ought to land.
+extern const float RASTER_SLANTED[6];
+extern const float RASTER_UPPER_RIGHT_HALF[6];
+extern const float RASTER_LOWER_LEFT_HALF[6];
+
+/// The two viewports those are drawn through: the whole of a 64 by 64 target, and half of it
+/// offset into the middle.
+extern const RasterViewport RASTER_FULL_VIEWPORT;
+extern const RasterViewport RASTER_HALF_VIEWPORT;
+
 /// Maps one clip space position with w of one into target space.
 RasterPoint RasterProject(const RasterViewport *viewport, float clip_x, float clip_y);
 

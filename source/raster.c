@@ -13,6 +13,22 @@
 // triangle the edge is a top or a left edge of, and the reference suite pins one hand worked
 // point per branch.
 
+// A triangle with no axis aligned edge and no slope that lines pixel centres up along one. Its
+// corners land on whole pixel boundaries, so they are exact both as the thirty seconds written
+// here and on the sub pixel grid the hardware snaps to.
+const float RASTER_SLANTED[6] = {
+    -23.0f / 32.0f, 27.0f / 32.0f, 25.0f / 32.0f, 13.0f / 32.0f, -9.0f / 32.0f, -28.0f / 32.0f,
+};
+
+// The two halves of the square from (16,16) to (48,48), split along the diagonal. The diagonal
+// passes through 32 pixel centres exactly, and the fill rule gives all 32 to the half it is a
+// left edge of, which is the upper right one.
+const float RASTER_UPPER_RIGHT_HALF[6] = { -0.5f, 0.5f, 0.5f, 0.5f, 0.5f, -0.5f };
+const float RASTER_LOWER_LEFT_HALF[6] = { -0.5f, 0.5f, 0.5f, -0.5f, -0.5f, -0.5f };
+
+const RasterViewport RASTER_FULL_VIEWPORT = { 0.0f, 0.0f, 64.0f, 64.0f };
+const RasterViewport RASTER_HALF_VIEWPORT = { 16.0f, 16.0f, 32.0f, 32.0f };
+
 static double EdgeFunction(RasterPoint a, RasterPoint b, double x, double y) {
     return (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
 }

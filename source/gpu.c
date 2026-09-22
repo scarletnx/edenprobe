@@ -624,7 +624,8 @@ bool GpuLoadShader(GpuContext *gpu, DkShader *out, const void *dksh, uint32_t si
         return false;
     }
     if (gpu->code_memory == NULL) {
-        return Complain(gpu, "a shader was loaded into a context whose spec asked for no code memory");
+        return Complain(gpu,
+                        "a shader was loaded into a context whose spec asked for no code memory");
     }
     if (dksh == NULL || size < sizeof(ShaderModuleHeader)) {
         return Complain(gpu, "the shader module is too small to hold its own header");
@@ -702,23 +703,26 @@ bool GpuCreateTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkIm
     return true;
 }
 
-void GpuUploadTexture(GpuContext *gpu, const DkImage *image, DkImageFormat format, uint32_t width,
+bool GpuUploadTexture(GpuContext *gpu, const DkImage *image, DkImageFormat format, uint32_t width,
                       uint32_t height, const void *pixels) {
-    if (gpu == NULL || !gpu->ready || !FormatIsFourBytes(format)) {
-        return;
+    if (gpu == NULL || !gpu->ready) {
+        return false;
+    }
+    if (!FormatIsFourBytes(format)) {
+        return Complain(gpu, "a texture was uploaded in a format this file cannot size");
     }
 
-    // The copy engine wants the linear side's pitch aligned, and four texels of four bytes is
-    // half of that alignment. So the staging rows are padded out to a pitch the copy is allowed
-    // and the row length is stated rather than left at the tightly packed default. Passing the
-    // texels packed would hand the engine a pitch of sixteen bytes, which it does not take.
+    // The copy engine wants the linear side's pitch aligned, and a four texel row is half of
+    // that alignment, so the staging rows are padded out and the pitch is stated rather than
+    // left at the packed default. That field is a byte count and not a pixel count, which the
+    // header does not say.
     const uint32_t row_bytes = width * TARGET_BYTES_PER_PIXEL;
     const uint32_t pitch = RoundUpTo(row_bytes, DK_IMAGE_LINEAR_STRIDE_ALIGNMENT);
     DkGpuAddr staging_addr = 0;
     uint8_t *const staging = (uint8_t *)GpuAllocData(gpu, pitch * height, DK_MEMBLOCK_ALIGNMENT,
                                                      &staging_addr);
     if (staging == NULL) {
-        return;
+        return Complain(gpu, "the scratch block ran out of room to stage a texture upload");
     }
     memset(staging, 0, pitch * height);
     for (uint32_t y = 0; y < height; ++y) {
@@ -736,6 +740,7 @@ void GpuUploadTexture(GpuContext *gpu, const DkImage *image, DkImageFormat forma
     dkCmdBufCopyBufferToImage(gpu->cmdbuf, &source, &destination, &rect, 0);
 
     SubmitAndDrain(gpu, "texture upload");
+    return gpu->ready;
 }
 
 bool GpuDrawTriangles(GpuContext *gpu, const DkShader *vertex_shader,

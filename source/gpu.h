@@ -145,8 +145,17 @@ void *GpuAllocData(GpuContext *gpu, uint32_t size, uint32_t alignment, DkGpuAddr
 /// How much of the scratch block is spoken for, for GpuDataRewind to hand back later.
 uint32_t GpuDataMark(const GpuContext *gpu);
 
-/// Gives back everything allocated since @p mark. Safe only once the queue has drained, which
-/// every case here has done before it reads its pixels.
+/// Gives back everything allocated since @p mark.
+///
+/// Safe only once the queue has drained, and drained is doing two jobs there. The obvious one is
+/// that nothing is still reading the bytes about to be handed out again. The other is that the
+/// next case writes those same addresses from the processor, and the graphics unit keeps its own
+/// cache of memory in front of them: the drain signals a fence with the flush asked for
+/// (dkQueueWaitIdle calls signalFence with that flag set, read out of libdeko3d.a), which is what
+/// makes the drawn pixels visible to a later copy and drops the stale copies in the same breath.
+/// If a case ever fails in a way that looks like it read the previous case's vertices, the fix
+/// is to stop rewinding rather than to add a barrier: the scratch is sized for a suite's worth of
+/// draws several times over.
 void GpuDataRewind(GpuContext *gpu, uint32_t mark);
 
 /// Carves image memory for a texture and initialises @p out over it.
@@ -154,7 +163,10 @@ bool GpuCreateTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkIm
                       uint32_t width, uint32_t height);
 
 /// Uploads @p pixels, tightly packed, into the whole of @p image.
-void GpuUploadTexture(GpuContext *gpu, const DkImage *image, DkImageFormat format, uint32_t width,
+///
+/// False with a sentence in `failure` when there was no room to stage the copy. Not silent,
+/// because an upload that did nothing looks exactly like a sampler reading the wrong texels.
+bool GpuUploadTexture(GpuContext *gpu, const DkImage *image, DkImageFormat format, uint32_t width,
                       uint32_t height, const void *pixels);
 
 /// Records a triangle list into the open pass. Does not submit.
