@@ -101,10 +101,10 @@ static void ReadBackAndCheck(GpuContext *gpu, const char *name, uint32_t rect_x,
                              const uint8_t outside[4]) {
     const uint8_t *pixels = GpuReadBack(gpu);
     if (pixels == NULL) {
-        // Either the context was already unusable or the queue faulted on the way here, and in
-        // both cases `failure` is the only thing worth saying. The fallback is for the case that
-        // has not happened yet, where something hands back nothing without leaving a reason.
-        ReportCase(SUITE, name, CHECK_EXACT, false,
+        // CHECK_NONE rather than CHECK_EXACT: the tier says what the comparison on this line
+        // was held to, and this line reports no comparison at all. The fallback text is for
+        // something handing back nothing without leaving a reason.
+        ReportCase(SUITE, name, CHECK_NONE, false,
                    gpu->failure[0] != '\0' ? gpu->failure : "the readback handed back nothing");
         return;
     }

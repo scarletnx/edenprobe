@@ -19,16 +19,16 @@ extern "C" {
 void ReportOpen(const char *path);
 void ReportClose(void);
 
-/// The tolerance a case allowed itself, and the claim about the hardware that goes with it.
+/// The tolerance the comparison on one reported line was held to, and the claim about the
+/// hardware that goes with it.
 ///
-/// It lives here rather than next to the comparisons in check.h because it has to travel with
-/// the line: a tier that is only ever a comment cannot be read by whoever diffs two machines, and
-/// a report that says a case passed without saying what it was willing to accept is not a report.
-/// check.h includes this header, so everything that compares still sees it.
+/// A property of the line, not an ambition of the case that wrote it: a case stopped before it
+/// compared anything reports CHECK_NONE. It lives here rather than beside the comparisons in
+/// check.h because it has to travel with the line, where whoever diffs two machines reads it.
 typedef enum {
-    /// Not a tier. For a case that compares nothing the hardware produced: the selfcheck suite
-    /// judges this program's own comparisons, so claiming a tolerance of the hardware there would
-    /// be a claim about a machine that was never asked anything.
+    /// Not a tier. For a line that reports no comparison of anything the hardware produced: a
+    /// selfcheck case, a bring-up case, or a drawing case stopped before it saw a pixel.
+    /// Claiming a tolerance on one of those would be a claim about a machine nobody asked.
     CHECK_NONE,
     /// Bit for bit. Legal only where the result is defined exactly: integer render targets,
     /// integer arithmetic, bit patterns copied around. A float shader never qualifies, whatever
