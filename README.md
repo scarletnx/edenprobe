@@ -30,13 +30,14 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Nine suites, in the order they run, because each leans on the ones before it. A run is 136
+Nine suites, in the order they run, because each leans on the ones before it. A run is 142
 cases.
 
-- **selfcheck**, eleven cases, no hardware involved. That two neighbouring floats measure one
+- **selfcheck**, thirteen cases, no hardware involved. That two neighbouring floats measure one
   unit apart, that a zero budget rejects them, that an absolute budget is the same on both sides
-  of the expected value, and that a NaN is never equal to anything including itself. If one of
-  these fails, nothing else the suite says can be believed.
+  of the expected value, and that a NaN is never equal to anything including itself, not even
+  against a budget of every value there is. If one of these fails, nothing else the suite says
+  can be believed.
 - **clear**, five cases, on the graphics unit: one that reports whether the graphics device came
   up at all, at no tier because it compares nothing, and four that draw. Each of the four clears a
   64 by 64 RGBA8 target and copies all 4096 pixels back to compare them. Three cover the whole
@@ -47,10 +48,12 @@ cases.
   three before it cannot catch a transposed, flipped or shuffled readback and this one can. All
   four are Exact tier: the format is integer and every clear value is a constant, so each channel
   has exactly one right byte.
-- **reference**, forty three cases, no hardware involved either. The other half of the judge: where
+- **reference**, forty six cases, no hardware involved either. The other half of the judge: where
   clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
   the centres that sit exactly on the edge they share. It runs in both builds, because a
   reference that answered differently on the two processors would be blamed on the graphics unit.
+  It also projects the very clip space numbers the rasterisation cases hand the hardware, so what
+  it proves is the geometry those cases draw and not a restatement of it.
 - **raster**, ten cases, on the graphics unit. A triangle or a quad drawn in one flat colour
   through a vertex and a fragment shader compiled into the binary, with every pixel compared to
   what the coverage rule says. Exact for pixels at least half a pixel from every edge, position
@@ -78,7 +81,7 @@ cases.
   the transform into depth space untouched, so "the buffer holds exactly one half" is a statement
   about a bit pattern. Three of the cases are about the write rather than the test, which is the
   half a colour cannot show.
-- **texture**, ten cases, on the graphics unit. A 4 by 4 texture drawn over the whole target, so
+- **texture**, eleven cases, on the graphics unit. A 4 by 4 texture drawn over the whole target, so
   sixteen by sixteen pixels land on each texel and every pixel names a texel this suite can work
   out. Nearest filtering with repeating, clamping to the edge and mirroring, each with a quad
   three copies wide so two thirds of it is outside the texture, and linear filtering laid out so
@@ -93,8 +96,11 @@ cases.
   the multiply and add, three for division and the transcendentals, and an absolute two to the
   minus eleven for the sine and the cosine, which is how the specification bounds those two. Each
   case reports the worst distance it saw next to the budget it allowed, so a run that passes
-  still says how much room it had. It runs last because it is the only suite where two correct
-  machines are allowed to disagree.
+  still says how much room it had. Every one of those cases reports the units in the last place
+  tier, including the two whose budget is nought, because a tolerance of nought is still a
+  tolerance and a float shader does not qualify for Exact; the one case that does is the guard,
+  which copies a float through a uniform buffer and computes nothing. It runs last because it is
+  the only suite where two correct machines are allowed to disagree.
 
 Nothing is ever put on a screen. The target is offscreen and the program reads it back itself,
 which keeps the compositor, the swapchain and vertical sync out of a test that is about none of

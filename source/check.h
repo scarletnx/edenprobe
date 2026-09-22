@@ -37,6 +37,16 @@ extern "C" {
 /// a NaN is never equal.
 bool CheckFloatUlp(float produced, float expected, uint32_t ulps);
 
+/// How many representable values apart two floats are.
+///
+/// The measure the comparison above answers yes or no about, exposed because a case that passes
+/// should still be able to say how much room it had, and there should be one implementation of
+/// the measure rather than one per reader. Hands back the largest possible count for a NaN on
+/// either side, and for one infinity against anything that is not the same infinity, neither of
+/// which any budget accepts. No two finite floats are ever that far apart, so the count cannot
+/// be mistaken for a real one.
+uint32_t CheckFloatUlpDistance(float produced, float expected);
+
 /// Whether two 32-bit floats agree to within @p limit measured as a plain difference.
 ///
 /// The shape the specification uses for the sine and the cosine, and it has to: near a zero

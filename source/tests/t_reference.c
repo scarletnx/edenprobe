@@ -32,8 +32,8 @@ static void CheckViewportTransform(void) {
     // boundary between pixels 31 and 32, not the centre of either.
     const RasterPoint middle = RasterProject(&FULL_TARGET, 0.0f, 0.0f);
     CHECK_TRUE(SUITE, "clip space origin is the middle of the target", CHECK_NONE,
-               middle.x == 32.0 && middle.y == 32.0, "origin landed at (%.4f,%.4f), expected (32,32)",
-               middle.x, middle.y);
+               middle.x == 32.0 && middle.y == 32.0,
+               "origin landed at (%.4f,%.4f), expected (32,32)", middle.x, middle.y);
 
     // The corner that decides the direction of the vertical axis, and the one thing in this
     // file most likely to be wrong on a machine nobody has run it on yet. Plus one in y is the
@@ -65,16 +65,20 @@ static void CheckCoverageRule(void) {
     RasterTriangle triangle;
     RasterTriangleFromPoints(&triangle, corners);
 
-    CHECK_TRUE(SUITE, "an interior point is covered", CHECK_NONE, RasterCovers(&triangle, 0.25, 0.25),
+    CHECK_TRUE(SUITE, "an interior point is covered", CHECK_NONE,
+               RasterCovers(&triangle, 0.25, 0.25),
                "(0.25,0.25) was not covered by the unit triangle");
-    CHECK_TRUE(SUITE, "an exterior point is not covered", CHECK_NONE, !RasterCovers(&triangle, 0.9, 0.9),
+    CHECK_TRUE(SUITE, "an exterior point is not covered", CHECK_NONE,
+               !RasterCovers(&triangle, 0.9, 0.9),
                "(0.9,0.9) was covered by the unit triangle");
 
     // The three branches of the top and left rule, one point each. These are the only cases in
     // this file where the answer is a convention rather than a consequence.
-    CHECK_TRUE(SUITE, "a point on the top edge is covered", CHECK_NONE, RasterCovers(&triangle, 0.5, 0.0),
+    CHECK_TRUE(SUITE, "a point on the top edge is covered", CHECK_NONE,
+               RasterCovers(&triangle, 0.5, 0.0),
                "(0.5,0) on the horizontal edge above the interior was not covered");
-    CHECK_TRUE(SUITE, "a point on the left edge is covered", CHECK_NONE, RasterCovers(&triangle, 0.0, 0.5),
+    CHECK_TRUE(SUITE, "a point on the left edge is covered", CHECK_NONE,
+               RasterCovers(&triangle, 0.0, 0.5),
                "(0,0.5) on the vertical edge left of the interior was not covered");
     CHECK_TRUE(SUITE, "a point on an edge that is neither top nor left is not covered", CHECK_NONE,
                !RasterCovers(&triangle, 0.5, 0.5),
@@ -100,17 +104,63 @@ static void CheckCoverageRule(void) {
                "a degenerate triangle claimed a point");
 }
 
+/// Whether the three clip space corners of @p clip land on @p expected under @p viewport.
+static bool LandsOn(const float clip[6], const RasterViewport *viewport,
+                    const RasterPoint expected[3]) {
+    for (int corner = 0; corner < 3; ++corner) {
+        const RasterPoint point = RasterProject(viewport, clip[corner * 2], clip[corner * 2 + 1]);
+        if (point.x != expected[corner].x || point.y != expected[corner].y) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// The geometry the rasterisation suite actually draws, projected through the viewport it
+/// actually uses.
+///
+/// Checking the rule against a triangle written out in target space would prove the rule and
+/// leave the geometry unchecked, and the exact cases rest on corners landing on whole pixel
+/// boundaries.
+static void CheckDrawnGeometry(void) {
+    const RasterPoint slanted[3] = { { 9.0, 5.0 }, { 57.0, 19.0 }, { 23.0, 60.0 } };
+    CHECK_TRUE(SUITE, "the slanted triangle lands on whole pixel boundaries", CHECK_NONE,
+               LandsOn(RASTER_SLANTED, &RASTER_FULL_VIEWPORT, slanted),
+               "it landed at (%.4f,%.4f) (%.4f,%.4f) (%.4f,%.4f), expected (9,5) (57,19) (23,60)",
+               RasterProject(&RASTER_FULL_VIEWPORT, RASTER_SLANTED[0], RASTER_SLANTED[1]).x,
+               RasterProject(&RASTER_FULL_VIEWPORT, RASTER_SLANTED[0], RASTER_SLANTED[1]).y,
+               RasterProject(&RASTER_FULL_VIEWPORT, RASTER_SLANTED[2], RASTER_SLANTED[3]).x,
+               RasterProject(&RASTER_FULL_VIEWPORT, RASTER_SLANTED[2], RASTER_SLANTED[3]).y,
+               RasterProject(&RASTER_FULL_VIEWPORT, RASTER_SLANTED[4], RASTER_SLANTED[5]).x,
+               RasterProject(&RASTER_FULL_VIEWPORT, RASTER_SLANTED[4], RASTER_SLANTED[5]).y);
+
+    // The same triangle through the offset viewport the seventh case uses. Half the size means
+    // every corner lands on a half pixel boundary, which is still exact and still nowhere near a
+    // pixel centre.
+    const RasterPoint halved[3] = { { 20.5, 18.5 }, { 44.5, 25.5 }, { 27.5, 46.0 } };
+    CHECK_TRUE(SUITE, "the offset viewport halves the triangle and moves it", CHECK_NONE,
+               LandsOn(RASTER_SLANTED, &RASTER_HALF_VIEWPORT, halved),
+               "it landed at (%.4f,%.4f), expected (20.5,18.5) for the first corner",
+               RasterProject(&RASTER_HALF_VIEWPORT, RASTER_SLANTED[0], RASTER_SLANTED[1]).x,
+               RasterProject(&RASTER_HALF_VIEWPORT, RASTER_SLANTED[0], RASTER_SLANTED[1]).y);
+
+    const RasterPoint upper[3] = { { 16.0, 16.0 }, { 48.0, 16.0 }, { 48.0, 48.0 } };
+    const RasterPoint lower[3] = { { 16.0, 16.0 }, { 48.0, 48.0 }, { 16.0, 48.0 } };
+    CHECK_TRUE(SUITE, "the fill rule triangles are the two halves of a whole pixel square",
+               CHECK_NONE,
+               LandsOn(RASTER_UPPER_RIGHT_HALF, &RASTER_FULL_VIEWPORT, upper) &&
+                   LandsOn(RASTER_LOWER_LEFT_HALF, &RASTER_FULL_VIEWPORT, lower),
+               "one of the six corners did not land where the fill rule cases need it");
+}
+
 static void CheckSharedEdge(void) {
-    // The pair the fill rule cases draw: a 32 by 32 square split along the diagonal that runs
-    // through 32 pixel centres exactly. If the rule is right, every centre in the square belongs
-    // to exactly one of them. If it is wrong in either direction the square has a seam drawn
-    // twice or not at all, which is the visible symptom this whole rule exists to prevent.
-    const RasterPoint upper_points[3] = { { 16.0, 16.0 }, { 48.0, 16.0 }, { 48.0, 48.0 } };
-    const RasterPoint lower_points[3] = { { 16.0, 16.0 }, { 48.0, 48.0 }, { 16.0, 48.0 } };
+    // The pair the fill rule cases draw, projected from the very clip space values those cases
+    // hand the hardware: every centre in the square has to belong to exactly one of them, or a
+    // mesh has a seam drawn twice or not at all.
     RasterTriangle upper;
     RasterTriangle lower;
-    RasterTriangleFromPoints(&upper, upper_points);
-    RasterTriangleFromPoints(&lower, lower_points);
+    RasterTriangleFromClip(&upper, &RASTER_FULL_VIEWPORT, RASTER_UPPER_RIGHT_HALF);
+    RasterTriangleFromClip(&lower, &RASTER_FULL_VIEWPORT, RASTER_LOWER_LEFT_HALF);
 
     uint32_t both = 0;
     uint32_t neither = 0;
@@ -612,7 +662,8 @@ static void CheckFloatArithmetic(void) {
                log_in_range == 0, "%u of 64 operands landed inside the range from a half to two",
                (unsigned)log_in_range);
     CHECK_TRUE(SUITE, "the sine and cosine angles stay inside minus pi to pi", CHECK_NONE,
-               trig_out_of_range == 0, "%u of 64 angles left the range", (unsigned)trig_out_of_range);
+               trig_out_of_range == 0, "%u of 64 angles left the range",
+               (unsigned)trig_out_of_range);
 
     // Addition and multiplication of two floats are exact in double, so rounding the double
     // answer back gives what a float operation would have given. Those two cases allow no
@@ -666,6 +717,7 @@ static void CheckFloatArithmetic(void) {
 void RunReference(void) {
     CheckViewportTransform();
     CheckCoverageRule();
+    CheckDrawnGeometry();
     CheckSharedEdge();
     CheckEdgeDistanceAndMargin();
     CheckIntegerArithmetic();

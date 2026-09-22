@@ -158,14 +158,16 @@ static void BlendOneCase(GpuContext *gpu, const DkShader *vertex_shader,
     GpuDataRewind(gpu, mark);
 
     if (!drawn) {
-        ReportCase(SUITE, test->name, CHECK_EXACT, false, gpu->failure);
+        ReportCase(SUITE, test->name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure : "the draw was not recorded");
         return;
     }
 
     const uint8_t *const pixels = GpuReadBack(gpu);
     if (pixels == NULL) {
-        ReportCase(SUITE, test->name, CHECK_EXACT, false,
-                   gpu->ready ? "the readback handed back nothing" : gpu->failure);
+        ReportCase(SUITE, test->name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure
+                                            : "the readback handed back nothing");
         return;
     }
 

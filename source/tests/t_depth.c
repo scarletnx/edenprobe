@@ -188,20 +188,76 @@ static void CompareCase(GpuContext *gpu, const DkShader *vertex_shader,
                         DkCompareOp compare, const uint8_t expected[4]) {
     if (!Prepare(gpu, vertex_shader, fragment_shader) ||
         !DepthPass(gpu, vertex_shader, fragment_shader, z, SECOND_COLOR, compare, true)) {
-        ReportCase(SUITE, name, CHECK_EXACT, false, gpu->failure);
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure : "the draw was not recorded");
         return;
     }
 
     const uint8_t *const pixels = GpuReadBack(gpu);
     if (pixels == NULL) {
-        ReportCase(SUITE, name, CHECK_EXACT, false,
-                   gpu->ready ? "the readback handed back nothing" : gpu->failure);
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure
+                                            : "the readback handed back nothing");
         return;
     }
 
     char detail[320];
     const bool matched = EveryPixelIs(pixels, expected, detail, sizeof(detail));
     CHECK_TRUE(SUITE, name, CHECK_EXACT, matched, "%s", detail);
+}
+
+/// Lays the first quad down, draws a nearer one with the depth write open or closed, and looks
+/// at what the depth buffer holds afterwards.
+///
+/// Reports whatever happens, including when the draw never went in: a case that quietly produced
+/// no line would leave a summary whose counts do not add up to the cases above it.
+static void WriteCase(GpuContext *gpu, const DkShader *vertex_shader,
+                      const DkShader *fragment_shader, const char *name, bool write_depth,
+                      float expected_depth) {
+    if (!Prepare(gpu, vertex_shader, fragment_shader) ||
+        !DepthPass(gpu, vertex_shader, fragment_shader, NEAR_DEPTH, SECOND_COLOR,
+                   DkCompareOp_Less, write_depth)) {
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure : "the draw was not recorded");
+        return;
+    }
+
+    const uint8_t *const depths = GpuReadBackDepth(gpu);
+    if (depths == NULL) {
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure
+                                           : "the depth readback handed back nothing");
+        return;
+    }
+
+    char detail[320];
+    const bool matched = EveryDepthIs(depths, expected_depth, detail, sizeof(detail));
+    CHECK_TRUE(SUITE, name, CHECK_EXACT, matched, "%s", detail);
+}
+
+/// The other half of that claim: closing the depth write stops the depth, not the colour.
+static void ColorCase(GpuContext *gpu, const DkShader *vertex_shader,
+                      const DkShader *fragment_shader) {
+    static const char *const NAME = "closing the depth write does not stop the colour";
+    if (!Prepare(gpu, vertex_shader, fragment_shader) ||
+        !DepthPass(gpu, vertex_shader, fragment_shader, NEAR_DEPTH, SECOND_COLOR,
+                   DkCompareOp_Less, false)) {
+        ReportCase(SUITE, NAME, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure : "the draw was not recorded");
+        return;
+    }
+
+    const uint8_t *const pixels = GpuReadBack(gpu);
+    if (pixels == NULL) {
+        ReportCase(SUITE, NAME, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure
+                                           : "the readback handed back nothing");
+        return;
+    }
+
+    char detail[320];
+    const bool matched = EveryPixelIs(pixels, SECOND_COLOR, detail, sizeof(detail));
+    CHECK_TRUE(SUITE, NAME, CHECK_EXACT, matched, "%s", detail);
 }
 
 void RunDepth(void) {
@@ -241,8 +297,10 @@ void RunDepth(void) {
     {
         const uint8_t *const depths = GpuReadBackDepth(&gpu);
         if (depths == NULL) {
-            ReportCase(SUITE, "a depth clear writes the value it was given", CHECK_EXACT, false,
-                       gpu.ready ? "the depth readback handed back nothing" : gpu.failure);
+            ReportCase(SUITE, "a depth clear writes the value it was given", CHECK_NONE, false,
+                       gpu.failure[0] != '\0'
+                           ? gpu.failure
+                           : "the depth readback handed back nothing");
         } else {
             char detail[320];
             const bool matched = EveryDepthIs(depths, CLEARED_DEPTH, detail, sizeof(detail));
@@ -296,46 +354,12 @@ void RunDepth(void) {
     // What the buffer holds afterwards, which the colour cases above cannot see. A fragment that
     // passed and had the write open replaces the depth; one that passed with the write closed
     // leaves it alone, and its colour still lands, which is what separates the two.
-    if (Prepare(&gpu, &vertex_shader, &fragment_shader) &&
-        DepthPass(&gpu, &vertex_shader, &fragment_shader, NEAR_DEPTH, SECOND_COLOR,
-                  DkCompareOp_Less, true)) {
-        const uint8_t *const depths = GpuReadBackDepth(&gpu);
-        if (depths == NULL) {
-            ReportCase(SUITE, "a fragment that passes with the write open replaces the depth",
-                       CHECK_EXACT, false,
-                       gpu.ready ? "the depth readback handed back nothing" : gpu.failure);
-        } else {
-            char detail[320];
-            const bool matched = EveryDepthIs(depths, NEAR_DEPTH, detail, sizeof(detail));
-            CHECK_TRUE(SUITE, "a fragment that passes with the write open replaces the depth",
-                       CHECK_EXACT, matched, "%s", detail);
-        }
-    }
-
-    if (Prepare(&gpu, &vertex_shader, &fragment_shader) &&
-        DepthPass(&gpu, &vertex_shader, &fragment_shader, NEAR_DEPTH, SECOND_COLOR,
-                  DkCompareOp_Less, false)) {
-        const uint8_t *const depths = GpuReadBackDepth(&gpu);
-        if (depths == NULL) {
-            ReportCase(SUITE, "a fragment that passes with the write closed leaves the depth",
-                       CHECK_EXACT, false,
-                       gpu.ready ? "the depth readback handed back nothing" : gpu.failure);
-        } else {
-            char detail[320];
-            const bool matched = EveryDepthIs(depths, FIRST_DEPTH, detail, sizeof(detail));
-            CHECK_TRUE(SUITE, "a fragment that passes with the write closed leaves the depth",
-                       CHECK_EXACT, matched, "%s", detail);
-        }
-        // And its colour landed all the same, which is the half of that claim the depth
-        // readback cannot see.
-        const uint8_t *const pixels = GpuReadBack(&gpu);
-        if (pixels != NULL) {
-            char detail[320];
-            const bool matched = EveryPixelIs(pixels, SECOND_COLOR, detail, sizeof(detail));
-            CHECK_TRUE(SUITE, "closing the depth write does not stop the colour", CHECK_EXACT,
-                       matched, "%s", detail);
-        }
-    }
+    WriteCase(&gpu, &vertex_shader, &fragment_shader,
+              "a fragment that passes with the write open replaces the depth", true, NEAR_DEPTH);
+    WriteCase(&gpu, &vertex_shader, &fragment_shader,
+              "a fragment that passes with the write closed leaves the depth", false,
+              FIRST_DEPTH);
+    ColorCase(&gpu, &vertex_shader, &fragment_shader);
 
     GpuClose(&gpu);
 }

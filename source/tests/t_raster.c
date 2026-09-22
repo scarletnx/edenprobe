@@ -36,10 +36,6 @@ static const uint8_t CLEAR_BYTES[4] = { 0x00, 0x00, 0xFF, 0x00 };
 static const float DRAW_COLOR[4] = { 1.0f, 1.0f, 0.0f, 1.0f };
 static const uint8_t DRAW_BYTES[4] = { 0xFF, 0xFF, 0x00, 0xFF };
 
-/// The whole target, which is the viewport every case uses but one.
-static const RasterViewport FULL_VIEWPORT = { 0.0f, 0.0f, (float)TARGET_WIDTH,
-                                              (float)TARGET_HEIGHT };
-
 /// What the case expects, in the terms source/raster.c speaks.
 typedef struct {
     const RasterTriangle *triangles;
@@ -204,14 +200,16 @@ static void DrawAndCheck(GpuContext *gpu, const DkShader *vertex_shader,
     const CheckTier tier = want->margin > 0.0 ? CHECK_POSITION : CHECK_EXACT;
 
     if (!drawn) {
-        ReportCase(SUITE, name, tier, false, gpu->failure);
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure : "the draw was not recorded");
         return;
     }
 
     const uint8_t *const pixels = GpuReadBack(gpu);
     if (pixels == NULL) {
-        ReportCase(SUITE, name, tier, false,
-                   gpu->ready ? "the readback handed back nothing" : gpu->failure);
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure
+                                            : "the readback handed back nothing");
         return;
     }
 
@@ -231,7 +229,7 @@ static void QuadCase(GpuContext *gpu, const DkShader *vertex_shader,
     GpuVertex vertices[6];
     QuadVertices(vertices, x0, y0, x1, y1);
     RasterTriangle triangles[2];
-    QuadTriangles(triangles, &FULL_VIEWPORT, x0, y0, x1, y1);
+    QuadTriangles(triangles, &RASTER_FULL_VIEWPORT, x0, y0, x1, y1);
 
     Expectation want;
     want.triangles = triangles;
@@ -325,49 +323,46 @@ void RunRaster(void) {
     QuadCase(&gpu, &vertex_shader, &fragment_shader, "clip space minus x is the left half", -1.0f,
              -1.0f, 0.0f, 1.0f);
 
-    // A triangle with no axis aligned edge and no slope that lines pixel centres up along an
-    // edge. Its corners land on (9,5), (57,19) and (23,60) in the target, which are whole pixel
-    // boundaries and so exactly representable both in the clip space values below and on the sub
-    // pixel grid the hardware snaps to. Judged with half a pixel of margin: the interior and the
+    // The slanted triangle, whose corners and the reasons for them are in source/raster.c next
+    // to the rule that judges it. Judged with half a pixel of margin: the interior and the
     // exterior are exact, the band the edges run through is counted and left alone.
-    static const float SLANTED[6] = {
-        -23.0f / 32.0f, 27.0f / 32.0f, 25.0f / 32.0f, 13.0f / 32.0f, -9.0f / 32.0f, -28.0f / 32.0f,
-    };
     TriangleCase(&gpu, &vertex_shader, &fragment_shader,
-                 "a triangle's interior is exact and its edges land within a pixel", SLANTED, 0.5,
-                 &FULL_VIEWPORT, NULL);
+                 "a triangle's interior is exact and its edges land within a pixel",
+                 RASTER_SLANTED, 0.5, &RASTER_FULL_VIEWPORT, NULL);
 
-    // The fill rule. Both triangles are halves of the square from (16,16) to (48,48), split along
-    // the diagonal, and the diagonal passes through 32 pixel centres exactly. The rule gives all
-    // 32 to the triangle the diagonal is a left edge of, which is the upper right one. Judged
-    // with no margin at all, because there is nothing here for sub pixel precision to decide:
-    // the corners sit on whole pixel boundaries and the edge function at those centres is
-    // exactly zero however many fraction bits the hardware keeps.
-    static const float UPPER_RIGHT_HALF[6] = { -0.5f, 0.5f, 0.5f, 0.5f, 0.5f, -0.5f };
-    static const float LOWER_LEFT_HALF[6] = { -0.5f, 0.5f, 0.5f, -0.5f, -0.5f, -0.5f };
+    // The fill rule. The two halves of a square split along a diagonal that passes through 32
+    // pixel centres exactly, both stated in source/raster.c. Judged with no margin at all,
+    // because there is nothing here for sub pixel precision to decide: the corners sit on whole
+    // pixel boundaries and the edge function at those centres is exactly zero however many
+    // fraction bits the hardware keeps.
+    //
+    // Read the two together. Exactly 32 wrong pixels in both, and nothing wrong anywhere else,
+    // does not mean coverage is broken: it means the shared edge went to the other triangle,
+    // which is a consistent rule and the wrong one. Any other count is a coverage fault. The
+    // graphics API this suite is written against requires the top and left rule, so either
+    // answer is a finding, and the two are worth telling apart on sight.
     TriangleCase(&gpu, &vertex_shader, &fragment_shader,
-                 "a shared edge belongs to the triangle it is the left edge of", UPPER_RIGHT_HALF,
-                 0.0, &FULL_VIEWPORT, NULL);
+                 "a shared edge belongs to the triangle it is the left edge of",
+                 RASTER_UPPER_RIGHT_HALF, 0.0, &RASTER_FULL_VIEWPORT, NULL);
     TriangleCase(&gpu, &vertex_shader, &fragment_shader,
-                 "the same edge does not also belong to the other triangle", LOWER_LEFT_HALF, 0.0,
-                 &FULL_VIEWPORT, NULL);
+                 "the same edge does not also belong to the other triangle",
+                 RASTER_LOWER_LEFT_HALF, 0.0, &RASTER_FULL_VIEWPORT, NULL);
 
     // The same slanted triangle through a viewport that is half the size and offset, so every
     // corner moves and the rest of the target must stay the colour it was cleared to. A viewport
     // does not clip, it only transforms; this triangle stays inside its rectangle, so what the
     // case asserts about the pixels outside is a consequence of where the triangle went, not of
     // any clipping.
-    static const RasterViewport HALF_VIEWPORT = { 16.0f, 16.0f, 32.0f, 32.0f };
     TriangleCase(&gpu, &vertex_shader, &fragment_shader, "a viewport offset moves the triangle",
-                 SLANTED, 0.5, &HALF_VIEWPORT, NULL);
+                 RASTER_SLANTED, 0.5, &RASTER_HALF_VIEWPORT, NULL);
 
     // And the same triangle again with a scissor that shares neither its horizontal nor its
     // vertical centre line with the target, so a scissor read upside down or with its axes
     // swapped lands somewhere else entirely rather than on itself.
     static const DkScissor SCISSOR = { 12, 8, 24, 20 };
     TriangleCase(&gpu, &vertex_shader, &fragment_shader,
-                 "a scissor leaves everything outside it untouched", SLANTED, 0.5, &FULL_VIEWPORT,
-                 &SCISSOR);
+                 "a scissor leaves everything outside it untouched", RASTER_SLANTED, 0.5,
+                 &RASTER_FULL_VIEWPORT, &SCISSOR);
 
     GpuClose(&gpu);
 }

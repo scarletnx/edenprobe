@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
 // SPDX-License-Identifier: MIT
 
+#include <stdint.h>
 #include <stdio.h>
 
 #include "../check.h"
@@ -37,6 +38,12 @@ void RunSelfcheck(void) {
     CHECK_TRUE(SUITE, "ulp zero tolerance rejects a neighbour", CHECK_NONE,
                !CheckFloatUlp(one, next_above, 0),
                "a zero ulp budget accepted two different values");
+    // The measure the comparison is built on, checked directly, because the float suite reports
+    // it next to every result and a reader will compare those numbers between two machines.
+    CHECK_TRUE(SUITE, "the ulp measure counts one between neighbours", CHECK_NONE,
+               CheckFloatUlpDistance(one, next_above) == 1u,
+               "1.0 and its successor measured %u apart",
+               (unsigned)CheckFloatUlpDistance(one, next_above));
     CHECK_TRUE(SUITE, "signed zeroes compare equal", CHECK_NONE, CheckFloatUlp(0.0f, -0.0f, 0),
                "positive and negative zero did not compare equal");
 
@@ -46,6 +53,11 @@ void RunSelfcheck(void) {
     CHECK_TRUE(SUITE, "nan never compares equal", CHECK_NONE,
                !CheckFloatUlp(nan_value, nan_value, 1000000),
                "a NaN compared equal to itself");
+    // Including against a budget of every value there is, which is the one way a comparison
+    // built on a distance and a limit could have let one through.
+    CHECK_TRUE(SUITE, "no budget is large enough to accept a nan", CHECK_NONE,
+               !CheckFloatUlp(nan_value, 1.0f, UINT32_MAX),
+               "a NaN passed a budget of every representable value");
 
     // The absolute comparison, which is what the sine and the cosine are judged by. Two to the
     // minus eleven is the budget those cases use, so the two values below straddle it.

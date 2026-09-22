@@ -71,26 +71,6 @@ static float PixelValue(const uint8_t *pixels, uint32_t x, uint32_t y) {
     return value;
 }
 
-/// How many representable values apart two floats are, for the report.
-///
-/// The same mapping CheckFloatUlp uses, repeated here because the comparator answers yes or no
-/// and a case that passes should still be able to say how much room it had. Returns a very large
-/// number for anything involving a NaN, which is never within any budget.
-static uint32_t UlpDistance(float produced, float expected) {
-    uint32_t a;
-    uint32_t b;
-    memcpy(&a, &produced, sizeof(a));
-    memcpy(&b, &expected, sizeof(b));
-    if (!CheckFloatUlp(produced, expected, UINT32_MAX - 1u)) {
-        return UINT32_MAX;
-    }
-    const uint32_t ordered_a = (a & 0x80000000u) ? (0x80000000u - (a & 0x7FFFFFFFu))
-                                                 : (a + 0x80000000u);
-    const uint32_t ordered_b = (b & 0x80000000u) ? (0x80000000u - (b & 0x7FFFFFFFu))
-                                                 : (b + 0x80000000u);
-    return ordered_a > ordered_b ? ordered_a - ordered_b : ordered_b - ordered_a;
-}
-
 /// Compares all 4096 pixels against the reference under the case's own budget.
 static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget budget,
                             char *detail, size_t detail_size) {
@@ -116,7 +96,7 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
                     worst_absolute = magnitude;
                 }
             } else {
-                const uint32_t distance = UlpDistance(got, want);
+                const uint32_t distance = CheckFloatUlpDistance(got, want);
                 if (distance > worst_ulps) {
                     worst_ulps = distance;
                 }
@@ -166,11 +146,12 @@ static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
                      const DkShader *fragment_shader, DkGpuAddr uniform, FMathMode mode) {
     const char *const name = FMathName(mode);
     const FMathBudget budget = FMathBudgetFor(mode);
-    // A budget of nothing at all is the exact tier by another name: the case is claiming there
-    // is one right bit pattern. Anything else is the units in the last place tier, whichever of
-    // the two shapes the budget came in.
-    const CheckTier tier =
-        (!budget.absolute && budget.ulps == 0u) ? CHECK_EXACT : CHECK_ULP;
+
+    // Every case reports the units in the last place tier, including the two whose budget is
+    // nought: a tolerance of nought is still a tolerance, and a float shader never qualifies as
+    // exact however tidy the numbers look on one machine. The guard case is the exception, since
+    // it computes nothing and only moves a bit pattern through a uniform buffer.
+    const CheckTier tier = mode == FMATH_UNIFORM ? CHECK_EXACT : CHECK_ULP;
 
     GpuClear(gpu, SENTINEL, SENTINEL, SENTINEL, SENTINEL);
 
@@ -189,14 +170,16 @@ static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
     GpuDataRewind(gpu, mark);
 
     if (!drawn) {
-        ReportCase(SUITE, name, tier, false, gpu->failure);
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure : "the draw was not recorded");
         return;
     }
 
     const uint8_t *const pixels = GpuReadBack(gpu);
     if (pixels == NULL) {
-        ReportCase(SUITE, name, tier, false,
-                   gpu->ready ? "the readback handed back nothing" : gpu->failure);
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure
+                                            : "the readback handed back nothing");
         return;
     }
 
