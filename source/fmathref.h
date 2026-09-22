@@ -21,7 +21,9 @@ extern "C" {
 /// What the tables say, for the ten operations here:
 ///
 ///   addition, multiplication      correctly rounded
-///   a multiply and an add         inherited from a multiply and an add
+///   a multiply and an add         inherited from a multiply and an add, which this suite reads
+///                                 as the unfused pair, since a table that meant the fused
+///                                 instruction would have no inheriting to do
 ///   division                      2.5 units in the last place
 ///   the square root               inherited from one over the inverse square root
 ///   the inverse square root       2 units in the last place
@@ -85,6 +87,12 @@ float FMathReference(FMathMode mode, uint32_t x, uint32_t y, float probe);
 /// disagreeing about what the argument was. The operand itself for the modes that use it
 /// unaltered.
 float FMathArgument(FMathMode mode, uint32_t x, uint32_t y);
+
+/// The shape of the line the float suite writes for each budget.
+///
+/// Here rather than in the suite, so the reference suite can measure the very string that gets
+/// emitted against what a note carries whole.
+#define FMATH_BUDGET_NOTE_FORMAT "fmath budget for \"%s\": %s"
 
 /// The whole budget for one pixel, in units in the last place.
 ///

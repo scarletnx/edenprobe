@@ -12,14 +12,14 @@
 
 // The depth test, and the depth buffer behind it.
 //
-// Every case here lays down one quad over the whole target at a known depth and then a second
-// one at another known depth with one compare operation, and asks what colour came out. The
-// answer is one of two colours for every pixel, so it is exact: nothing in the path from the
-// vertex to the target rounds.
+// Every case lays one quad over the whole target at a known depth, then a second at another
+// depth under one compare operation, and asks what colour came out. Two colours per pixel and
+// nothing that rounds, so it is exact.
 //
-// All eight compare operations the graphics library offers are bound, over eleven cases: four
-// of the eight differ from another only on an equal depth and are worth asking about on both
-// sides of it.
+// All eight compare operations are asked at all three depths, which is the smallest number that
+// works: three depths give eight patterns of pass and fail, one per operation, so leaving a
+// depth out lets a pair agree everywhere the suite looks. The case after the shaders load works
+// all of it out on the processor and checks the eight really do differ.
 //
 // The depths are exact binary fractions and stay exact through the transform into depth space,
 // so a case can say the buffer holds exactly 0.5 and mean the bit pattern. The last three cases
@@ -40,6 +40,57 @@ static const char *const SUITE = "depth";
 // to be none of the three above, so a clear that quietly did nothing cannot be mistaken for one
 // that worked.
 #define CLEARED_DEPTH 0.375f
+
+/// The eight compare operations, each with the word that goes in a case's name.
+static const struct {
+    DkCompareOp op;
+    const char *name;
+} COMPARISONS[] = {
+    { DkCompareOp_Never, "never" },
+    { DkCompareOp_Less, "less than" },
+    { DkCompareOp_Equal, "equal" },
+    { DkCompareOp_Lequal, "less than or equal" },
+    { DkCompareOp_Greater, "greater than" },
+    { DkCompareOp_NotEqual, "not equal" },
+    { DkCompareOp_Gequal, "greater than or equal" },
+    { DkCompareOp_Always, "always" },
+};
+
+/// The three depths the second quad is drawn at, against a first quad at FIRST_DEPTH, and how a
+/// case names where it was.
+static const struct {
+    float depth;
+    const char *where;
+} CHALLENGES[] = {
+    { NEAR_DEPTH, "nearer than the buffer" },
+    { FIRST_DEPTH, "at the buffer's own depth" },
+    { FAR_DEPTH, "farther than the buffer" },
+};
+
+/// What the operation means, on the processor. The only statement of it in this file, so the
+/// expected colour of every case and the argument for how many cases there are both come from
+/// here.
+static bool ComparePasses(DkCompareOp op, float fragment, float buffer) {
+    switch (op) {
+    case DkCompareOp_Never:
+        return false;
+    case DkCompareOp_Less:
+        return fragment < buffer;
+    case DkCompareOp_Equal:
+        return fragment == buffer;
+    case DkCompareOp_Lequal:
+        return fragment <= buffer;
+    case DkCompareOp_Greater:
+        return fragment > buffer;
+    case DkCompareOp_NotEqual:
+        return fragment != buffer;
+    case DkCompareOp_Gequal:
+        return fragment >= buffer;
+    case DkCompareOp_Always:
+        return true;
+    }
+    return false;
+}
 
 static const uint8_t BACKGROUND[4] = { 0x00, 0x00, 0x00, 0xFF };
 static const uint8_t FIRST_COLOR[4] = { 0xFF, 0x00, 0x00, 0xFF };
@@ -290,6 +341,35 @@ void RunDepth(void) {
     ReportNote("depth target %ux%u ZF32, first quad at %.3f, near %.3f, far %.3f", TARGET_WIDTH,
                TARGET_HEIGHT, (double)FIRST_DEPTH, (double)NEAR_DEPTH, (double)FAR_DEPTH);
 
+    // The argument for the number of cases below, checked rather than asserted: at these three
+    // depths the eight operations give eight different patterns, so each is told apart from
+    // every other.
+    uint32_t indistinguishable = 0;
+    const char *first_pair = "";
+    const char *second_pair = "";
+    for (size_t a = 0; a < sizeof(COMPARISONS) / sizeof(COMPARISONS[0]); ++a) {
+        for (size_t b = a + 1; b < sizeof(COMPARISONS) / sizeof(COMPARISONS[0]); ++b) {
+            bool same = true;
+            for (size_t at = 0; at < sizeof(CHALLENGES) / sizeof(CHALLENGES[0]); ++at) {
+                if (ComparePasses(COMPARISONS[a].op, CHALLENGES[at].depth, FIRST_DEPTH) !=
+                    ComparePasses(COMPARISONS[b].op, CHALLENGES[at].depth, FIRST_DEPTH)) {
+                    same = false;
+                    break;
+                }
+            }
+            if (same) {
+                if (indistinguishable == 0) {
+                    first_pair = COMPARISONS[a].name;
+                    second_pair = COMPARISONS[b].name;
+                }
+                ++indistinguishable;
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "these three depths tell all eight comparisons apart", CHECK_NONE,
+               indistinguishable == 0, "%u pairs agree everywhere, first was \"%s\" and \"%s\"",
+               (unsigned)indistinguishable, first_pair, second_pair);
+
     // A depth buffer that holds what it was told to hold, before any test is asked about it.
     GpuClearDepth(&gpu, CLEARED_DEPTH);
     {
@@ -307,47 +387,23 @@ void RunDepth(void) {
         }
     }
 
-    // All eight compare operations the graphics library offers, because five of them would leave
-    // three that an emulator could have wired to anything. The four that differ from another
-    // only on an equal depth are challenged at exactly 0.5, which is where they differ: the
-    // strict ones reject it and the inclusive ones take it, and 0.5 is exact on both sides of
-    // the comparison so that really is an equality and not two numbers that came out close.
-    // Each case lays the first quad down at 0.5 and then challenges it.
-    CompareCase(&gpu, &vertex_shader, &fragment_shader,
-                "a nearer fragment passes a less than test", NEAR_DEPTH, DkCompareOp_Less,
-                SECOND_COLOR);
-    CompareCase(&gpu, &vertex_shader, &fragment_shader,
-                "a nearer fragment fails a greater than test", NEAR_DEPTH, DkCompareOp_Greater,
-                FIRST_COLOR);
-    CompareCase(&gpu, &vertex_shader, &fragment_shader,
-                "a nearer fragment fails an equality test", NEAR_DEPTH, DkCompareOp_Equal,
-                FIRST_COLOR);
-    // The equality that does pass. 0.5 is exact on both sides of the comparison, so this is a
-    // real test of equality rather than of how close two numbers came out.
-    CompareCase(&gpu, &vertex_shader, &fragment_shader,
-                "an equal depth passes an equality test", FIRST_DEPTH, DkCompareOp_Equal,
-                SECOND_COLOR);
-    CompareCase(&gpu, &vertex_shader, &fragment_shader,
-                "a farther fragment fails a less than test", FAR_DEPTH, DkCompareOp_Less,
-                FIRST_COLOR);
-    CompareCase(&gpu, &vertex_shader, &fragment_shader,
-                "a farther fragment passes a greater than test", FAR_DEPTH, DkCompareOp_Greater,
-                SECOND_COLOR);
-    CompareCase(&gpu, &vertex_shader, &fragment_shader, "always lets the fragment through",
-                FAR_DEPTH, DkCompareOp_Always, SECOND_COLOR);
-    CompareCase(&gpu, &vertex_shader, &fragment_shader, "never lets the fragment through",
-                NEAR_DEPTH, DkCompareOp_Never, FIRST_COLOR);
-    // The three that only an equal depth tells apart from the three above them. A machine that
-    // had wired less than or equal to less than would pass every case before this one.
-    CompareCase(&gpu, &vertex_shader, &fragment_shader,
-                "an equal depth passes a less than or equal test", FIRST_DEPTH,
-                DkCompareOp_Lequal, SECOND_COLOR);
-    CompareCase(&gpu, &vertex_shader, &fragment_shader,
-                "an equal depth passes a greater than or equal test", FIRST_DEPTH,
-                DkCompareOp_Gequal, SECOND_COLOR);
-    CompareCase(&gpu, &vertex_shader, &fragment_shader,
-                "an equal depth fails a not equal test", FIRST_DEPTH, DkCompareOp_NotEqual,
-                FIRST_COLOR);
+    // Every operation at every depth. The names come out as sentences a reader can check
+    // against the table above without running anything: "a fragment nearer than the buffer
+    // passes a less than test".
+    for (size_t op = 0; op < sizeof(COMPARISONS) / sizeof(COMPARISONS[0]); ++op) {
+        for (size_t at = 0; at < sizeof(CHALLENGES) / sizeof(CHALLENGES[0]); ++at) {
+            const bool passes =
+                ComparePasses(COMPARISONS[op].op, CHALLENGES[at].depth, FIRST_DEPTH);
+            // "an equal test", "a less than test": the article follows the operation's name.
+            const char *const article =
+                strchr("aeiou", COMPARISONS[op].name[0]) != NULL ? "an" : "a";
+            char name[128];
+            snprintf(name, sizeof(name), "a fragment %s %s %s %s test", CHALLENGES[at].where,
+                     passes ? "passes" : "fails", article, COMPARISONS[op].name);
+            CompareCase(&gpu, &vertex_shader, &fragment_shader, name, CHALLENGES[at].depth,
+                        COMPARISONS[op].op, passes ? SECOND_COLOR : FIRST_COLOR);
+        }
+    }
 
     // What the buffer holds afterwards, which the colour cases above cannot see. A fragment that
     // passed and had the write open replaces the depth; one that passed with the write closed

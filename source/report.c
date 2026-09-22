@@ -125,16 +125,22 @@ void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed
 }
 
 void ReportNote(const char *fmt, ...) {
-    char text[512];
+    // One byte more than the longest note the header promises to carry whole, for the
+    // terminator. The two buffers below are sized off this one: the escaping can grow a note,
+    // and the line adds its own two dozen characters of shape around it.
+    char text[REPORT_NOTE_MAX + 1];
     va_list args;
     va_start(args, fmt);
     vsnprintf(text, sizeof(text), fmt, args);
     va_end(args);
 
-    char safe[1024];
+    // Twice the longest note, because escaping a character can take two, so even a note made
+    // entirely of quotation marks arrives whole. Sized off the same constant as the buffer above
+    // rather than guessed, so raising that one carries these two with it.
+    char safe[2 * REPORT_NOTE_MAX + 1];
     EscapeInto(safe, sizeof(safe), text);
 
-    char line[1100];
+    char line[2 * REPORT_NOTE_MAX + 64];
     snprintf(line, sizeof(line), "{\"type\":\"note\",\"text\":\"%s\"}", safe);
     Emit(line);
 }

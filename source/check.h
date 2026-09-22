@@ -35,8 +35,8 @@ extern "C" {
 /// The budget is a distance, the step between neighbouring representable values at the expected
 /// answer multiplied out, and deliberately not a count of those values: below a power of two
 /// they are half as far apart as above it, and a comparator that counted would fail a machine
-/// that was inside its budget. A float and not a whole number, because the specification's
-/// figures are not whole numbers either.
+/// that was inside its budget. A float and not a whole number, because the tables' figures are
+/// not whole numbers either.
 ///
 /// Zeroes of opposite sign count as equal, anything involving a NaN is never equal, and an
 /// infinity is only equal to the same infinity.
