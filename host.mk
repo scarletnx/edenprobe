@@ -29,8 +29,11 @@ build-host/%.o: source/%.c
 $(HOSTOUT): $(HOSTOBJ)
 	$(HOSTCC) $(HOSTFLAGS) $(HOSTOBJ) -lm -o $@
 
+# Twice, the second from somewhere else on purpose: a path built relative to the working
+# directory works from here and nowhere else, and the suite has to be able to notice that.
 host-run: $(HOSTOUT)
 	./$(HOSTOUT)
+	cd / && exec $(CURDIR)/$(HOSTOUT)
 
 host-clean:
 	rm -rf build-host

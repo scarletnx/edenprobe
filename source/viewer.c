@@ -16,15 +16,6 @@
 #define SCREEN_WIDTH 1280u
 #define SCREEN_HEIGHT 720u
 
-// How long the pad is given to turn up before the launch button is given up on. A controller
-// that is already attached answers within a frame or two; the rest of this is for one being
-// plugged in as the program starts, and it is the whole of what an automatic run pays.
-#define PAD_WAIT_FRAMES 12
-
-// How many frames of pad state the viewer ignores before it will act on a press. Long enough
-// for a controller arriving with the window to stop reporting its whole mask as new, short
-// enough that nobody notices.
-#define SETTLING_FRAMES 8u
 #define FRAME_NANOSECONDS 16000000ull
 
 // Sized off the store's own cap rather than off a number that could drift away from it, since
@@ -45,46 +36,46 @@ UiMode ViewerModeAtLaunch(const char *mode_path) {
         text[read] = '\0';
         fclose(file);
     }
-    UiMode mode = UiModeFromText(text);
-
-    if (mode.detailed) {
-        return mode;
+    if (UiModeFromText(text).detailed) {
+        // Already answered, and asking the pad would only cost the run the wait below.
+        return UiModeAtLaunch(text, false);
     }
 
     // The other way in, for a person who has no way to put a file on the memory card. Held, not
     // pressed: the program is already running by the time anything can be pressed.
     PadState pad;
     ReadPad(&pad);
-    for (int frame = 0; frame < PAD_WAIT_FRAMES && !padIsConnected(&pad); ++frame) {
+    for (uint32_t frame = 0; UiWaitsForPad(frame, padIsConnected(&pad)); ++frame) {
         svcSleepThread(FRAME_NANOSECONDS);
         padUpdate(&pad);
     }
-    if ((padGetButtons(&pad) & HidNpadButton_X) != 0u) {
-        mode.detailed = true;
-    }
-    return mode;
+    return UiModeAtLaunch(text, (padGetButtons(&pad) & HidNpadButton_X) != 0u);
 }
 
-static UiInput InputFrom(uint64_t pressed) {
+/// Translates the console's own button bits into the ones the screen is written against. A flat
+/// mapping and nothing else: what each one does, and when a press counts at all, is in ui.c
+/// where this build can check it.
+static uint32_t ButtonsFrom(uint64_t pressed) {
+    uint32_t buttons = 0;
     if ((pressed & (HidNpadButton_Plus | HidNpadButton_Minus)) != 0u) {
-        return UI_INPUT_QUIT;
+        buttons |= UI_BUTTON_QUIT;
     }
     if ((pressed & HidNpadButton_X) != 0u) {
-        return UI_INPUT_CYCLE_VIEW;
+        buttons |= UI_BUTTON_CYCLE_VIEW;
     }
     if ((pressed & HidNpadButton_AnyDown) != 0u) {
-        return UI_INPUT_NEXT_FAILURE;
+        buttons |= UI_BUTTON_NEXT_FAILURE;
     }
     if ((pressed & HidNpadButton_AnyUp) != 0u) {
-        return UI_INPUT_PREVIOUS_FAILURE;
+        buttons |= UI_BUTTON_PREVIOUS_FAILURE;
     }
     if ((pressed & (HidNpadButton_A | HidNpadButton_AnyRight)) != 0u) {
-        return UI_INPUT_NEXT;
+        buttons |= UI_BUTTON_NEXT;
     }
     if ((pressed & (HidNpadButton_B | HidNpadButton_AnyLeft)) != 0u) {
-        return UI_INPUT_PREVIOUS;
+        buttons |= UI_BUTTON_PREVIOUS;
     }
-    return UI_INPUT_NONE;
+    return buttons;
 }
 
 void ViewerRun(void) {
@@ -116,19 +107,12 @@ void ViewerRun(void) {
     ReadPad(&pad);
     UiState state = UiStart(failed, (uint32_t)count);
 
-    // The first few frames of pad state are thrown away. A controller that turns up while the
-    // loop is starting reports its whole button mask as newly pressed, and the screen answered
-    // those before a person had touched anything.
-    uint32_t settling = SETTLING_FRAMES;
-
+    uint32_t frame = 0;
     while (appletMainLoop() && !state.quit) {
         padUpdate(&pad);
-        const uint64_t pressed = padGetButtonsDown(&pad);
-        UiInput input = UI_INPUT_NONE;
-        if (settling > 0u) {
-            --settling;
-        } else {
-            input = InputFrom(pressed);
+        const UiInput input = UiInputFromButtons(ButtonsFrom(padGetButtonsDown(&pad)), frame);
+        if (frame < UI_SETTLING_FRAMES) {
+            ++frame;
         }
         state = UiStep(state, input, failed, (uint32_t)count);
         if (state.changed) {

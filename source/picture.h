@@ -97,7 +97,11 @@ typedef struct {
 } PictureRecord;
 
 /// The directory the images go under, which is the one the report is written into.
-void PictureSetRoot(const char *directory);
+///
+/// False when it is too long to hold whole, and then nothing is written at all. A root cut
+/// short is a directory nobody asked for, and one that could not be written to might well
+/// truncate into one that can.
+bool PictureSetRoot(const char *directory);
 
 /// Where the pictures are going, and whether passing cases get one. Both are here so that a
 /// case can borrow the settings for a moment and hand them back as it found them.
@@ -138,6 +142,15 @@ void PictureFinish(const char *suite, const char *name, const char *tier, bool p
 
 size_t PictureCount(void);
 const PictureRecord *PictureAt(size_t index);
+
+/// Reserves this run's own file name for @p name inside @p suite_stem, numbering it when
+/// another case has already spelled the same one.
+///
+/// False when there is no name left to take, and then the caller writes nothing at all: handing
+/// back one already used would have the second case's write truncate the first's evidence while
+/// both lines went on pointing at it. Separate from writing, so the decision can be checked with
+/// no filesystem.
+bool PictureReserveName(char *stem, size_t stem_size, const char *suite_stem, const char *name);
 
 /// Turns a case name into the part of a file name it contributes: lower case letters and
 /// digits kept, everything else a dash, no run of dashes and none at either end.

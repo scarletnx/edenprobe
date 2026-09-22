@@ -370,6 +370,42 @@ UiMode UiModeFromText(const char *text) {
     return mode;
 }
 
+UiMode UiModeAtLaunch(const char *text, bool cycle_button_held) {
+    UiMode mode = UiModeFromText(text);
+    mode.detailed = mode.detailed || cycle_button_held;
+    return mode;
+}
+
+bool UiWaitsForPad(uint32_t frame_index, bool connected) {
+    return !connected && frame_index < UI_PAD_WAIT_FRAMES;
+}
+
+UiInput UiInputFromButtons(uint32_t buttons, uint32_t frame_index) {
+    if (frame_index < UI_SETTLING_FRAMES) {
+        return UI_INPUT_NONE;
+    }
+    // Quitting first, so that a mask with everything in it still leaves.
+    if ((buttons & UI_BUTTON_QUIT) != 0u) {
+        return UI_INPUT_QUIT;
+    }
+    if ((buttons & UI_BUTTON_CYCLE_VIEW) != 0u) {
+        return UI_INPUT_CYCLE_VIEW;
+    }
+    if ((buttons & UI_BUTTON_NEXT_FAILURE) != 0u) {
+        return UI_INPUT_NEXT_FAILURE;
+    }
+    if ((buttons & UI_BUTTON_PREVIOUS_FAILURE) != 0u) {
+        return UI_INPUT_PREVIOUS_FAILURE;
+    }
+    if ((buttons & UI_BUTTON_NEXT) != 0u) {
+        return UI_INPUT_NEXT;
+    }
+    if ((buttons & UI_BUTTON_PREVIOUS) != 0u) {
+        return UI_INPUT_PREVIOUS;
+    }
+    return UI_INPUT_NONE;
+}
+
 /// The first failing case, or the first case when the run had none.
 static uint32_t FirstFailure(const uint8_t *failed, uint32_t count) {
     for (uint32_t i = 0; i < count; ++i) {

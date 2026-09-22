@@ -74,6 +74,38 @@ typedef struct {
 /// Reads the words in @p text, whole words only and in any order, ignoring case.
 UiMode UiModeFromText(const char *text);
 
+/// What a launch asks for, from the words in the mode file and the buttons held at the time.
+/// The button can only add the detailed mode, never take it away.
+UiMode UiModeAtLaunch(const char *text, bool cycle_button_held);
+
+/// How many frames the pad is given to turn up before the launch button is given up on.
+#define UI_PAD_WAIT_FRAMES 12u
+
+/// Whether to keep waiting for a controller to appear. It stops the moment one answers, so a
+/// machine that already has one pays two frames and a machine with none pays the ceiling.
+bool UiWaitsForPad(uint32_t frame_index, bool connected);
+
+/// The buttons the screen knows about. Named here rather than taken from the console's own
+/// header so that what each one does is a decision this build can check.
+enum {
+    UI_BUTTON_NEXT = 1u << 0,
+    UI_BUTTON_PREVIOUS = 1u << 1,
+    UI_BUTTON_NEXT_FAILURE = 1u << 2,
+    UI_BUTTON_PREVIOUS_FAILURE = 1u << 3,
+    UI_BUTTON_CYCLE_VIEW = 1u << 4,
+    UI_BUTTON_QUIT = 1u << 5,
+};
+
+/// How many frames of pad state the screen ignores before it will act on a press.
+#define UI_SETTLING_FRAMES 8u
+
+/// What one frame's freshly pressed buttons mean.
+///
+/// Nothing at all while the pad is still settling. A controller arriving with the window
+/// reports its whole mask as newly pressed, and obeying those opened the screen on a view
+/// nobody had chosen.
+UiInput UiInputFromButtons(uint32_t buttons, uint32_t frame_index);
+
 /// Where the detailed mode opens: on the first failure if the run had one, since that is what
 /// anyone starting it came to look at.
 UiState UiStart(const uint8_t *failed, uint32_t count);
