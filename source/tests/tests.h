@@ -12,9 +12,10 @@ extern "C" {
 /// produces a line per case whatever happened.
 void RunSelfcheck(void);
 
-/// The picture a failing case leaves beside the report. No hardware, so it runs in both builds,
-/// and every line is the none tier because nothing here is compared to anything the graphics
-/// unit produced.
+/// The two things this program does around a verdict rather than to reach one: the picture it
+/// leaves beside a failing case, and the screen the detailed mode shows it on. No hardware, so
+/// it runs in both builds, and every line is the none tier because nothing here is compared to
+/// anything the graphics unit produced.
 void RunSupport(void);
 
 /// The expected answers, checked without a graphics device: where clip space lands, which

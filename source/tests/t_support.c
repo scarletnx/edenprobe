@@ -8,13 +8,13 @@
 #include "../check.h"
 #include "../picture.h"
 #include "../report.h"
+#include "../ui.h"
 #include "tests.h"
 
-// The picture a failing case leaves beside the report. It decides nothing, and no case here
-// asks the hardware for anything, so every line is the none tier.
-//
-// It runs in both builds because both carry the code it checks, and because a writer that only
-// ran inside an emulator would be a writer nobody could check.
+// The two things this program does around a verdict rather than to reach one: the picture it
+// leaves beside a failing case, and the screen the detailed mode puts it on. Neither decides
+// anything and no case here asks the hardware for anything, so every line is the none tier. It
+// runs in both builds, because a writer that only ran inside an emulator is one nobody can check.
 
 static const char *const SUITE = "support";
 
@@ -31,8 +31,14 @@ static const char *const SCRATCH = "sdmc:/gfxprobe/support-check";
 static const char *const SCRATCH = "build-host/support-check";
 #endif
 
+// The frame the layout cases compose into. Bigger than the fixture by enough that the panels
+// land where the real screen puts them, and small enough to walk pixel by pixel.
+#define FRAME_WIDTH 320u
+#define FRAME_HEIGHT 240u
+
 static uint8_t fixture_got[FIXTURE_PIXELS * 4u];
 static uint8_t fixture_expected[FIXTURE_PIXELS * 4u];
+static uint8_t fixture_verdict[FIXTURE_PIXELS];
 
 /// What one PAM file turned out to hold.
 typedef struct {
@@ -137,6 +143,7 @@ static Picture *BuildFixture(PictureFormat format) {
         }
     }
     memcpy(fixture_expected, picture->expected, sizeof(fixture_expected));
+    memcpy(fixture_verdict, picture->verdict, sizeof(fixture_verdict));
     return picture;
 }
 
@@ -297,6 +304,191 @@ static void CheckReportLine(void) {
                "the detailed mode asks this before it presents, and it answered no");
 }
 
+static void CheckNavigation(void) {
+    static const uint8_t FAILED[6] = { 0, 1, 0, 0, 1, 0 };
+
+    UiState state = UiStart(FAILED, 6);
+    CHECK_TRUE(SUITE, "the detailed mode opens on the first failure", CHECK_NONE,
+               state.index == 1u && state.view == UI_VIEW_ALL, "opened at %u",
+               (unsigned)state.index);
+
+    // The screen owes a frame before anything has been pressed, or the first thing a person
+    // sees is whatever the last program left in the window.
+    UiState fresh = UiStep(UiStart(FAILED, 6), UI_INPUT_NONE, FAILED, 6);
+    const bool asked_first = fresh.changed;
+    UiFrameDrawn(&fresh);
+    fresh = UiStep(fresh, UI_INPUT_NONE, FAILED, 6);
+    CHECK_TRUE(SUITE, "a frame is owed until one is drawn, and not again until something moves",
+               CHECK_NONE, asked_first && !fresh.changed &&
+                               UiStep(fresh, UI_INPUT_NEXT, FAILED, 6).changed,
+               "asked first %d, asked again %d", (int)asked_first, (int)fresh.changed);
+
+    state = UiStep(state, UI_INPUT_NEXT_FAILURE, FAILED, 6);
+    CHECK_TRUE(SUITE, "jumping forward skips every case that passed", CHECK_NONE,
+               state.index == 4u, "landed on %u", (unsigned)state.index);
+    state = UiStep(state, UI_INPUT_NEXT_FAILURE, FAILED, 6);
+    CHECK_TRUE(SUITE, "jumping past the last failure comes round to the first", CHECK_NONE,
+               state.index == 1u, "landed on %u", (unsigned)state.index);
+    state = UiStep(state, UI_INPUT_PREVIOUS_FAILURE, FAILED, 6);
+    CHECK_TRUE(SUITE, "jumping backwards comes round the other way", CHECK_NONE,
+               state.index == 4u, "landed on %u", (unsigned)state.index);
+
+    uint32_t walked = 0;
+    UiState walk = UiStep(state, UI_INPUT_NONE, FAILED, 6);
+    for (uint32_t step = 0; step < 6u; ++step) {
+        walk = UiStep(walk, UI_INPUT_NEXT, FAILED, 6);
+        ++walked;
+    }
+    CHECK_TRUE(SUITE, "stepping through every case comes back where it started", CHECK_NONE,
+               walk.index == state.index && walked == 6u, "landed on %u after %u steps",
+               (unsigned)walk.index, (unsigned)walked);
+
+    UiState cycled = state;
+    for (uint32_t step = 0; step < 4u; ++step) {
+        cycled = UiStep(cycled, UI_INPUT_CYCLE_VIEW, FAILED, 6);
+    }
+    CHECK_TRUE(SUITE, "cycling the view four times is back to all three", CHECK_NONE,
+               cycled.view == UI_VIEW_ALL && !cycled.quit, "view %d", (int)cycled.view);
+
+    // A run with nothing kept must still be able to leave, or the only way out of the detailed
+    // mode would be to kill the process.
+    UiState empty = UiStart(NULL, 0);
+    empty = UiStep(empty, UI_INPUT_NEXT, NULL, 0);
+    CHECK_TRUE(SUITE, "an empty run moves nowhere and still quits", CHECK_NONE,
+               empty.index == 0u && !empty.quit &&
+                   UiStep(empty, UI_INPUT_QUIT, NULL, 0).quit,
+               "index %u", (unsigned)empty.index);
+
+    static const struct {
+        const char *text;
+        bool detailed;
+        bool images;
+    } MODES[] = {
+        { "detailed\n", true, false },
+        { "DETAILED images", true, true },
+        { "undetailed", false, false },
+        { "detailedly", false, false },
+        { "images", false, true },
+        { "", false, false },
+    };
+    uint32_t wrong = 0;
+    for (size_t i = 0; i < sizeof(MODES) / sizeof(MODES[0]); ++i) {
+        const UiMode mode = UiModeFromText(MODES[i].text);
+        if (mode.detailed != MODES[i].detailed || mode.every_case != MODES[i].images) {
+            ++wrong;
+        }
+    }
+    CHECK_TRUE(SUITE, "the mode file is read a whole word at a time", CHECK_NONE, wrong == 0,
+               "%u of %u readings came out wrong", (unsigned)wrong,
+               (unsigned)(sizeof(MODES) / sizeof(MODES[0])));
+}
+
+static void CheckLayout(void) {
+    uint8_t *const pixels = (uint8_t *)malloc((size_t)FRAME_WIDTH * FRAME_HEIGHT * 4u);
+    if (pixels == NULL) {
+        ReportCase(SUITE, "a frame has somewhere to be composed", CHECK_NONE, false,
+                   "no memory for a frame");
+        return;
+    }
+    const UiFrame frame = { pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
+
+    Picture *const picture = BuildFixture(PICTURE_COLOUR);
+    PictureRecord record;
+    memset(&record, 0, sizeof(record));
+    snprintf(record.suite, sizeof(record.suite), "support");
+    snprintf(record.name, sizeof(record.name), "a fixture");
+    snprintf(record.tier, sizeof(record.tier), "none");
+    snprintf(record.detail, sizeof(record.detail), "one pixel wrong");
+    record.width = FIXTURE_WIDTH;
+    record.height = FIXTURE_HEIGHT;
+    record.format = PICTURE_COLOUR;
+    record.got = fixture_got;
+    record.expected = fixture_expected;
+    record.verdict = fixture_verdict;
+    // Closed before anything below reports, or the next line to go out would adopt this
+    // picture and write it under that case's name.
+    PictureFinish(SUITE, "the fixture", "none", true, "", NULL);
+    if (picture == NULL) {
+        ReportCase(SUITE, "a frame has a picture to draw", CHECK_NONE, false,
+                   "the fixture would not open");
+        free(pixels);
+        return;
+    }
+
+    UiState state = UiStart(NULL, 1);
+    state.view = UI_VIEW_DIFF;
+    UiCompose(&frame, &record, state, 1, 1);
+
+    // The single panel is centred, so where its first pixel lands is arithmetic a case can do
+    // as well as the layout can, and a panel drawn anywhere else fails here.
+    const uint32_t scale = 12u;
+    const uint32_t left = (FRAME_WIDTH - FIXTURE_WIDTH * scale) / 2u;
+    uint8_t wrong_colour[3];
+    uint8_t matched_colour[3];
+    PictureDiffColour(PICTURE_WRONG, wrong_colour);
+    PictureDiffColour(PICTURE_MATCHED, matched_colour);
+    const uint8_t *const at_wrong = UiPixel(&frame, left + scale + scale / 2u, 64u + scale / 2u);
+    const uint8_t *const at_right = UiPixel(&frame, left + scale / 2u, 64u + scale / 2u);
+    CHECK_TRUE(SUITE, "the diff panel puts the judge's colours where the pixels were",
+               CHECK_NONE,
+               at_wrong != NULL && at_right != NULL &&
+                   memcmp(at_wrong, wrong_colour, 3u) == 0 &&
+                   memcmp(at_right, matched_colour, 3u) == 0,
+               "wrong pixel %02x%02x%02x, right pixel %02x%02x%02x",
+               at_wrong != NULL ? at_wrong[0] : 0, at_wrong != NULL ? at_wrong[1] : 0,
+               at_wrong != NULL ? at_wrong[2] : 0, at_right != NULL ? at_right[0] : 0,
+               at_right != NULL ? at_right[1] : 0, at_right != NULL ? at_right[2] : 0);
+
+    // The same target one scale factor up: every pixel of a block must be the one pixel it
+    // came from, which is what nearest neighbour means and what a blurred upscale would fail.
+    uint32_t blurred = 0;
+    for (uint32_t row = 0; row < scale; ++row) {
+        for (uint32_t column = 0; column < scale; ++column) {
+            const uint8_t *const pixel = UiPixel(&frame, left + column, 64u + row);
+            if (pixel == NULL || memcmp(pixel, matched_colour, 3u) != 0) {
+                ++blurred;
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "a scaled up pixel is one colour and not an average", CHECK_NONE,
+               blurred == 0, "%u of %u pixels in the first block were not the source colour",
+               (unsigned)blurred, (unsigned)(scale * scale));
+
+    // Text: the capital F of FAIL, whose top row is five pixels wide and whose second row
+    // starts one pixel in. Checked against the glyph table rather than against a picture of it.
+    state.view = UI_VIEW_ALL;
+    record.passed = false;
+    UiCompose(&frame, &record, state, 1, 1);
+    const uint8_t *const stroke = UiPixel(&frame, 32u, 30u);
+    const uint8_t *const gap = UiPixel(&frame, 32u + 8u, 30u + 8u);
+    CHECK_TRUE(SUITE, "the verdict is drawn on the frame in the shape of its letters",
+               CHECK_NONE,
+               stroke != NULL && gap != NULL && stroke[0] > 0xC0 && stroke[1] < 0x80 &&
+                   gap[0] < 0x40,
+               "the stroke reads %02x%02x%02x and the gap %02x%02x%02x",
+               stroke != NULL ? stroke[0] : 0, stroke != NULL ? stroke[1] : 0,
+               stroke != NULL ? stroke[2] : 0, gap != NULL ? gap[0] : 0,
+               gap != NULL ? gap[1] : 0, gap != NULL ? gap[2] : 0);
+
+    // Three panels rather than one, and read at the pixel where what was drawn and what was
+    // expected differ, so a layout that drew one picture twice fails here.
+    record.format = PICTURE_BITS;
+    UiCompose(&frame, &record, state, 1, 1);
+    const uint32_t wide = (FRAME_WIDTH - 4u * 32u) / 3u / FIXTURE_WIDTH;
+    const uint32_t row = 64u + wide / 2u;
+    const uint8_t *const drawn = UiPixel(&frame, 32u + wide + wide / 2u, row);
+    const uint8_t *const wanted_panel =
+        UiPixel(&frame, 32u + FIXTURE_WIDTH * wide + 32u + wide + wide / 2u, row);
+    CHECK_TRUE(SUITE, "the two panels show two pictures and not one twice", CHECK_NONE,
+               drawn != NULL && wanted_panel != NULL && drawn[2] == fixture_got[4] &&
+                   wanted_panel[2] == fixture_expected[4],
+               "drawn %02x against %02x, expected %02x against %02x",
+               drawn != NULL ? drawn[2] : 0, fixture_got[4],
+               wanted_panel != NULL ? wanted_panel[2] : 0, fixture_expected[4]);
+
+    free(pixels);
+}
+
 void RunSupport(void) {
     const char *const previous_root = PictureRoot();
     char saved[96];
@@ -316,6 +508,8 @@ void RunSupport(void) {
     CheckWriting();
     CheckBitsAndCollisions();
     CheckReportLine();
+    CheckNavigation();
+    CheckLayout();
 
     PictureSetRoot(saved);
     PictureWriteEveryCase(saved_policy);
