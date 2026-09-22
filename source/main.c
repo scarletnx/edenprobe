@@ -29,6 +29,7 @@ int main(int argc, char **argv) {
     RunReference();
     RunClear();
     RunRaster();
+    RunIntmath();
     ReportSummary();
 
     ReportClose();

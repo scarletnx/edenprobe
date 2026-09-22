@@ -27,6 +27,10 @@ void RunClear(void);
 /// Where geometry lands: coverage, the fill rule, the viewport and the scissor. Everything
 /// below it in the order draws, so it runs first among the suites that do.
 void RunRaster(void);
+
+/// Integer arithmetic in a fragment shader, into an integer target, compared bit for bit. The
+/// suite that judges a shader translator.
+void RunIntmath(void);
 #endif
 
 #ifdef __cplusplus
