@@ -17,6 +17,14 @@ CC       := $(PREFIX)gcc
 LIBNX    := $(DEVKITPRO)/libnx
 TOOLS    := $(DEVKITPRO)/tools/bin
 
+# What a loader reads out of the .nro's asset section before it will start the program. Without
+# one, at least one emulator refuses the file rather than running it, so the section is not
+# optional even though nothing in this suite looks at what is in it.
+APP_TITLE   := gfxprobe
+APP_AUTHOR  := reden
+APP_VERSION := 0.1
+APP_ICON    := $(LIBNX)/default_icon.jpg
+
 # The processor in the console, and the position independence its loader expects.
 ARCH     := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 
@@ -90,11 +98,15 @@ $(BUILD)/%.o: %.c
 $(TARGET).elf: $(OFILES)
 	$(CC) $(LDFLAGS) $^ $(LIBS) -o $@
 
-$(TARGET).nro: $(TARGET).elf
-	$(TOOLS)/elf2nro $< $@
+# Rebuilt when this file changes, so a title edited here cannot leave a stale one in the binary.
+$(TARGET).nacp: Makefile
+	$(TOOLS)/nacptool --create "$(APP_TITLE)" "$(APP_AUTHOR)" "$(APP_VERSION)" $@
+
+$(TARGET).nro: $(TARGET).elf $(TARGET).nacp
+	$(TOOLS)/elf2nro $< $@ --nacp=$(TARGET).nacp --icon=$(APP_ICON)
 
 clean:
-	rm -rf $(BUILD) $(TARGET).elf $(TARGET).nro
+	rm -rf $(BUILD) $(TARGET).elf $(TARGET).nro $(TARGET).nacp
 
 # Last, and with a leading dash: on the first build there are no .d files yet and that is not an
 # error. They live under $(BUILD), so clean already takes them with it.
