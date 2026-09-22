@@ -31,8 +31,9 @@ CFLAGS   := $(ARCH) -g -O2 -ffunction-sections -fdata-sections -MMD -MP \
 # back. gpu.c arms the wrapper only while the device is being brought up.
 LDFLAGS  := $(ARCH) -specs=$(LIBNX)/switch.specs -Wl,--gc-sections -g \
             -Wl,--wrap=diagAbortWithResult
-# Order matters: the graphics library leans on the C runtime, not the other way round.
-LIBS     := -L$(LIBNX)/lib -ldeko3d -lnx
+# Order matters: the graphics library leans on the C runtime and on the maths library after it.
+# The maths one is not decoration, since building a sampler descriptor calls powf.
+LIBS     := -L$(LIBNX)/lib -ldeko3d -lnx -lm
 
 # The shaders, named here and built by the rules further down.
 SHADER_DIR  := source/shaders

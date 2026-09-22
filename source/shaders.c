@@ -17,6 +17,7 @@ static const ShaderBlob BLOBS[SHADER_COUNT] = {
     [SHADER_COMMON_VERT] = { common_vert_dksh, (uint32_t)common_vert_dksh_size },
     [SHADER_FLAT_FRAG] = { flat_frag_dksh, (uint32_t)flat_frag_dksh_size },
     [SHADER_INTMATH_FRAG] = { intmath_frag_dksh, (uint32_t)intmath_frag_dksh_size },
+    [SHADER_TEXTURE_FRAG] = { texture_frag_dksh, (uint32_t)texture_frag_dksh_size },
 };
 
 const void *ShaderData(ShaderId id) {

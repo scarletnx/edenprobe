@@ -9,6 +9,7 @@
 #include "../check.h"
 #include "../intref.h"
 #include "../raster.h"
+#include "../texref.h"
 #include "../report.h"
 #include "tests.h"
 
@@ -436,6 +437,124 @@ static void CheckBlendArithmetic(void) {
                (unsigned)minimum_broken);
 }
 
+/// The wrap modes, written out index by index rather than recomputed.
+///
+/// A 4 texel texture asked about every index two whole copies either side of it. The three
+/// sequences are the entire difference between the modes, and index minus one is where all three
+/// answers part company.
+static void CheckWrapModes(void) {
+    static const int32_t FIRST = -9;
+    static const char REPEAT[] = "3012301230123012301230";
+    static const char CLAMP[] = "0000000000123333333333";
+    static const char MIRROR[] = "0012332100123321001233";
+    static const struct {
+        TexWrap mode;
+        const char *expected;
+        const char *name;
+    } MODES[] = {
+        { TEXWRAP_REPEAT, REPEAT, "repeating" },
+        { TEXWRAP_CLAMP_TO_EDGE, CLAMP, "clamping to the edge" },
+        { TEXWRAP_MIRRORED_REPEAT, MIRROR, "mirroring" },
+    };
+
+    for (size_t m = 0; m < sizeof(MODES) / sizeof(MODES[0]); ++m) {
+        const size_t count = strlen(MODES[m].expected);
+        uint32_t wrong = 0;
+        int32_t first_index = 0;
+        int32_t got = 0;
+        int32_t want = 0;
+        for (size_t i = 0; i < count; ++i) {
+            const int32_t index = FIRST + (int32_t)i;
+            const int32_t produced = TexWrapIndex(MODES[m].mode, index, 4);
+            const int32_t expected = MODES[m].expected[i] - '0';
+            if (produced == expected) {
+                continue;
+            }
+            if (wrong == 0) {
+                first_index = index;
+                got = produced;
+                want = expected;
+            }
+            ++wrong;
+        }
+        char name[64];
+        snprintf(name, sizeof(name), "%s folds every index onto a texel", MODES[m].name);
+        CHECK_TRUE(SUITE, name, CHECK_NONE, wrong == 0,
+                   "%u of %u indices disagreed, first was %d giving %d, expected %d",
+                   (unsigned)wrong, (unsigned)count, (int)first_index, (int)got, (int)want);
+    }
+}
+
+/// Where a pixel lands in texel units, for the three quad layouts the texture suite draws.
+static void CheckTextureCoordinates(void) {
+    // The plain layout: the whole texture across the whole target. The fractional part of a
+    // coordinate is always an odd number of thirty seconds, so no pixel centre is ever near a
+    // texel boundary.
+    double closest = 1.0;
+    uint32_t wrong = 0;
+    for (uint32_t pixel = 0; pixel < 64u; ++pixel) {
+        const double coordinate = TexCoordInTexels(0.0, 1.0, 64u, pixel, 4u);
+        const double expected = ((double)pixel + 0.5) / 16.0;
+        if (fabs(coordinate - expected) > 1e-12) {
+            ++wrong;
+        }
+        if (TexNearestTexel(TEXWRAP_CLAMP_TO_EDGE, coordinate, 4) != (int32_t)(pixel / 16u)) {
+            ++wrong;
+        }
+        const double distance = fabs(coordinate - floor(coordinate + 0.5));
+        if (distance < closest) {
+            closest = distance;
+        }
+    }
+    CHECK_TRUE(SUITE, "one texture across the target puts sixteen pixels on each texel",
+               CHECK_NONE, wrong == 0 && closest > 0.03,
+               "%u of 64 pixels disagreed, and the closest came within %.6f of a texel boundary",
+               (unsigned)wrong, closest);
+
+    // Three copies across the target, which is what the wrap cases draw. Same claim: no pixel
+    // centre lands near a boundary, so which texel it names is not a matter of rounding.
+    closest = 1.0;
+    for (uint32_t pixel = 0; pixel < 64u; ++pixel) {
+        const double coordinate = TexCoordInTexels(-1.0, 2.0, 64u, pixel, 4u);
+        const double distance = fabs(coordinate - floor(coordinate + 0.5));
+        if (distance < closest) {
+            closest = distance;
+        }
+    }
+    CHECK_TRUE(SUITE, "three copies across the target still miss every texel boundary",
+               CHECK_NONE, closest > 0.03,
+               "the closest pixel came within %.6f of a texel boundary", closest);
+
+    // The layout the linear case draws: one texel per pixel, shifted by half a pixel, so the
+    // filter is asked for exactly half of each of the two texels either side. Every step of that
+    // is exact in binary.
+    uint32_t not_half = 0;
+    uint32_t wrong_pair = 0;
+    double worst_weight_error = 0.0;
+    for (uint32_t pixel = 0; pixel < 64u; ++pixel) {
+        const double coordinate = TexCoordInTexels(-0.125, 15.875, 64u, pixel, 4u);
+        int32_t pair[2];
+        double weight;
+        TexLinearTexels(TEXWRAP_REPEAT, coordinate, 4, pair, &weight);
+        const double error = fabs(weight - 0.5);
+        if (error > worst_weight_error) {
+            worst_weight_error = error;
+        }
+        if (weight != 0.5) {
+            ++not_half;
+        }
+        if (pair[0] != TexWrapIndex(TEXWRAP_REPEAT, (int32_t)pixel - 1, 4) ||
+            pair[1] != TexWrapIndex(TEXWRAP_REPEAT, (int32_t)pixel, 4)) {
+            ++wrong_pair;
+        }
+    }
+    CHECK_TRUE(SUITE, "the linear layout asks for exactly half of each of two texels", CHECK_NONE,
+               not_half == 0 && wrong_pair == 0,
+               "%u of 64 weights were not exactly one half (worst off by %.9f) and %u pairs were "
+               "not the two texels either side",
+               (unsigned)not_half, worst_weight_error, (unsigned)wrong_pair);
+}
+
 void RunReference(void) {
     CheckViewportTransform();
     CheckCoverageRule();
@@ -443,4 +562,6 @@ void RunReference(void) {
     CheckEdgeDistanceAndMargin();
     CheckIntegerArithmetic();
     CheckBlendArithmetic();
+    CheckWrapModes();
+    CheckTextureCoordinates();
 }
