@@ -442,6 +442,76 @@ static void CheckBlendArithmetic(void) {
                first_said[1], first_said[2], first_said[3], first_did[0], first_did[1],
                first_did[2], first_did[3]);
 
+    // No case may give the alpha channel a destination factor of its own, because the graphics
+    // library sends the colour one in its place. Held here rather than in a comment, so nobody
+    // can add a case without meeting it; the day the blend suite finds the factor arriving, this
+    // is the rule to lift.
+    uint32_t own_alpha_destination = 0;
+    const char *first_own = "";
+    for (size_t index = 0; index < BlendCaseCount(); ++index) {
+        const BlendCase *const test = BlendCaseAt(index);
+        if (test->spec.alpha_destination == test->spec.color_destination) {
+            continue;
+        }
+        if (own_alpha_destination == 0) {
+            first_own = test->name;
+        }
+        ++own_alpha_destination;
+    }
+    CHECK_TRUE(SUITE, "no blend case asks for an alpha destination factor of its own", CHECK_NONE,
+               own_alpha_destination == 0,
+               "%u of %u do, first was \"%s\": the graphics library would draw it with the "
+               "colour destination factor in both places and the case would accuse a machine "
+               "that had done nothing wrong",
+               (unsigned)own_alpha_destination, (unsigned)BlendCaseCount(), first_own);
+
+    // Both of the two remaining ways the table tells the alpha state from the colour one have
+    // to stay exercised by a case whose answer moves when they are not. Measured by taking each
+    // field from the colour state instead, because a later tidy-up could otherwise flatten the
+    // last case that separates one and every case would still pass on every machine.
+    uint32_t equation_separated = 0;
+    uint32_t source_factor_separated = 0;
+    const char *equation_case = "";
+    const char *source_factor_case = "";
+    for (size_t index = 0; index < BlendCaseCount(); ++index) {
+        const BlendCase *const test = BlendCaseAt(index);
+        uint8_t honest[4];
+        uint8_t wired[4];
+        BlendReference(&test->spec, test->source, test->destination, honest);
+
+        BlendSpec wired_equation = test->spec;
+        wired_equation.alpha_op = test->spec.color_op;
+        BlendReference(&wired_equation, test->source, test->destination, wired);
+        if (wired[3] != honest[3]) {
+            if (equation_separated == 0) {
+                equation_case = test->name;
+            }
+            ++equation_separated;
+        }
+
+        BlendSpec wired_source = test->spec;
+        wired_source.alpha_source = test->spec.color_source;
+        BlendReference(&wired_source, test->source, test->destination, wired);
+        if (wired[3] != honest[3]) {
+            if (source_factor_separated == 0) {
+                source_factor_case = test->name;
+            }
+            ++source_factor_separated;
+        }
+    }
+    CHECK_TRUE(SUITE, "a blend case catches the alpha equation taken from the colour one",
+               CHECK_NONE, equation_separated > 0,
+               "no case in the table would give a different alpha, so an implementation that "
+               "ran the alpha channel through the colour equation would pass every one of them");
+    CHECK_TRUE(SUITE, "a blend case catches the alpha source factor taken from the colour one",
+               CHECK_NONE, source_factor_separated > 0,
+               "no case in the table would give a different alpha, so an implementation that "
+               "took the alpha source factor from the colour state would pass every one of them");
+    ReportNote("blend cases that separate the alpha state: %u by the equation, first \"%s\"; "
+               "%u by the source factor, first \"%s\"",
+               (unsigned)equation_separated, equation_case, (unsigned)source_factor_separated,
+               source_factor_case);
+
     // And the claim that justifies the exact tier: no case's unrounded result lands near the
     // halfway point between two bytes, so the rounding rule the specification leaves open cannot
     // change any answer. Measured rather than asserted, and the worst is reported either way.

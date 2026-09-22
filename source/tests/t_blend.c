@@ -18,6 +18,10 @@
 // reference in source/blendref.c works out. The descriptions live there so the reference suite
 // can check them with no device, and what it measures about the halfway point between two bytes
 // is what makes the exact tier legal on a normalised target.
+//
+// Two facts about the alpha channel are measured here rather than assumed, because the graphics
+// library settles neither: whether the alpha channel runs an equation of its own, and whether an
+// alpha destination factor of its own reaches the unit.
 
 static const char *const SUITE = "blend";
 
@@ -120,52 +124,204 @@ static bool EveryPixelIs(const uint8_t *pixels, const uint8_t expected[4], char 
     return false;
 }
 
-static void BlendOneCase(GpuContext *gpu, const DkShader *vertex_shader,
-                         const DkShader *fragment_shader, const BlendCase *test) {
-    uint8_t expected[4];
-    BlendReference(&test->spec, test->source, test->destination, expected);
-
+/// Clears to @p destination, draws @p source over the whole target under @p spec, and hands the
+/// pixels back.
+///
+/// NULL when nothing was drawn or nothing came back, with the sentence explaining it in
+/// @p stopped_by, which is only the fallback: the context's own failure text is better whenever
+/// it has one.
+static const uint8_t *BlendDraw(GpuContext *gpu, const DkShader *vertex_shader,
+                                const DkShader *fragment_shader, const BlendSpec *spec,
+                                const uint8_t source[4], const uint8_t destination[4],
+                                const char **stopped_by) {
     // The destination arrives by clearing, which the clear suite has already established writes
     // exactly the byte a normalised float asks for.
-    GpuClear(gpu, BlendUnormToFloat(test->destination[0]),
-             BlendUnormToFloat(test->destination[1]), BlendUnormToFloat(test->destination[2]),
-             BlendUnormToFloat(test->destination[3]));
+    GpuClear(gpu, BlendUnormToFloat(destination[0]), BlendUnormToFloat(destination[1]),
+             BlendUnormToFloat(destination[2]), BlendUnormToFloat(destination[3]));
 
     GpuVertex vertices[6];
-    FullScreenQuad(vertices, test->source);
+    FullScreenQuad(vertices, source);
 
     GpuBeginPass(gpu);
 
     DkColorState color_state;
     dkColorStateDefaults(&color_state);
-    dkColorStateSetBlendEnable(&color_state, 0, test->spec.enabled);
+    dkColorStateSetBlendEnable(&color_state, 0, spec->enabled);
     dkCmdBufBindColorState(gpu->cmdbuf, &color_state);
 
     DkBlendState blend;
     dkBlendStateDefaults(&blend);
-    dkBlendStateSetOps(&blend, HardwareOp(test->spec.color_op), HardwareOp(test->spec.alpha_op));
-    dkBlendStateSetFactors(&blend, HardwareFactor(test->spec.color_source),
-                           HardwareFactor(test->spec.color_destination),
-                           HardwareFactor(test->spec.alpha_source),
-                           HardwareFactor(test->spec.alpha_destination));
+    dkBlendStateSetOps(&blend, HardwareOp(spec->color_op), HardwareOp(spec->alpha_op));
+    dkBlendStateSetFactors(&blend, HardwareFactor(spec->color_source),
+                           HardwareFactor(spec->color_destination),
+                           HardwareFactor(spec->alpha_source),
+                           HardwareFactor(spec->alpha_destination));
     dkCmdBufBindBlendState(gpu->cmdbuf, 0, &blend);
-    dkCmdBufSetBlendConst(gpu->cmdbuf, test->spec.constant[0], test->spec.constant[1],
-                          test->spec.constant[2], test->spec.constant[3]);
+    dkCmdBufSetBlendConst(gpu->cmdbuf, spec->constant[0], spec->constant[1], spec->constant[2],
+                          spec->constant[3]);
 
     const bool drawn = GpuDrawTriangles(gpu, vertex_shader, fragment_shader, vertices, 6);
     GpuSubmit(gpu);
 
     if (!drawn) {
-        ReportCase(SUITE, test->name, CHECK_NONE, false,
-                   gpu->failure[0] != '\0' ? gpu->failure : "the draw was not recorded");
-        return;
+        *stopped_by = "the draw was not recorded";
+        return NULL;
     }
 
     const uint8_t *const pixels = GpuReadBack(gpu);
     if (pixels == NULL) {
+        *stopped_by = "the readback handed back nothing";
+    }
+    return pixels;
+}
+
+// The operands both probes below draw with. A whole 32 rides on the destination alpha, so a
+// factor or an equation behaving differently moves the answer by 32 and nothing rounds.
+static const uint8_t PROBE_SOURCE[4] = { 0x20, 0x20, 0x20, 0x40 };
+static const uint8_t PROBE_DESTINATION[4] = { 0x40, 0x60, 0x80, 0x20 };
+
+/// The alpha byte one probe draw leaves at the corner, or -1 with the reason already reported.
+static int ProbeAlpha(GpuContext *gpu, const DkShader *vertex_shader,
+                      const DkShader *fragment_shader, const BlendSpec *spec,
+                      const char *measuring) {
+    const char *stopped_by = "";
+    const uint8_t *const pixels = BlendDraw(gpu, vertex_shader, fragment_shader, spec,
+                                            PROBE_SOURCE, PROBE_DESTINATION, &stopped_by);
+    if (pixels == NULL) {
+        ReportNote("blend could not measure %s: %s", measuring,
+                   gpu->failure[0] != '\0' ? gpu->failure : stopped_by);
+        return -1;
+    }
+    return (int)GpuPixel(pixels, TARGET_WIDTH, 0, 0)[3];
+}
+
+/// Whether the alpha channel runs an equation of its own, which every case that tells the alpha
+/// state apart from the colour one rests on.
+///
+/// Measured because nothing decides it here: no call in the library writes the register that
+/// turns separate alpha blending on, so the answer is whatever the machine left there. Two draws
+/// that differ in nothing but the alpha equation, one of which answers the same either way and
+/// is the anchor.
+static bool NoteAlphaEquationIsItsOwn(GpuContext *gpu, const DkShader *vertex_shader,
+                                      const DkShader *fragment_shader) {
+    static const char *const MEASURING = "whether the alpha channel has an equation of its own";
+    BlendSpec spec = { true,
+                       BLEND_OP_ADD,
+                       BLEND_FACTOR_ONE,
+                       BLEND_FACTOR_ONE,
+                       BLEND_OP_ADD,
+                       BLEND_FACTOR_ONE,
+                       BLEND_FACTOR_ONE,
+                       { 0.0f, 0.0f, 0.0f, 0.0f } };
+
+    const int adding = ProbeAlpha(gpu, vertex_shader, fragment_shader, &spec, MEASURING);
+    if (adding < 0) {
+        return false;
+    }
+    spec.alpha_op = BLEND_OP_MAX;
+    const int largest = ProbeAlpha(gpu, vertex_shader, fragment_shader, &spec, MEASURING);
+    if (largest < 0) {
+        return false;
+    }
+
+    const int sum = (int)PROBE_SOURCE[3] + (int)PROBE_DESTINATION[3];
+    if (adding != sum) {
+        ReportNote("blend cannot say %s: adding both sides of an alpha of %u over %u left %u "
+                   "where %d was the only right answer either way",
+                   MEASURING, (unsigned)PROBE_SOURCE[3], (unsigned)PROBE_DESTINATION[3],
+                   (unsigned)adding, sum);
+        return false;
+    }
+    if (largest == adding) {
+        ReportNote("blend: the alpha channel has no equation of its own, so it is running the "
+                   "colour one. Adding and the maximum both left %u where the maximum alone "
+                   "gives %u. Nothing in the graphics library turns separate alpha blending on, "
+                   "and any case below that tells the alpha state apart from the colour state "
+                   "fails for that reason rather than for anything the blend unit got wrong",
+                   (unsigned)adding, (unsigned)PROBE_SOURCE[3]);
+        return false;
+    }
+    ReportNote("blend: the alpha channel has an equation of its own, adding leaving %u and the "
+               "maximum %u, so the cases that tell the alpha state apart from the colour state "
+               "mean what they say",
+               (unsigned)adding, (unsigned)largest);
+    return true;
+}
+
+/// Whether an alpha destination factor of its own reaches the blend unit.
+///
+/// A note and not a case: the answer is a property of the library on the way to the hardware,
+/// and a pass would claim something about a machine nobody asked. Two draws differing in nothing
+/// but that factor, with the colour destination factor held at nought, so a library that
+/// substitutes it makes them identical. The one place allowed to build the state the reference
+/// suite forbids a case.
+///
+/// @p alpha_is_separate is what the probe above found: without it the two draws agreeing has two
+/// explanations rather than one.
+static void NoteAlphaDestinationReach(GpuContext *gpu, const DkShader *vertex_shader,
+                                      const DkShader *fragment_shader, bool alpha_is_separate) {
+    static const char *const MEASURING = "whether the alpha destination factor arrives";
+    BlendSpec spec = { true,
+                       BLEND_OP_ADD,
+                       BLEND_FACTOR_ONE,
+                       BLEND_FACTOR_ZERO,
+                       BLEND_OP_ADD,
+                       BLEND_FACTOR_ONE,
+                       BLEND_FACTOR_ZERO,
+                       { 0.0f, 0.0f, 0.0f, 0.0f } };
+
+    const int weighted_to_nothing = ProbeAlpha(gpu, vertex_shader, fragment_shader, &spec,
+                                               MEASURING);
+    if (weighted_to_nothing < 0) {
+        return;
+    }
+    spec.alpha_destination = BLEND_FACTOR_ONE;
+    const int weighted_whole = ProbeAlpha(gpu, vertex_shader, fragment_shader, &spec, MEASURING);
+    if (weighted_whole < 0) {
+        return;
+    }
+
+    if (weighted_to_nothing != (int)PROBE_SOURCE[3]) {
+        ReportNote("blend cannot say %s: a factor of nought over a destination alpha of %u left "
+                   "%u where the source alpha %u was the only right answer either way",
+                   MEASURING, (unsigned)PROBE_DESTINATION[3], (unsigned)weighted_to_nothing,
+                   (unsigned)PROBE_SOURCE[3]);
+        return;
+    }
+    if (weighted_whole != weighted_to_nothing) {
+        ReportNote("blend: the alpha destination factor now reaches the blend unit, nought "
+                   "leaving %u and one leaving %u. The graphics library used to send the colour "
+                   "destination factor in its place; the cases in blendref.c and the rule in the "
+                   "reference suite are shaped around that and can be lifted",
+                   (unsigned)weighted_to_nothing, (unsigned)weighted_whole);
+        return;
+    }
+    if (!alpha_is_separate) {
+        ReportNote("blend: the alpha destination factor made no difference, nought and one both "
+                   "leaving %u, but with no alpha equation of its own that is what an alpha "
+                   "channel running the colour state looks like too, so this run cannot say "
+                   "which of the two it is",
+                   (unsigned)weighted_whole);
+        return;
+    }
+    ReportNote("blend: the alpha destination factor does not reach the blend unit, so no case "
+               "gives it one of its own. Nought and one both left %u, and with the colour "
+               "destination factor at nought in both draws, one that arrived would have added "
+               "the destination alpha %u",
+               (unsigned)weighted_whole, (unsigned)PROBE_DESTINATION[3]);
+}
+
+static void BlendOneCase(GpuContext *gpu, const DkShader *vertex_shader,
+                         const DkShader *fragment_shader, const BlendCase *test) {
+    uint8_t expected[4];
+    BlendReference(&test->spec, test->source, test->destination, expected);
+
+    const char *stopped_by = "";
+    const uint8_t *const pixels = BlendDraw(gpu, vertex_shader, fragment_shader, &test->spec,
+                                            test->source, test->destination, &stopped_by);
+    if (pixels == NULL) {
         ReportCase(SUITE, test->name, CHECK_NONE, false,
-                   gpu->failure[0] != '\0' ? gpu->failure
-                                            : "the readback handed back nothing");
+                   gpu->failure[0] != '\0' ? gpu->failure : stopped_by);
         return;
     }
 
@@ -201,6 +357,10 @@ void RunBlend(void) {
 
     ReportNote("blend target %ux%u RGBA8_Unorm, %u pixels per case, %u cases", TARGET_WIDTH,
                TARGET_HEIGHT, (unsigned)PIXEL_COUNT, (unsigned)BlendCaseCount());
+
+    const bool alpha_is_separate =
+        NoteAlphaEquationIsItsOwn(&gpu, &vertex_shader, &fragment_shader);
+    NoteAlphaDestinationReach(&gpu, &vertex_shader, &fragment_shader, alpha_is_separate);
 
     for (size_t index = 0; index < BlendCaseCount(); ++index) {
         BlendOneCase(&gpu, &vertex_shader, &fragment_shader, BlendCaseAt(index));
