@@ -6,15 +6,15 @@
 #include "report.h"
 #include "tests/tests.h"
 
-// The entry point for the host build. It runs only the suites that need no console, which means
-// the two that check the suite's own judgement: the comparators, and the expected answers the
-// drawing cases are measured against. Its value is that a change to either can be proven wrong
-// in a second, without an emulator in the loop.
+// The entry point for the host build. It runs only the suites that need no console, which are
+// the ones that check this program's own judgement and what it writes around a verdict, so a
+// change to any of them can be proven wrong in a second with no emulator in the loop.
 int main(void) {
     ReportOpen("gfxprobe-host-report.jsonl");
     ReportNote("gfxprobe host build");
 
     RunSelfcheck();
+    RunSupport();
     RunReference();
 
     ReportSummary();

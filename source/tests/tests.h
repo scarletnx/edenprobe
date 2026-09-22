@@ -12,6 +12,11 @@ extern "C" {
 /// produces a line per case whatever happened.
 void RunSelfcheck(void);
 
+/// The picture a failing case leaves beside the report. No hardware, so it runs in both builds,
+/// and every line is the none tier because nothing here is compared to anything the graphics
+/// unit produced.
+void RunSupport(void);
+
 /// The expected answers, checked without a graphics device: where clip space lands, which
 /// pixels a triangle covers, what a blend or a texel address works out to. Runs in both builds,
 /// because a reference that answered differently on the two processors would be blamed on the

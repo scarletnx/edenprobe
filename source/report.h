@@ -6,6 +6,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "picture.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -18,6 +20,10 @@ extern "C" {
 /// still leaves a readable file. The last line of a finished run is the summary.
 void ReportOpen(const char *path);
 void ReportClose(void);
+
+/// Whether a report is still being written. The detailed mode asks before it puts anything on
+/// a screen, so that presentation can never reach a line.
+bool ReportIsOpen(void);
 
 /// The tolerance the comparison on one reported line was held to, and the claim about the
 /// hardware that goes with it.
@@ -44,8 +50,25 @@ typedef enum {
 } CheckTier;
 
 /// One finished case. @p detail is free text explaining a failure, and is ignored when passing.
+///
+/// This is also where a case's picture is closed, written and named on the line, so a picture
+/// belongs to exactly one case and cannot outlive it.
 void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed,
                 const char *detail);
+
+/// The longest line a case can produce: the fields below plus four paths to its pictures.
+#define REPORT_LINE_MAX 2048
+
+/// Builds the line a case reports, without emitting it.
+///
+/// Exposed so that the shape of a line, and the fields a picture adds to it, can be checked on
+/// the host with no device and no file. @p paths may be NULL. Returns the length written.
+size_t ReportBuildCaseLine(char *out, size_t out_size, const char *suite, const char *name,
+                           const char *tier, bool passed, const char *detail,
+                           const PicturePaths *paths);
+
+/// The word a tier goes onto a line as.
+const char *ReportTierName(CheckTier tier);
 
 /// The longest note ReportNote carries whole. Stated here rather than buried in the buffer, so a
 /// caller with a long note can be checked against it before anything is emitted: a note cut

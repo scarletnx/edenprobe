@@ -6,6 +6,7 @@
 
 #include "../check.h"
 #include "../gpu.h"
+#include "../picture.h"
 #include "../report.h"
 #include "../shaders.h"
 #include "tests.h"
@@ -153,8 +154,8 @@ static bool Prepare(GpuContext *gpu, const DkShader *vertex_shader,
                      DkCompareOp_Always, true);
 }
 
-static bool EveryPixelIs(const uint8_t *pixels, const uint8_t expected[4], char *detail,
-                         size_t detail_size) {
+static bool EveryPixelIs(const uint8_t *pixels, const uint8_t expected[4], Picture *picture,
+                         char *detail, size_t detail_size) {
     uint32_t wrong = 0;
     uint32_t first_x = 0;
     uint32_t first_y = 0;
@@ -163,7 +164,9 @@ static bool EveryPixelIs(const uint8_t *pixels, const uint8_t expected[4], char 
     for (uint32_t y = 0; y < TARGET_HEIGHT; ++y) {
         for (uint32_t x = 0; x < TARGET_WIDTH; ++x) {
             const uint8_t *const pixel = GpuPixel(pixels, TARGET_WIDTH, x, y);
-            if (memcmp(pixel, expected, 4) == 0) {
+            const bool right = memcmp(pixel, expected, 4) == 0;
+            PictureSet(picture, x, y, expected, right ? PICTURE_MATCHED : PICTURE_WRONG);
+            if (right) {
                 continue;
             }
             if (wrong == 0) {
@@ -194,7 +197,7 @@ static uint32_t FloatBits(float value) {
     return bits;
 }
 
-static bool EveryDepthIs(const uint8_t *pixels, float expected, char *detail,
+static bool EveryDepthIs(const uint8_t *pixels, float expected, Picture *picture, char *detail,
                          size_t detail_size) {
     const uint32_t want = FloatBits(expected);
     uint32_t wrong = 0;
@@ -206,6 +209,9 @@ static bool EveryDepthIs(const uint8_t *pixels, float expected, char *detail,
         for (uint32_t x = 0; x < TARGET_WIDTH; ++x) {
             uint32_t got;
             memcpy(&got, pixels + ((size_t)y * TARGET_WIDTH + x) * 4u, sizeof(got));
+            uint8_t wanted[4];
+            memcpy(wanted, &want, sizeof(wanted));
+            PictureSet(picture, x, y, wanted, got == want ? PICTURE_MATCHED : PICTURE_WRONG);
             if (got == want) {
                 continue;
             }
@@ -250,8 +256,10 @@ static void CompareCase(GpuContext *gpu, const DkShader *vertex_shader,
         return;
     }
 
+    Picture *const picture = PictureBegin(TARGET_WIDTH, TARGET_HEIGHT, PICTURE_COLOUR, pixels);
+
     char detail[320];
-    const bool matched = EveryPixelIs(pixels, expected, detail, sizeof(detail));
+    const bool matched = EveryPixelIs(pixels, expected, picture, detail, sizeof(detail));
     CHECK_TRUE(SUITE, name, CHECK_EXACT, matched, "%s", detail);
 }
 
@@ -279,8 +287,10 @@ static void WriteCase(GpuContext *gpu, const DkShader *vertex_shader,
         return;
     }
 
+    Picture *const picture = PictureBegin(TARGET_WIDTH, TARGET_HEIGHT, PICTURE_BITS, depths);
+
     char detail[320];
-    const bool matched = EveryDepthIs(depths, expected_depth, detail, sizeof(detail));
+    const bool matched = EveryDepthIs(depths, expected_depth, picture, detail, sizeof(detail));
     CHECK_TRUE(SUITE, name, CHECK_EXACT, matched, "%s", detail);
 }
 
@@ -304,8 +314,10 @@ static void ColorCase(GpuContext *gpu, const DkShader *vertex_shader,
         return;
     }
 
+    Picture *const picture = PictureBegin(TARGET_WIDTH, TARGET_HEIGHT, PICTURE_COLOUR, pixels);
+
     char detail[320];
-    const bool matched = EveryPixelIs(pixels, SECOND_COLOR, detail, sizeof(detail));
+    const bool matched = EveryPixelIs(pixels, SECOND_COLOR, picture, detail, sizeof(detail));
     CHECK_TRUE(SUITE, NAME, CHECK_EXACT, matched, "%s", detail);
 }
 
@@ -380,8 +392,11 @@ void RunDepth(void) {
                            ? gpu.failure
                            : "the depth readback handed back nothing");
         } else {
+            Picture *const picture =
+                PictureBegin(TARGET_WIDTH, TARGET_HEIGHT, PICTURE_BITS, depths);
             char detail[320];
-            const bool matched = EveryDepthIs(depths, CLEARED_DEPTH, detail, sizeof(detail));
+            const bool matched =
+                EveryDepthIs(depths, CLEARED_DEPTH, picture, detail, sizeof(detail));
             CHECK_TRUE(SUITE, "a depth clear writes the value it was given", CHECK_EXACT, matched,
                        "%s", detail);
         }

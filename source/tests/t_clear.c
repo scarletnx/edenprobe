@@ -6,6 +6,7 @@
 
 #include "../check.h"
 #include "../gpu.h"
+#include "../picture.h"
 #include "../report.h"
 #include "tests.h"
 
@@ -41,8 +42,8 @@ static const char *const SUITE = "clear";
 /// failure mode of a swizzled copy, and it is exactly the one that checking a corner misses.
 static bool PixelsMatch(const uint8_t *pixels, uint32_t width, uint32_t height, uint32_t rect_x,
                         uint32_t rect_y, uint32_t rect_width, uint32_t rect_height,
-                        const uint8_t inside[4], const uint8_t outside[4], char *detail,
-                        size_t detail_size) {
+                        const uint8_t inside[4], const uint8_t outside[4], Picture *picture,
+                        char *detail, size_t detail_size) {
     uint32_t wrong = 0;
     uint32_t first_x = 0;
     uint32_t first_y = 0;
@@ -61,8 +62,13 @@ static bool PixelsMatch(const uint8_t *pixels, uint32_t width, uint32_t height, 
             const uint8_t *const pixel = GpuPixel(pixels, width, x, y);
             // Threshold zero, which is what the Exact tier means: the same comparison the
             // selfcheck suite pins down, asked for no tolerance at all.
-            if (CheckChannel(pixel[0], wanted[0], 0) && CheckChannel(pixel[1], wanted[1], 0) &&
-                CheckChannel(pixel[2], wanted[2], 0) && CheckChannel(pixel[3], wanted[3], 0)) {
+            const bool right =
+                CheckChannel(pixel[0], wanted[0], 0) && CheckChannel(pixel[1], wanted[1], 0) &&
+                CheckChannel(pixel[2], wanted[2], 0) && CheckChannel(pixel[3], wanted[3], 0);
+            // The picture of this case is the judge's own answer, pixel by pixel, taken here
+            // rather than worked out again afterwards from the two buffers.
+            PictureSet(picture, x, y, wanted, right ? PICTURE_MATCHED : PICTURE_WRONG);
+            if (right) {
                 continue;
             }
             if (wrong == 0) {
@@ -109,9 +115,12 @@ static void ReadBackAndCheck(GpuContext *gpu, const char *name, uint32_t rect_x,
         return;
     }
 
+    Picture *const picture = PictureBegin(gpu->width, gpu->height, PICTURE_COLOUR, pixels);
+
     char detail[256];
     const bool matched = PixelsMatch(pixels, gpu->width, gpu->height, rect_x, rect_y, rect_width,
-                                     rect_height, inside, outside, detail, sizeof(detail));
+                                     rect_height, inside, outside, picture, detail,
+                                     sizeof(detail));
     CHECK_TRUE(SUITE, name, CHECK_EXACT, matched, "%s", detail);
 }
 

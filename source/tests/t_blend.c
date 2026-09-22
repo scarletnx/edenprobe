@@ -7,6 +7,7 @@
 #include "../blendref.h"
 #include "../check.h"
 #include "../gpu.h"
+#include "../picture.h"
 #include "../report.h"
 #include "../shaders.h"
 #include "tests.h"
@@ -88,8 +89,8 @@ static void FullScreenQuad(GpuVertex out[6], const uint8_t colour[4]) {
 }
 
 /// Compares every pixel to @p expected and writes the sentence that explains a failure.
-static bool EveryPixelIs(const uint8_t *pixels, const uint8_t expected[4], char *detail,
-                         size_t detail_size) {
+static bool EveryPixelIs(const uint8_t *pixels, const uint8_t expected[4], Picture *picture,
+                         char *detail, size_t detail_size) {
     uint32_t wrong = 0;
     uint32_t first_x = 0;
     uint32_t first_y = 0;
@@ -98,8 +99,11 @@ static bool EveryPixelIs(const uint8_t *pixels, const uint8_t expected[4], char 
     for (uint32_t y = 0; y < TARGET_HEIGHT; ++y) {
         for (uint32_t x = 0; x < TARGET_WIDTH; ++x) {
             const uint8_t *const pixel = GpuPixel(pixels, TARGET_WIDTH, x, y);
-            if (CheckChannel(pixel[0], expected[0], 0) && CheckChannel(pixel[1], expected[1], 0) &&
-                CheckChannel(pixel[2], expected[2], 0) && CheckChannel(pixel[3], expected[3], 0)) {
+            const bool right =
+                CheckChannel(pixel[0], expected[0], 0) && CheckChannel(pixel[1], expected[1], 0) &&
+                CheckChannel(pixel[2], expected[2], 0) && CheckChannel(pixel[3], expected[3], 0);
+            PictureSet(picture, x, y, expected, right ? PICTURE_MATCHED : PICTURE_WRONG);
+            if (right) {
                 continue;
             }
             if (wrong == 0) {
@@ -325,8 +329,10 @@ static void BlendOneCase(GpuContext *gpu, const DkShader *vertex_shader,
         return;
     }
 
+    Picture *const picture = PictureBegin(TARGET_WIDTH, TARGET_HEIGHT, PICTURE_COLOUR, pixels);
+
     char detail[320];
-    const bool matched = EveryPixelIs(pixels, expected, detail, sizeof(detail));
+    const bool matched = EveryPixelIs(pixels, expected, picture, detail, sizeof(detail));
     CHECK_TRUE(SUITE, test->name, CHECK_EXACT, matched, "%s", detail);
 }
 
