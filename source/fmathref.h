@@ -38,10 +38,12 @@ typedef enum {
 
 /// The tolerance a case allows, in whichever of the two shapes the specification states it.
 typedef struct {
-    /// True when the limit below is an absolute difference rather than a count of representable
-    /// values.
+    /// True when the limit below is an absolute difference rather than a number of units in the
+    /// last place.
     bool absolute;
-    uint32_t ulps;
+    /// The budget in units in the last place, the specification's number plus the half the
+    /// reference may carry. Not a whole number, because neither is the specification's.
+    float ulps;
     float limit;
     /// Why the number is what it is, for the report.
     const char *reason;

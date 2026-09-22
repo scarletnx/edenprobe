@@ -10,12 +10,15 @@
 // the processor rounds a double quotient, and both land on the same 24 bits.
 #define ONE_THIRD ((float)(1.0 / 3.0))
 
+// Multiplied by a sixty fourth, written the same way the shader writes it. A sixty fourth is
+// exact in binary and so is the product of it with a whole number up to 64, so both sides form
+// the same operand with no rounding anywhere.
 float FMathInputA(uint32_t x) {
-    return ((float)x + 1.0f) / 64.0f;
+    return ((float)x + 1.0f) * (1.0f / 64.0f);
 }
 
 float FMathInputB(uint32_t y) {
-    return ((float)y + 1.0f) / 64.0f;
+    return ((float)y + 1.0f) * (1.0f / 64.0f);
 }
 
 float FMathReference(FMathMode mode, uint32_t x, uint32_t y, float probe) {
@@ -66,43 +69,45 @@ float FMathReference(FMathMode mode, uint32_t x, uint32_t y, float probe) {
 FMathBudget FMathBudgetFor(FMathMode mode) {
     switch (mode) {
     case FMATH_UNIFORM:
-        return (FMathBudget){ false, 0u, 0.0f, "a value copied, not computed" };
+        return (FMathBudget){ false, 0.0f, 0.0f, "a value copied, not computed" };
     case FMATH_ADD:
     case FMATH_MULTIPLY:
-        return (FMathBudget){ false, 0u, 0.0f,
+        return (FMathBudget){ false, 0.0f, 0.0f,
                               "the specification requires addition and multiplication to be "
                               "correctly rounded, and the reference is exact" };
     case FMATH_MULTIPLY_ADD:
-        return (FMathBudget){ false, 1u, 0.0f,
+        return (FMathBudget){ false, 1.0f, 0.0f,
                               "one, not nought, because fusing the multiply into the add is only "
                               "guaranteed for a result the shader marks precise, and an unfused "
                               "implementation is a unit away from the fused reference" };
     case FMATH_DIVIDE:
-        return (FMathBudget){ false, 3u, 0.0f,
+        return (FMathBudget){ false, 3.0f, 0.0f,
                               "2.5 from the specification plus the half the reference may carry "
-                              "for being a double precision answer rounded to single" };
+                              "for being a double precision answer rounded to single, which is "
+                              "three exactly" };
     case FMATH_SQUARE_ROOT:
-        return (FMathBudget){ false, 3u, 0.0f,
-                              "the specification derives the square root's bound from the "
-                              "inverse square root's; three is the transcendental budget and "
-                              "conservative for this one" };
+        return (FMathBudget){ false, 3.5f, 0.0f,
+                              "3 from the specification, which derives the square root's bound "
+                              "from the inverse square root's, plus the half the reference may "
+                              "carry" };
     case FMATH_EXP2:
     case FMATH_LOG2:
-        return (FMathBudget){ false, 3u, 0.0f,
-                              "3 from the specification plus the half the reference may carry" };
+        return (FMathBudget){ false, 3.5f, 0.0f,
+                              "3 from the specification plus the half the reference may "
+                              "carry" };
     case FMATH_SINE:
     case FMATH_COSINE:
         // Two to the minus eleven, which is what the specification asks for over the range where
         // it asks for anything at all. The reference's own error is under a ten millionth, more
         // than a thousand times smaller, so it does not need adding on.
-        return (FMathBudget){ true, 0u, 1.0f / 2048.0f,
+        return (FMathBudget){ true, 0.0f, 1.0f / 2048.0f,
                               "the specification bounds the sine and the cosine by an absolute "
                               "error of two to the minus eleven, not by units in the last "
                               "place" };
     case FMATH_MODE_COUNT:
         break;
     }
-    return (FMathBudget){ false, 0u, 0.0f, "unknown" };
+    return (FMathBudget){ false, 0.0f, 0.0f, "unknown" };
 }
 
 const char *FMathName(FMathMode mode) {

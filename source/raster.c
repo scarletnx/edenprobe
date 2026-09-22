@@ -9,9 +9,9 @@
 // rasterisation case wrong in the same direction. Work in target space, order the vertices so
 // the edge function E(p) = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) is positive
 // inside for all three edges, and a centre on a shared edge has to go to exactly one triangle or
-// that edge draws twice or not at all. The convention the graphics APIs agree on gives it to the
-// triangle the edge is a top or a left edge of, and the reference suite pins one hand worked
-// point per branch.
+// that edge draws twice or not at all. Vulkan and OpenGL leave which one to the implementation;
+// the top and left convention below is what this hardware and every host part under an emulator
+// of it use, and the reference suite pins one hand worked point per branch.
 
 // A triangle with no axis aligned edge and no slope that lines pixel centres up along one. Its
 // corners land on whole pixel boundaries, so they are exact both as the thirty seconds written

@@ -615,9 +615,15 @@ typedef struct {
     uint32_t header_size;
     uint32_t control_size; ///< the control section, this header included, at the front of the file
     uint32_t code_size;    ///< the machine code, immediately after the control section
+    uint32_t programs_offset; ///< where the table of programs starts, inside the control section
+    uint32_t program_count;
 } ShaderModuleHeader;
 
 #define SHADER_MODULE_MAGIC 0x48534B44u
+
+// How many bytes deko3d reads out of the table for one program: it copies 64 bytes into the
+// DkShader and indexes the table by the program id times that.
+#define SHADER_PROGRAM_ENTRY_SIZE 64u
 
 bool GpuLoadShader(GpuContext *gpu, DkShader *out, const void *dksh, uint32_t size) {
     if (gpu == NULL || !gpu->ready || out == NULL) {
@@ -633,9 +639,17 @@ bool GpuLoadShader(GpuContext *gpu, DkShader *out, const void *dksh, uint32_t si
 
     ShaderModuleHeader header;
     memcpy(&header, dksh, sizeof(header));
-    if (header.magic != SHADER_MODULE_MAGIC || header.control_size < sizeof(header) ||
-        header.code_size == 0u || (uint64_t)header.control_size + header.code_size > size) {
+    if (header.magic != SHADER_MODULE_MAGIC || header.header_size < sizeof(header) ||
+        header.control_size < header.header_size || header.code_size == 0u ||
+        (uint64_t)header.control_size + header.code_size > size) {
         return Complain(gpu, "the shader module's header does not describe the bytes after it");
+    }
+    // deko3d does not check and reads 64 bytes out of the table, so without this a truncated
+    // module is a read past the end of the blob rather than a reported case.
+    if (header.program_count == 0u ||
+        (uint64_t)header.programs_offset + SHADER_PROGRAM_ENTRY_SIZE > header.control_size) {
+        return Complain(gpu, "the shader module's program table is not inside its control "
+                             "section");
     }
 
     // Only the machine code is copied into code memory, which puts its alignment under this
@@ -678,16 +692,6 @@ void *GpuAllocData(GpuContext *gpu, uint32_t size, uint32_t alignment, DkGpuAddr
         *gpu_addr = dkMemBlockGetGpuAddr(gpu->data_memory) + offset;
     }
     return (uint8_t *)dkMemBlockGetCpuAddr(gpu->data_memory) + offset;
-}
-
-uint32_t GpuDataMark(const GpuContext *gpu) {
-    return gpu != NULL ? gpu->data_used : 0u;
-}
-
-void GpuDataRewind(GpuContext *gpu, uint32_t mark) {
-    if (gpu != NULL && mark <= gpu->data_used) {
-        gpu->data_used = mark;
-    }
 }
 
 bool GpuCreateTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImageFormat format,
@@ -736,7 +740,10 @@ bool GpuUploadTexture(GpuContext *gpu, const DkImage *image, DkImageFormat forma
     DkImageView destination;
     dkImageViewDefaults(&destination, image);
     const DkImageRect rect = { 0, 0, 0, width, height, 1 };
-    const DkCopyBuf source = { staging_addr, pitch, height };
+    // The stride between depth slices, a byte count like the one before it. Left at zero the
+    // library fills it in, which is what this copy wants; a row count there would be wrong and
+    // would look right.
+    const DkCopyBuf source = { staging_addr, pitch, 0 };
     dkCmdBufCopyBufferToImage(gpu->cmdbuf, &source, &destination, &rect, 0);
 
     SubmitAndDrain(gpu, "texture upload");

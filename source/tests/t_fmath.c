@@ -79,7 +79,7 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
     uint32_t first_y = 0;
     float first_got = 0.0f;
     float first_want = 0.0f;
-    uint32_t worst_ulps = 0;
+    float worst_ulps = 0.0f;
     double worst_absolute = 0.0;
 
     for (uint32_t y = 0; y < TARGET_HEIGHT; ++y) {
@@ -96,9 +96,9 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
                     worst_absolute = magnitude;
                 }
             } else {
-                const uint32_t distance = CheckFloatUlpDistance(got, want);
-                if (distance > worst_ulps) {
-                    worst_ulps = distance;
+                const float error = CheckFloatUlpError(got, want);
+                if (error > worst_ulps) {
+                    worst_ulps = error;
                 }
             }
 
@@ -120,8 +120,9 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
             snprintf(detail, detail_size, "worst was %.9g of an allowed %.9g", worst_absolute,
                      (double)budget.limit);
         } else {
-            snprintf(detail, detail_size, "worst was %u of an allowed %u units in the last place",
-                     (unsigned)worst_ulps, (unsigned)budget.ulps);
+            snprintf(detail, detail_size,
+                     "worst was %.4f of an allowed %g units in the last place",
+                     (double)worst_ulps, (double)budget.ulps);
         }
         return true;
     }
@@ -134,10 +135,10 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
                  (unsigned)first_y, (double)first_got, (double)first_want, worst_absolute);
     } else {
         snprintf(detail, detail_size,
-                 "%u of %u pixels outside %u units in the last place, first at (%u,%u) is %.9g, "
-                 "expected %.9g; worst was %u",
-                 (unsigned)wrong, (unsigned)PIXEL_COUNT, (unsigned)budget.ulps, (unsigned)first_x,
-                 (unsigned)first_y, (double)first_got, (double)first_want, (unsigned)worst_ulps);
+                 "%u of %u pixels outside %g units in the last place, first at (%u,%u) is %.9g, "
+                 "expected %.9g; worst was %.4f",
+                 (unsigned)wrong, (unsigned)PIXEL_COUNT, (double)budget.ulps, (unsigned)first_x,
+                 (unsigned)first_y, (double)first_got, (double)first_want, (double)worst_ulps);
     }
     return false;
 }
@@ -158,7 +159,6 @@ static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
     GpuVertex vertices[6];
     FullScreenQuad(vertices);
 
-    const uint32_t mark = GpuDataMark(gpu);
     GpuBeginPass(gpu);
 
     const FloatParams params = { (uint32_t)mode, UNIFORM_PROBE, { 0u, 0u } };
@@ -167,7 +167,6 @@ static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
 
     const bool drawn = GpuDrawTriangles(gpu, vertex_shader, fragment_shader, vertices, 6);
     GpuSubmit(gpu);
-    GpuDataRewind(gpu, mark);
 
     if (!drawn) {
         ReportCase(SUITE, name, CHECK_NONE, false,

@@ -140,23 +140,11 @@ bool GpuLoadShader(GpuContext *gpu, DkShader *out, const void *dksh, uint32_t si
 ///
 /// Returns the address to write through, and stores the graphics unit's view of the same bytes
 /// in @p gpu_addr. NULL when the block is exhausted, which is a spec that asked for too little.
-void *GpuAllocData(GpuContext *gpu, uint32_t size, uint32_t alignment, DkGpuAddr *gpu_addr);
-
-/// How much of the scratch block is spoken for, for GpuDataRewind to hand back later.
-uint32_t GpuDataMark(const GpuContext *gpu);
-
-/// Gives back everything allocated since @p mark.
 ///
-/// Safe only once the queue has drained, and drained is doing two jobs there. The obvious one is
-/// that nothing is still reading the bytes about to be handed out again. The other is that the
-/// next case writes those same addresses from the processor, and the graphics unit keeps its own
-/// cache of memory in front of them: the drain signals a fence with the flush asked for
-/// (dkQueueWaitIdle calls signalFence with that flag set, read out of libdeko3d.a), which is what
-/// makes the drawn pixels visible to a later copy and drops the stale copies in the same breath.
-/// If a case ever fails in a way that looks like it read the previous case's vertices, the fix
-/// is to stop rewinding rather than to add a barrier: the scratch is sized for a suite's worth of
-/// draws several times over.
-void GpuDataRewind(GpuContext *gpu, uint32_t mark);
+/// Nothing is ever given back, and that is the point: reusing an address would have the processor
+/// rewrite bytes the graphics unit has already pulled through a cache this file never
+/// invalidates, and a case reading the previous case's vertices would look like a coverage fault.
+void *GpuAllocData(GpuContext *gpu, uint32_t size, uint32_t alignment, DkGpuAddr *gpu_addr);
 
 /// Carves image memory for a texture and initialises @p out over it.
 bool GpuCreateTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImageFormat format,

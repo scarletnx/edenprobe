@@ -190,10 +190,15 @@ static const BlendCase CASES[] = {
     {
         "the blend constant is a factor of its own",
         { true, BLEND_OP_ADD, BLEND_FACTOR_CONSTANT, BLEND_FACTOR_ZERO, BLEND_OP_ADD,
-          BLEND_FACTOR_CONSTANT, BLEND_FACTOR_ZERO, { 0.5f, 0.5f, 0.5f, 0.5f } },
+          BLEND_FACTOR_CONSTANT, BLEND_FACTOR_ZERO, { 0.5f, 0.25f, 0.75f, 0.125f } },
         { 0x80, 0xC0, 0x40, 0x80 },
         { 0x11, 0x22, 0x33, 0x44 },
-        "half of 128, 192, 64 and 128, with the destination weighted to nothing: 40602040",
+        // Four different components on purpose. There is a second factor that broadcasts the
+        // constant's alpha to all four channels, and with one constant repeated the two are the
+        // same number everywhere and an implementation that wired one to the other would pass.
+        // With these, that mistake gives 10 18 08 10 instead.
+        "a half of 128, a quarter of 192, three quarters of 64 and an eighth of 128, with the "
+        "destination weighted to nothing: 40303010",
     },
     {
         "a source factor of zero leaves the destination",

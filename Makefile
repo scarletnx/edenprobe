@@ -69,10 +69,12 @@ $(BUILD)/shaders/%.frag.dksh: $(SHADER_DIR)/%.frag.glsl
 
 # One assembly file for all of them, so the symbol names are decided in one place. bin2s writes
 # the matching header as a side effect, which is why the header depends on this rule rather than
-# having one of its own.
+# having one of its own. Aligned to sixteen because the graphics library reads a program's
+# header out of the control section with a paired sixteen byte load; unaligned is legal on this
+# memory and works either way, and costing nothing is a good enough reason not to rely on that.
 $(SHADER_ASM): $(SHADER_DKSH)
 	@mkdir -p $(dir $@)
-	$(TOOLS)/bin2s -a 8 -H $(SHADER_HDR) $^ > $@
+	$(TOOLS)/bin2s -a 16 -H $(SHADER_HDR) $^ > $@
 	@echo >> $@	# bin2s ends on a comment with no newline, and the assembler says so
 
 $(SHADER_HDR): $(SHADER_ASM)

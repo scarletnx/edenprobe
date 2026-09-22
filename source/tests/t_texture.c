@@ -19,11 +19,13 @@
 // the exact tier. The wrap modes are asked with a quad three copies of the texture wide and
 // tall, so each has to fold the same out of range coordinates its own way.
 //
-// The linear case is the delicate one: one texel per pixel, offset by half a pixel, so the only
-// weight the filter can use is one half, and the texels are paired to average to a whole byte.
-// What it is delicate about is stated rather than hidden: a weight that was not exactly one half
-// moves the answer by at most the difference between two neighbouring texels over the weight's
-// own precision, and these texels are close enough together that it cannot change the byte.
+// The linear case is the delicate one. One texel per pixel, offset by half a pixel, so the only
+// weight the filter should use is one half, and the texels are paired to average to a whole
+// byte. That alone is not enough: the hardware quantises the coordinate onto a sub texel grid,
+// so the weight can be off by a fraction of a step and the answer moves by that much of the
+// difference between two texels. The row below keeps every neighbouring difference small enough
+// that no byte can move, wrap around pairs included, and the suite checks that rather than
+// trusting this paragraph.
 
 static const char *const SUITE = "texture";
 
@@ -47,13 +49,19 @@ static const uint8_t NEAREST_TEXELS[TEXTURE_SIZE * TEXTURE_SIZE][4] = {
 };
 
 // The same four texels on every row, so the vertical half of the filter blends two identical
-// rows and contributes nothing the case has to reason about. Every value is even, so the
-// average of any two neighbours, wrapping round, is a whole byte.
+// rows and contributes nothing. Every value is even, which keeps the average of two neighbours a
+// whole byte, and every step is small enough that the filter's own precision cannot move it. The
+// four channels are the same shape at four phases, so no two columns share an answer.
+#define LINEAR_LOW 0x30u
+#define LINEAR_MID 0x60u
+#define LINEAR_HIGH 0x90u
+// The largest difference between two texels this case ever blends, wrap around included.
+#define LINEAR_NEIGHBOUR_STEP 0x30u
 static const uint8_t LINEAR_ROW[TEXTURE_SIZE][4] = {
-    { 0x10, 0xC0, 0x20, 0xFE },
-    { 0x40, 0x90, 0x60, 0xAE },
-    { 0x90, 0x40, 0xA0, 0x5E },
-    { 0xC0, 0x10, 0xE0, 0x0E },
+    { LINEAR_LOW, LINEAR_HIGH, LINEAR_MID, LINEAR_MID },
+    { LINEAR_MID, LINEAR_MID, LINEAR_HIGH, LINEAR_LOW },
+    { LINEAR_HIGH, LINEAR_LOW, LINEAR_MID, LINEAR_MID },
+    { LINEAR_MID, LINEAR_MID, LINEAR_LOW, LINEAR_HIGH },
 };
 
 /// What a case expects, in the terms source/texref.c speaks.
@@ -184,7 +192,6 @@ static void SampleCase(GpuContext *gpu, const DkShader *vertex_shader,
     GpuVertex vertices[6];
     CoordinateQuad(vertices, want);
 
-    const uint32_t mark = GpuDataMark(gpu);
     GpuBeginPass(gpu);
     dkCmdBufBindImageDescriptorSet(gpu->cmdbuf, image_set, image_count);
     dkCmdBufBindSamplerDescriptorSet(gpu->cmdbuf, sampler_set, sampler_count);
@@ -193,7 +200,6 @@ static void SampleCase(GpuContext *gpu, const DkShader *vertex_shader,
 
     const bool drawn = GpuDrawTriangles(gpu, vertex_shader, fragment_shader, vertices, 6);
     GpuSubmit(gpu);
-    GpuDataRewind(gpu, mark);
 
     if (!drawn) {
         ReportCase(SUITE, name, CHECK_NONE, false,
@@ -264,23 +270,38 @@ void RunTexture(void) {
         memcpy(linear_texels[row * TEXTURE_SIZE], LINEAR_ROW, sizeof(LINEAR_ROW));
     }
 
-    // The claim the linear case rests on, checked where the data is rather than asserted in a
-    // comment: every neighbouring pair of texels, wrapping round, adds to an even number, so
-    // half of that sum is a whole byte and there is nothing left for the target to round.
+    // The two claims the linear case rests on, checked where the data is rather than asserted:
+    // every neighbouring pair adds to an even number, and none differs by more than the step
+    // above. The wrap around pair is in the sweep on purpose, since leaving it out is how a row
+    // that looks safe stops being safe.
     uint32_t odd_sums = 0;
+    uint32_t too_far = 0;
+    uint32_t widest = 0;
     for (uint32_t texel = 0; texel < TEXTURE_SIZE; ++texel) {
         const uint32_t next = (texel + 1u) % TEXTURE_SIZE;
         for (int channel = 0; channel < 4; ++channel) {
-            const uint32_t sum =
-                (uint32_t)LINEAR_ROW[texel][channel] + (uint32_t)LINEAR_ROW[next][channel];
-            if (sum % 2u != 0u) {
+            const uint32_t a = LINEAR_ROW[texel][channel];
+            const uint32_t b = LINEAR_ROW[next][channel];
+            if ((a + b) % 2u != 0u) {
                 ++odd_sums;
+            }
+            const uint32_t difference = a > b ? a - b : b - a;
+            if (difference > widest) {
+                widest = difference;
+            }
+            if (difference > LINEAR_NEIGHBOUR_STEP) {
+                ++too_far;
             }
         }
     }
     CHECK_TRUE(SUITE, "every neighbouring pair of texels averages to a whole byte", CHECK_NONE,
                odd_sums == 0, "%u of the 16 neighbouring channel pairs add to an odd number",
                (unsigned)odd_sums);
+    CHECK_TRUE(SUITE, "no pair of texels is far enough apart for a filter weight to matter",
+               CHECK_NONE, too_far == 0,
+               "the widest neighbouring pair differs by %u, which a weight off by one in 256 "
+               "would move by %u parts in 256 of a byte; half a byte changes the answer",
+               (unsigned)widest, (unsigned)widest);
 
     DkImage nearest_image;
     DkImageLayout nearest_layout;

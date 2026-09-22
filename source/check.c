@@ -38,11 +38,40 @@ uint32_t CheckFloatUlpDistance(float produced, float expected) {
     return a > b ? a - b : b - a;
 }
 
-bool CheckFloatUlp(float produced, float expected, uint32_t ulps) {
-    const uint32_t distance = CheckFloatUlpDistance(produced, expected);
-    // The sentinel is refused whatever the budget, which matters because a budget of every
-    // possible value would otherwise let a NaN through.
-    return distance != UINT32_MAX && distance <= ulps;
+/// The distance between neighbouring representable values at @p value, which is what a unit in
+/// the last place means.
+///
+/// Measured on the side away from zero. At a power of two the two sides differ by a factor of
+/// two, and taking the larger is the conservative choice: a budget of three units then allows
+/// three of the wider steps in either direction, which is no tighter than any reading of the
+/// specification, and so cannot turn a machine that is inside its budget into a failure.
+static float UnitInTheLastPlace(float value) {
+    const float magnitude = value < 0.0f ? -value : value;
+    const float above = nextafterf(magnitude, INFINITY);
+    if (isinf(above)) {
+        // Only at the very top of the range, where there is no step above to measure.
+        return magnitude - nextafterf(magnitude, 0.0f);
+    }
+    return above - magnitude;
+}
+
+float CheckFloatUlpError(float produced, float expected) {
+    if (isnan(produced) || isnan(expected)) {
+        return INFINITY;
+    }
+    if (produced == expected) {
+        return 0.0f;
+    }
+    if (isinf(produced) || isinf(expected)) {
+        return INFINITY;
+    }
+    const float difference = produced - expected;
+    const float magnitude = difference < 0.0f ? -difference : difference;
+    return magnitude / UnitInTheLastPlace(expected);
+}
+
+bool CheckFloatUlp(float produced, float expected, float ulps) {
+    return CheckFloatUlpError(produced, expected) <= ulps;
 }
 
 bool CheckFloatAbs(float produced, float expected, float limit) {

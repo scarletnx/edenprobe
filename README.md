@@ -30,14 +30,15 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Nine suites, in the order they run, because each leans on the ones before it. A run is 142
+Nine suites, in the order they run, because each leans on the ones before it. A run is 147
 cases.
 
-- **selfcheck**, thirteen cases, no hardware involved. That two neighbouring floats measure one
+- **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
   unit apart, that a zero budget rejects them, that an absolute budget is the same on both sides
-  of the expected value, and that a NaN is never equal to anything including itself, not even
-  against a budget of every value there is. If one of these fails, nothing else the suite says
-  can be believed.
+  of the expected value, that a NaN is never equal to anything including itself, not even against
+  a budget of every value there is, and that a budget of three units in the last place reaches
+  six representable values below a power of two and three above it. If one of these fails,
+  nothing else the suite says can be believed.
 - **clear**, five cases, on the graphics unit: one that reports whether the graphics device came
   up at all, at no tier because it compares nothing, and four that draw. Each of the four clears a
   64 by 64 RGBA8 target and copies all 4096 pixels back to compare them. Three cover the whole
@@ -48,7 +49,7 @@ cases.
   three before it cannot catch a transposed, flipped or shuffled readback and this one can. All
   four are Exact tier: the format is integer and every clear value is a constant, so each channel
   has exactly one right byte.
-- **reference**, forty six cases, no hardware involved either. The other half of the judge: where
+- **reference**, forty seven cases, no hardware involved either. The other half of the judge: where
   clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
   the centres that sit exactly on the edge they share. It runs in both builds, because a
   reference that answered differently on the two processors would be blamed on the graphics unit.
@@ -81,20 +82,26 @@ cases.
   the transform into depth space untouched, so "the buffer holds exactly one half" is a statement
   about a bit pattern. Three of the cases are about the write rather than the test, which is the
   half a colour cannot show.
-- **texture**, eleven cases, on the graphics unit. A 4 by 4 texture drawn over the whole target, so
+- **texture**, twelve cases, on the graphics unit. A 4 by 4 texture drawn over the whole target, so
   sixteen by sixteen pixels land on each texel and every pixel names a texel this suite can work
   out. Nearest filtering with repeating, clamping to the edge and mirroring, each with a quad
   three copies wide so two thirds of it is outside the texture, and linear filtering laid out so
   the only weight the filter can use is one half and every pair of texels averages to a whole
   byte. Exact tier throughout, and what earns it is the layout: no pixel centre comes within a
-  thirty second of a texel boundary, which the reference suite measures.
+  thirty second of a texel boundary, which the reference suite measures, and no two texels the
+  linear case blends differ by more than 48, so the filter's weight would have to be wrong by one
+  part in 96 before any byte moved.
 - **fmath**, thirteen cases, on the graphics unit. Addition, multiplication, a fused multiply and
   add, division, the square root, powers and logarithms of two, the sine and the cosine, into an
   R32_Float target, compared against the same arithmetic in double precision. Units in the last
   place tier, with the budget stated per case because the specification's numbers differ per
   operation: nought for addition and multiplication, which have to be correctly rounded, one for
-  the multiply and add, three for division and the transcendentals, and an absolute two to the
-  minus eleven for the sine and the cosine, which is how the specification bounds those two. Each
+  the multiply and add, three for division and three and a half for the square root, the power
+  and the logarithm, and an absolute two to the minus eleven for the sine and the cosine, which
+  is how the specification bounds those two. Each of those numbers is the specification's plus
+  the half a unit the reference carries for being a double precision answer rounded to single,
+  and a unit in the last place is a distance rather than a count of representable values, because
+  the values just below a power of two are half as far apart as the ones just above. Each
   case reports the worst distance it saw next to the budget it allowed, so a run that passes
   still says how much room it had. Every one of those cases reports the units in the last place
   tier, including the two whose budget is nought, because a tolerance of nought is still a
