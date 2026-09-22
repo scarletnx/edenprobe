@@ -8,17 +8,29 @@ HOSTCC   ?= cc
 HOSTOUT  := build-host/gfxprobe-host
 HOSTSRC  := source/report.c source/check.c source/tests/t_selfcheck.c source/host_main.c
 
+# One object per source, so the -MMD below has somewhere to put its dependency files. Without
+# them an edited header rebuilds nothing and the run reports the previous binary's answer.
+HOSTFLAGS := -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -O1 -g -MMD -MP -Isource
+HOSTOBJ  := $(patsubst source/%.c,build-host/%.o,$(HOSTSRC))
+HOSTDEP  := $(HOSTOBJ:.o=.d)
+
 .PHONY: host host-run host-clean
 
 host: $(HOSTOUT)
 
-$(HOSTOUT): $(HOSTSRC)
-	@mkdir -p build-host
-	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -O1 -g \
-	  -Isource $(HOSTSRC) -lm -o $@
+build-host/%.o: source/%.c
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(HOSTFLAGS) -c $< -o $@
+
+$(HOSTOUT): $(HOSTOBJ)
+	$(HOSTCC) $(HOSTFLAGS) $(HOSTOBJ) -lm -o $@
 
 host-run: $(HOSTOUT)
 	./$(HOSTOUT)
 
 host-clean:
 	rm -rf build-host
+
+# Last, and with a leading dash: on the first build there are no .d files yet and that is not an
+# error. They live under build-host, so host-clean already takes them with it.
+-include $(HOSTDEP)

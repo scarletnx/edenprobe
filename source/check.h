@@ -16,14 +16,15 @@ extern "C" {
 // because every case reports the tier it claimed next to its result. Which one a case uses is a
 // claim about the hardware and belongs in the case.
 
-/// Records a case that passes when @p condition holds, under the tolerance @p tier claims. The
-/// detail is only built on failure, so a passing run pays nothing for the formatting.
+/// Records a case that passes when @p condition holds, reporting @p tier as the tolerance this
+/// comparison was held to. The detail is only built on failure, so a passing run pays nothing
+/// for the formatting.
 #define CHECK_TRUE(suite, name, tier, condition, fmt, ...)                                       \
     do {                                                                                         \
         if (condition) {                                                                         \
             ReportCase((suite), (name), (tier), true, NULL);                                     \
         } else {                                                                                 \
-            char detail_[512];                                                                    \
+            char detail_[512];                                                                   \
             snprintf(detail_, sizeof(detail_), (fmt), ##__VA_ARGS__);                            \
             ReportCase((suite), (name), (tier), false, detail_);                                 \
         }                                                                                        \

@@ -95,6 +95,9 @@ static const char *BringUp(GpuContext *gpu) {
         return "no memory for the command list";
     }
 
+    // The odd one out, and not belt and braces: dkCmdBufCreate has no error path for the
+    // wrapper above to catch, it hands a failed allocation straight back. Without this line a
+    // null handle would walk on into dkCmdBufAddMemory.
     DkCmdBufMaker cmdbuf_maker;
     dkCmdBufMakerDefaults(&cmdbuf_maker, gpu->device);
     gpu->cmdbuf = dkCmdBufCreate(&cmdbuf_maker);
@@ -234,12 +237,10 @@ void GpuClose(GpuContext *gpu) {
 
 /// Waits for everything submitted to finish, then asks whether it finished badly.
 ///
-/// The wait is not only ordering: it signals a fence asking for the caches to be written back,
-/// which is what puts drawn pixels somewhere a later copy can find them. The question after it is
-/// the other half. A queue that has faulted goes on accepting work and quietly does none of it,
-/// so without asking, one fault reads as wrong pixels in every case that follows, or as a run
-/// that stops making progress with nothing written down. The landing pad at the top of this file
-/// only covers GpuOpen; this covers everything after it.
+/// The wait also asks for the caches to be written back, which is what puts drawn pixels where a
+/// later copy can find them. Asking afterwards matters because a faulted queue goes on accepting
+/// work and quietly does none of it. Its limit is that it only sees a fault the wait returned
+/// from: one that leaves the fence unsignalled hangs here and goes unnamed.
 static void Drain(GpuContext *gpu, const char *during) {
     dkQueueWaitIdle(gpu->queue);
     if (dkQueueIsInErrorState(gpu->queue)) {
