@@ -87,8 +87,10 @@ void UiFrameDrawn(UiState *state);
 
 /// Draws one case over the whole frame. @p failed is the same array the navigation walks, so
 /// the header can say where this case sits among the failures rather than only among the cases.
+/// @p run_failures is what the whole run reported, which can be more than this list holds: a
+/// case that failed before it ever read a target back has no picture and is not here.
 void UiCompose(const UiFrame *frame, const PictureRecord *record, UiState state, uint32_t count,
-               const uint8_t *failed);
+               const uint8_t *failed, uint32_t run_failures);
 
 
 /// The four bytes of the pixel at @p x, @p y, or NULL when it is off the frame.

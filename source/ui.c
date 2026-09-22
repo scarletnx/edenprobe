@@ -177,18 +177,19 @@ static void DrawKey(const UiFrame *frame, uint32_t x, uint32_t y) {
     static const struct {
         PictureVerdict verdict;
         const char *word;
-    } KEY[3] = {
+    } KEY[4] = {
         { PICTURE_MATCHED, "accepted" },
         { PICTURE_WRONG, "refused" },
         { PICTURE_UNJUDGED, "not judged" },
+        { PICTURE_UNSET, "nobody looked" },
     };
     uint32_t at = x;
-    for (uint32_t i = 0; i < 3u; ++i) {
+    for (uint32_t i = 0; i < 4u; ++i) {
         uint8_t colour[4] = { 0, 0, 0, 0xFF };
         PictureDiffColour((uint8_t)KEY[i].verdict, colour);
         FillRect(frame, at, y, 16u, 16u, colour);
         UiText(frame, at + 22u, y, 2, DIM, KEY[i].word);
-        at += 22u + (uint32_t)strlen(KEY[i].word) * CELL * 2u + 3u * CELL * 2u;
+        at += 22u + (uint32_t)strlen(KEY[i].word) * CELL * 2u + 2u * CELL * 2u;
     }
 }
 
@@ -207,7 +208,7 @@ static const char *ViewLabel(UiView view) {
 }
 
 void UiCompose(const UiFrame *frame, const PictureRecord *record, UiState state, uint32_t count,
-               const uint8_t *failed) {
+               const uint8_t *failed, uint32_t run_failures) {
     if (frame == NULL || frame->pixels == NULL) {
         return;
     }
@@ -302,7 +303,18 @@ void UiCompose(const UiFrame *frame, const PictureRecord *record, UiState state,
     // read on the way to the other.
     DrawKey(frame, MARGIN, bottom + 12u);
 
-    const uint32_t detail_y = bottom + 44u;
+    // A case that failed before it read anything back has no picture, so it is not in this list
+    // at all. On the machine you would open this mode on, that is exactly the case you would
+    // most want to know about.
+    if (run_failures > failures) {
+        char missing[96];
+        snprintf(missing, sizeof(missing),
+                 "%u of the run's %u failures are here; the rest failed before they drew",
+                 (unsigned)failures, (unsigned)run_failures);
+        UiText(frame, MARGIN, bottom + 34u, 1, DIM, missing);
+    }
+
+    const uint32_t detail_y = bottom + 48u;
     const uint32_t room_for_lines =
         frame->height > detail_y + 32u ? (frame->height - detail_y - 32u) / 18u : 1u;
     if (record->detail[0] != '\0') {

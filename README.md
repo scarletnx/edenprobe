@@ -32,7 +32,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Ten suites, in the order they run, because each leans on the ones before it. A run is 202
+Ten suites, in the order they run, because each leans on the ones before it. A run is 206
 cases.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -41,7 +41,7 @@ cases.
   a budget of every value there is, and that a budget of three units in the last place reaches
   six representable values below a power of two and three above it. If one of these fails,
   nothing else the suite says can be believed.
-- **support**, thirty two cases, no hardware and nothing of the hardware's looked at. The two
+- **support**, thirty six cases, no hardware and nothing of the hardware's looked at. The two
   things this program does around a verdict rather than to reach one: the picture it leaves
   beside a failing case, and the screen the detailed mode shows that picture on. It checks that
   a case name becomes the file name its own line says it does, that a written picture parses
@@ -308,7 +308,10 @@ make the picture a judgement. Those formats also get their bytes verbatim in a `
 **The diff is the judge's verdict and not a comparison of the two images**, and that distinction
 is the whole reason this is safe. Dark grey means the judge accepted the pixel, red that it
 refused it, blue that it declined to judge it at all, which is the band an edge runs through in
-the rasterisation cases. A pixel inside a budget of units in the last place differs in its bytes
+the rasterisation cases. A fourth colour, magenta, means no compare loop ever looked at that
+pixel. It is there because the alternative was to start every pixel at one of the other three,
+where a loop that skipped one would be indistinguishable from one that meant to leave it alone;
+a run that shows magenta has a bug in this program and not in the machine. A pixel inside a budget of units in the last place differs in its bytes
 and is not a difference here. An image comparison would paint the entire float suite red on a
 machine that had done nothing wrong, which is precisely the failure the suite exists not to
 report.
@@ -336,8 +339,10 @@ cannot answer, which is whether a failure looks like a rendering fault or like t
 wrong.
 
 What it holds is every case that compared pixels, pass or fail, which on a full run is 80 of
-the 202 and is the number the heading counts in. The other 122 compared nothing the graphics
-unit produced and have no picture to show. It holds them in memory rather than reading back
+the 206 and is the number the heading counts in. The other 126 compared nothing the graphics
+unit produced and have no picture to show. A case that failed before it read a target back has
+no picture either, so it is not in the list; when that happens the screen says how many of the
+run's failures are missing from it rather than letting the count quietly disagree. It holds them in memory rather than reading back
 what it wrote, so a green run and a run that wrote nothing are both worth looking at, and the
 `images` word changes what is on the memory card and not what is on the screen.
 
@@ -352,8 +357,10 @@ Choose it in either of two ways, because a person and a script want different on
 - put the word `detailed` in `sdmc:/gfxprobe/mode`. The word `images` in the same file, on its
   own or beside it, also writes the pictures for the passing cases;
 - or hold **X** as the program starts. The pad is asked once it turns up, which on a machine
-  with a controller already attached is two frames, so an automatic run costs what it did
-  before.
+  with a controller already attached is a frame or two; the wait is twelve frames at the very
+  most, and it is skipped altogether when the file has already asked for the detailed mode. The
+  report is opened before any of this, so a machine that cannot read the file or reach the pad
+  still leaves a report saying how far it got.
 
 On the screen: **A** or right for the next case, **B** or left for the previous one, **down**
 and **up** for the next and previous failure, **X** to cycle between the three side by side and

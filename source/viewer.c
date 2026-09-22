@@ -17,12 +17,19 @@
 #define SCREEN_HEIGHT 720u
 
 // How long the pad is given to turn up before the launch button is given up on. A controller
-// that is already there answers in two frames, so the whole second is only ever spent on a
-// machine that has none, and an automatic run costs what it always did.
-#define PAD_WAIT_FRAMES 60
+// that is already attached answers within a frame or two; the rest of this is for one being
+// plugged in as the program starts, and it is the whole of what an automatic run pays.
+#define PAD_WAIT_FRAMES 12
+
+// How many frames of pad state the viewer ignores before it will act on a press. Long enough
+// for a controller arriving with the window to stop reporting its whole mask as new, short
+// enough that nobody notices.
+#define SETTLING_FRAMES 8u
 #define FRAME_NANOSECONDS 16000000ull
 
-static uint8_t failed[256];
+// Sized off the store's own cap rather than off a number that could drift away from it, since
+// the count below indexes this array.
+static uint8_t failed[PICTURE_MAX_RECORDS];
 
 static void ReadPad(PadState *pad) {
     padConfigureInput(1, HidNpadStyleSet_NpadStandard);
@@ -84,8 +91,11 @@ void ViewerRun(void) {
     if (ReportIsOpen()) {
         return;
     }
-    const size_t count = PictureCount();
-    for (size_t i = 0; i < count && i < sizeof(failed); ++i) {
+    size_t count = PictureCount();
+    if (count > sizeof(failed)) {
+        count = sizeof(failed);
+    }
+    for (size_t i = 0; i < count; ++i) {
         const PictureRecord *const record = PictureAt(i);
         failed[i] = record != NULL && !record->passed ? 1u : 0u;
     }
@@ -106,14 +116,27 @@ void ViewerRun(void) {
     ReadPad(&pad);
     UiState state = UiStart(failed, (uint32_t)count);
 
+    // The first few frames of pad state are thrown away. A controller that turns up while the
+    // loop is starting reports its whole button mask as newly pressed, and the screen answered
+    // those before a person had touched anything.
+    uint32_t settling = SETTLING_FRAMES;
+
     while (appletMainLoop() && !state.quit) {
         padUpdate(&pad);
-        state = UiStep(state, InputFrom(padGetButtonsDown(&pad)), failed, (uint32_t)count);
+        const uint64_t pressed = padGetButtonsDown(&pad);
+        UiInput input = UI_INPUT_NONE;
+        if (settling > 0u) {
+            --settling;
+        } else {
+            input = InputFrom(pressed);
+        }
+        state = UiStep(state, input, failed, (uint32_t)count);
         if (state.changed) {
             uint32_t stride = 0;
             UiFrame frame = { (uint8_t *)framebufferBegin(&fb, &stride), SCREEN_WIDTH,
                               SCREEN_HEIGHT, stride };
-            UiCompose(&frame, PictureAt(state.index), state, (uint32_t)count, failed);
+            UiCompose(&frame, PictureAt(state.index), state, (uint32_t)count, failed,
+                      (uint32_t)ReportFailed());
             framebufferEnd(&fb);
             UiFrameDrawn(&state);
         }

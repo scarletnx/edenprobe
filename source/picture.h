@@ -34,10 +34,14 @@ typedef enum {
 typedef enum {
     PICTURE_MATCHED,
     PICTURE_WRONG,
-    /// Judged by nobody: the band an edge runs through, where the coverage rule allows either
-    /// answer. Its expected pixel is the one the machine drew, so the expected picture shows
-    /// what this run accepted.
+    /// Judged by nobody on purpose: the band an edge runs through, where the coverage rule
+    /// allows either answer. Its expected pixel is the one the machine drew, so the expected
+    /// picture shows what this run accepted.
     PICTURE_UNJUDGED,
+    /// Nobody looked at all, which is what every pixel starts as. A colour of its own, because
+    /// a compare loop that skipped a pixel would otherwise look like one that meant to leave it
+    /// alone.
+    PICTURE_UNSET,
 } PictureVerdict;
 
 /// The longest path a picture field carries. Long enough for the longest case name this suite
@@ -48,6 +52,11 @@ typedef enum {
 /// static so that collecting one can never fail for want of memory, and a target past this
 /// size gets no picture rather than a partial one.
 #define PICTURE_MAX_DIMENSION 128u
+
+/// The most finished cases the detailed mode can hold. The array behind it is allocated the
+/// first time a case is retained, so an automatic run pays nothing for it; the viewer's own
+/// side array is sized off this same constant rather than off a number that could drift.
+#define PICTURE_MAX_RECORDS 256
 
 /// One case's picture while the judge is still filling it in.
 typedef struct {
@@ -134,8 +143,8 @@ const PictureRecord *PictureAt(size_t index);
 /// digits kept, everything else a dash, no run of dashes and none at either end.
 void PictureStem(char *out, size_t out_size, const char *name);
 
-/// The three colours a diff is drawn in, by verdict. One table, so the picture on the memory
-/// card and the one on a screen cannot come to mean different things.
+/// The colours a diff is drawn in, by verdict. One table, so the picture on the memory card
+/// and the one on a screen cannot come to mean different things.
 void PictureDiffColour(uint8_t verdict, uint8_t out[3]);
 
 #ifdef __cplusplus
