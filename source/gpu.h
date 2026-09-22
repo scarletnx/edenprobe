@@ -41,6 +41,15 @@ void GpuClose(GpuContext *gpu);
 /// Clears the whole target to one colour and waits for the queue to drain.
 void GpuClear(GpuContext *gpu, float red, float green, float blue, float alpha);
 
+/// Clears only the rectangle at @p x, @p y of size @p width by @p height, and drains the queue.
+///
+/// Everything outside keeps whatever it held, which is what lets a case be position sensitive: a
+/// target cleared all over holds the same four bytes everywhere, so a readback that transposed
+/// or shuffled it would still look right. A rectangle that does not fit is not clamped, it
+/// leaves the context unusable with `failure` saying so.
+void GpuClearRect(GpuContext *gpu, uint32_t x, uint32_t y, uint32_t width, uint32_t height,
+                  float red, float green, float blue, float alpha);
+
 /// Copies the target into CPU-visible memory and hands back a pointer to it.
 ///
 /// The pixels are RGBA8 in row order, `width * height * 4` bytes. Valid until the next call.

@@ -20,10 +20,10 @@ TOOLS    := $(DEVKITPRO)/tools/bin
 # The processor in the console, and the position independence its loader expects.
 ARCH     := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 
-# -ffunction-sections with --gc-sections so an unused suite costs nothing in the binary that
-# ships. Warnings are errors because this program's whole job is to be trusted about small
-# numerical differences, and a warning here is usually about exactly that.
-CFLAGS   := $(ARCH) -g -O2 -ffunction-sections -fdata-sections \
+# Warnings are errors because this program's whole job is to be trusted about small numerical
+# differences. -MMD -MP is what makes an edited header rebuild the objects that read it, so a run
+# can never be reporting a stale binary's answer.
+CFLAGS   := $(ARCH) -g -O2 -ffunction-sections -fdata-sections -MMD -MP \
             -Wall -Wextra -Werror -Wno-unused-parameter \
             -D__SWITCH__ -I$(LIBNX)/include -Isource
 # --wrap on the abort is what lets GpuOpen report a failed bring-up instead of dying: the
@@ -39,6 +39,7 @@ LIBS     := -L$(LIBNX)/lib -ldeko3d -lnx
 HOSTONLY := source/host_main.c
 CFILES   := $(filter-out $(HOSTONLY),$(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c)))
 OFILES   := $(patsubst %.c,$(BUILD)/%.o,$(CFILES))
+DFILES   := $(OFILES:.o=.d)
 
 .PHONY: all clean run
 
@@ -56,6 +57,10 @@ $(TARGET).nro: $(TARGET).elf
 
 clean:
 	rm -rf $(BUILD) $(TARGET).elf $(TARGET).nro
+
+# Last, and with a leading dash: on the first build there are no .d files yet and that is not an
+# error. They live under $(BUILD), so clean already takes them with it.
+-include $(DFILES)
 
 # Runs the binary under the emulator and shows what it reported. EMULATOR points at the build
 # being tested, which is the whole point: the same .nro goes to the console unchanged.
