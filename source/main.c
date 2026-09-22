@@ -32,6 +32,7 @@ int main(int argc, char **argv) {
     RunIntmath();
     RunBlend();
     RunDepth();
+    RunTexture();
     ReportSummary();
 
     ReportClose();

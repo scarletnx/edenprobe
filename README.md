@@ -30,7 +30,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Seven suites, in the order they run, because each leans on the ones before it.
+Eight suites, in the order they run, because each leans on the ones before it.
 
 - **selfcheck**, seven cases, no hardware involved. That two neighbouring floats measure one unit
   apart, that a zero budget rejects them, that a NaN is never equal to anything including itself.
@@ -76,6 +76,13 @@ Seven suites, in the order they run, because each leans on the ones before it.
   the transform into depth space untouched, so "the buffer holds exactly one half" is a statement
   about a bit pattern. Three of the cases are about the write rather than the test, which is the
   half a colour cannot show.
+- **texture**, ten cases, on the graphics unit. A 4 by 4 texture drawn over the whole target, so
+  sixteen by sixteen pixels land on each texel and every pixel names a texel this suite can work
+  out. Nearest filtering with repeating, clamping to the edge and mirroring, each with a quad
+  three copies wide so two thirds of it is outside the texture, and linear filtering laid out so
+  the only weight the filter can use is one half and every pair of texels averages to a whole
+  byte. Exact tier throughout, and what earns it is the layout: no pixel centre comes within a
+  thirty second of a texel boundary, which the reference suite measures.
 
 Nothing is ever put on a screen. The target is offscreen and the program reads it back itself,
 which keeps the compositor, the swapchain and vertical sync out of a test that is about none of

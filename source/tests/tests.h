@@ -38,6 +38,10 @@ void RunBlend(void);
 
 /// The depth test, the depth write and the depth buffer's own contents.
 void RunDepth(void);
+
+/// Texture sampling: the texel a coordinate names, the wrap modes, and a filter weight of
+/// exactly one half.
+void RunTexture(void);
 #endif
 
 #ifdef __cplusplus

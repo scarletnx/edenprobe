@@ -17,6 +17,7 @@ typedef enum {
     SHADER_COMMON_VERT,
     SHADER_FLAT_FRAG,
     SHADER_INTMATH_FRAG,
+    SHADER_TEXTURE_FRAG,
     SHADER_COUNT,
 } ShaderId;
 
