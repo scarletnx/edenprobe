@@ -9,9 +9,11 @@ answer it got. Nothing here needs a person to look at the screen and judge.
 ## Why not compare screenshots
 
 Because two correct implementations are allowed to disagree, and the specification says so. The
-graphics API requires division to land within 2.5 units in the last place, the exponential and
-logarithm within 3, and sine and cosine only within an absolute error of 2^-11. Sub-pixel
-rasterisation precision is a limit each implementation reports, not a constant. A hash of a
+graphics API requires division to land within 2.5 units in the last place, the logarithm within
+3 outside the range from a half to two, the power of two within 3 plus twice the magnitude of
+its argument, and the sine and cosine only within an absolute error of 2^-11 and only inside
+minus pi to pi. Sub-pixel rasterisation precision is a limit each implementation reports, not a
+constant. A hash of a
 shaded frame therefore breaks between two machines that are both right, and the projects that
 took that route maintain one reference image per backend, per driver, per operating system, and
 still chase false positives.
@@ -30,7 +32,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Nine suites, in the order they run, because each leans on the ones before it. A run is 147
+Nine suites, in the order they run, because each leans on the ones before it. A run is 152
 cases.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -49,12 +51,15 @@ cases.
   three before it cannot catch a transposed, flipped or shuffled readback and this one can. All
   four are Exact tier: the format is integer and every clear value is a constant, so each channel
   has exactly one right byte.
-- **reference**, forty seven cases, no hardware involved either. The other half of the judge: where
+- **reference**, forty nine cases, no hardware involved either. The other half of the judge: where
   clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
   the centres that sit exactly on the edge they share. It runs in both builds, because a
   reference that answered differently on the two processors would be blamed on the graphics unit.
   It also projects the very clip space numbers the rasterisation cases hand the hardware, so what
-  it proves is the geometry those cases draw and not a restatement of it.
+  it proves is the geometry those cases draw and not a restatement of it, and it pins fifteen
+  transcendental answers as bit patterns worked out to fifty digits away from any C library, so
+  that a runtime which drifts moves an expected value on one machine and says so there rather
+  than inside a float case.
 - **raster**, ten cases, on the graphics unit. A triangle or a quad drawn in one flat colour
   through a vertex and a fragment shader compiled into the binary, with every pixel compared to
   what the coverage rule says. Exact for pixels at least half a pixel from every edge, position
@@ -76,12 +81,15 @@ cases.
   built to land at least 0.49 of a step away from one and the reference suite measures that
   rather than taking it on trust. Two of the cases set both factors to zero under the minimum and
   the maximum, because the specification says those two equations ignore the factors entirely.
-- **depth**, fourteen cases, on the graphics unit. One quad laid down at a known depth and a
-  second one challenging it with each compare operation, plus the depth buffer read back and
+- **depth**, seventeen cases, on the graphics unit. One quad laid down at a known depth and a
+  second one challenging it, once for each of the eight compare operations the graphics library
+  offers, with eleven cases between them because four of the eight differ from another only on an
+  equal depth and are worth asking about on both sides of it. Plus the depth buffer read back and
   compared as a float bit for bit. Exact tier: the depths are 0.25, 0.5 and 0.75, which survive
   the transform into depth space untouched, so "the buffer holds exactly one half" is a statement
-  about a bit pattern. Three of the cases are about the write rather than the test, which is the
-  half a colour cannot show.
+  about a bit pattern, and an equal depth really is an equality rather than two numbers that came
+  out close. Three of the cases are about the write rather than the test, which is the half a
+  colour cannot show.
 - **texture**, twelve cases, on the graphics unit. A 4 by 4 texture drawn over the whole target, so
   sixteen by sixteen pixels land on each texel and every pixel names a texel this suite can work
   out. Nearest filtering with repeating, clamping to the edge and mirroring, each with a quad
@@ -94,20 +102,44 @@ cases.
 - **fmath**, thirteen cases, on the graphics unit. Addition, multiplication, a fused multiply and
   add, division, the square root, powers and logarithms of two, the sine and the cosine, into an
   R32_Float target, compared against the same arithmetic in double precision. Units in the last
-  place tier, with the budget stated per case because the specification's numbers differ per
-  operation: nought for addition and multiplication, which have to be correctly rounded, one for
-  the multiply and add, three for division and three and a half for the square root, the power
-  and the logarithm, and an absolute two to the minus eleven for the sine and the cosine, which
-  is how the specification bounds those two. Each of those numbers is the specification's plus
-  the half a unit the reference carries for being a double precision answer rounded to single,
-  and a unit in the last place is a distance rather than a count of representable values, because
-  the values just below a power of two are half as far apart as the ones just above. Each
-  case reports the worst distance it saw next to the budget it allowed, so a run that passes
-  still says how much room it had. Every one of those cases reports the units in the last place
-  tier, including the two whose budget is nought, because a tolerance of nought is still a
-  tolerance and a float shader does not qualify for Exact; the one case that does is the guard,
-  which copies a float through a uniform buffer and computes nothing. It runs last because it is
-  the only suite where two correct machines are allowed to disagree.
+  place tier, with the budget per case, because the tables give each operation a different figure
+  and two of them are not even the same shape. They all come from one place, named in
+  `source/fmathref.h`: the Vulkan specification's precision tables, core for the operations that
+  are core instructions and GLSL.std.450 for the rest. That choice is not arbitrary. The shading
+  language's own specification leaves the trigonometric functions undefined, so a suite leaning
+  on it would have no figure at all for two of these nine; the Vulkan tables cover all nine, and
+  they are the right ones to hold an emulator to. What they give, and what each case therefore
+  allows:
+
+  | operation | the table | what the case allows |
+  |---|---|---|
+  | addition, multiplication | correctly rounded | nought |
+  | a multiply and an add | inherited from a multiply and an add | 1.5 |
+  | division | 2.5 | 3 |
+  | the square root | inherited from one over the inverse square root, which is 2 and 2.5 | 5 |
+  | two to the power of x | 3 plus twice the magnitude of x | 3.5 plus 2 per unit of it |
+  | the logarithm to base two | 3 outside the range from a half to two | 3.5 |
+  | the sine and the cosine | an absolute 2^-11 inside minus pi to pi | the same |
+
+  Most of those carry half a unit on top of the table's figure, for the reference itself being a
+  double precision answer rounded to single. Three do not, and each says why on its own line:
+  addition and multiplication are exact in double precision before the rounding, the multiply and
+  add is measured against the processor's own fused one which is the exact answer, and the sine
+  and cosine's budget is two thousand times larger than anything the reference could contribute.
+  The power of two is the only budget that is not a constant, because the table's figure for it
+  is not one: over the range this case sweeps the allowance runs from three and a half to eleven
+  and a half, and a flat number would either fail a correct machine at the ends or wave the
+  middle through.
+
+  A unit in the last place is a distance and not a count of representable values, because the
+  values just below a power of two are half as far apart as the ones just above, and the suite's
+  own answers land on powers of two often. Each case reports the worst error it saw next to the
+  allowance it had, so a run that passes still says how much room was left. Every case that
+  computes something reports the units in the last place tier, including the two whose budget is
+  nought, because a tolerance of nought is still a tolerance and a float shader does not qualify
+  for Exact; the one case that does is the guard, which copies a float through a uniform buffer
+  and computes nothing. The suite runs last because it is the only one where two correct
+  machines are allowed to disagree.
 
 Nothing is ever put on a screen. The target is offscreen and the program reads it back itself,
 which keeps the compositor, the swapchain and vertical sync out of a test that is about none of
@@ -162,12 +194,14 @@ diffing two reports has no way to know which one a case used otherwise. The valu
 `ulp` and `position`, and one more that is not a tier at all: `none`.
 
 `none` is for any line, in any suite, that reports no comparison of something the hardware
-produced. The tier describes the comparison the line carries, not the ambition of the case that
-wrote it, so three different kinds of line get it: every selfcheck case, whose subject is this
-program's own arithmetic; the case that reports whether the graphics device came up; and a
-drawing case that was stopped before it could compare anything, which still reports the reason in
-its detail. Calling any of those `exact` would read, in a diff, as a passing claim about a machine
-that was never asked anything.
+produced. That is the whole rule, and it is worth stating as a rule rather than as a list,
+because the list is longer than it looks: the two suites that judge this program's own
+arithmetic, every case that reports whether some precondition held rather than what came out of
+it, from the device coming up to a shader loading to a texture reaching the graphics unit, and
+any drawing case that was stopped before it could compare anything, which still reports the
+reason in its detail. The tier describes the comparison the line carries, not the ambition of the
+case that wrote it. Calling any of those `exact` would read, in a diff, as a passing claim about
+a machine that was never asked anything.
 
 A run that dies halfway still leaves everything up to its last finished case, and the final line
 carries the counts so a runner does not have to parse the rest.

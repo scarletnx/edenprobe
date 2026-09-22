@@ -21,6 +21,29 @@ float FMathInputB(uint32_t y) {
     return ((float)y + 1.0f) * (1.0f / 64.0f);
 }
 
+float FMathArgument(FMathMode mode, uint32_t x, uint32_t y) {
+    const float a = FMathInputA(x);
+    switch (mode) {
+    case FMATH_EXP2:
+        // Eight times a whole number over 64, less four. Exact in single precision, and the
+        // magnitude of it is what the power of two's budget grows with.
+        return a * 8.0f - 4.0f;
+    case FMATH_LOG2:
+        // A quarter of the operand, and the quarter is not decoration. The table bounds the
+        // logarithm by units in the last place only outside the range from a half to two, and by
+        // an absolute error inside it; a quarter of a number that is at most one is at most a
+        // quarter, so every input here is outside that range and one budget covers them all.
+        return a * 0.25f;
+    case FMATH_SINE:
+    case FMATH_COSINE:
+        // Six times a number at most one, less three, so the range is inside minus pi to pi,
+        // which is the only range the table bounds these two over at all.
+        return a * 6.0f - 3.0f;
+    default:
+        return a;
+    }
+}
+
 float FMathReference(FMathMode mode, uint32_t x, uint32_t y, float probe) {
     const float a = FMathInputA(x);
     const float b = FMathInputB(y);
@@ -46,20 +69,13 @@ float FMathReference(FMathMode mode, uint32_t x, uint32_t y, float probe) {
     case FMATH_SQUARE_ROOT:
         return (float)sqrt((double)a);
     case FMATH_EXP2:
-        // The argument is built the way the shader builds it, in single precision, where it is
-        // exact: eight times a whole number over 64, less four.
-        return (float)exp2((double)(a * 8.0f - 4.0f));
+        return (float)exp2((double)FMathArgument(mode, x, y));
     case FMATH_LOG2:
-        // A quarter of the operand, and the quarter is not decoration. The specification bounds
-        // the logarithm by units in the last place only outside the range from a half to two,
-        // and by an absolute error inside it; a quarter of a number that is at most one is at
-        // most a quarter, so every input here is outside that range and one budget covers them
-        // all.
-        return (float)log2((double)(a * 0.25f));
+        return (float)log2((double)FMathArgument(mode, x, y));
     case FMATH_SINE:
-        return (float)sin((double)(a * 6.0f - 3.0f));
+        return (float)sin((double)FMathArgument(mode, x, y));
     case FMATH_COSINE:
-        return (float)cos((double)(a * 6.0f - 3.0f));
+        return (float)cos((double)FMathArgument(mode, x, y));
     case FMATH_MODE_COUNT:
         break;
     }
@@ -69,45 +85,80 @@ float FMathReference(FMathMode mode, uint32_t x, uint32_t y, float probe) {
 FMathBudget FMathBudgetFor(FMathMode mode) {
     switch (mode) {
     case FMATH_UNIFORM:
-        return (FMathBudget){ false, 0.0f, 0.0f, "a value copied, not computed" };
+        return (FMathBudget){ false, 0.0f, 0.0f, 0.0f,
+                              "0 units in the last place: nothing is computed, the value is "
+                              "copied through a uniform buffer and written out again" };
     case FMATH_ADD:
     case FMATH_MULTIPLY:
-        return (FMathBudget){ false, 0.0f, 0.0f,
-                              "the specification requires addition and multiplication to be "
-                              "correctly rounded, and the reference is exact" };
+        return (FMathBudget){ false, 0.0f, 0.0f, 0.0f,
+                              "0 units in the last place: the core table requires addition and "
+                              "multiplication to be correctly rounded, so there is one right "
+                              "answer, and the reference reaches it exactly because the sum and "
+                              "the product of two single precision numbers are exact in double "
+                              "precision" };
     case FMATH_MULTIPLY_ADD:
-        return (FMathBudget){ false, 1.0f, 0.0f,
-                              "one, not nought, because fusing the multiply into the add is only "
-                              "guaranteed for a result the shader marks precise, and an unfused "
-                              "implementation is a unit away from the fused reference" };
+        return (FMathBudget){ false, 1.5f, 0.0f, 0.0f,
+                              "1.5 units in the last place: the table inherits this one from a "
+                              "multiply and an add, so an implementation that does not fuse them "
+                              "rounds twice where the fused reference rounds once. Each of the "
+                              "three roundings is at most half a unit of its own result, and "
+                              "both operands here are positive so the sum is the largest of the "
+                              "three and its unit is the largest, which bounds the lot at one "
+                              "and a half of them. The reference itself adds nothing: the "
+                              "processor's fused multiply and add is the exact answer" };
     case FMATH_DIVIDE:
-        return (FMathBudget){ false, 3.0f, 0.0f,
-                              "2.5 from the specification plus the half the reference may carry "
-                              "for being a double precision answer rounded to single, which is "
-                              "three exactly" };
+        return (FMathBudget){ false, 3.0f, 0.0f, 0.0f,
+                              "3 units in the last place: 2.5 for division in the core table, "
+                              "plus the half the reference carries for being a double precision "
+                              "answer rounded to single" };
     case FMATH_SQUARE_ROOT:
-        return (FMathBudget){ false, 3.5f, 0.0f,
-                              "3 from the specification, which derives the square root's bound "
-                              "from the inverse square root's, plus the half the reference may "
-                              "carry" };
+        return (FMathBudget){ false, 5.0f, 0.0f, 0.0f,
+                              "5 units in the last place: the table gives the square root no "
+                              "figure of its own and inherits it from one over the inverse "
+                              "square root, which is 2 for the inverse square root and 2.5 for "
+                              "the division, plus the half the reference carries. Three would be "
+                              "a number from somewhere else" };
     case FMATH_EXP2:
+        // The only budget here that is not a constant. Written as the table writes it.
+        return (FMathBudget){ false, 3.5f, 2.0f, 0.0f,
+                              "3.5 plus 2 per unit of the argument: the table allows three plus "
+                              "twice the magnitude of the argument, and the half the reference "
+                              "carries goes on the constant. Over the range this case sweeps "
+                              "that is three and a half at the smallest argument and eleven and "
+                              "a half at the largest, and a flat three would fail a machine "
+                              "that was inside its allowance everywhere but the middle" };
     case FMATH_LOG2:
-        return (FMathBudget){ false, 3.5f, 0.0f,
-                              "3 from the specification plus the half the reference may "
-                              "carry" };
+        return (FMathBudget){ false, 3.5f, 0.0f, 0.0f,
+                              "3.5 units in the last place: 3 from the table, which is the "
+                              "figure that applies outside the range from a half to two, where "
+                              "this operand is kept, plus the half the reference carries" };
     case FMATH_SINE:
     case FMATH_COSINE:
-        // Two to the minus eleven, which is what the specification asks for over the range where
-        // it asks for anything at all. The reference's own error is under a ten millionth, more
-        // than a thousand times smaller, so it does not need adding on.
-        return (FMathBudget){ true, 0.0f, 1.0f / 2048.0f,
-                              "the specification bounds the sine and the cosine by an absolute "
-                              "error of two to the minus eleven, not by units in the last "
-                              "place" };
+        // The reference's own error is under a ten millionth, more than a thousand times smaller
+        // than the budget, so it does not need adding on.
+        return (FMathBudget){ true, 0.0f, 0.0f, 1.0f / 2048.0f,
+                              "0.000488281 absolute, which is two to the minus eleven: the table "
+                              "bounds these two by an absolute error inside minus pi to pi and "
+                              "not by units in the last place at all. The shading language's own "
+                              "specification leaves them undefined, which is the clearest reason "
+                              "this suite holds itself to the other one" };
     case FMATH_MODE_COUNT:
         break;
     }
-    return (FMathBudget){ false, 0.0f, 0.0f, "unknown" };
+    return (FMathBudget){ false, 0.0f, 0.0f, 0.0f, "0 units in the last place: unknown" };
+}
+
+float FMathAllowedUlps(FMathMode mode, uint32_t x, uint32_t y) {
+    const FMathBudget budget = FMathBudgetFor(mode);
+    if (budget.absolute) {
+        return 0.0f;
+    }
+    if (budget.ulps_per_argument == 0.0f) {
+        return budget.ulps;
+    }
+    const float argument = FMathArgument(mode, x, y);
+    const float magnitude = argument < 0.0f ? -argument : argument;
+    return budget.ulps + budget.ulps_per_argument * magnitude;
 }
 
 const char *FMathName(FMathMode mode) {
