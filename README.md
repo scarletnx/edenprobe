@@ -30,7 +30,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Six suites, in the order they run, because each leans on the ones before it.
+Seven suites, in the order they run, because each leans on the ones before it.
 
 - **selfcheck**, seven cases, no hardware involved. That two neighbouring floats measure one unit
   apart, that a zero budget rejects them, that a NaN is never equal to anything including itself.
@@ -70,6 +70,12 @@ Six suites, in the order they run, because each leans on the ones before it.
   built to land at least 0.49 of a step away from one and the reference suite measures that
   rather than taking it on trust. Two of the cases set both factors to zero under the minimum and
   the maximum, because the specification says those two equations ignore the factors entirely.
+- **depth**, thirteen cases, on the graphics unit. One quad laid down at a known depth and a
+  second one challenging it with each compare operation, plus the depth buffer read back and
+  compared as a float bit for bit. Exact tier: the depths are 0.25, 0.5 and 0.75, which survive
+  the transform into depth space untouched, so "the buffer holds exactly one half" is a statement
+  about a bit pattern. Three of the cases are about the write rather than the test, which is the
+  half a colour cannot show.
 
 Nothing is ever put on a screen. The target is offscreen and the program reads it back itself,
 which keeps the compositor, the swapchain and vertical sync out of a test that is about none of

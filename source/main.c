@@ -31,6 +31,7 @@ int main(int argc, char **argv) {
     RunRaster();
     RunIntmath();
     RunBlend();
+    RunDepth();
     ReportSummary();
 
     ReportClose();

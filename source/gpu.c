@@ -542,6 +542,18 @@ void GpuClearDepth(GpuContext *gpu, float depth) {
         return;
     }
     GpuBeginPass(gpu);
+
+    // A clear goes through the same unit an ordinary fragment does, and the graphics library
+    // leaves the depth write state alone, so the mask GpuBeginPass closed has to be opened here
+    // or the clear never lands. The test stays off, so nothing the buffer already held can
+    // reject it.
+    DkDepthStencilState writing;
+    dkDepthStencilStateDefaults(&writing);
+    writing.depthTestEnable = 0;
+    writing.depthWriteEnable = 1;
+    writing.stencilTestEnable = 0;
+    dkCmdBufBindDepthStencilState(gpu->cmdbuf, &writing);
+
     // Depth only: the stencil mask is zero, so a format that carries stencil keeps whatever it
     // had and no case here can accidentally be reading a stencil clear instead of a depth one.
     dkCmdBufClearDepthStencil(gpu->cmdbuf, true, depth, 0, 0);
