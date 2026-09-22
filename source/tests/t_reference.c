@@ -7,6 +7,7 @@
 
 #include "../blendref.h"
 #include "../check.h"
+#include "../fmathref.h"
 #include "../intref.h"
 #include "../raster.h"
 #include "../texref.h"
@@ -555,6 +556,113 @@ static void CheckTextureCoordinates(void) {
                (unsigned)not_half, worst_weight_error, (unsigned)wrong_pair);
 }
 
+/// The float reference: its inputs, its own arithmetic, and the budgets it hands out.
+static void CheckFloatArithmetic(void) {
+    // The processor's fused multiply and add has to really be fused, or the multiply and add
+    // case compares against the wrong one of the two answers. These three numbers separate them:
+    // rounding twice gives nothing at all, and rounding once gives the difference itself.
+    const float epsilon = 1.0f / 8388608.0f;
+    const float above = 1.0f + epsilon;
+    const float below = 1.0f - epsilon;
+    const float fused = fmaf(above, below, -1.0f);
+    const float unfused = above * below - 1.0f;
+    const float difference = -1.0f / 70368744177664.0f;
+    CHECK_TRUE(SUITE, "the reference's multiply and add rounds once, not twice", CHECK_NONE,
+               fused == difference && unfused == 0.0f,
+               "fused gave %.9g and unfused gave %.9g, expected %.9g and 0", (double)fused,
+               (double)unfused, (double)difference);
+
+    // Every operand and argument the shader forms has to be exactly representable, or the
+    // reference answers a different question from the one the hardware was asked. Checked by
+    // forming each one in single and in double precision and requiring the two to agree.
+    uint32_t inexact = 0;
+    uint32_t log_in_range = 0;
+    uint32_t trig_out_of_range = 0;
+    uint32_t not_finite = 0;
+    for (uint32_t x = 0; x < 64u; ++x) {
+        const float a = FMathInputA(x);
+        if ((double)a != ((double)x + 1.0) / 64.0) {
+            ++inexact;
+        }
+        if ((double)(a * 8.0f - 4.0f) != (double)a * 8.0 - 4.0) {
+            ++inexact;
+        }
+        if ((double)(a * 0.25f) != (double)a * 0.25) {
+            ++inexact;
+        }
+        if ((double)(a * 6.0f - 3.0f) != (double)a * 6.0 - 3.0) {
+            ++inexact;
+        }
+        // The logarithm's operand has to stay outside the range from a half to two, where the
+        // specification swaps its budget for an absolute one. That is what the quarter is for.
+        if (a * 0.25f >= 0.5f) {
+            ++log_in_range;
+        }
+        // And the sine and the cosine have to stay inside minus pi to pi, which is the only
+        // range the specification bounds them over at all.
+        const float angle = a * 6.0f - 3.0f;
+        if (angle < -3.14159265f || angle > 3.14159265f) {
+            ++trig_out_of_range;
+        }
+    }
+    CHECK_TRUE(SUITE, "every float operand and argument is exactly representable", CHECK_NONE,
+               inexact == 0, "%u of 256 formed values differed between single and double",
+               (unsigned)inexact);
+    CHECK_TRUE(SUITE, "the logarithm's operand stays where one budget covers it", CHECK_NONE,
+               log_in_range == 0, "%u of 64 operands landed inside the range from a half to two",
+               (unsigned)log_in_range);
+    CHECK_TRUE(SUITE, "the sine and cosine angles stay inside minus pi to pi", CHECK_NONE,
+               trig_out_of_range == 0, "%u of 64 angles left the range", (unsigned)trig_out_of_range);
+
+    // Addition and multiplication of two floats are exact in double, so rounding the double
+    // answer back gives what a float operation would have given. Those two cases allow no
+    // tolerance at all and that is the reason they can.
+    uint32_t add_differs = 0;
+    uint32_t multiply_differs = 0;
+    for (uint32_t y = 0; y < 64u; ++y) {
+        for (uint32_t x = 0; x < 64u; ++x) {
+            const float a = FMathInputA(x);
+            const float b = FMathInputB(y);
+            if (FMathReference(FMATH_ADD, x, y, 0.0f) != a + b) {
+                ++add_differs;
+            }
+            if (FMathReference(FMATH_MULTIPLY, x, y, 0.0f) != a * b) {
+                ++multiply_differs;
+            }
+            for (uint32_t mode = 0; mode < FMATH_MODE_COUNT; ++mode) {
+                const float value = FMathReference((FMathMode)mode, x, y, 1.0f);
+                if (isnan(value) || isinf(value)) {
+                    ++not_finite;
+                }
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "the reference's addition is the one a float would have done", CHECK_NONE,
+               add_differs == 0, "%u of 4096 sums differed", (unsigned)add_differs);
+    CHECK_TRUE(SUITE, "the reference's multiplication is the one a float would have done",
+               CHECK_NONE, multiply_differs == 0, "%u of 4096 products differed",
+               (unsigned)multiply_differs);
+    CHECK_TRUE(SUITE, "no float case produces an infinity or a nan", CHECK_NONE, not_finite == 0,
+               "%u of 40960 reference values were not finite", (unsigned)not_finite);
+
+    // And the budgets themselves, stated here so that loosening one is a change to this file as
+    // well as to the one that hands it out.
+    const FMathBudget add = FMathBudgetFor(FMATH_ADD);
+    const FMathBudget multiply_add = FMathBudgetFor(FMATH_MULTIPLY_ADD);
+    const FMathBudget divide = FMathBudgetFor(FMATH_DIVIDE);
+    const FMathBudget logarithm = FMathBudgetFor(FMATH_LOG2);
+    const FMathBudget sine = FMathBudgetFor(FMATH_SINE);
+    const bool budgets_as_documented =
+        !add.absolute && add.ulps == 0u && !multiply_add.absolute && multiply_add.ulps == 1u &&
+        !divide.absolute && divide.ulps == 3u && !logarithm.absolute && logarithm.ulps == 3u &&
+        sine.absolute && sine.limit == 1.0f / 2048.0f;
+    CHECK_TRUE(SUITE, "the float budgets are the ones the README names", CHECK_NONE,
+               budgets_as_documented,
+               "addition %u, multiply and add %u, division %u, logarithm %u, sine %.9g absolute",
+               (unsigned)add.ulps, (unsigned)multiply_add.ulps, (unsigned)divide.ulps,
+               (unsigned)logarithm.ulps, (double)sine.limit);
+}
+
 void RunReference(void) {
     CheckViewportTransform();
     CheckCoverageRule();
@@ -564,4 +672,5 @@ void RunReference(void) {
     CheckBlendArithmetic();
     CheckWrapModes();
     CheckTextureCoordinates();
+    CheckFloatArithmetic();
 }

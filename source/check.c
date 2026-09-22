@@ -37,6 +37,20 @@ bool CheckFloatUlp(float produced, float expected, uint32_t ulps) {
     return distance <= ulps;
 }
 
+bool CheckFloatAbs(float produced, float expected, float limit) {
+    if (isnan(produced) || isnan(expected)) {
+        return false;
+    }
+    if (produced == expected) {
+        return true;
+    }
+    if (isinf(produced) || isinf(expected)) {
+        return false;
+    }
+    const float difference = produced - expected;
+    return (difference < 0.0f ? -difference : difference) <= limit;
+}
+
 bool CheckChannel(uint8_t produced, uint8_t expected, uint8_t threshold) {
     const int difference = (int)produced - (int)expected;
     const int magnitude = difference < 0 ? -difference : difference;

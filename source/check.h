@@ -37,6 +37,13 @@ extern "C" {
 /// a NaN is never equal.
 bool CheckFloatUlp(float produced, float expected, uint32_t ulps);
 
+/// Whether two 32-bit floats agree to within @p limit measured as a plain difference.
+///
+/// The shape the specification uses for the sine and the cosine, and it has to: near a zero
+/// crossing the answer's own magnitude goes to nothing, so any relative budget there is a
+/// tighter claim than the specification makes. Same two refusals as the comparison above.
+bool CheckFloatAbs(float produced, float expected, float limit);
+
 /// Whether two 8-bit channel values agree to within @p threshold.
 bool CheckChannel(uint8_t produced, uint8_t expected, uint8_t threshold);
 
