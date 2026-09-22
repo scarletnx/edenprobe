@@ -102,16 +102,16 @@ void BlendReference(const BlendSpec *spec, const uint8_t source[4], const uint8_
     }
 }
 
-// The cases, here rather than in the suite that draws them, so that the reference suite can walk
-// the same table with no device present and prove two things about every one of them before a
-// console is involved: that the arithmetic in the comment is the arithmetic the reference does,
-// and that no result lands near the halfway point between two bytes, which is what makes the
-// exact tier legal for a format that has to round.
+// The cases, here rather than in the suite that draws them, so the reference suite can walk the
+// same table with no device and check three things: that the arithmetic in the comment is the
+// arithmetic the reference does, that no result lands near the halfway point between two bytes,
+// and that no case asks for an alpha destination factor of its own.
 //
-// Every operand below is a byte, and a byte survives the trip to a float and back untouched:
-// dividing by 255 and multiplying again gives the byte exactly for all 256 of them, which the
-// reference suite checks. So the source colour the vertex carries and the destination colour the
-// clear leaves are both exactly the bytes named here.
+// That last one is a limit of the graphics library and not of the hardware, which sends the
+// colour destination factor in the alpha destination register too, so a case built on the
+// difference would fail a machine that had done nothing wrong. The alpha channel below differs
+// from the colour one by its equation or its source factor instead, and the blend suite measures
+// whether either reaches the unit rather than assuming it.
 static const BlendCase CASES[] = {
     {
         "blending off replaces the destination",
@@ -123,11 +123,15 @@ static const BlendCase CASES[] = {
     },
     {
         "adding with both factors one",
+        // The alpha channel carries the colour equation and its own source factor, nought where
+        // the colour's is one, so a machine that took that factor from the colour state hands
+        // back 96 in the alpha rather than 32.
         { true, BLEND_OP_ADD, BLEND_FACTOR_ONE, BLEND_FACTOR_ONE, BLEND_OP_ADD,
-          BLEND_FACTOR_ONE, BLEND_FACTOR_ZERO, { 0.0f, 0.0f, 0.0f, 0.0f } },
+          BLEND_FACTOR_ZERO, BLEND_FACTOR_ONE, { 0.0f, 0.0f, 0.0f, 0.0f } },
         { 0x20, 0x20, 0x20, 0x40 },
         { 0x40, 0x60, 0x80, 0x20 },
-        "32+64, 32+96, 32+128 and the alpha equation taking the source alone: 6080a040",
+        "32+64, 32+96, 32+128, and an alpha channel weighting its own source to nothing, which "
+        "leaves the destination alpha where the colour channels added to theirs: 6080a020",
     },
     {
         "adding clamps at the top of the range",
@@ -180,12 +184,18 @@ static const BlendCase CASES[] = {
     },
     {
         "the source alpha weights both sides",
+        // Here the two differ by the equation instead: the colour adds its weighted sides, the
+        // alpha keeps the larger of its unweighted ones. They carry the same pair of factors on
+        // purpose, so the case rests on no factor the graphics library cannot send. A machine
+        // running the alpha through the colour equation gives 72 rather than 128.
         { true, BLEND_OP_ADD, BLEND_FACTOR_SOURCE_ALPHA, BLEND_FACTOR_INVERSE_SOURCE_ALPHA,
-          BLEND_OP_ADD, BLEND_FACTOR_ONE, BLEND_FACTOR_ZERO, { 0.0f, 0.0f, 0.0f, 0.0f } },
+          BLEND_OP_MAX, BLEND_FACTOR_SOURCE_ALPHA, BLEND_FACTOR_INVERSE_SOURCE_ALPHA,
+          { 0.0f, 0.0f, 0.0f, 0.0f } },
         { 0xFF, 0x00, 0xFF, 0x80 },
         { 0x00, 0xFF, 0x00, 0x10 },
         "128/255 of white over nothing is 128, and 127/255 of white under nothing is 127: the "
-        "two are not complements of each other and the case says so: 807f8080",
+        "two are not complements of each other and the case says so. The alpha keeps the larger "
+        "of 128 and 16 under an equation of its own: 807f8080",
     },
     {
         "the blend constant is a factor of its own",

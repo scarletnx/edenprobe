@@ -32,7 +32,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Nine suites, in the order they run, because each leans on the ones before it. A run is 167
+Nine suites, in the order they run, because each leans on the ones before it. A run is 170
 cases.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -51,7 +51,7 @@ cases.
   three before it cannot catch a transposed, flipped or shuffled readback and this one can. All
   four are Exact tier: the format is integer and every clear value is a constant, so each channel
   has exactly one right byte.
-- **reference**, fifty cases, no hardware involved either. The other half of the judge: where
+- **reference**, fifty three cases, no hardware involved either. The other half of the judge: where
   clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
   the centres that sit exactly on the edge they share. It runs in both builds, because a
   reference that answered differently on the two processors would be blamed on the graphics unit.
@@ -59,7 +59,9 @@ cases.
   it proves is the geometry those cases draw and not a restatement of it, and it pins fifteen
   transcendental answers as bit patterns worked out to fifty digits away from any C library, so
   that a runtime which drifts moves an expected value on one machine and says so there rather
-  than inside a float case.
+  than inside a float case. Three of its cases are about the blend table rather than about
+  arithmetic: that no case asks the graphics library for something it does not send, and that
+  what the table gave up in exchange is still covered. The blend suite below says why.
 - **raster**, ten cases, on the graphics unit. A triangle or a quad drawn in one flat colour
   through a vertex and a fragment shader compiled into the binary, with every pixel compared to
   what the coverage rule says. Exact for pixels at least half a pixel from every edge, position
@@ -81,6 +83,29 @@ cases.
   built to land at least 0.49 of a step away from one and the reference suite measures that
   rather than taking it on trust. Two of the cases set both factors to zero under the minimum and
   the maximum, because the specification says those two equations ignore the factors entirely.
+
+  The alpha channel has its own equation and its own pair of factors, and wiring it to the colour
+  one is the classic way to get this unit wrong, so the table keeps them apart. It keeps them
+  apart by the equation and by the source factor and never by the destination factor, and that is
+  a limit of the graphics library rather than a gap in the suite. `dkCmdBufBindBlendStates` writes
+  six registers per target and puts the colour destination factor in the last of them, which is
+  the alpha destination one, so a blend state whose two destination factors differ reaches the
+  hardware as one whose two are the same (deko3d 0.5.0, `source/maxwell/gpu_3d_state.cpp`; the
+  other five words each carry the field they are named after). A case built on that difference
+  fails on a machine that has done nothing wrong, which is the one kind of failure this suite
+  must not be able to report, so the reference suite refuses one and checks that some case still
+  separates each of the two parts that do reach the registers.
+
+  Whether the hardware then acts on those two is a second question the library leaves open, and
+  the blend suite measures it rather than assuming. Separate alpha blending is switched on by the
+  register immediately before the six that call writes, and no call in the library writes that
+  one or its global twin, so what it holds is whatever the machine left there and a console and
+  an emulator of one can disagree. Two notes on every run carry the answers: whether the alpha
+  channel runs an equation of its own, and whether an alpha destination factor of its own has
+  started arriving. They are notes and not cases because each is a property of the way to the
+  hardware rather than of the blend unit's arithmetic, and the first is what makes the second
+  readable: with no separate alpha state, a destination factor that made no difference and one
+  that never arrived look the same.
 - **depth**, thirty one cases, on the graphics unit. One quad laid down at a known depth and a
   second one challenging it: every one of the eight compare operations the graphics library
   offers, at every one of three depths, which is twenty four cases. Three depths each is the

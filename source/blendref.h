@@ -49,6 +49,10 @@ typedef struct {
     BlendFactor color_destination;
     /// The alpha channel has its own equation and its own pair of factors, which is a thing
     /// implementations get wrong by wiring it to the colour one.
+    ///
+    /// Every case in the table sets @c alpha_destination to whatever @c color_destination holds,
+    /// and the reference suite refuses one that does not, because the graphics library sends
+    /// only one of the two. The cases reach the separate alpha state another way.
     BlendOp alpha_op;
     BlendFactor alpha_source;
     BlendFactor alpha_destination;
