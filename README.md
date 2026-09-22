@@ -30,7 +30,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Four suites, in the order they run, because each leans on the ones before it.
+Five suites, in the order they run, because each leans on the ones before it.
 
 - **selfcheck**, seven cases, no hardware involved. That two neighbouring floats measure one unit
   apart, that a zero budget rejects them, that a NaN is never equal to anything including itself.
@@ -55,6 +55,13 @@ Four suites, in the order they run, because each leans on the ones before it.
   for the band an edge runs through, and exact everywhere for the two cases whose geometry puts
   32 pixel centres exactly on a shared edge: those are decided by the fill rule, not by sub pixel
   precision, and an implementation that draws a shared edge twice or not at all says so there.
+- **intmath**, sixteen cases, on the graphics unit. A fragment shader doing integer arithmetic on
+  its own coordinate into an R32_Uint target: add, multiply, all three shifts, and, or, exclusive
+  or, bit counting, bit scanning, division and remainder. Exact tier, and it is the strongest
+  claim in the suite: an integer target normalises nothing, so a wrong answer is a wrong bit
+  pattern rather than a difference of opinion about the last place. The first three cases are the
+  fragment coordinate and the uniform buffer, which every case after them reads its operands and
+  its instructions out of.
 
 Nothing is ever put on a screen. The target is offscreen and the program reads it back itself,
 which keeps the compositor, the swapchain and vertical sync out of a test that is about none of

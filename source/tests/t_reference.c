@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "../check.h"
+#include "../intref.h"
 #include "../raster.h"
 #include "../report.h"
 #include "tests.h"
@@ -170,9 +171,131 @@ static void CheckEdgeDistanceAndMargin(void) {
                "a pixel far outside the triangle was not called outside");
 }
 
+/// One pixel's worth of integer arithmetic, worked out by hand and written down.
+///
+/// Every constant below follows from the mixed value one pixel produces, and each is stated
+/// rather than recomputed, so a change to the reference that stayed self consistent would still
+/// have to argue with these.
+static void CheckIntegerArithmetic(void) {
+    const uint32_t x = 37;
+    const uint32_t y = 23;
+    const uint32_t probe = 0x5A17C0DEu;
+    const uint32_t v = IntMathMix(x, y);
+
+    CHECK_TRUE(SUITE, "the mixed value overflows and wraps", CHECK_NONE, v == 0x71A39D6Au,
+               "the mix at (37,23) came out 0x%08x, expected 0x71a39d6a", (unsigned)v);
+
+    // 37.5 is 1.171875 times two to the fifth, so the exponent field holds 132 and the mantissa
+    // holds 0.171875. 23.5 is 1.46875 times two to the fourth, so 131 and 0.46875. The halves
+    // are the point: the fragment coordinate names the centre of the pixel.
+    CHECK_TRUE(SUITE, "the fragment coordinate reference carries the half pixel", CHECK_NONE,
+               IntMathReference(INTMATH_FRAGCOORD_X, x, y, probe) == 0x42160000u &&
+                   IntMathReference(INTMATH_FRAGCOORD_Y, x, y, probe) == 0x41BC0000u,
+               "the coordinate bits came out 0x%08x and 0x%08x, expected 0x42160000 and 0x41bc0000",
+               (unsigned)IntMathReference(INTMATH_FRAGCOORD_X, x, y, probe),
+               (unsigned)IntMathReference(INTMATH_FRAGCOORD_Y, x, y, probe));
+
+    static const struct {
+        IntMathMode mode;
+        uint32_t expected;
+    } BY_HAND[] = {
+        { INTMATH_UNIFORM, 0x5A17C0DEu },
+        { INTMATH_MIX, 0x71A39D6Au },
+        // Thirteen places left, so the bottom thirteen bits are nought and the top thirteen fell
+        // off the end.
+        { INTMATH_SHIFT_LEFT, 0x73AD4000u },
+        // 1906548074 divided by 128 is 14894906, which is 0xE3473A.
+        { INTMATH_SHIFT_RIGHT, 0x00E3473Au },
+        // The same, because 0x71A39D6A has its top bit clear. The case that separates the two is
+        // below, over the whole grid.
+        { INTMATH_SHIFT_ARITHMETIC, 0x00E3473Au },
+        // Nibble by nibble: 7&F 1&0 A&F 3&0 9&F D&0 6&F A&0.
+        { INTMATH_AND, 0x70A09060u },
+        { INTMATH_OR, 0x7FAF9F6Fu },
+        // 7^A=D 1^5=4 A^A=0 3^5=6 9^A=3 D^5=8 6^A=C A^5=F.
+        { INTMATH_XOR, 0xD40638CFu },
+        // 0111 0001 1010 0011 1001 1101 0110 1010 has 3+1+2+2+2+3+2+2 bits set.
+        { INTMATH_BIT_COUNT, 17u },
+        // The low byte is 0x6A, so the lowest set bit is bit one; the top nibble is 7, so the
+        // highest is bit thirty. One times 32 plus 30.
+        { INTMATH_BIT_SCAN, 62u },
+        // 1906 times 1000003 is 1906005718, and 1906548074 minus that is 542356.
+        { INTMATH_DIVIDE, 1906u },
+        { INTMATH_REMAINDER, 542356u },
+    };
+
+    uint32_t wrong = 0;
+    IntMathMode first_wrong = INTMATH_MODE_COUNT;
+    uint32_t first_got = 0;
+    uint32_t first_want = 0;
+    for (size_t i = 0; i < sizeof(BY_HAND) / sizeof(BY_HAND[0]); ++i) {
+        const uint32_t got = IntMathReference(BY_HAND[i].mode, x, y, probe);
+        if (got == BY_HAND[i].expected) {
+            continue;
+        }
+        if (wrong == 0) {
+            first_wrong = BY_HAND[i].mode;
+            first_got = got;
+            first_want = BY_HAND[i].expected;
+        }
+        ++wrong;
+    }
+    CHECK_TRUE(SUITE, "the integer reference matches the arithmetic worked out by hand",
+               CHECK_NONE, wrong == 0,
+               "%u of %u modes disagreed, first was \"%s\" at 0x%08x, expected 0x%08x",
+               (unsigned)wrong, (unsigned)(sizeof(BY_HAND) / sizeof(BY_HAND[0])),
+               IntMathName(first_wrong), (unsigned)first_got, (unsigned)first_want);
+
+    // Three properties that hold for every input, swept over the same pixels the suite draws.
+    // They need no constants, so a reference consistently wrong in one direction still has to
+    // satisfy them.
+    uint32_t division_broken = 0;
+    uint32_t count_broken = 0;
+    uint32_t sign_broken = 0;
+    uint32_t negatives = 0;
+    for (uint32_t py = 0; py < 64; ++py) {
+        for (uint32_t px = 0; px < 64; ++px) {
+            const uint32_t value = IntMathMix(px, py);
+            const uint32_t quotient = IntMathReference(INTMATH_DIVIDE, px, py, probe);
+            const uint32_t remainder = IntMathReference(INTMATH_REMAINDER, px, py, probe);
+            if (quotient * INTMATH_DIVISOR + remainder != value || remainder >= INTMATH_DIVISOR) {
+                ++division_broken;
+            }
+
+            const uint32_t set = IntMathReference(INTMATH_BIT_COUNT, px, py, probe);
+            if (set > 32u) {
+                ++count_broken;
+            }
+
+            // The two right shifts have to agree exactly when the top bit is clear and differ
+            // exactly when it is set, which is the entire difference between them.
+            const uint32_t logical = IntMathReference(INTMATH_SHIFT_RIGHT, px, py, probe);
+            const uint32_t arithmetic = IntMathReference(INTMATH_SHIFT_ARITHMETIC, px, py, probe);
+            const bool negative = (value & 0x80000000u) != 0u;
+            negatives += negative ? 1u : 0u;
+            if (negative == (logical == arithmetic)) {
+                ++sign_broken;
+            }
+        }
+    }
+
+    CHECK_TRUE(SUITE, "quotient times divisor plus remainder is the value again", CHECK_NONE,
+               division_broken == 0, "%u of 4096 inputs did not reconstruct",
+               (unsigned)division_broken);
+    CHECK_TRUE(SUITE, "no value has more than 32 bits set", CHECK_NONE, count_broken == 0,
+               "%u of 4096 inputs counted more than 32", (unsigned)count_broken);
+    // The sweep is only worth anything if it saw both kinds of input, so the count of negatives
+    // is part of the claim rather than a number in a note.
+    CHECK_TRUE(SUITE, "the two right shifts differ exactly on the values with the top bit set",
+               CHECK_NONE, sign_broken == 0 && negatives > 0 && negatives < 4096,
+               "%u of 4096 inputs disagreed, and %u of them had the top bit set",
+               (unsigned)sign_broken, (unsigned)negatives);
+}
+
 void RunReference(void) {
     CheckViewportTransform();
     CheckCoverageRule();
     CheckSharedEdge();
     CheckEdgeDistanceAndMargin();
+    CheckIntegerArithmetic();
 }
