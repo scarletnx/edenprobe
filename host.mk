@@ -1,9 +1,8 @@
 # SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
 # SPDX-License-Identifier: MIT
 #
-# Builds the parts that do not touch the console for the machine you are sitting at, so the
-# thing that decides pass and fail can be exercised with no emulator and no device. What this
-# cannot cover is anything that draws; that is the point of the other makefile.
+# Builds the parts that do not touch the console for the machine you are sitting at, so what
+# decides pass and fail can be exercised with no emulator and no device.
 
 HOSTCC   ?= cc
 HOSTOUT  := build-host/gfxprobe-host

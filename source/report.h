@@ -12,13 +12,10 @@ extern "C" {
 
 /// Where a line goes once a test has produced it.
 ///
-/// Two channels, always both, because the two machines this runs on read different ones. On an
-/// emulator the debug string lands in the host log with no setup at all. On the console it goes
-/// nowhere unless a debugger is listening, and the file on the memory card is what survives.
-/// Writing both means one binary and one set of bytes to compare afterwards.
-///
-/// The format is one JSON object per line. Not an array: a run that dies halfway still leaves a
-/// readable file, and a reader can stream it. The last line of a finished run is the summary.
+/// Two channels, always both, because the two machines this runs on read different ones: an
+/// emulator gets the debug string for free, and a console run leaves the file on the memory
+/// card. The format is one JSON object per line rather than an array, so a run that dies halfway
+/// still leaves a readable file. The last line of a finished run is the summary.
 void ReportOpen(const char *path);
 void ReportClose(void);
 

@@ -14,10 +14,8 @@ extern "C" {
 
 /// Everything a test needs to draw into an offscreen target and read the result back.
 ///
-/// Offscreen on purpose: nothing here is presented to a screen. A test that renders to the
-/// display would need someone to look at it, and would drag in the compositor, the swapchain
-/// and vertical sync, none of which is the thing under test. A small image the test reads back
-/// itself is both the cheaper path and the honest one.
+/// Offscreen on purpose: presenting would drag in the compositor, the swapchain and vertical
+/// sync, none of which is the thing under test, and would need someone to look at the result.
 typedef struct {
     DkDevice device;
     DkQueue queue;

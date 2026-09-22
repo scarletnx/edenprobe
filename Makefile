@@ -1,9 +1,8 @@
 # SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
 # SPDX-License-Identifier: MIT
 #
-# Deliberately not the toolchain's template makefile. That one is built for an application with
-# assets, banners and a romfs, and hides what it does behind three layers of include. This
-# builds one flat binary from a handful of files, and every flag here is one this suite needs.
+# Deliberately not the toolchain's template makefile: this builds one flat binary from a handful
+# of files, and every flag here is one this suite needs.
 
 ifeq ($(strip $(DEVKITPRO)),)
 $(error Set DEVKITPRO first, e.g. export DEVKITPRO=$$HOME/devkitpro)
@@ -30,7 +29,10 @@ CFLAGS   := $(ARCH) -g -O2 -ffunction-sections -fdata-sections \
 LDFLAGS  := $(ARCH) -specs=$(LIBNX)/switch.specs -Wl,--gc-sections -g
 LIBS     := -L$(LIBNX)/lib -lnx
 
-CFILES   := $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c))
+# host_main.c is the other build's entry point, and both define main, so sweeping the directory
+# would pick up two of them and fail the link.
+HOSTONLY := source/host_main.c
+CFILES   := $(filter-out $(HOSTONLY),$(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c)))
 OFILES   := $(patsubst %.c,$(BUILD)/%.o,$(CFILES))
 
 .PHONY: all clean run
