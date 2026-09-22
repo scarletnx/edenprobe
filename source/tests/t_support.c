@@ -64,6 +64,18 @@ static uint8_t fixture_got[FIXTURE_PIXELS * 4u];
 static uint8_t fixture_expected[FIXTURE_PIXELS * 4u];
 static uint8_t fixture_verdict[FIXTURE_PIXELS];
 
+static bool Discard(const char *relative);
+
+/// Builds the path this suite reads a file back through, and says whether it fitted.
+///
+/// One place, because the writer and the reader have to agree on the whole name: a reader that
+/// cut a path short where the writer did not would go looking in the wrong place and report it
+/// as a defect in the writer. Refused rather than truncated, for the same reason the root is.
+static bool FullPath(char *out, size_t out_size, const char *relative) {
+    const int wrote = snprintf(out, out_size, "%s/%s", Scratch(), relative);
+    return wrote >= 0 && (size_t)wrote < out_size;
+}
+
 /// Keeps one set of paths for the sweep at the end.
 static void Remember(const PicturePaths *paths) {
     if (written_count < WRITTEN_MAX) {
@@ -77,7 +89,9 @@ static bool Discard(const char *relative) {
         return true;
     }
     char full[FULL_PATH_MAX];
-    snprintf(full, sizeof(full), "%.120s/%.159s", Scratch(), relative);
+    if (!FullPath(full, sizeof(full), relative)) {
+        return false;
+    }
     return remove(full) == 0;
 }
 
@@ -95,10 +109,12 @@ static bool SweepUp(void) {
     }
 
     char directory[FULL_PATH_MAX];
-    snprintf(directory, sizeof(directory), "%.120s/images/support", Scratch());
-    (void)rmdir(directory);
-    snprintf(directory, sizeof(directory), "%.120s/images", Scratch());
-    (void)rmdir(directory);
+    if (FullPath(directory, sizeof(directory), "images/support")) {
+        (void)rmdir(directory);
+    }
+    if (FullPath(directory, sizeof(directory), "images")) {
+        (void)rmdir(directory);
+    }
     (void)rmdir(Scratch());
     return gone;
 }
@@ -245,6 +261,34 @@ static void CheckNames(void) {
                    strlen(tiny_second) < sizeof(tiny_second),
                "\"%s\" against \"%s\"", tiny_first, tiny_second);
 
+    // The pair that used to collide sideways. "foo expected" spells the file "foo" writes its
+    // expectation into, so the second case's drawn picture landed on the first's expected one
+    // while the first's line went on naming it.
+    char plain[96];
+    char derived[96];
+    const bool got_plain = PictureReserveName(plain, sizeof(plain), "pair", "foo");
+    const bool got_derived = PictureReserveName(derived, sizeof(derived), "pair", "foo expected");
+    char plain_expected[128];
+    snprintf(plain_expected, sizeof(plain_expected), "%s-expected", plain);
+    CHECK_TRUE(SUITE, "a case named after another's expected picture does not land on it",
+               CHECK_NONE,
+               got_plain && got_derived && strcmp(derived, plain_expected) != 0 &&
+                   strcmp(derived, plain) != 0,
+               "\"%s\" writes \"%s\", and \"%s\" took \"%s\"", "foo", plain_expected,
+               "foo expected", derived);
+
+    // And the same the other way round, since either can be reported first.
+    char first_derived[96];
+    char then_plain[96];
+    PictureReserveName(first_derived, sizeof(first_derived), "pair2", "bar diff");
+    PictureReserveName(then_plain, sizeof(then_plain), "pair2", "bar");
+    char then_diff[128];
+    snprintf(then_diff, sizeof(then_diff), "%s-diff", then_plain);
+    CHECK_TRUE(SUITE, "and not the other way round either", CHECK_NONE,
+               strcmp(then_diff, first_derived) != 0,
+               "\"bar\" writes \"%s\", and \"bar diff\" had taken \"%s\"", then_diff,
+               first_derived);
+
     // A hundred cases spelling one name. Every one of them gets its own or is told no; what
     // must never happen is the hundredth being given the first one's.
     uint32_t reserved = 0;
@@ -269,6 +313,70 @@ static void CheckNames(void) {
                repeats == 0u && reserved >= 50u,
                "%u of %u names came back already taken", (unsigned)repeats,
                (unsigned)reserved);
+}
+
+/// The longest root this program will take, exercised end to end.
+///
+/// The window between a root the writer accepts and a path the reader could hold was real: a
+/// scratch directory long enough made eight cases fail and leave their files behind, every one
+/// of them blaming the picture writer for a path the reader had cut short.
+static void CheckTheLongestRoot(void) {
+    char keep[PICTURE_PATH_MAX];
+    snprintf(keep, sizeof(keep), "%s", PictureRoot());
+
+    // Padded so the root is as long as one is allowed to be, wherever the scratch happens to
+    // live. On a machine whose scratch is already that long there is nothing to pad and the
+    // scratch itself is the longest root there is.
+    char root[PICTURE_PATH_MAX];
+    const size_t base = strlen(Scratch());
+    const size_t want = sizeof(root) - 1u;
+    if (base + 2u <= want) {
+        memset(root, 'z', want);
+        root[want] = '\0';
+        memcpy(root, Scratch(), base);
+        root[base] = '-';
+    } else {
+        snprintf(root, sizeof(root), "%s", Scratch());
+    }
+
+    bool parsed = false;
+    PicturePaths paths;
+    memset(&paths, 0, sizeof(paths));
+    if (PictureSetRoot(root)) {
+        Picture *const picture = BuildFixture(PICTURE_COLOUR);
+        PictureFinish(SUITE, "a case at the longest root", "none", true, "", &paths);
+        char full[FULL_PATH_MAX];
+        ParsedPam back;
+        const int wrote = snprintf(full, sizeof(full), "%s/%s", root, paths.image);
+        if (picture != NULL && paths.image[0] != '\0' && wrote > 0 &&
+            (size_t)wrote < sizeof(full)) {
+            ParsePam(&back, full);
+            parsed = back.parsed && back.width == FIXTURE_WIDTH;
+        }
+        // Taken away here rather than by the sweep, which only knows the ordinary scratch.
+        for (size_t which = 0; which < 3u; ++which) {
+            const char *const relative =
+                which == 0u ? paths.image : (which == 1u ? paths.expected : paths.diff);
+            if (relative[0] == '\0') {
+                continue;
+            }
+            if (snprintf(full, sizeof(full), "%s/%s", root, relative) > 0) {
+                (void)remove(full);
+            }
+        }
+        snprintf(full, sizeof(full), "%s/images/support", root);
+        (void)rmdir(full);
+        snprintf(full, sizeof(full), "%s/images", root);
+        (void)rmdir(full);
+        if (strcmp(root, Scratch()) != 0) {
+            (void)rmdir(root);
+        }
+    }
+
+    CHECK_TRUE(SUITE, "a root as long as one can be still reads back what it wrote", CHECK_NONE,
+               parsed, "root of %u characters, image \"%s\"", (unsigned)strlen(root),
+               paths.image);
+    PictureSetRoot(keep);
 }
 
 /// A root too long to hold whole. Cutting one short makes a directory nobody named, and a root
@@ -328,11 +436,16 @@ static bool CheckWriting(void) {
     Remember(&paths);
 
     // This fixture doubles as the probe. Named once, here, so that a corner of the card this
-    // machine cannot write to is reported as that rather than blamed on the writer nine times.
+    // machine cannot write to, or one whose paths this suite cannot hold whole, is reported as
+    // that rather than blamed on the writer eight more times.
+    char probe[FULL_PATH_MAX];
     const bool writable = paths.image[0] != '\0';
-    CHECK_TRUE(SUITE, "there is a corner of the memory card to write in", CHECK_NONE, writable,
-               "nothing could be written under %s", Scratch());
-    if (!writable) {
+    const bool readable = writable && FullPath(probe, sizeof(probe), paths.image);
+    CHECK_TRUE(SUITE, "there is a corner of the memory card to write in and read back",
+               CHECK_NONE, readable, "%s under %s",
+               writable ? "the path is longer than this suite can hold" : "nothing was written",
+               Scratch());
+    if (!readable) {
         return false;
     }
 
@@ -347,8 +460,7 @@ static bool CheckWriting(void) {
 
     char full[FULL_PATH_MAX];
     ParsedPam parsed;
-    snprintf(full, sizeof(full), "%.120s/%.159s", Scratch(), paths.image);
-    ParsePam(&parsed, full);
+    ParsePam(&parsed, FullPath(full, sizeof(full), paths.image) ? full : "");
     CHECK_TRUE(SUITE, "the picture parses back as the image its header claims", CHECK_NONE,
                parsed.parsed && parsed.width == FIXTURE_WIDTH &&
                    parsed.height == FIXTURE_HEIGHT && parsed.depth == 4u &&
@@ -363,8 +475,7 @@ static bool CheckWriting(void) {
                fixture_got[2], fixture_got[3]);
 
     ParsedPam wanted;
-    snprintf(full, sizeof(full), "%.120s/%.159s", Scratch(), paths.expected);
-    ParsePam(&wanted, full);
+    ParsePam(&wanted, FullPath(full, sizeof(full), paths.expected) ? full : "");
     CHECK_TRUE(SUITE, "the expected picture holds what the judge expected", CHECK_NONE,
                wanted.parsed &&
                    memcmp(wanted.bytes, fixture_expected, sizeof(fixture_expected)) == 0,
@@ -374,8 +485,7 @@ static bool CheckWriting(void) {
                fixture_expected[7]);
 
     ParsedPam diff;
-    snprintf(full, sizeof(full), "%.120s/%.159s", Scratch(), paths.diff);
-    ParsePam(&diff, full);
+    ParsePam(&diff, FullPath(full, sizeof(full), paths.diff) ? full : "");
     uint8_t matched[3];
     uint8_t wrong[3];
     uint8_t unjudged[3];
@@ -426,8 +536,7 @@ static void CheckAPixelNobodyLookedAt(void) {
 
     char full[FULL_PATH_MAX];
     ParsedPam diff;
-    snprintf(full, sizeof(full), "%.120s/%.159s", Scratch(), paths.diff);
-    ParsePam(&diff, full);
+    ParsePam(&diff, FullPath(full, sizeof(full), paths.diff) ? full : "");
     uint8_t unset[3];
     uint8_t matched[3];
     PictureDiffColour((uint8_t)PICTURE_UNSET, unset);
@@ -452,8 +561,9 @@ static void CheckBitsAndCollisions(void) {
 
     char full[FULL_PATH_MAX];
     uint8_t raw[FIXTURE_PIXELS * 4u + 1u];
-    snprintf(full, sizeof(full), "%.120s/%.159s", Scratch(), paths.raw);
-    const size_t read = ReadWholeFile(full, raw, sizeof(raw));
+    const size_t read = FullPath(full, sizeof(full), paths.raw)
+                            ? ReadWholeFile(full, raw, sizeof(raw))
+                            : 0u;
     CHECK_TRUE(SUITE, "the raw file is every byte the target held and nothing more", CHECK_NONE,
                read == FIXTURE_PIXELS * 4u &&
                    memcmp(raw, fixture_got, FIXTURE_PIXELS * 4u) == 0,
@@ -908,7 +1018,7 @@ static void CheckLayout(void) {
 
 void RunSupport(void) {
     const char *const previous_root = PictureRoot();
-    char saved[96];
+    char saved[PICTURE_PATH_MAX];
     snprintf(saved, sizeof(saved), "%s", previous_root);
     const bool saved_policy = PictureWritesEveryCase();
     const bool saved_retention = PictureIsRetaining();
@@ -934,6 +1044,7 @@ void RunSupport(void) {
         PictureRetain(saved_retention);
         return;
     }
+    CheckTheLongestRoot();
     CheckAPixelNobodyLookedAt();
     CheckBitsAndCollisions();
     CheckReportLine();
