@@ -49,10 +49,10 @@ static PictureRecord *records;
 static size_t record_count;
 static size_t retained_bytes;
 
-// File names are built from case names, which are English sentences, so two cases can reach the
-// same name through the dashes. A collision would overwrite the evidence of one failure with
-// another's, silently, so every name used is remembered by hash and a repeat gets a number.
-#define USED_MAX 512
+// File names come from case names, which are English sentences, so two cases can reach the same
+// name through the dashes and one would silently overwrite the other's evidence. Every name
+// taken is remembered by hash, three per case, and sized for every drawing case at once.
+#define USED_MAX 1024
 static uint32_t used_hashes[USED_MAX];
 static size_t used_count;
 
@@ -136,21 +136,48 @@ static bool HashSeen(uint32_t hash) {
     return false;
 }
 
+/// Every file name one reserved stem occupies. The three pictures share a stem, so a case called
+/// "foo expected" spells the file a case called "foo" writes its expectation into. The raw bytes
+/// need no entry: they differ from the drawn picture only by the extension.
+static const char *const NAME_FORMS[3] = { "%s/%s", "%s/%s-expected", "%s/%s-diff" };
+
+/// Whether any of the names @p stem would occupy is already somebody else's.
+static bool AnyFormTaken(const char *suite, const char *stem) {
+    for (size_t form = 0; form < 3u; ++form) {
+        char key[PICTURE_PATH_MAX];
+        snprintf(key, sizeof(key), NAME_FORMS[form], suite, stem);
+        if (HashSeen(Hash(key))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void TakeEveryForm(const char *suite, const char *stem) {
+    for (size_t form = 0; form < 3u; ++form) {
+        char key[PICTURE_PATH_MAX];
+        snprintf(key, sizeof(key), NAME_FORMS[form], suite, stem);
+        if (used_count < USED_MAX) {
+            used_hashes[used_count++] = Hash(key);
+        }
+    }
+}
+
 bool PictureReserveName(char *stem, size_t stem_size, const char *suite_stem,
                         const char *name) {
     if (stem == NULL || stem_size < 8u) {
         return false;
     }
     PictureStem(stem, stem_size, name);
-    const char *const suite = suite_stem;
-    char key[PICTURE_PATH_MAX];
-    snprintf(key, sizeof(key), "%s/%s", suite, stem);
-    uint32_t hash = Hash(key);
-    bool taken = !HashSeen(hash);
+
+    if (!AnyFormTaken(suite_stem, stem)) {
+        TakeEveryForm(suite_stem, stem);
+        return true;
+    }
 
     // Up to ninety eight of them. The ceiling exists so this cannot run forever, not because
     // ninety eight cases are ever expected to spell one name.
-    for (unsigned suffix = 2; !taken && suffix < 100u; ++suffix) {
+    for (unsigned suffix = 2; suffix < 100u; ++suffix) {
         // Room for the dash, the digits and the terminator. A stem with no room for its own
         // number gives some up rather than going back as the name somebody else already has.
         const size_t digits = suffix < 10u ? 1u : 2u;
@@ -163,28 +190,20 @@ bool PictureReserveName(char *stem, size_t stem_size, const char *suite_stem,
             stem[length] = '\0';
         }
 
-        const int wrote = snprintf(key, sizeof(key), "%s/%s-%u", suite, stem, suffix);
-        if (wrote < 0 || (size_t)wrote >= sizeof(key)) {
+        char candidate[PICTURE_PATH_MAX];
+        const int wrote = snprintf(candidate, sizeof(candidate), "%s-%u", stem, suffix);
+        if (wrote < 0 || (size_t)wrote >= sizeof(candidate)) {
             break;
         }
-        const uint32_t candidate = Hash(key);
-        if (HashSeen(candidate)) {
+        if (AnyFormTaken(suite_stem, candidate)) {
             continue;
         }
         snprintf(stem + length, stem_size - length, "-%u", suffix);
-        hash = candidate;
-        taken = true;
+        TakeEveryForm(suite_stem, stem);
+        return true;
     }
 
-    if (!taken) {
-        return false;
-    }
-    // Only ever the name this run actually took. Recording any other one would let the next
-    // collision through.
-    if (used_count < USED_MAX) {
-        used_hashes[used_count++] = hash;
-    }
-    return true;
+    return false;
 }
 
 static void MakeDirectory(const char *path) {

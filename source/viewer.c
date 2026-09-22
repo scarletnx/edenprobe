@@ -107,12 +107,13 @@ void ViewerRun(void) {
     ReadPad(&pad);
     UiState state = UiStart(failed, (uint32_t)count);
 
-    uint32_t frame = 0;
+    uint32_t frames_seen = 0;
     while (appletMainLoop() && !state.quit) {
         padUpdate(&pad);
-        const UiInput input = UiInputFromButtons(ButtonsFrom(padGetButtonsDown(&pad)), frame);
-        if (frame < UI_SETTLING_FRAMES) {
-            ++frame;
+        const UiInput input =
+            UiInputFromButtons(ButtonsFrom(padGetButtonsDown(&pad)), frames_seen);
+        if (frames_seen < UI_SETTLING_FRAMES) {
+            ++frames_seen;
         }
         state = UiStep(state, input, failed, (uint32_t)count);
         if (state.changed) {

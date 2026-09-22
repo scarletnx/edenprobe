@@ -32,7 +32,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Ten suites, in the order they run, because each leans on the ones before it. A run is 217
+Ten suites, in the order they run, because each leans on the ones before it. A run is 220
 cases.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -41,7 +41,7 @@ cases.
   a budget of every value there is, and that a budget of three units in the last place reaches
   six representable values below a power of two and three above it. If one of these fails,
   nothing else the suite says can be believed.
-- **support**, forty seven cases, no hardware and nothing of the hardware's looked at. The two
+- **support**, fifty cases, no hardware and nothing of the hardware's looked at. The two
   things this program does around a verdict rather than to reach one: the picture it leaves
   beside a failing case, and the screen the detailed mode shows that picture on. It checks that
   a case name becomes the file name its own line says it does, that a written picture parses
@@ -275,13 +275,15 @@ the case with the letters lower cased and every run of characters that is not a 
 digit turned into a single dash: "the fragment coordinate's x is the pixel centre, bit for bit"
 becomes `the-fragment-coordinate-s-x-is-the-pixel-centre-bit-for-bit.pam`, one dash for the
 apostrophe and one for the comma and the space together. Two case names that spell one file
-name get a file each: the second is numbered, `-2` before the rest of its name, giving up
-characters at the end of the stem if that is what it takes to make room for the number. If
-even that runs out, after ninety eight of them, the case is left with no picture at all and its
-line says so, because one failure quietly overwriting another's evidence is worse than a
-missing picture and far worse than a name nobody likes. The same applies to the directory the
-whole lot goes in: one too long to hold whole is refused outright rather than cut short into a
-place nobody named.
+name get a file each: the second is numbered, `-2` at the end of the name and before the
+extension, giving up characters off the end of the name if that is what it takes to make room
+for the number. A name is held together with the two the pictures beside it are spelled from,
+so a case called "bitwise and expected" cannot land on the expectation of one called "bitwise
+and". If the numbers run out, after ninety eight of them, the case is left with no picture at
+all and its line simply carries none of the four fields, because one failure quietly
+overwriting another's evidence is worse than a missing picture and far worse than a name
+nobody likes. The same goes for the directory the whole lot lives in: one too long to hold
+whole is refused outright rather than cut short into a place nobody named.
 
 This is not a stored reference image and it must never become one. The README's first section
 says why a hash of a frame breaks between two machines that are both right, and that is still
@@ -344,7 +346,7 @@ cannot answer, which is whether a failure looks like a rendering fault or like t
 wrong.
 
 What it holds is every case that compared pixels, pass or fail, which on a full run is 80 of the
-217 and is the number the heading counts in. The other 137 compared nothing the graphics unit
+220 and is the number the heading counts in. The other 140 compared nothing the graphics unit
 produced and have no picture to show. A case that failed before it read a target back has no
 picture either, so it is not in the list; when that happens the screen says how many of the
 run's failures are missing from it rather than letting the count quietly disagree. It holds them
