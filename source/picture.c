@@ -169,7 +169,9 @@ static bool WriteRaw(const char *path, const uint8_t *bytes, size_t count) {
 }
 
 void PictureDiffColour(uint8_t verdict, uint8_t out[3]) {
-    memcpy(out, DIFF_COLOURS[verdict < 3 ? verdict : 0], 3u);
+    // Anything but the three is a pixel nobody set, which is the one thing it certainly is not
+    // safe to draw as accepted.
+    memcpy(out, DIFF_COLOURS[verdict < 3u ? verdict : (uint8_t)PICTURE_UNJUDGED], 3u);
 }
 
 /// Turns the judge's verdicts into the three colours a reader can see.
@@ -308,10 +310,6 @@ void PictureFinish(const char *suite, const char *name, const char *tier, bool p
     if (paths != NULL) {
         *paths = last_paths;
     }
-}
-
-const PicturePaths *PictureLastPaths(void) {
-    return &last_paths;
 }
 
 size_t PictureCount(void) {

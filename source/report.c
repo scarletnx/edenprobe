@@ -98,7 +98,7 @@ void ReportClose(void) {
 /// The word a tier goes onto the line as. An unrecognised value reads as "unknown" rather than
 /// falling through to one of the real tiers: a diff between two machines is only worth something
 /// if the tolerance each side allowed itself is on the line beside the result.
-const char *ReportTierName(CheckTier tier) {
+static const char *TierName(CheckTier tier) {
     switch (tier) {
     case CHECK_NONE:
         return "none";
@@ -168,10 +168,10 @@ void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed
     // bytes written are the ones the judge looked at, and nothing written here can move a
     // result that has already been decided.
     PicturePaths paths;
-    PictureFinish(suite, name, ReportTierName(tier), passed_, detail, &paths);
+    PictureFinish(suite, name, TierName(tier), passed_, detail, &paths);
 
     char line[REPORT_LINE_MAX];
-    ReportBuildCaseLine(line, sizeof(line), suite, name, ReportTierName(tier), passed_, detail,
+    ReportBuildCaseLine(line, sizeof(line), suite, name, TierName(tier), passed_, detail,
                         &paths);
     Emit(line);
 }

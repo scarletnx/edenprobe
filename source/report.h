@@ -67,8 +67,6 @@ size_t ReportBuildCaseLine(char *out, size_t out_size, const char *suite, const 
                            const char *tier, bool passed, const char *detail,
                            const PicturePaths *paths);
 
-/// The word a tier goes onto a line as.
-const char *ReportTierName(CheckTier tier);
 
 /// The longest note ReportNote carries whole. Stated here rather than buried in the buffer, so a
 /// caller with a long note can be checked against it before anything is emitted: a note cut

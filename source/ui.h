@@ -18,6 +18,11 @@ extern "C" {
 /// Nothing here decides anything: it draws a verdict the program already reached and the pixels
 /// that verdict came from. A screen is never an input to a result.
 
+/// Where the pictures start down the frame, under the two lines of heading and the labels.
+/// Named here rather than buried in the layout because the cases that check the layout have to
+/// look in the same place it drew.
+#define UI_PANEL_TOP 72u
+
 /// Somewhere to draw. @p pitch is the bytes between one row and the next, which is the display's
 /// business and not always four times the width.
 typedef struct {
@@ -80,13 +85,11 @@ UiState UiStep(UiState state, UiInput input, const uint8_t *failed, uint32_t cou
 /// moves. Separate from drawing because the display owns the one and the navigation the other.
 void UiFrameDrawn(UiState *state);
 
-/// Draws one case over the whole frame.
+/// Draws one case over the whole frame. @p failed is the same array the navigation walks, so
+/// the header can say where this case sits among the failures rather than only among the cases.
 void UiCompose(const UiFrame *frame, const PictureRecord *record, UiState state, uint32_t count,
-               uint32_t failures);
+               const uint8_t *failed);
 
-/// Draws @p text at @p scale times the 8 by 8 cell. Exposed for the cases that check it.
-void UiText(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t scale,
-            const uint8_t colour[4], const char *text);
 
 /// The four bytes of the pixel at @p x, @p y, or NULL when it is off the frame.
 const uint8_t *UiPixel(const UiFrame *frame, uint32_t x, uint32_t y);

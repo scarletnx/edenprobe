@@ -40,6 +40,10 @@ UiMode ViewerModeAtLaunch(const char *mode_path) {
     }
     UiMode mode = UiModeFromText(text);
 
+    if (mode.detailed) {
+        return mode;
+    }
+
     // The other way in, for a person who has no way to put a file on the memory card. Held, not
     // pressed: the program is already running by the time anything can be pressed.
     PadState pad;
@@ -81,11 +85,9 @@ void ViewerRun(void) {
         return;
     }
     const size_t count = PictureCount();
-    uint32_t failures = 0;
     for (size_t i = 0; i < count && i < sizeof(failed); ++i) {
         const PictureRecord *const record = PictureAt(i);
         failed[i] = record != NULL && !record->passed ? 1u : 0u;
-        failures += failed[i];
     }
 
     Framebuffer fb;
@@ -111,7 +113,7 @@ void ViewerRun(void) {
             uint32_t stride = 0;
             UiFrame frame = { (uint8_t *)framebufferBegin(&fb, &stride), SCREEN_WIDTH,
                               SCREEN_HEIGHT, stride };
-            UiCompose(&frame, PictureAt(state.index), state, (uint32_t)count, failures);
+            UiCompose(&frame, PictureAt(state.index), state, (uint32_t)count, failed);
             framebufferEnd(&fb);
             UiFrameDrawn(&state);
         }

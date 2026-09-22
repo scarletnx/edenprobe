@@ -113,7 +113,7 @@ Picture *PictureBegin(uint32_t width, uint32_t height, PictureFormat format, con
 /// be NULL for a pixel nobody judged, which stores the pixel the machine drew.
 static inline void PictureSet(Picture *picture, uint32_t x, uint32_t y,
                               const uint8_t expected[4], PictureVerdict verdict) {
-    if (picture == NULL) {
+    if (picture == NULL || x >= picture->width || y >= picture->height) {
         return;
     }
     const size_t index = (size_t)y * picture->width + x;
@@ -126,9 +126,6 @@ static inline void PictureSet(Picture *picture, uint32_t x, uint32_t y,
 /// report and by nothing else.
 void PictureFinish(const char *suite, const char *name, const char *tier, bool passed,
                    const char *detail, PicturePaths *paths);
-
-/// The paths the last finished picture produced, for a case that checks the naming.
-const PicturePaths *PictureLastPaths(void);
 
 size_t PictureCount(void);
 const PictureRecord *PictureAt(size_t index);
