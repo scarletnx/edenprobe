@@ -12,34 +12,20 @@
 extern "C" {
 #endif
 
-/// The tolerance a comparison is allowed.
-///
-/// Three tiers, because one number cannot serve all three and pretending it can is how a suite
-/// becomes noise. Which tier a test uses is a claim about the hardware, and belongs in the test.
-typedef enum {
-    /// Bit for bit. Legal only where the result is defined exactly: integer render targets,
-    /// integer arithmetic, bit patterns copied around. A float shader never qualifies, whatever
-    /// the numbers look like on one machine.
-    CHECK_EXACT,
-    /// Within a stated number of units in the last place. For float work, where two correct
-    /// implementations legitimately differ: the graphics API only requires division within
-    /// 2.5 ULP, and the transcendentals are looser still.
-    CHECK_ULP,
-    /// The right answer, possibly a pixel or two away. For rasterisation coverage, where sub
-    /// pixel precision is an implementation-reported limit rather than a constant.
-    CHECK_POSITION,
-} CheckTier;
+// CheckTier, the tolerance a comparison is allowed, is declared in report.h rather than here,
+// because every case reports the tier it claimed next to its result. Which one a case uses is a
+// claim about the hardware and belongs in the case.
 
-/// Records a case that passes when @p condition holds. The detail is only built on failure, so
-/// a passing run pays nothing for the formatting.
-#define CHECK_TRUE(suite, name, condition, fmt, ...)                                             \
+/// Records a case that passes when @p condition holds, under the tolerance @p tier claims. The
+/// detail is only built on failure, so a passing run pays nothing for the formatting.
+#define CHECK_TRUE(suite, name, tier, condition, fmt, ...)                                       \
     do {                                                                                         \
         if (condition) {                                                                         \
-            ReportCase((suite), (name), true, NULL);                                             \
+            ReportCase((suite), (name), (tier), true, NULL);                                     \
         } else {                                                                                 \
             char detail_[512];                                                                    \
             snprintf(detail_, sizeof(detail_), (fmt), ##__VA_ARGS__);                            \
-            ReportCase((suite), (name), false, detail_);                                          \
+            ReportCase((suite), (name), (tier), false, detail_);                                 \
         }                                                                                        \
     } while (0)
 

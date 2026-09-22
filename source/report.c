@@ -84,7 +84,25 @@ void ReportClose(void) {
     }
 }
 
-void ReportCase(const char *suite, const char *name, bool passed_, const char *detail) {
+/// The word a tier goes onto the line as. An unrecognised value reads as "unknown" rather than
+/// falling through to one of the real tiers: a diff between two machines is only worth something
+/// if the tolerance each side allowed itself is on the line beside the result.
+static const char *TierName(CheckTier tier) {
+    switch (tier) {
+    case CHECK_NONE:
+        return "none";
+    case CHECK_EXACT:
+        return "exact";
+    case CHECK_ULP:
+        return "ulp";
+    case CHECK_POSITION:
+        return "position";
+    }
+    return "unknown";
+}
+
+void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed_,
+                const char *detail) {
     if (passed_) {
         ++passed;
     } else {
@@ -98,10 +116,11 @@ void ReportCase(const char *suite, const char *name, bool passed_, const char *d
     EscapeInto(safe_name, sizeof(safe_name), name);
     EscapeInto(safe_detail, sizeof(safe_detail), detail != NULL ? detail : "");
 
-    char line[832];
+    char line[896];
     snprintf(line, sizeof(line),
-             "{\"type\":\"case\",\"suite\":\"%s\",\"name\":\"%s\",\"result\":\"%s\",\"detail\":\"%s\"}",
-             safe_suite, safe_name, passed_ ? "pass" : "fail", safe_detail);
+             "{\"type\":\"case\",\"suite\":\"%s\",\"name\":\"%s\",\"tier\":\"%s\","
+             "\"result\":\"%s\",\"detail\":\"%s\"}",
+             safe_suite, safe_name, TierName(tier), passed_ ? "pass" : "fail", safe_detail);
     Emit(line);
 }
 

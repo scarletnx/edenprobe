@@ -35,10 +35,14 @@ Two suites, in the order they run, because the second leans on the first.
 - **selfcheck**, seven cases, no hardware involved. That two neighbouring floats measure one unit
   apart, that a zero budget rejects them, that a NaN is never equal to anything including itself.
   If one of these fails, nothing else the suite says can be believed.
-- **clear**, four cases, on the graphics unit. A 64 by 64 RGBA8 target is cleared to a colour, all
+- **clear**, five cases, on the graphics unit. A 64 by 64 RGBA8 target is cleared to a colour, all
   4096 of its pixels are copied back and compared, and that happens for three colours in a row, so
-  a readback handing over a stale buffer cannot pass by accident. Exact tier: the format is
-  integer and the clear value is a constant, so each channel has exactly one right byte.
+  a readback handing over a stale buffer cannot pass by accident. The fourth clear covers the
+  target in one colour and then clears a rectangle inside it in another, which is what makes the
+  answer depend on where a pixel is: a target that is all one colour reads back the same whether
+  or not the copy walked its blocks in the right order, so the three before it cannot catch a
+  transposed, flipped or shuffled readback and this one can. Exact tier throughout: the format is
+  integer and every clear value is a constant, so each channel has exactly one right byte.
 
 Nothing is ever put on a screen. The target is offscreen and the program reads it back itself,
 which keeps the compositor, the swapchain and vertical sync out of a test that is about none of
@@ -51,6 +55,20 @@ One JSON object per line, to two channels at once, because the two machines read
 - the debug string service, which an emulator logs with no setup and hardware ignores unless a
   debugger is attached;
 - a file on the memory card, which is what a console run leaves behind.
+
+A case line carries the tier it claimed, next to the result:
+
+```json
+{"type":"case","suite":"clear","name":"clear to opaque red","tier":"exact","result":"pass","detail":""}
+```
+
+The tier is on the line and not only in the source because a pass means nothing on its own: two
+machines agreeing is worth something only if both were held to the same tolerance, and a reader
+diffing two reports has no way to know which one a case used otherwise. The values are `exact`,
+`ulp` and `position`, and one more that is not a tier at all: `none`, for a case that compared
+nothing the hardware produced. Every selfcheck case reports `none`, because its subject is this
+program's own arithmetic; calling those `exact` would read, in a diff, as seven passing claims
+about a machine that was never asked anything.
 
 A run that dies halfway still leaves everything up to its last finished case, and the final line
 carries the counts so a runner does not have to parse the rest.
