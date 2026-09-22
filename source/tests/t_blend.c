@@ -134,7 +134,6 @@ static void BlendOneCase(GpuContext *gpu, const DkShader *vertex_shader,
     GpuVertex vertices[6];
     FullScreenQuad(vertices, test->source);
 
-    const uint32_t mark = GpuDataMark(gpu);
     GpuBeginPass(gpu);
 
     DkColorState color_state;
@@ -155,7 +154,6 @@ static void BlendOneCase(GpuContext *gpu, const DkShader *vertex_shader,
 
     const bool drawn = GpuDrawTriangles(gpu, vertex_shader, fragment_shader, vertices, 6);
     GpuSubmit(gpu);
-    GpuDataRewind(gpu, mark);
 
     if (!drawn) {
         ReportCase(SUITE, test->name, CHECK_NONE, false,

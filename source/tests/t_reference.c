@@ -311,14 +311,34 @@ static void CheckIntegerArithmetic(void) {
     for (uint32_t py = 0; py < 64; ++py) {
         for (uint32_t px = 0; px < 64; ++px) {
             const uint32_t value = IntMathMix(px, py);
-            const uint32_t quotient = IntMathReference(INTMATH_DIVIDE, px, py, probe);
-            const uint32_t remainder = IntMathReference(INTMATH_REMAINDER, px, py, probe);
-            if (quotient * INTMATH_DIVISOR + remainder != value || remainder >= INTMATH_DIVISOR) {
+
+            // A long division done a bit at a time, which shares no line with the reference.
+            // Multiplying the quotient back would prove nothing, since the language guarantees
+            // that of its own operators whatever the reference did.
+            uint32_t quotient_by_hand = 0;
+            uint32_t remainder_by_hand = 0;
+            for (uint32_t bit = 32u; bit > 0u; --bit) {
+                remainder_by_hand = (remainder_by_hand << 1) | ((value >> (bit - 1u)) & 1u);
+                quotient_by_hand <<= 1;
+                if (remainder_by_hand >= INTMATH_DIVISOR) {
+                    remainder_by_hand -= INTMATH_DIVISOR;
+                    quotient_by_hand |= 1u;
+                }
+            }
+            if (IntMathReference(INTMATH_DIVIDE, px, py, probe) != quotient_by_hand ||
+                IntMathReference(INTMATH_REMAINDER, px, py, probe) != remainder_by_hand) {
                 ++division_broken;
             }
 
-            const uint32_t set = IntMathReference(INTMATH_BIT_COUNT, px, py, probe);
-            if (set > 32u) {
+            // And the bit count against a table of the sixteen nibbles, which is a different
+            // algorithm rather than a restatement of the same loop.
+            static const uint32_t NIBBLE_BITS[16] = { 0, 1, 1, 2, 1, 2, 2, 3,
+                                                      1, 2, 2, 3, 2, 3, 3, 4 };
+            uint32_t count_by_table = 0;
+            for (uint32_t nibble = 0; nibble < 8u; ++nibble) {
+                count_by_table += NIBBLE_BITS[(value >> (nibble * 4u)) & 0xFu];
+            }
+            if (IntMathReference(INTMATH_BIT_COUNT, px, py, probe) != count_by_table) {
                 ++count_broken;
             }
 
@@ -334,11 +354,11 @@ static void CheckIntegerArithmetic(void) {
         }
     }
 
-    CHECK_TRUE(SUITE, "quotient times divisor plus remainder is the value again", CHECK_NONE,
-               division_broken == 0, "%u of 4096 inputs did not reconstruct",
+    CHECK_TRUE(SUITE, "the division agrees with a long division done a bit at a time", CHECK_NONE,
+               division_broken == 0, "%u of 4096 inputs disagreed",
                (unsigned)division_broken);
-    CHECK_TRUE(SUITE, "no value has more than 32 bits set", CHECK_NONE, count_broken == 0,
-               "%u of 4096 inputs counted more than 32", (unsigned)count_broken);
+    CHECK_TRUE(SUITE, "the bit count agrees with a table of nibbles", CHECK_NONE,
+               count_broken == 0, "%u of 4096 inputs disagreed", (unsigned)count_broken);
     // The sweep is only worth anything if it saw both kinds of input, so the count of negatives
     // is part of the claim rather than a number in a note.
     CHECK_TRUE(SUITE, "the two right shifts differ exactly on the values with the top bit set",
@@ -696,22 +716,61 @@ static void CheckFloatArithmetic(void) {
     CHECK_TRUE(SUITE, "no float case produces an infinity or a nan", CHECK_NONE, not_finite == 0,
                "%u of 40960 reference values were not finite", (unsigned)not_finite);
 
-    // And the budgets themselves, stated here so that loosening one is a change to this file as
-    // well as to the one that hands it out.
-    const FMathBudget add = FMathBudgetFor(FMATH_ADD);
-    const FMathBudget multiply_add = FMathBudgetFor(FMATH_MULTIPLY_ADD);
-    const FMathBudget divide = FMathBudgetFor(FMATH_DIVIDE);
-    const FMathBudget logarithm = FMathBudgetFor(FMATH_LOG2);
-    const FMathBudget sine = FMathBudgetFor(FMATH_SINE);
-    const bool budgets_as_documented =
-        !add.absolute && add.ulps == 0u && !multiply_add.absolute && multiply_add.ulps == 1u &&
-        !divide.absolute && divide.ulps == 3u && !logarithm.absolute && logarithm.ulps == 3u &&
-        sine.absolute && sine.limit == 1.0f / 2048.0f;
-    CHECK_TRUE(SUITE, "the float budgets are the ones the README names", CHECK_NONE,
-               budgets_as_documented,
-               "addition %u, multiply and add %u, division %u, logarithm %u, sine %.9g absolute",
-               (unsigned)add.ulps, (unsigned)multiply_add.ulps, (unsigned)divide.ulps,
-               (unsigned)logarithm.ulps, (double)sine.limit);
+    // And every budget, stated here so that loosening one is a change to this file as well as to
+    // the one that hands it out. All ten, not a sample: the two that were wrong when this file
+    // only pinned five were the two nobody was checking.
+    static const struct {
+        FMathMode mode;
+        bool absolute;
+        float value;
+    } EXPECTED_BUDGETS[] = {
+        { FMATH_UNIFORM, false, 0.0f },
+        { FMATH_ADD, false, 0.0f },
+        { FMATH_MULTIPLY, false, 0.0f },
+        { FMATH_MULTIPLY_ADD, false, 1.0f },
+        // 2.5 from the specification and a half for the reference's own rounding.
+        { FMATH_DIVIDE, false, 3.0f },
+        // 3 and a half, the same way. Three would be the specification's number with nothing
+        // left over, and the reference is not exact.
+        { FMATH_SQUARE_ROOT, false, 3.5f },
+        { FMATH_EXP2, false, 3.5f },
+        { FMATH_LOG2, false, 3.5f },
+        { FMATH_SINE, true, 1.0f / 2048.0f },
+        { FMATH_COSINE, true, 1.0f / 2048.0f },
+    };
+    uint32_t wrong_budgets = 0;
+    const char *first_wrong_budget = "";
+    double said = 0.0;
+    for (size_t i = 0; i < sizeof(EXPECTED_BUDGETS) / sizeof(EXPECTED_BUDGETS[0]); ++i) {
+        const FMathBudget got = FMathBudgetFor(EXPECTED_BUDGETS[i].mode);
+        const float value = got.absolute ? got.limit : got.ulps;
+        if (got.absolute != EXPECTED_BUDGETS[i].absolute ||
+            value != EXPECTED_BUDGETS[i].value) {
+            if (wrong_budgets == 0) {
+                first_wrong_budget = FMathName(EXPECTED_BUDGETS[i].mode);
+                said = (double)value;
+            }
+            ++wrong_budgets;
+        }
+    }
+    CHECK_TRUE(SUITE, "every float budget is the one the README names", CHECK_NONE,
+               wrong_budgets == 0, "%u of %u disagreed, first was \"%s\" at %g",
+               (unsigned)wrong_budgets,
+               (unsigned)(sizeof(EXPECTED_BUDGETS) / sizeof(EXPECTED_BUDGETS[0])),
+               first_wrong_budget, said);
+
+    // And the reason each one gives has to mention the number it is. A budget whose explanation
+    // has drifted from its value is how the square root came to claim three was conservative
+    // when three was the whole of what the specification allowed.
+    uint32_t unexplained = 0;
+    for (uint32_t mode = 0; mode < FMATH_MODE_COUNT; ++mode) {
+        const FMathBudget got = FMathBudgetFor((FMathMode)mode);
+        if (got.reason == NULL || got.reason[0] == '\0') {
+            ++unexplained;
+        }
+    }
+    CHECK_TRUE(SUITE, "every float budget says why it is what it is", CHECK_NONE,
+               unexplained == 0, "%u budgets had no reason", (unsigned)unexplained);
 }
 
 void RunReference(void) {

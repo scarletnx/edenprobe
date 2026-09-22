@@ -181,7 +181,6 @@ static void DrawAndCheck(GpuContext *gpu, const DkShader *vertex_shader,
                          const Expectation *want) {
     GpuClear(gpu, CLEAR_COLOR[0], CLEAR_COLOR[1], CLEAR_COLOR[2], CLEAR_COLOR[3]);
 
-    const uint32_t mark = GpuDataMark(gpu);
     GpuBeginPass(gpu);
     if (viewport != NULL) {
         dkCmdBufSetViewports(gpu->cmdbuf, 0, viewport, 1);
@@ -192,7 +191,6 @@ static void DrawAndCheck(GpuContext *gpu, const DkShader *vertex_shader,
     const bool drawn =
         GpuDrawTriangles(gpu, vertex_shader, fragment_shader, vertices, vertex_count);
     GpuSubmit(gpu);
-    GpuDataRewind(gpu, mark);
 
     // The margin is the tier: a case that held nothing back judged every pixel against one
     // right answer, and one that allowed either answer near an edge has claimed the position
@@ -330,17 +328,11 @@ void RunRaster(void) {
                  "a triangle's interior is exact and its edges land within a pixel",
                  RASTER_SLANTED, 0.5, &RASTER_FULL_VIEWPORT, NULL);
 
-    // The fill rule. The two halves of a square split along a diagonal that passes through 32
-    // pixel centres exactly, both stated in source/raster.c. Judged with no margin at all,
-    // because there is nothing here for sub pixel precision to decide: the corners sit on whole
-    // pixel boundaries and the edge function at those centres is exactly zero however many
-    // fraction bits the hardware keeps.
-    //
-    // Read the two together. Exactly 32 wrong pixels in both, and nothing wrong anywhere else,
-    // does not mean coverage is broken: it means the shared edge went to the other triangle,
-    // which is a consistent rule and the wrong one. Any other count is a coverage fault. The
-    // graphics API this suite is written against requires the top and left rule, so either
-    // answer is a finding, and the two are worth telling apart on sight.
+    // The fill rule. Two halves of a square split along a diagonal that passes through 32 pixel
+    // centres exactly, judged with no margin because the edge function there is exactly zero
+    // however many fraction bits the hardware keeps. Read the two together: 32 wrong pixels in
+    // both and nothing else wrong is the other consistent rule, and any other count is a
+    // coverage fault.
     TriangleCase(&gpu, &vertex_shader, &fragment_shader,
                  "a shared edge belongs to the triangle it is the left edge of",
                  RASTER_UPPER_RIGHT_HALF, 0.0, &RASTER_FULL_VIEWPORT, NULL);
@@ -348,11 +340,10 @@ void RunRaster(void) {
                  "the same edge does not also belong to the other triangle",
                  RASTER_LOWER_LEFT_HALF, 0.0, &RASTER_FULL_VIEWPORT, NULL);
 
-    // The same slanted triangle through a viewport that is half the size and offset, so every
-    // corner moves and the rest of the target must stay the colour it was cleared to. A viewport
-    // does not clip, it only transforms; this triangle stays inside its rectangle, so what the
-    // case asserts about the pixels outside is a consequence of where the triangle went, not of
-    // any clipping.
+    // The same triangle through a viewport half the size and offset, so every corner moves. The
+    // triangle stays inside the viewport, so this says nothing about what a viewport does to
+    // geometry that leaves it: the library writes a clip rectangle alongside the transform, and
+    // no case here draws past the edge to settle it.
     TriangleCase(&gpu, &vertex_shader, &fragment_shader, "a viewport offset moves the triangle",
                  RASTER_SLANTED, 0.5, &RASTER_HALF_VIEWPORT, NULL);
 

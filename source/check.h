@@ -32,19 +32,34 @@ extern "C" {
 
 /// Whether two 32-bit floats agree to within @p ulps units in the last place.
 ///
-/// Compared as sign-magnitude integers, which is what makes "how many representable values
-/// apart" a single subtraction. Zeroes of opposite sign count as equal, and anything involving
-/// a NaN is never equal.
-bool CheckFloatUlp(float produced, float expected, uint32_t ulps);
+/// The budget is a distance, the step between neighbouring representable values at the expected
+/// answer multiplied out, and deliberately not a count of those values: below a power of two
+/// they are half as far apart as above it, and a comparator that counted would fail a machine
+/// that was inside its budget. A float and not a whole number, because the specification's
+/// figures are not whole numbers either.
+///
+/// Zeroes of opposite sign count as equal, anything involving a NaN is never equal, and an
+/// infinity is only equal to the same infinity.
+bool CheckFloatUlp(float produced, float expected, float ulps);
+
+/// How far apart two floats are, measured in units in the last place at @p expected.
+///
+/// The same measure the budget above uses, as a number rather than a verdict, so a case can say
+/// how much room it had in the units its budget is written in. Hands back infinity for a NaN on
+/// either side and for one infinity against anything that is not the same infinity.
+float CheckFloatUlpError(float produced, float expected);
 
 /// How many representable values apart two floats are.
 ///
-/// The measure the comparison above answers yes or no about, exposed because a case that passes
-/// should still be able to say how much room it had, and there should be one implementation of
-/// the measure rather than one per reader. Hands back the largest possible count for a NaN on
-/// either side, and for one infinity against anything that is not the same infinity, neither of
-/// which any budget accepts. No two finite floats are ever that far apart, so the count cannot
-/// be mistaken for a real one.
+/// A second measure, and a different one from the budget above: this one counts the values
+/// between, which is what a reader wants next to a result, while the budget is a distance. The
+/// two agree away from a power of two and differ by a factor of two at one. Hands back the
+/// largest possible count for a NaN on either side, and for one infinity against anything that
+/// is not the same infinity, neither of which any budget accepts. No two finite floats are ever
+/// that far apart, so the count cannot be mistaken for a real one.
+///
+/// This one is for a reader's intuition and for the cases that pin the difference between the
+/// two measures. A budget is never written in it.
 uint32_t CheckFloatUlpDistance(float produced, float expected);
 
 /// Whether two 32-bit floats agree to within @p limit measured as a plain difference.

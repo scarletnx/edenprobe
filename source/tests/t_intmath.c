@@ -139,7 +139,6 @@ static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
     GpuVertex vertices[6];
     FullScreenQuad(vertices);
 
-    const uint32_t mark = GpuDataMark(gpu);
     GpuBeginPass(gpu);
 
     const IntParams params = { (uint32_t)mode, UNIFORM_PROBE, { 0u, 0u } };
@@ -151,7 +150,6 @@ static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
 
     const bool drawn = GpuDrawTriangles(gpu, vertex_shader, fragment_shader, vertices, 6);
     GpuSubmit(gpu);
-    GpuDataRewind(gpu, mark);
 
     if (!drawn) {
         ReportCase(SUITE, name, CHECK_NONE, false,

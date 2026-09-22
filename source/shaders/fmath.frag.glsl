@@ -22,11 +22,12 @@ layout (std140, binding = 0) uniform Params
 
 void main()
 {
-    // Whole numbers, taken from the fragment's own coordinate. The floor is what discards the
-    // half that puts the coordinate at the centre of the pixel; the integer suite is where that
-    // half is checked.
-    float a = (floor(gl_FragCoord.x) + 1.0) / 64.0;
-    float b = (floor(gl_FragCoord.y) + 1.0) / 64.0;
+    // Whole numbers out of the fragment's own coordinate; the integer suite is where the half
+    // the floor discards is checked. Multiplied by a sixty fourth rather than divided by 64,
+    // which matters to the two cases that allow no tolerance at all: only the multiplication is
+    // required to be correctly rounded.
+    float a = (floor(gl_FragCoord.x) + 1.0) * (1.0 / 64.0);
+    float b = (floor(gl_FragCoord.y) + 1.0) * (1.0 / 64.0);
 
     float result;
     switch (params.mode) {
