@@ -7,6 +7,7 @@
 #include "../check.h"
 #include "../gpu.h"
 #include "../intref.h"
+#include "../picture.h"
 #include "../report.h"
 #include "../shaders.h"
 #include "tests.h"
@@ -88,8 +89,8 @@ static uint32_t PixelValue(const uint8_t *pixels, uint32_t x, uint32_t y) {
 
 /// Compares all 4096 pixels against the reference and writes the sentence that explains a
 /// failure: how many were wrong, and where the first one was with both values.
-static bool CheckEveryPixel(const uint8_t *pixels, IntMathMode mode, char *detail,
-                            size_t detail_size) {
+static bool CheckEveryPixel(const uint8_t *pixels, IntMathMode mode, Picture *picture,
+                            char *detail, size_t detail_size) {
     uint32_t wrong = 0;
     uint32_t first_x = 0;
     uint32_t first_y = 0;
@@ -101,6 +102,11 @@ static bool CheckEveryPixel(const uint8_t *pixels, IntMathMode mode, char *detai
         for (uint32_t x = 0; x < TARGET_WIDTH; ++x) {
             const uint32_t got = PixelValue(pixels, x, y);
             const uint32_t want = IntMathReference(mode, x, y, UNIFORM_PROBE);
+            // The four bytes in the order memory holds them, which is the order the picture and
+            // the raw file both use, so one rule covers all three.
+            uint8_t wanted[4];
+            memcpy(wanted, &want, sizeof(wanted));
+            PictureSet(picture, x, y, wanted, got == want ? PICTURE_MATCHED : PICTURE_WRONG);
             if (got == want) {
                 continue;
             }
@@ -165,8 +171,10 @@ static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
         return;
     }
 
+    Picture *const picture = PictureBegin(TARGET_WIDTH, TARGET_HEIGHT, PICTURE_BITS, pixels);
+
     char detail[384];
-    const bool matched = CheckEveryPixel(pixels, mode, detail, sizeof(detail));
+    const bool matched = CheckEveryPixel(pixels, mode, picture, detail, sizeof(detail));
     CHECK_TRUE(SUITE, name, CHECK_EXACT, matched, "%s", detail);
 }
 

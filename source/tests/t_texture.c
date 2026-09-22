@@ -7,6 +7,7 @@
 
 #include "../check.h"
 #include "../gpu.h"
+#include "../picture.h"
 #include "../report.h"
 #include "../shaders.h"
 #include "../texref.h"
@@ -142,7 +143,7 @@ static void ExpectedPixel(const TextureExpectation *want, uint32_t x, uint32_t y
 }
 
 static bool CheckAgainstTexels(const uint8_t *pixels, const TextureExpectation *want,
-                               char *detail, size_t detail_size) {
+                               Picture *picture, char *detail, size_t detail_size) {
     uint32_t wrong = 0;
     uint32_t first_x = 0;
     uint32_t first_y = 0;
@@ -154,7 +155,9 @@ static bool CheckAgainstTexels(const uint8_t *pixels, const TextureExpectation *
             uint8_t expected[4];
             ExpectedPixel(want, x, y, expected);
             const uint8_t *const pixel = GpuPixel(pixels, TARGET_WIDTH, x, y);
-            if (memcmp(pixel, expected, 4) == 0) {
+            const bool right = memcmp(pixel, expected, 4) == 0;
+            PictureSet(picture, x, y, expected, right ? PICTURE_MATCHED : PICTURE_WRONG);
+            if (right) {
                 continue;
             }
             if (wrong == 0) {
@@ -215,8 +218,10 @@ static void SampleCase(GpuContext *gpu, const DkShader *vertex_shader,
         return;
     }
 
+    Picture *const picture = PictureBegin(TARGET_WIDTH, TARGET_HEIGHT, PICTURE_COLOUR, pixels);
+
     char detail[320];
-    const bool matched = CheckAgainstTexels(pixels, want, detail, sizeof(detail));
+    const bool matched = CheckAgainstTexels(pixels, want, picture, detail, sizeof(detail));
     CHECK_TRUE(SUITE, name, CHECK_EXACT, matched, "%s", detail);
 }
 

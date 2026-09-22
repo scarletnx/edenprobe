@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -24,6 +25,7 @@ static void SendToDebugChannel(const char *line, size_t length) {
 }
 
 static FILE *report_file;
+static bool report_open;
 static size_t passed;
 static size_t failed;
 
@@ -67,6 +69,10 @@ static void EscapeInto(char *out, size_t out_size, const char *text) {
 void ReportOpen(const char *path) {
     passed = 0;
     failed = 0;
+    // Set whether or not the file below opens: a run with no memory card still reports through
+    // the debug channel, and the guard this flag serves is about a run being under way rather
+    // than about a file existing.
+    report_open = true;
     report_file = fopen(path, "w");
     if (report_file == NULL) {
         // Not fatal. On hardware with no memory card, or an emulator pointed somewhere odd, the
@@ -77,7 +83,12 @@ void ReportOpen(const char *path) {
     }
 }
 
+bool ReportIsOpen(void) {
+    return report_open;
+}
+
 void ReportClose(void) {
+    report_open = false;
     if (report_file != NULL) {
         fclose(report_file);
         report_file = NULL;
@@ -87,7 +98,7 @@ void ReportClose(void) {
 /// The word a tier goes onto the line as. An unrecognised value reads as "unknown" rather than
 /// falling through to one of the real tiers: a diff between two machines is only worth something
 /// if the tolerance each side allowed itself is on the line beside the result.
-static const char *TierName(CheckTier tier) {
+const char *ReportTierName(CheckTier tier) {
     switch (tier) {
     case CHECK_NONE:
         return "none";
@@ -101,6 +112,50 @@ static const char *TierName(CheckTier tier) {
     return "unknown";
 }
 
+/// Adds one optional field, and nothing at all when there is no such file. A path is built out
+/// of lower case letters, digits, dashes and the separators this program put there, so it needs
+/// no escaping and the one that did would be a bug rather than a string to quote.
+static void AppendPath(char *out, size_t out_size, const char *key, const char *value) {
+    if (value == NULL || value[0] == '\0') {
+        return;
+    }
+    const size_t used = strlen(out);
+    if (used + 1u >= out_size) {
+        return;
+    }
+    snprintf(out + used, out_size - used, ",\"%s\":\"%s\"", key, value);
+}
+
+size_t ReportBuildCaseLine(char *out, size_t out_size, const char *suite, const char *name,
+                           const char *tier, bool passed_, const char *detail,
+                           const PicturePaths *paths) {
+    char safe_suite[64];
+    char safe_name[128];
+    char safe_detail[512];
+    EscapeInto(safe_suite, sizeof(safe_suite), suite);
+    EscapeInto(safe_name, sizeof(safe_name), name);
+    EscapeInto(safe_detail, sizeof(safe_detail), detail != NULL ? detail : "");
+
+    snprintf(out, out_size,
+             "{\"type\":\"case\",\"suite\":\"%s\",\"name\":\"%s\",\"tier\":\"%s\","
+             "\"result\":\"%s\",\"detail\":\"%s\"",
+             safe_suite, safe_name, tier, passed_ ? "pass" : "fail", safe_detail);
+    if (paths != NULL) {
+        // The picture the machine produced first, then what was expected there, then the
+        // judge's own verdict per pixel, then the bytes an image cannot hold exactly.
+        AppendPath(out, out_size, "image", paths->image);
+        AppendPath(out, out_size, "expected", paths->expected);
+        AppendPath(out, out_size, "diff", paths->diff);
+        AppendPath(out, out_size, "raw", paths->raw);
+    }
+    const size_t used = strlen(out);
+    if (used + 2u <= out_size) {
+        out[used] = '}';
+        out[used + 1u] = '\0';
+    }
+    return strlen(out);
+}
+
 void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed_,
                 const char *detail) {
     if (passed_) {
@@ -109,18 +164,15 @@ void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed
         ++failed;
     }
 
-    char safe_suite[64];
-    char safe_name[128];
-    char safe_detail[512];
-    EscapeInto(safe_suite, sizeof(safe_suite), suite);
-    EscapeInto(safe_name, sizeof(safe_name), name);
-    EscapeInto(safe_detail, sizeof(safe_detail), detail != NULL ? detail : "");
+    // Before the line and after the verdict, which is the order the whole idea rests on: the
+    // bytes written are the ones the judge looked at, and nothing written here can move a
+    // result that has already been decided.
+    PicturePaths paths;
+    PictureFinish(suite, name, ReportTierName(tier), passed_, detail, &paths);
 
-    char line[896];
-    snprintf(line, sizeof(line),
-             "{\"type\":\"case\",\"suite\":\"%s\",\"name\":\"%s\",\"tier\":\"%s\","
-             "\"result\":\"%s\",\"detail\":\"%s\"}",
-             safe_suite, safe_name, TierName(tier), passed_ ? "pass" : "fail", safe_detail);
+    char line[REPORT_LINE_MAX];
+    ReportBuildCaseLine(line, sizeof(line), suite, name, ReportTierName(tier), passed_, detail,
+                        &paths);
     Emit(line);
 }
 

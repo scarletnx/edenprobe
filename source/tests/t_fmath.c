@@ -7,6 +7,7 @@
 #include "../check.h"
 #include "../fmathref.h"
 #include "../gpu.h"
+#include "../picture.h"
 #include "../report.h"
 #include "../shaders.h"
 #include "tests.h"
@@ -77,7 +78,7 @@ static float PixelValue(const uint8_t *pixels, uint32_t x, uint32_t y) {
 /// of two's allowance grows with its argument, so a case that took the middle of the sweep would
 /// fail a correct machine at the ends and one that took the ends would wave the middle through.
 static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget budget,
-                            char *detail, size_t detail_size) {
+                            Picture *picture, char *detail, size_t detail_size) {
     uint32_t wrong = 0;
     uint32_t first_x = 0;
     uint32_t first_y = 0;
@@ -133,6 +134,12 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
                 }
             }
 
+            // The tolerance is the judge's, so the diff picture carries it: a pixel inside its
+            // allowance is not a difference here however far apart the two bit patterns are,
+            // which is the whole reason this suite does not compare images in the first place.
+            uint8_t wanted[4];
+            memcpy(wanted, &want, sizeof(wanted));
+            PictureSet(picture, x, y, wanted, within ? PICTURE_MATCHED : PICTURE_WRONG);
             if (within) {
                 continue;
             }
@@ -222,8 +229,10 @@ static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
         return;
     }
 
+    Picture *const picture = PictureBegin(TARGET_WIDTH, TARGET_HEIGHT, PICTURE_BITS, pixels);
+
     char detail[384];
-    const bool matched = CheckEveryPixel(pixels, mode, budget, detail, sizeof(detail));
+    const bool matched = CheckEveryPixel(pixels, mode, budget, picture, detail, sizeof(detail));
     CHECK_TRUE(SUITE, name, tier, matched, "%s", detail);
 }
 

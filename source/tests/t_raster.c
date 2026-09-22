@@ -6,6 +6,7 @@
 
 #include "../check.h"
 #include "../gpu.h"
+#include "../picture.h"
 #include "../raster.h"
 #include "../report.h"
 #include "../shaders.h"
@@ -101,8 +102,8 @@ static bool PixelIs(const uint8_t *pixel, const uint8_t expected[4]) {
 ///
 /// Returns false and writes a sentence naming the first wrong pixel, what it held, what it
 /// should have held and how many were wrong in total.
-static bool CheckCoverage(const uint8_t *pixels, const Expectation *want, char *detail,
-                          size_t detail_size) {
+static bool CheckCoverage(const uint8_t *pixels, const Expectation *want, Picture *picture,
+                          char *detail, size_t detail_size) {
     uint32_t wrong = 0;
     uint32_t judged = 0;
     uint32_t allowed_either = 0;
@@ -136,13 +137,18 @@ static bool CheckCoverage(const uint8_t *pixels, const Expectation *want, char *
             // the pixels along their own internal diagonal.
             if (near_edge && !covered) {
                 ++allowed_either;
+                // No expectation to record: the coverage rule allows either answer here, so the
+                // picture keeps what the machine drew and the diff marks the band as unjudged.
+                PictureSet(picture, x, y, NULL, PICTURE_UNJUDGED);
                 continue;
             }
 
             ++judged;
             const uint8_t *const expected = covered ? DRAW_BYTES : CLEAR_BYTES;
             const uint8_t *const pixel = GpuPixel(pixels, TARGET_WIDTH, x, y);
-            if (PixelIs(pixel, expected)) {
+            const bool right = PixelIs(pixel, expected);
+            PictureSet(picture, x, y, expected, right ? PICTURE_MATCHED : PICTURE_WRONG);
+            if (right) {
                 continue;
             }
             if (wrong == 0) {
@@ -210,8 +216,10 @@ static void DrawAndCheck(GpuContext *gpu, const DkShader *vertex_shader,
         return;
     }
 
+    Picture *const picture = PictureBegin(TARGET_WIDTH, TARGET_HEIGHT, PICTURE_COLOUR, pixels);
+
     char detail[384];
-    const bool matched = CheckCoverage(pixels, want, detail, sizeof(detail));
+    const bool matched = CheckCoverage(pixels, want, picture, detail, sizeof(detail));
     CHECK_TRUE(SUITE, name, tier, matched, "%s", detail);
 }
 
