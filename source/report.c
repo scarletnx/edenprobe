@@ -35,6 +35,12 @@ static size_t failed;
 /// costs nothing on hardware when nobody is listening. The file is what a console run leaves
 /// behind for the memory card to carry back.
 static void Emit(const char *line) {
+    // Both channels stop together. The file already did, through its own handle; without this
+    // the debug one stayed open, and one line written after the summary would reach the log a
+    // runner greps and make the two modes' runs read differently.
+    if (!report_open) {
+        return;
+    }
     SendToDebugChannel(line, strlen(line));
     if (report_file != NULL) {
         fputs(line, report_file);
@@ -120,7 +126,10 @@ static void AppendPath(char *out, size_t out_size, const char *key, const char *
         return;
     }
     const size_t used = strlen(out);
-    if (used + 1u >= out_size) {
+    // Whole or not at all. A path cut in half leaves the string it sits in unterminated, and a
+    // reader of the file gets a parse error rather than a line that is merely missing a field.
+    const size_t needed = strlen(key) + strlen(value) + 6u;
+    if (used + needed >= out_size) {
         return;
     }
     snprintf(out + used, out_size - used, ",\"%s\":\"%s\"", key, value);
@@ -136,24 +145,40 @@ size_t ReportBuildCaseLine(char *out, size_t out_size, const char *suite, const 
     EscapeInto(safe_name, sizeof(safe_name), name);
     EscapeInto(safe_detail, sizeof(safe_detail), detail != NULL ? detail : "");
 
-    snprintf(out, out_size,
-             "{\"type\":\"case\",\"suite\":\"%s\",\"name\":\"%s\",\"tier\":\"%s\","
-             "\"result\":\"%s\",\"detail\":\"%s\"",
-             safe_suite, safe_name, tier, passed_ ? "pass" : "fail", safe_detail);
+    if (out == NULL || out_size < 3u) {
+        if (out != NULL && out_size > 0u) {
+            out[0] = '\0';
+        }
+        return 0;
+    }
+
+    // One byte held back for the closing brace, so it can be written unconditionally. What the
+    // guard used to do instead was drop it whenever the content filled the buffer, which turned
+    // a long line into something no reader could parse.
+    const size_t room = out_size - 1u;
+    const int wrote =
+        snprintf(out, room,
+                 "{\"type\":\"case\",\"suite\":\"%s\",\"name\":\"%s\",\"tier\":\"%s\","
+                 "\"result\":\"%s\",\"detail\":\"%s\"",
+                 safe_suite, safe_name, tier, passed_ ? "pass" : "fail", safe_detail);
+    if (wrote < 0 || (size_t)wrote >= room) {
+        // The caller's buffer cannot hold this case's line at all. An empty object still parses
+        // and says nothing; half a line says something and cannot be read.
+        snprintf(out, out_size, "{}");
+        return strlen(out);
+    }
     if (paths != NULL) {
         // The picture the machine produced first, then what was expected there, then the
         // judge's own verdict per pixel, then the bytes an image cannot hold exactly.
-        AppendPath(out, out_size, "image", paths->image);
-        AppendPath(out, out_size, "expected", paths->expected);
-        AppendPath(out, out_size, "diff", paths->diff);
-        AppendPath(out, out_size, "raw", paths->raw);
+        AppendPath(out, room, "image", paths->image);
+        AppendPath(out, room, "expected", paths->expected);
+        AppendPath(out, room, "diff", paths->diff);
+        AppendPath(out, room, "raw", paths->raw);
     }
     const size_t used = strlen(out);
-    if (used + 2u <= out_size) {
-        out[used] = '}';
-        out[used + 1u] = '\0';
-    }
-    return strlen(out);
+    out[used] = '}';
+    out[used + 1u] = '\0';
+    return used + 1u;
 }
 
 void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed_,

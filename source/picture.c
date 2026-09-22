@@ -11,12 +11,15 @@
 // Nothing here knows what a console is: it writes ordinary files through the C library, which is
 // what lets the host build exercise the writer and the naming with no device in the loop.
 
-// The three colours a diff picture is made of. Grey for a pixel the judge accepted, red for one
-// it refused, and blue for one it declined to judge, which is the band an edge runs through.
-static const uint8_t DIFF_COLOURS[3][3] = {
+// The colours a diff picture is made of. Grey for a pixel the judge accepted, red for one it
+// refused, blue for one it declined to judge, and magenta for one nothing ever looked at, which
+// is the only one of the four that should never appear.
+#define DIFF_COLOUR_COUNT 4
+static const uint8_t DIFF_COLOURS[DIFF_COLOUR_COUNT][3] = {
     { 0x20, 0x20, 0x20 },
     { 0xE0, 0x20, 0x20 },
     { 0x30, 0x40, 0x70 },
+    { 0xFF, 0x00, 0xFF },
 };
 
 #define MAX_PIXELS ((size_t)PICTURE_MAX_DIMENSION * PICTURE_MAX_DIMENSION)
@@ -36,10 +39,11 @@ static bool retaining;
 
 // How many finished cases the detailed mode can show, and how much of them it may hold. Three
 // buffers a case at 64 by 64 is 36 KiB, so the cap is reached long before the limit below.
-#define MAX_RECORDS 256
 #define MAX_RETAINED_BYTES (16u * 1024u * 1024u)
 
-static PictureRecord records[MAX_RECORDS];
+// Allocated the first time a case is retained, which is never in an automatic run. As an array
+// it was 182 KiB of the program's own memory that the common mode had no use for.
+static PictureRecord *records;
 static size_t record_count;
 static size_t retained_bytes;
 
@@ -127,14 +131,26 @@ static void MakeUnique(char *stem, size_t stem_size, const char *suite) {
     char key[PICTURE_PATH_MAX];
     snprintf(key, sizeof(key), "%s/%s", suite, stem);
     uint32_t hash = Hash(key);
+
     for (unsigned suffix = 2; suffix < 10 && HashSeen(hash); ++suffix) {
-        snprintf(key, sizeof(key), "%s/%s-%u", suite, stem, suffix);
-        hash = Hash(key);
-        if (!HashSeen(hash)) {
-            const size_t length = strlen(stem);
-            snprintf(stem + length, stem_size - length, "-%u", suffix);
+        const size_t length = strlen(stem);
+        // The number has to fit, or the name would go back unchanged while a hash for a
+        // different one was remembered, and the collision after it would overwrite in silence.
+        const int wrote = snprintf(key, sizeof(key), "%s/%s-%u", suite, stem, suffix);
+        if (wrote < 0 || (size_t)wrote >= sizeof(key) || length + 3u >= stem_size) {
+            break;
         }
+        const uint32_t candidate = Hash(key);
+        if (HashSeen(candidate)) {
+            continue;
+        }
+        snprintf(stem + length, stem_size - length, "-%u", suffix);
+        hash = candidate;
+        break;
     }
+
+    // Only ever the name this run actually took. Recording any other one would let the next
+    // collision through.
     if (used_count < USED_MAX) {
         used_hashes[used_count++] = hash;
     }
@@ -169,9 +185,10 @@ static bool WriteRaw(const char *path, const uint8_t *bytes, size_t count) {
 }
 
 void PictureDiffColour(uint8_t verdict, uint8_t out[3]) {
-    // Anything but the three is a pixel nobody set, which is the one thing it certainly is not
+    // Anything off the end is a pixel nobody set, which is the one thing it certainly is not
     // safe to draw as accepted.
-    memcpy(out, DIFF_COLOURS[verdict < 3u ? verdict : (uint8_t)PICTURE_UNJUDGED], 3u);
+    memcpy(out, DIFF_COLOURS[verdict < DIFF_COLOUR_COUNT ? verdict : (uint8_t)PICTURE_UNSET],
+           3u);
 }
 
 /// Turns the judge's verdicts into the three colours a reader can see.
@@ -242,8 +259,15 @@ static void Retain(const Picture *picture, const char *suite, const char *name, 
                    bool passed, const char *detail) {
     const size_t pixels = (size_t)picture->width * picture->height;
     const size_t bytes = pixels * 9u;
-    if (record_count >= MAX_RECORDS || retained_bytes + bytes > MAX_RETAINED_BYTES) {
+    if (record_count >= PICTURE_MAX_RECORDS || retained_bytes + bytes > MAX_RETAINED_BYTES) {
         return;
+    }
+    if (records == NULL) {
+        records = (PictureRecord *)calloc(PICTURE_MAX_RECORDS, sizeof(*records));
+        if (records == NULL) {
+            retaining = false;
+            return;
+        }
     }
 
     PictureRecord *const record = &records[record_count];
@@ -288,9 +312,9 @@ Picture *PictureBegin(uint32_t width, uint32_t height, PictureFormat format,
     current.expected = expected_scratch;
     current.verdict = verdict_scratch;
     current.open = true;
-    // Every pixel a judge looks at is set below, and a judge that skips one would otherwise
-    // leave the previous case's answer there.
-    memset(verdict_scratch, PICTURE_UNJUDGED, (size_t)width * height);
+    // Not the value a judge would ever choose. A pixel still holding this when the picture is
+    // written is one no compare loop reached, and it says so in a colour nothing else uses.
+    memset(verdict_scratch, PICTURE_UNSET, (size_t)width * height);
     memset(expected_scratch, 0, (size_t)width * height * 4u);
     return &current;
 }

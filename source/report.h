@@ -63,6 +63,10 @@ void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed
 ///
 /// Exposed so that the shape of a line, and the fields a picture adds to it, can be checked on
 /// the host with no device and no file. @p paths may be NULL. Returns the length written.
+///
+/// What it writes always parses. A buffer too small for the whole line gets an empty object
+/// rather than the front of a real one, because a truncated line ends inside a string and takes
+/// the rest of the file down with it.
 size_t ReportBuildCaseLine(char *out, size_t out_size, const char *suite, const char *name,
                            const char *tier, bool passed, const char *detail,
                            const PicturePaths *paths);

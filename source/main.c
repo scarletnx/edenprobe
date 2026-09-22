@@ -26,17 +26,19 @@ int main(int argc, char **argv) {
     // interface, so a bring-up problem on a new machine is never "did the screen work".
     mkdir(REPORT_DIRECTORY, 0777);
 
-    // Asked before anything is reported, and acted on only after everything has been. What the
-    // mode changes is whether the finished pictures are kept in memory and shown afterwards;
-    // it changes no verdict, writes no line, and the two modes leave the same report behind.
+    // Opened first, because reading the mode file and asking the pad both touch services this
+    // program otherwise never uses, and a run that dies in either should still leave a report.
+    ReportOpen(REPORT_PATH);
+    ReportNote("gfxprobe starting");
+
+    // What the mode changes is whether the finished pictures are kept in memory and shown once
+    // everything is over. It changes no verdict, writes no line, and the two modes leave the
+    // same report behind.
     const UiMode mode = ViewerModeAtLaunch(MODE_PATH);
     PictureSetRoot(REPORT_DIRECTORY);
     PictureWriteEveryCase(mode.every_case);
     PictureRetain(mode.detailed);
 
-    ReportOpen(REPORT_PATH);
-
-    ReportNote("gfxprobe starting");
     // Order matters: the selfcheck suite is what proves the comparisons the drawing suite then
     // leans on, so a machine where both are broken says which one broke first.
     RunSelfcheck();

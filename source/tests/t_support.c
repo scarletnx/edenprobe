@@ -30,11 +30,22 @@ static const char *const SUITE = "support";
 #define FIXTURE_HEIGHT 4u
 #define FIXTURE_PIXELS (FIXTURE_WIDTH * FIXTURE_HEIGHT)
 
+/// Its own corner to write into, and an absolute one: a path relative to the working directory
+/// makes the binary run from anywhere else report a pile of failures that all blame the picture
+/// writer for the same missing directory.
+static const char *Scratch(void) {
+    static char path[FULL_PATH_MAX];
+    if (path[0] == '\0') {
 #ifdef __SWITCH__
-static const char *const SCRATCH = "sdmc:/gfxprobe/support-check";
+        snprintf(path, sizeof(path), "sdmc:/gfxprobe/support-check");
 #else
-static const char *const SCRATCH = "build-host/support-check";
+        const char *const base = getenv("TMPDIR");
+        snprintf(path, sizeof(path), "%.200s/gfxprobe-support-check",
+                 base != NULL && base[0] != '\0' ? base : "/tmp");
 #endif
+    }
+    return path;
+}
 
 // The frame the layout cases compose into. Bigger than the fixture by enough that the panels
 // land where the real screen puts them, and small enough to walk pixel by pixel.
@@ -59,51 +70,36 @@ static void Remember(const PicturePaths *paths) {
     }
 }
 
-/// Removes one file, if there is one to remove.
-static void Discard(const char *relative) {
+/// Removes one file and says whether it is gone. Nothing to remove counts as gone.
+static bool Discard(const char *relative) {
     if (relative[0] == '\0') {
-        return;
+        return true;
     }
     char full[FULL_PATH_MAX];
-    snprintf(full, sizeof(full), "%.120s/%.159s", SCRATCH, relative);
-    (void)remove(full);
+    snprintf(full, sizeof(full), "%.120s/%.159s", Scratch(), relative);
+    return remove(full) == 0;
 }
 
 /// Whether anything this suite wrote is still there. The directories go too, youngest first,
 /// because an empty one left behind is still a directory nobody can explain.
 static bool SweepUp(void) {
+    bool gone = true;
     for (size_t i = 0; i < written_count; ++i) {
-        Discard(written[i].image);
-        Discard(written[i].expected);
-        Discard(written[i].diff);
-        Discard(written[i].raw);
-    }
-
-    bool left = false;
-    for (size_t i = 0; i < written_count; ++i) {
-        const char *const paths[4] = { written[i].image, written[i].expected, written[i].diff,
-                                       written[i].raw };
-        for (size_t which = 0; which < 4u; ++which) {
-            if (paths[which][0] == '\0') {
-                continue;
-            }
-            char full[FULL_PATH_MAX];
-            snprintf(full, sizeof(full), "%.120s/%.159s", SCRATCH, paths[which]);
-            FILE *file = fopen(full, "rb");
-            if (file != NULL) {
-                fclose(file);
-                left = true;
-            }
-        }
+        // Every one of the four, and no short circuit: a sweep that stopped at the first file
+        // it could not remove would leave the rest behind and still be able to say so.
+        gone = Discard(written[i].image) && gone;
+        gone = Discard(written[i].expected) && gone;
+        gone = Discard(written[i].diff) && gone;
+        gone = Discard(written[i].raw) && gone;
     }
 
     char directory[FULL_PATH_MAX];
-    snprintf(directory, sizeof(directory), "%.120s/images/support", SCRATCH);
+    snprintf(directory, sizeof(directory), "%.120s/images/support", Scratch());
     (void)rmdir(directory);
-    snprintf(directory, sizeof(directory), "%.120s/images", SCRATCH);
+    snprintf(directory, sizeof(directory), "%.120s/images", Scratch());
     (void)rmdir(directory);
-    (void)rmdir(SCRATCH);
-    return !left;
+    (void)rmdir(Scratch());
+    return gone;
 }
 
 /// What one PAM file turned out to hold.
@@ -228,17 +224,28 @@ static void CheckNaming(void) {
                strcmp(stem, "unnamed") == 0, "got \"%s\"", stem);
 }
 
-static void CheckWriting(void) {
+/// Returns false when this machine has nowhere to write, which every case below depends on.
+static bool CheckWriting(void) {
     Picture *const picture = BuildFixture(PICTURE_COLOUR);
     if (picture == NULL) {
         ReportCase(SUITE, "a picture opens for a small target", CHECK_NONE, false,
                    "PictureBegin refused a target it should have taken");
-        return;
+        return false;
     }
 
     PicturePaths paths;
     PictureFinish(SUITE, "a colour picture", "none", true, "", &paths);
     Remember(&paths);
+
+    // This fixture doubles as the probe. Named once, here, so that a corner of the card this
+    // machine cannot write to is reported as that rather than blamed on the writer nine times.
+    const bool writable = paths.image[0] != '\0';
+    CHECK_TRUE(SUITE, "there is a corner of the memory card to write in", CHECK_NONE, writable,
+               "nothing could be written under %s", Scratch());
+    if (!writable) {
+        return false;
+    }
+
     CHECK_TRUE(SUITE, "a picture is written where the line says it is", CHECK_NONE,
                strcmp(paths.image, "images/support/a-colour-picture.pam") == 0 &&
                    strcmp(paths.expected, "images/support/a-colour-picture-expected.pam") == 0 &&
@@ -250,7 +257,7 @@ static void CheckWriting(void) {
 
     char full[FULL_PATH_MAX];
     ParsedPam parsed;
-    snprintf(full, sizeof(full), "%.120s/%.159s", SCRATCH, paths.image);
+    snprintf(full, sizeof(full), "%.120s/%.159s", Scratch(), paths.image);
     ParsePam(&parsed, full);
     CHECK_TRUE(SUITE, "the picture parses back as the image its header claims", CHECK_NONE,
                parsed.parsed && parsed.width == FIXTURE_WIDTH &&
@@ -266,7 +273,7 @@ static void CheckWriting(void) {
                fixture_got[2], fixture_got[3]);
 
     ParsedPam wanted;
-    snprintf(full, sizeof(full), "%.120s/%.159s", SCRATCH, paths.expected);
+    snprintf(full, sizeof(full), "%.120s/%.159s", Scratch(), paths.expected);
     ParsePam(&wanted, full);
     CHECK_TRUE(SUITE, "the expected picture holds what the judge expected", CHECK_NONE,
                wanted.parsed &&
@@ -277,7 +284,7 @@ static void CheckWriting(void) {
                fixture_expected[7]);
 
     ParsedPam diff;
-    snprintf(full, sizeof(full), "%.120s/%.159s", SCRATCH, paths.diff);
+    snprintf(full, sizeof(full), "%.120s/%.159s", Scratch(), paths.diff);
     ParsePam(&diff, full);
     uint8_t matched[3];
     uint8_t wrong[3];
@@ -302,6 +309,46 @@ static void CheckWriting(void) {
                diff.bytes[0], diff.bytes[1], diff.bytes[2], diff.bytes[3], diff.bytes[4],
                diff.bytes[5], diff.bytes[6], diff.bytes[7], diff.bytes[8], diff.bytes[9],
                diff.bytes[10], diff.bytes[11]);
+    return true;
+}
+
+/// A picture with a hole in it: one pixel no judge ever looked at. It has to be visible, or a
+/// compare loop that skipped a pixel would hand back a diff that quietly reads as accepted.
+static void CheckAPixelNobodyLookedAt(void) {
+    for (uint32_t i = 0; i < FIXTURE_PIXELS; ++i) {
+        for (uint32_t channel = 0; channel < 4u; ++channel) {
+            fixture_got[i * 4u + channel] = (uint8_t)(i * 4u + channel);
+        }
+    }
+    Picture *const picture =
+        PictureBegin(FIXTURE_WIDTH, FIXTURE_HEIGHT, PICTURE_COLOUR, fixture_got);
+    for (uint32_t y = 0; y < FIXTURE_HEIGHT; ++y) {
+        for (uint32_t x = 0; x < FIXTURE_WIDTH; ++x) {
+            if (x == 4u && y == 1u) {
+                continue;
+            }
+            PictureSet(picture, x, y, NULL, PICTURE_MATCHED);
+        }
+    }
+    PicturePaths paths;
+    PictureFinish(SUITE, "a picture with a hole", "none", true, "", &paths);
+    Remember(&paths);
+
+    char full[FULL_PATH_MAX];
+    ParsedPam diff;
+    snprintf(full, sizeof(full), "%.120s/%.159s", Scratch(), paths.diff);
+    ParsePam(&diff, full);
+    uint8_t unset[3];
+    uint8_t matched[3];
+    PictureDiffColour((uint8_t)PICTURE_UNSET, unset);
+    PictureDiffColour((uint8_t)PICTURE_MATCHED, matched);
+    const size_t hole = ((size_t)1 * FIXTURE_WIDTH + 4u) * 3u;
+    CHECK_TRUE(SUITE, "a pixel no judge looked at is not drawn as one it accepted", CHECK_NONE,
+               diff.parsed && memcmp(diff.bytes + hole, unset, 3u) == 0 &&
+                   memcmp(diff.bytes + hole - 3u, matched, 3u) == 0,
+               "the hole reads %02x%02x%02x and its neighbour %02x%02x%02x",
+               diff.bytes[hole], diff.bytes[hole + 1u], diff.bytes[hole + 2u],
+               diff.bytes[hole - 3u], diff.bytes[hole - 2u], diff.bytes[hole - 1u]);
 }
 
 static void CheckBitsAndCollisions(void) {
@@ -315,7 +362,7 @@ static void CheckBitsAndCollisions(void) {
 
     char full[FULL_PATH_MAX];
     uint8_t raw[FIXTURE_PIXELS * 4u + 1u];
-    snprintf(full, sizeof(full), "%.120s/%.159s", SCRATCH, paths.raw);
+    snprintf(full, sizeof(full), "%.120s/%.159s", Scratch(), paths.raw);
     const size_t read = ReadWholeFile(full, raw, sizeof(raw));
     CHECK_TRUE(SUITE, "the raw file is every byte the target held and nothing more", CHECK_NONE,
                read == FIXTURE_PIXELS * 4u &&
@@ -372,6 +419,66 @@ static void CheckReportLine(void) {
     CHECK_TRUE(SUITE, "a run under way says its report is still open", CHECK_NONE,
                ReportIsOpen(),
                "the detailed mode asks this before it presents, and it answered no");
+
+    // Every buffer size from too small for anything up to comfortable. What a reader cannot
+    // survive is a line that stops inside a string: the brace never arrives, the quote count is
+    // odd, and the parse error lands on the file rather than on the line.
+    PicturePaths full;
+    memset(&full, 0, sizeof(full));
+    snprintf(full.image, sizeof(full.image), "images/clear/a-rather-long-case-name-here.pam");
+    snprintf(full.expected, sizeof(full.expected),
+             "images/clear/a-rather-long-case-name-here-expected.pam");
+    snprintf(full.diff, sizeof(full.diff), "images/clear/a-rather-long-case-name-here-diff.pam");
+    snprintf(full.raw, sizeof(full.raw), "images/clear/a-rather-long-case-name-here.bin");
+
+    uint32_t unreadable = 0;
+    uint32_t first_bad_size = 0;
+    for (size_t size = 2; size <= 400u; ++size) {
+        char small[401];
+        memset(small, 'x', sizeof(small));
+        ReportBuildCaseLine(small, size, "clear", "a case with a longish name", "exact", false,
+                            "a detail with \"a quote\" in it", &full);
+        const size_t length = strlen(small);
+        uint32_t quotes = 0;
+        for (size_t i = 0; i < length; ++i) {
+            if (small[i] == '"' && (i == 0 || small[i - 1] != '\\')) {
+                ++quotes;
+            }
+        }
+        const bool shaped = length == 0u || (small[0] == '{' && small[length - 1u] == '}');
+        if (!shaped || (quotes % 2u) != 0u || length >= size) {
+            if (unreadable == 0u) {
+                first_bad_size = (uint32_t)size;
+            }
+            ++unreadable;
+        }
+    }
+    CHECK_TRUE(SUITE, "a line too big for its buffer comes back whole or not at all", CHECK_NONE,
+               unreadable == 0u, "%u of 399 sizes came back unreadable, the first at %u bytes",
+               (unsigned)unreadable, (unsigned)first_bad_size);
+
+    // And the buffer a case actually gets is big enough for the longest line a case can make,
+    // which is the margin the line above only has to fall back on when something is wrong.
+    char longest[REPORT_LINE_MAX];
+    char big_name[200];
+    char big_detail[700];
+    memset(big_name, 'n', sizeof(big_name) - 1u);
+    big_name[sizeof(big_name) - 1u] = '\0';
+    memset(big_detail, 'd', sizeof(big_detail) - 1u);
+    big_detail[sizeof(big_detail) - 1u] = '\0';
+    PicturePaths longest_paths;
+    memset(&longest_paths, 0, sizeof(longest_paths));
+    memset(longest_paths.image, 'i', PICTURE_PATH_MAX - 1u);
+    memcpy(longest_paths.expected, longest_paths.image, PICTURE_PATH_MAX);
+    memcpy(longest_paths.diff, longest_paths.image, PICTURE_PATH_MAX);
+    memcpy(longest_paths.raw, longest_paths.image, PICTURE_PATH_MAX);
+    const size_t written = ReportBuildCaseLine(longest, sizeof(longest), big_name, big_name,
+                                               "position", false, big_detail, &longest_paths);
+    CHECK_TRUE(SUITE, "the longest line a case can make still fits the buffer it is given",
+               CHECK_NONE,
+               written > 1u && written < sizeof(longest) && longest[written - 1u] == '}',
+               "%u bytes of %u, ending in '%c'", (unsigned)written, (unsigned)sizeof(longest),
+               written > 0u ? longest[written - 1u] : '?');
 }
 
 static void CheckNavigation(void) {
@@ -477,6 +584,9 @@ static void CheckLayout(void) {
     }
     const UiFrame frame = { pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
 
+    // No files for this one: it needs a closed picture and a record, and three more writes on
+    // an emulated memory card cost more than everything else this suite does.
+    PictureWriteEveryCase(false);
     Picture *const picture = BuildFixture(PICTURE_COLOUR);
     PictureRecord record;
     memset(&record, 0, sizeof(record));
@@ -505,7 +615,7 @@ static void CheckLayout(void) {
     static const uint8_t ONE_FAILED[1] = { 1 };
     UiState state = UiStart(ONE_FAILED, 1);
     state.view = UI_VIEW_DIFF;
-    UiCompose(&frame, &record, state, 1, ONE_FAILED);
+    UiCompose(&frame, &record, state, 1, ONE_FAILED, 1);
 
     // The single panel is centred, so where its first pixel lands is arithmetic a case can do
     // as well as the layout can, and a panel drawn anywhere else fails here.
@@ -549,10 +659,10 @@ static void CheckLayout(void) {
     // layout change and not a broken case, while dropping it altogether still fails.
     state.view = UI_VIEW_ALL;
     record.passed = false;
-    UiCompose(&frame, &record, state, 1, ONE_FAILED);
+    UiCompose(&frame, &record, state, 1, ONE_FAILED, 1);
     const uint32_t shouting = CountRed(&frame);
     record.passed = true;
-    UiCompose(&frame, &record, state, 1, ONE_FAILED);
+    UiCompose(&frame, &record, state, 1, ONE_FAILED, 1);
     const uint32_t quiet = CountRed(&frame);
     CHECK_TRUE(SUITE, "a failed case shouts its verdict on the heading and a passing one does not",
                CHECK_NONE, shouting > 100u && quiet == 0u,
@@ -575,7 +685,7 @@ static void CheckLayout(void) {
     // Three panels rather than one, and read at the pixel where what was drawn and what was
     // expected differ, so a layout that drew one picture twice fails here.
     record.format = PICTURE_BITS;
-    UiCompose(&frame, &record, state, 1, ONE_FAILED);
+    UiCompose(&frame, &record, state, 1, ONE_FAILED, 1);
     const uint32_t wide = panel_scale;
     const uint32_t row = UI_PANEL_TOP + wide / 2u;
     const uint8_t *const drawn = UiPixel(&frame, 32u + wide + wide / 2u, row);
@@ -602,12 +712,22 @@ void RunSupport(void) {
     // are about the writer and a passing case would otherwise write nothing to look at. Nothing
     // retained either: these fixtures came from this file and not from the graphics unit, and
     // the detailed mode is for looking at what the hardware drew.
-    PictureSetRoot(SCRATCH);
+    PictureSetRoot(Scratch());
     PictureWriteEveryCase(true);
     PictureRetain(false);
 
     CheckNaming();
-    CheckWriting();
+
+    if (!CheckWriting()) {
+        // Every case below writes a file and reads it back. They would all report the same
+        // missing directory, and each would read as a defect in the thing it was checking.
+        SweepUp();
+        PictureSetRoot(saved);
+        PictureWriteEveryCase(saved_policy);
+        PictureRetain(saved_retention);
+        return;
+    }
+    CheckAPixelNobodyLookedAt();
     CheckBitsAndCollisions();
     CheckReportLine();
     CheckNavigation();
