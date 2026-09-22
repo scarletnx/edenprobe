@@ -1,8 +1,11 @@
 // SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
 // SPDX-License-Identifier: MIT
 
+#include <math.h>
 #include <stdio.h>
+#include <string.h>
 
+#include "../blendref.h"
 #include "../check.h"
 #include "../intref.h"
 #include "../raster.h"
@@ -292,10 +295,152 @@ static void CheckIntegerArithmetic(void) {
                (unsigned)sign_broken, (unsigned)negatives);
 }
 
+/// Reads the eight hex digits the case's own sentence ends with.
+///
+/// The table in blendref.c writes the answer out in words and then in bytes, and this is what
+/// makes those words checkable: the sentence a reader trusts and the arithmetic the reference
+/// performs are compared against each other rather than both being taken on faith. Returns false
+/// if the sentence does not end in a colour, which is itself a failure worth reporting.
+static bool ArithmeticSentenceColor(const char *sentence, uint8_t out[4]) {
+    const size_t length = strlen(sentence);
+    if (length < 8) {
+        return false;
+    }
+    const char *const digits = sentence + (length - 8);
+    for (int i = 0; i < 4; ++i) {
+        unsigned value = 0;
+        for (int half = 0; half < 2; ++half) {
+            const char c = digits[i * 2 + half];
+            unsigned nibble;
+            if (c >= '0' && c <= '9') {
+                nibble = (unsigned)(c - '0');
+            } else if (c >= 'a' && c <= 'f') {
+                nibble = (unsigned)(c - 'a') + 10u;
+            } else {
+                return false;
+            }
+            value = (value << 4) | nibble;
+        }
+        out[i] = (uint8_t)value;
+    }
+    return true;
+}
+
+static void CheckBlendArithmetic(void) {
+    // Every byte has to survive being turned into a normalised float and back, or the colours
+    // the blend cases name are not the colours the hardware receives and none of the arithmetic
+    // below means anything. This is also what lets the clear and the vertex carry an arbitrary
+    // byte rather than only the ends of the range.
+    uint32_t round_trip_broken = 0;
+    for (uint32_t value = 0; value < 256u; ++value) {
+        if (BlendFloatToUnorm(BlendUnormToFloat((uint8_t)value)) != (uint8_t)value) {
+            ++round_trip_broken;
+        }
+    }
+    CHECK_TRUE(SUITE, "every byte survives the trip through a normalised float", CHECK_NONE,
+               round_trip_broken == 0, "%u of the 256 bytes came back as something else",
+               (unsigned)round_trip_broken);
+
+    // The sentence against the arithmetic, case by case.
+    uint32_t mismatched = 0;
+    const char *first_mismatch = "";
+    uint8_t first_said[4] = { 0, 0, 0, 0 };
+    uint8_t first_did[4] = { 0, 0, 0, 0 };
+    for (size_t index = 0; index < BlendCaseCount(); ++index) {
+        const BlendCase *const test = BlendCaseAt(index);
+        uint8_t said[4];
+        uint8_t did[4];
+        BlendReference(&test->spec, test->source, test->destination, did);
+        if (!ArithmeticSentenceColor(test->arithmetic, said) || memcmp(said, did, 4) != 0) {
+            if (mismatched == 0) {
+                first_mismatch = test->name;
+                memcpy(first_said, said, 4);
+                memcpy(first_did, did, 4);
+            }
+            ++mismatched;
+        }
+    }
+    CHECK_TRUE(SUITE, "each blend case's sentence is the arithmetic the reference does",
+               CHECK_NONE, mismatched == 0,
+               "%u of %u disagreed, first was \"%s\": the sentence says %02x%02x%02x%02x, the "
+               "reference gives %02x%02x%02x%02x",
+               (unsigned)mismatched, (unsigned)BlendCaseCount(), first_mismatch, first_said[0],
+               first_said[1], first_said[2], first_said[3], first_did[0], first_did[1],
+               first_did[2], first_did[3]);
+
+    // And the claim that justifies the exact tier: no case's unrounded result lands near the
+    // halfway point between two bytes, so the rounding rule the specification leaves open cannot
+    // change any answer. Measured rather than asserted, and the worst is reported either way.
+    double worst = 0.0;
+    const char *worst_case = "";
+    for (size_t index = 0; index < BlendCaseCount(); ++index) {
+        const BlendCase *const test = BlendCaseAt(index);
+        float scaled[4];
+        BlendReferenceScaled(&test->spec, test->source, test->destination, scaled);
+        for (int channel = 0; channel < 4; ++channel) {
+            const double value = (double)scaled[channel];
+            const double distance = fabs(value - floor(value + 0.5));
+            if (distance > worst) {
+                worst = distance;
+                worst_case = test->name;
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "no blend case lands near the halfway point between two bytes", CHECK_NONE,
+               worst < 0.01,
+               "the worst was \"%s\", %.6f of a step from a whole byte and so %.6f from a tie",
+               worst_case, worst, 0.5 - worst);
+
+    // Two properties over every pair of bytes, which need no table at all. Adding with the
+    // factors one and zero has to hand back the source whatever the destination was, and the
+    // minimum and the maximum have to hand back one of the two operands rather than something
+    // in between.
+    const BlendSpec source_only = { true,
+                                    BLEND_OP_ADD,
+                                    BLEND_FACTOR_ONE,
+                                    BLEND_FACTOR_ZERO,
+                                    BLEND_OP_ADD,
+                                    BLEND_FACTOR_ONE,
+                                    BLEND_FACTOR_ZERO,
+                                    { 0.0f, 0.0f, 0.0f, 0.0f } };
+    const BlendSpec smaller = { true,
+                                BLEND_OP_MIN,
+                                BLEND_FACTOR_ONE,
+                                BLEND_FACTOR_ONE,
+                                BLEND_OP_MIN,
+                                BLEND_FACTOR_ONE,
+                                BLEND_FACTOR_ONE,
+                                { 0.0f, 0.0f, 0.0f, 0.0f } };
+    uint32_t source_broken = 0;
+    uint32_t minimum_broken = 0;
+    for (uint32_t a = 0; a < 256u; ++a) {
+        for (uint32_t b = 0; b < 256u; ++b) {
+            const uint8_t source[4] = { (uint8_t)a, (uint8_t)a, (uint8_t)a, (uint8_t)a };
+            const uint8_t destination[4] = { (uint8_t)b, (uint8_t)b, (uint8_t)b, (uint8_t)b };
+            uint8_t out[4];
+            BlendReference(&source_only, source, destination, out);
+            if (out[0] != (uint8_t)a || out[3] != (uint8_t)a) {
+                ++source_broken;
+            }
+            BlendReference(&smaller, source, destination, out);
+            if (out[0] != (uint8_t)(a < b ? a : b)) {
+                ++minimum_broken;
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "adding the source at full weight to nothing gives the source back",
+               CHECK_NONE, source_broken == 0, "%u of 65536 pairs came out wrong",
+               (unsigned)source_broken);
+    CHECK_TRUE(SUITE, "the minimum is always one of its two operands", CHECK_NONE,
+               minimum_broken == 0, "%u of 65536 pairs came out wrong",
+               (unsigned)minimum_broken);
+}
+
 void RunReference(void) {
     CheckViewportTransform();
     CheckCoverageRule();
     CheckSharedEdge();
     CheckEdgeDistanceAndMargin();
     CheckIntegerArithmetic();
+    CheckBlendArithmetic();
 }

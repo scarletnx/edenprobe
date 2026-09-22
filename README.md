@@ -30,7 +30,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Five suites, in the order they run, because each leans on the ones before it.
+Six suites, in the order they run, because each leans on the ones before it.
 
 - **selfcheck**, seven cases, no hardware involved. That two neighbouring floats measure one unit
   apart, that a zero budget rejects them, that a NaN is never equal to anything including itself.
@@ -62,6 +62,14 @@ Five suites, in the order they run, because each leans on the ones before it.
   pattern rather than a difference of opinion about the last place. The first three cases are the
   fragment coordinate and the uniform buffer, which every case after them reads its operands and
   its instructions out of.
+- **blend**, thirteen cases, on the graphics unit. The fixed function blend unit: adding,
+  subtracting both ways round, the minimum and the maximum, the source alpha, the blend constant,
+  and the clamp at each end of the range. Exact tier on a normalised target, which takes an
+  argument rather than an assertion: the specification requires the conversion back to eight bits
+  to round to nearest but leaves a halfway value to the implementation, so every case here is
+  built to land at least 0.49 of a step away from one and the reference suite measures that
+  rather than taking it on trust. Two of the cases set both factors to zero under the minimum and
+  the maximum, because the specification says those two equations ignore the factors entirely.
 
 Nothing is ever put on a screen. The target is offscreen and the program reads it back itself,
 which keeps the compositor, the swapchain and vertical sync out of a test that is about none of

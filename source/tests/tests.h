@@ -31,6 +31,10 @@ void RunRaster(void);
 /// Integer arithmetic in a fragment shader, into an integer target, compared bit for bit. The
 /// suite that judges a shader translator.
 void RunIntmath(void);
+
+/// The fixed function blend unit: the equations, the factors, and the rounding back to eight
+/// bits.
+void RunBlend(void);
 #endif
 
 #ifdef __cplusplus
