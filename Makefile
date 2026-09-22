@@ -67,17 +67,14 @@ $(BUILD)/shaders/%.frag.dksh: $(SHADER_DIR)/%.frag.glsl
 	@mkdir -p $(dir $@)
 	$(TOOLS)/uam -s frag -o $@ $<
 
-# One assembly file for all of them, so the symbol names are decided in one place. bin2s writes
-# the matching header as a side effect, which is why the header depends on this rule rather than
-# having one of its own. Aligned to sixteen because the graphics library reads a program's
-# header out of the control section with a paired sixteen byte load; unaligned is legal on this
-# memory and works either way, and costing nothing is a good enough reason not to rely on that.
-$(SHADER_ASM): $(SHADER_DKSH)
-	@mkdir -p $(dir $@)
-	$(TOOLS)/bin2s -a 16 -H $(SHADER_HDR) $^ > $@
-	@echo >> $@	# bin2s ends on a comment with no newline, and the assembler says so
-
-$(SHADER_HDR): $(SHADER_ASM)
+# One grouped target, because one run of bin2s produces both files: with a rule each, deleting
+# only the header leaves make with no recipe that makes it alone. Grouped targets need GNU make
+# 4.3 or newer. The alignment is what the graphics library's paired load of a program header
+# wants.
+$(SHADER_ASM) $(SHADER_HDR) &: $(SHADER_DKSH)
+	@mkdir -p $(dir $(SHADER_ASM))
+	$(TOOLS)/bin2s -a 16 -H $(SHADER_HDR) $^ > $(SHADER_ASM)
+	@echo >> $(SHADER_ASM)	# bin2s ends on a comment with no newline, and the assembler says so
 
 $(SHADER_OBJ): $(SHADER_ASM)
 	$(CC) $(ARCH) -c $< -o $@

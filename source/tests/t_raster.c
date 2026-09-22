@@ -62,10 +62,9 @@ static GpuVertex Corner(float x, float y) {
 
 /// Six vertices making the rectangle from (@p x0, @p y0) to (@p x1, @p y1) in clip space.
 ///
-/// The corner order is the contract between this function and QuadTriangles below: the two have
-/// to hand the same two triangles to the hardware and to the reference, in the same winding, or
-/// the fill rule would resolve the quad's own diagonal one way on one side and the other way on
-/// the other, and 64 pixels down that diagonal would read as a failure.
+/// The corner order is the contract with QuadTriangles below. A split that disagreed between the
+/// two would show up as no wrong pixel at all, since the union is the same rectangle whichever
+/// diagonal cuts it, so the two are kept adjacent and read together.
 static void QuadVertices(GpuVertex out[6], float x0, float y0, float x1, float y1) {
     const GpuVertex top_left = Corner(x0, y1);
     const GpuVertex top_right = Corner(x1, y1);
