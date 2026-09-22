@@ -32,7 +32,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Ten suites, in the order they run, because each leans on the ones before it. A run is 206
+Ten suites, in the order they run, because each leans on the ones before it. A run is 217
 cases.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -41,7 +41,7 @@ cases.
   a budget of every value there is, and that a budget of three units in the last place reaches
   six representable values below a power of two and three above it. If one of these fails,
   nothing else the suite says can be believed.
-- **support**, thirty six cases, no hardware and nothing of the hardware's looked at. The two
+- **support**, forty seven cases, no hardware and nothing of the hardware's looked at. The two
   things this program does around a verdict rather than to reach one: the picture it leaves
   beside a failing case, and the screen the detailed mode shows that picture on. It checks that
   a case name becomes the file name its own line says it does, that a written picture parses
@@ -275,8 +275,13 @@ the case with the letters lower cased and every run of characters that is not a 
 digit turned into a single dash: "the fragment coordinate's x is the pixel centre, bit for bit"
 becomes `the-fragment-coordinate-s-x-is-the-pixel-centre-bit-for-bit.pam`, one dash for the
 apostrophe and one for the comma and the space together. Two case names that spell one file
-name get a file each, the second with `-2` before the rest of its name, because one failure
-quietly overwriting another's evidence is worse than a name nobody likes.
+name get a file each: the second is numbered, `-2` before the rest of its name, giving up
+characters at the end of the stem if that is what it takes to make room for the number. If
+even that runs out, after ninety eight of them, the case is left with no picture at all and its
+line says so, because one failure quietly overwriting another's evidence is worse than a
+missing picture and far worse than a name nobody likes. The same applies to the directory the
+whole lot goes in: one too long to hold whole is refused outright rather than cut short into a
+place nobody named.
 
 This is not a stored reference image and it must never become one. The README's first section
 says why a hash of a frame breaks between two machines that are both right, and that is still
@@ -311,10 +316,10 @@ refused it, blue that it declined to judge it at all, which is the band an edge 
 the rasterisation cases. A fourth colour, magenta, means no compare loop ever looked at that
 pixel. It is there because the alternative was to start every pixel at one of the other three,
 where a loop that skipped one would be indistinguishable from one that meant to leave it alone;
-a run that shows magenta has a bug in this program and not in the machine. A pixel inside a budget of units in the last place differs in its bytes
-and is not a difference here. An image comparison would paint the entire float suite red on a
-machine that had done nothing wrong, which is precisely the failure the suite exists not to
-report.
+a run that shows magenta has a bug in this program and not in the machine. A pixel inside a
+budget of units in the last place differs in its bytes and is not a difference here. An image
+comparison would paint the entire float suite red on a machine that had done nothing wrong,
+which is precisely the failure the suite exists not to report.
 
 By default only a failing case writes anything, because a green run would otherwise leave three
 files for every drawing case and nobody asked for them. A run that wants them all says so in
@@ -334,17 +339,18 @@ channels get every line, the program exits, about three seconds.
 the screen one at a time: the three pictures above, side by side and labelled `drawn`,
 `expected` and `judged`, each 64 by 64 target scaled up with nearest neighbour so it is
 legible, with the suite, the case, the tier, the verdict and the detail as text around them,
-and a key saying what the three colours in `judged` mean. It is for the question a verdict
+and a key naming each of the four colours `judged` is made of. It is for the question a verdict
 cannot answer, which is whether a failure looks like a rendering fault or like the judge being
 wrong.
 
-What it holds is every case that compared pixels, pass or fail, which on a full run is 80 of
-the 206 and is the number the heading counts in. The other 126 compared nothing the graphics
-unit produced and have no picture to show. A case that failed before it read a target back has
-no picture either, so it is not in the list; when that happens the screen says how many of the
-run's failures are missing from it rather than letting the count quietly disagree. It holds them in memory rather than reading back
-what it wrote, so a green run and a run that wrote nothing are both worth looking at, and the
-`images` word changes what is on the memory card and not what is on the screen.
+What it holds is every case that compared pixels, pass or fail, which on a full run is 80 of the
+217 and is the number the heading counts in. The other 137 compared nothing the graphics unit
+produced and have no picture to show. A case that failed before it read a target back has no
+picture either, so it is not in the list; when that happens the screen says how many of the
+run's failures are missing from it rather than letting the count quietly disagree. It holds them
+in memory rather than reading back what it wrote, so a green run and a run that wrote nothing
+are both worth looking at, and the `images` word changes what is on the memory card and not what
+is on the screen.
 
 The order is the safeguard and it is not a detail of the implementation. Every suite runs, every
 line is emitted, the summary is counted and the report is closed, and only then does anything

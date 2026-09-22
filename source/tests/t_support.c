@@ -47,10 +47,11 @@ static const char *Scratch(void) {
     return path;
 }
 
-// The frame the layout cases compose into. Bigger than the fixture by enough that the panels
-// land where the real screen puts them, and small enough to walk pixel by pixel.
-#define FRAME_WIDTH 320u
-#define FRAME_HEIGHT 240u
+// The frame the layout cases compose into, at the size the console actually gives. Anything
+// smaller and the key runs off the side, which is how the key's own case first passed while
+// three of its four words were off the frame.
+#define FRAME_WIDTH 1280u
+#define FRAME_HEIGHT 720u
 
 // Every file this suite writes, so that it can take them away again. A passing suite that left
 // a directory of pictures called "expected" beside the report would read, to anyone who found
@@ -207,6 +208,95 @@ static Picture *BuildFixture(PictureFormat format) {
     memcpy(fixture_expected, picture->expected, sizeof(fixture_expected));
     memcpy(fixture_verdict, picture->verdict, sizeof(fixture_verdict));
     return picture;
+}
+
+/// The naming decision on its own, which is where a case's evidence is either kept or lost.
+static void CheckNames(void) {
+    char first[96];
+    char second[96];
+
+    // Two names that agree for longer than a stem can hold. The stem gives characters up to
+    // make room for its number rather than going back as the name the first one took.
+    char long_a[200];
+    char long_b[200];
+    memset(long_a, 'x', 100);
+    long_a[100] = '\0';
+    memcpy(long_b, long_a, sizeof(long_a));
+    snprintf(long_a + 100, sizeof(long_a) - 100u, " alpha");
+    snprintf(long_b + 100, sizeof(long_b) - 100u, " beta");
+    const bool got_first = PictureReserveName(first, sizeof(first), "names", long_a);
+    const bool got_second = PictureReserveName(second, sizeof(second), "names", long_b);
+    CHECK_TRUE(SUITE, "two names that agree for longer than a stem still get one each",
+               CHECK_NONE,
+               got_first && got_second && strcmp(first, second) != 0 &&
+                   strlen(second) < sizeof(second),
+               "\"%s\" against \"%s\"", first, second);
+
+    // The same in the smallest buffer there is. What must not happen is the second call
+    // answering with the name the first one took, whatever it has to give up to avoid it.
+    char tiny_first[9];
+    char tiny_second[9];
+    const bool tiny_a = PictureReserveName(tiny_first, sizeof(tiny_first), "names", "abcdefghij");
+    const bool tiny_b =
+        PictureReserveName(tiny_second, sizeof(tiny_second), "names", "abcdefghij");
+    CHECK_TRUE(SUITE, "a name with no room for its number gives characters up instead",
+               CHECK_NONE,
+               tiny_a && tiny_b && strcmp(tiny_first, tiny_second) != 0 &&
+                   strlen(tiny_second) < sizeof(tiny_second),
+               "\"%s\" against \"%s\"", tiny_first, tiny_second);
+
+    // A hundred cases spelling one name. Every one of them gets its own or is told no; what
+    // must never happen is the hundredth being given the first one's.
+    uint32_t reserved = 0;
+    uint32_t repeats = 0;
+    char taken[100][32];
+    for (uint32_t i = 0; i < 100u; ++i) {
+        char candidate[32];
+        if (!PictureReserveName(candidate, sizeof(candidate), "crowd", "one name")) {
+            continue;
+        }
+        for (uint32_t seen = 0; seen < reserved; ++seen) {
+            if (strcmp(taken[seen], candidate) == 0) {
+                ++repeats;
+            }
+        }
+        snprintf(taken[reserved], sizeof(taken[0]), "%s", candidate);
+        ++reserved;
+    }
+    // No repeat is the safety claim; fifty of them is the capacity one, so a ceiling lowered
+    // back to a single digit fails here rather than quietly turning cases away.
+    CHECK_TRUE(SUITE, "a hundred cases spelling one name never share a file", CHECK_NONE,
+               repeats == 0u && reserved >= 50u,
+               "%u of %u names came back already taken", (unsigned)repeats,
+               (unsigned)reserved);
+}
+
+/// A root too long to hold whole. Cutting one short makes a directory nobody named, and a root
+/// that could not be written to can truncate into one that can, which would let the case that
+/// reports "nowhere to write" pass while every case after it failed for that reason.
+static void CheckRoot(void) {
+    const char *const saved_root = PictureRoot();
+    char keep[PICTURE_PATH_MAX];
+    snprintf(keep, sizeof(keep), "%s", saved_root);
+
+    char too_long[PICTURE_PATH_MAX + 64];
+    memset(too_long, 'r', sizeof(too_long) - 1u);
+    too_long[sizeof(too_long) - 1u] = '\0';
+    const bool refused = !PictureSetRoot(too_long);
+    const bool empty = PictureRoot()[0] == '\0';
+
+    Picture *const picture = BuildFixture(PICTURE_COLOUR);
+    PicturePaths paths;
+    PictureFinish(SUITE, "a case under a root that will not fit", "none", false, "", &paths);
+    CHECK_TRUE(SUITE, "a root too long to hold whole is refused and nothing is written",
+               CHECK_NONE,
+               refused && empty && picture != NULL && paths.image[0] == '\0' &&
+                   paths.diff[0] == '\0',
+               "refused %d, root \"%s\", image \"%s\"", (int)refused, PictureRoot(),
+               paths.image);
+
+    CHECK_TRUE(SUITE, "a root that fits is taken", CHECK_NONE, PictureSetRoot(keep),
+               "\"%s\" was refused", keep);
 }
 
 static void CheckNaming(void) {
@@ -536,6 +626,63 @@ static void CheckNavigation(void) {
                    UiStep(empty, UI_INPUT_QUIT, NULL, 0).quit,
                "index %u, owed a frame %d", (unsigned)empty.index, (int)empty.changed);
 
+    // The photograph bug. A controller arriving with the window reports its whole mask as
+    // newly pressed, and every one of those was obeyed before a person had touched anything,
+    // so the screen opened on a view nobody had chosen.
+    uint32_t obeyed_early = 0;
+    for (uint32_t f = 0; f < UI_SETTLING_FRAMES; ++f) {
+        if (UiInputFromButtons(0xFFFFFFFFu, f) != UI_INPUT_NONE) {
+            ++obeyed_early;
+        }
+    }
+    CHECK_TRUE(SUITE, "a press before the pad has settled is not a press", CHECK_NONE,
+               obeyed_early == 0u && UiInputFromButtons(UI_BUTTON_NEXT, UI_SETTLING_FRAMES) ==
+                                         UI_INPUT_NEXT,
+               "%u of the first %u frames were obeyed", (unsigned)obeyed_early,
+               (unsigned)UI_SETTLING_FRAMES);
+
+    // One button, one meaning, and quitting ahead of everything so a mask with the lot in it
+    // still leaves rather than cycling views forever.
+    static const struct {
+        uint32_t button;
+        UiInput means;
+    } BUTTONS[] = {
+        { UI_BUTTON_NEXT, UI_INPUT_NEXT },
+        { UI_BUTTON_PREVIOUS, UI_INPUT_PREVIOUS },
+        { UI_BUTTON_NEXT_FAILURE, UI_INPUT_NEXT_FAILURE },
+        { UI_BUTTON_PREVIOUS_FAILURE, UI_INPUT_PREVIOUS_FAILURE },
+        { UI_BUTTON_CYCLE_VIEW, UI_INPUT_CYCLE_VIEW },
+        { UI_BUTTON_QUIT, UI_INPUT_QUIT },
+    };
+    uint32_t mismapped = 0;
+    for (size_t i = 0; i < sizeof(BUTTONS) / sizeof(BUTTONS[0]); ++i) {
+        if (UiInputFromButtons(BUTTONS[i].button, UI_SETTLING_FRAMES) != BUTTONS[i].means) {
+            ++mismapped;
+        }
+    }
+    CHECK_TRUE(SUITE, "every button means one thing, and everything at once still quits",
+               CHECK_NONE,
+               mismapped == 0u &&
+                   UiInputFromButtons(0xFFFFFFFFu, UI_SETTLING_FRAMES) == UI_INPUT_QUIT &&
+                   UiInputFromButtons(0u, UI_SETTLING_FRAMES) == UI_INPUT_NONE,
+               "%u of six buttons meant something else", (unsigned)mismapped);
+
+    // The pad is waited for until it answers, and no longer.
+    CHECK_TRUE(SUITE, "the pad is waited for until it answers and then not at all", CHECK_NONE,
+               UiWaitsForPad(0, false) && !UiWaitsForPad(0, true) &&
+                   !UiWaitsForPad(UI_PAD_WAIT_FRAMES, false),
+               "waits at nought %d, with a pad %d, at the ceiling %d",
+               (int)UiWaitsForPad(0, false), (int)UiWaitsForPad(0, true),
+               (int)UiWaitsForPad(UI_PAD_WAIT_FRAMES, false));
+
+    // Holding the button is the other way in, and it can only ever add the detailed mode.
+    CHECK_TRUE(SUITE, "holding the button asks for the detailed mode and never cancels it",
+               CHECK_NONE,
+               UiModeAtLaunch("", true).detailed && UiModeAtLaunch("", false).detailed == false &&
+                   UiModeAtLaunch("detailed", false).detailed &&
+                   UiModeAtLaunch("detailed images", true).every_case,
+               "the four readings did not come out as they should");
+
     static const struct {
         const char *text;
         bool detailed;
@@ -558,6 +705,21 @@ static void CheckNavigation(void) {
     CHECK_TRUE(SUITE, "the mode file is read a whole word at a time", CHECK_NONE, wrong == 0,
                "%u of %u readings came out wrong", (unsigned)wrong,
                (unsigned)(sizeof(MODES) / sizeof(MODES[0])));
+}
+
+/// How many pixels between two rows are drawn in something other than the background.
+static uint32_t CountLit(const UiFrame *frame, uint32_t top, uint32_t bottom) {
+    static const uint8_t BACKGROUND[3] = { 0x10, 0x12, 0x18 };
+    uint32_t seen = 0;
+    for (uint32_t y = top; y < bottom; ++y) {
+        for (uint32_t x = 0; x < frame->width; ++x) {
+            const uint8_t *const pixel = UiPixel(frame, x, y);
+            if (pixel != NULL && memcmp(pixel, BACKGROUND, 3u) != 0) {
+                ++seen;
+            }
+        }
+    }
+    return seen;
 }
 
 /// How much of the heading band is drawn in the colour a failure is shouted in.
@@ -682,6 +844,49 @@ static void CheckLayout(void) {
                swatch != NULL ? swatch[2] : 0, matched_colour[0], matched_colour[1],
                matched_colour[2]);
 
+    // All four swatches, each with a lit pixel of its own word beside it, so that deleting one
+    // of them or its label fails here.
+    uint32_t key_wrong = 0;
+    static const uint8_t KEY_ORDER[4] = { PICTURE_MATCHED, PICTURE_WRONG, PICTURE_UNJUDGED,
+                                          PICTURE_UNSET };
+    static const uint32_t KEY_LETTERS[4] = { 8u, 7u, 10u, 13u };
+    uint32_t key_x = 32u;
+    for (uint32_t i = 0; i < 4u; ++i) {
+        uint8_t want[3];
+        PictureDiffColour(KEY_ORDER[i], want);
+        const uint8_t *const swatch = UiPixel(&frame, key_x + 8u, key_y + 8u);
+        if (swatch == NULL || memcmp(swatch, want, 3u) != 0) {
+            ++key_wrong;
+        }
+        // Somewhere in the word beside it there has to be a lit pixel, or the swatch is
+        // labelled with nothing.
+        bool lettered = false;
+        for (uint32_t dx = 0; dx < KEY_LETTERS[i] * 16u && !lettered; ++dx) {
+            for (uint32_t dy = 0; dy < 16u && !lettered; ++dy) {
+                const uint8_t *const at = UiPixel(&frame, key_x + 22u + dx, key_y + dy);
+                lettered = at != NULL && at[0] > 0x40 && at[1] > 0x40;
+            }
+        }
+        if (!lettered) {
+            ++key_wrong;
+        }
+        key_x += 22u + KEY_LETTERS[i] * 16u + 32u;
+    }
+    CHECK_TRUE(SUITE, "all four colours of a verdict are named under the pictures", CHECK_NONE,
+               key_wrong == 0u, "%u of eight swatches and words were missing or wrong",
+               (unsigned)key_wrong);
+
+    // And a run whose failures are not all in this list has to say so, on the screen, where
+    // the person is. Counted over the band, so moving the line does not break the case.
+    UiCompose(&frame, &record, state, 1, ONE_FAILED, 9);
+    const uint32_t said = CountLit(&frame, key_y + 20u, key_y + 36u);
+    UiCompose(&frame, &record, state, 1, ONE_FAILED, 1);
+    const uint32_t silent = CountLit(&frame, key_y + 20u, key_y + 36u);
+    CHECK_TRUE(SUITE, "a run with failures that are not here says so and otherwise does not",
+               CHECK_NONE, said > 50u && silent == 0u,
+               "%u lit pixels when some are missing, %u when none are", (unsigned)said,
+               (unsigned)silent);
+
     // Three panels rather than one, and read at the pixel where what was drawn and what was
     // expected differ, so a layout that drew one picture twice fails here.
     record.format = PICTURE_BITS;
@@ -717,6 +922,8 @@ void RunSupport(void) {
     PictureRetain(false);
 
     CheckNaming();
+    CheckNames();
+    CheckRoot();
 
     if (!CheckWriting()) {
         // Every case below writes a file and reads it back. They would all report the same

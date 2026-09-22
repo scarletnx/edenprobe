@@ -33,7 +33,9 @@ static uint8_t diff_scratch[MAX_PIXELS * 3u];
 static Picture current;
 static PicturePaths last_paths;
 
-static char root[96];
+// Big enough for the longest path this file will put under it, so that a root which fits here
+// cannot produce one that does not fit there.
+static char root[PICTURE_PATH_MAX];
 static bool write_every_case;
 static bool retaining;
 
@@ -54,8 +56,16 @@ static size_t retained_bytes;
 static uint32_t used_hashes[USED_MAX];
 static size_t used_count;
 
-void PictureSetRoot(const char *directory) {
-    snprintf(root, sizeof(root), "%s", directory != NULL ? directory : "");
+bool PictureSetRoot(const char *directory) {
+    // Refused rather than cut short: a truncated root is a directory nobody named, and one that
+    // cannot be written to can truncate into one that can, which would let the case reporting
+    // "nowhere to write" pass while every case after it failed for that reason.
+    if (directory == NULL || strlen(directory) >= sizeof(root)) {
+        root[0] = '\0';
+        return false;
+    }
+    snprintf(root, sizeof(root), "%s", directory);
+    return true;
 }
 
 const char *PictureRoot(void) {
@@ -126,18 +136,35 @@ static bool HashSeen(uint32_t hash) {
     return false;
 }
 
-/// Makes @p stem unique within @p suite for this run, by number if it has to.
-static void MakeUnique(char *stem, size_t stem_size, const char *suite) {
+bool PictureReserveName(char *stem, size_t stem_size, const char *suite_stem,
+                        const char *name) {
+    if (stem == NULL || stem_size < 8u) {
+        return false;
+    }
+    PictureStem(stem, stem_size, name);
+    const char *const suite = suite_stem;
     char key[PICTURE_PATH_MAX];
     snprintf(key, sizeof(key), "%s/%s", suite, stem);
     uint32_t hash = Hash(key);
+    bool taken = !HashSeen(hash);
 
-    for (unsigned suffix = 2; suffix < 10 && HashSeen(hash); ++suffix) {
-        const size_t length = strlen(stem);
-        // The number has to fit, or the name would go back unchanged while a hash for a
-        // different one was remembered, and the collision after it would overwrite in silence.
+    // Up to ninety eight of them. The ceiling exists so this cannot run forever, not because
+    // ninety eight cases are ever expected to spell one name.
+    for (unsigned suffix = 2; !taken && suffix < 100u; ++suffix) {
+        // Room for the dash, the digits and the terminator. A stem with no room for its own
+        // number gives some up rather than going back as the name somebody else already has.
+        const size_t digits = suffix < 10u ? 1u : 2u;
+        size_t length = strlen(stem);
+        if (length + digits + 2u > stem_size) {
+            if (stem_size <= digits + 2u) {
+                break;
+            }
+            length = stem_size - digits - 2u;
+            stem[length] = '\0';
+        }
+
         const int wrote = snprintf(key, sizeof(key), "%s/%s-%u", suite, stem, suffix);
-        if (wrote < 0 || (size_t)wrote >= sizeof(key) || length + 3u >= stem_size) {
+        if (wrote < 0 || (size_t)wrote >= sizeof(key)) {
             break;
         }
         const uint32_t candidate = Hash(key);
@@ -146,14 +173,18 @@ static void MakeUnique(char *stem, size_t stem_size, const char *suite) {
         }
         snprintf(stem + length, stem_size - length, "-%u", suffix);
         hash = candidate;
-        break;
+        taken = true;
     }
 
+    if (!taken) {
+        return false;
+    }
     // Only ever the name this run actually took. Recording any other one would let the next
     // collision through.
     if (used_count < USED_MAX) {
         used_hashes[used_count++] = hash;
     }
+    return true;
 }
 
 static void MakeDirectory(const char *path) {
@@ -204,8 +235,11 @@ static void WriteFiles(const Picture *picture, const char *suite, const char *na
     char suite_stem[32];
     char stem[96];
     PictureStem(suite_stem, sizeof(suite_stem), suite);
-    PictureStem(stem, sizeof(stem), name);
-    MakeUnique(stem, sizeof(stem), suite_stem);
+    if (!PictureReserveName(stem, sizeof(stem), suite_stem, name)) {
+        // No name left that is this case's own. Nothing is written and the line says the case
+        // has no picture, which is true, rather than naming one that belongs to another case.
+        return;
+    }
 
     // Room for the longest directory and the longest relative path underneath it, so that no
     // name this program can build is ever cut short into a file somewhere else.
