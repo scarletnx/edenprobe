@@ -47,6 +47,11 @@ typedef enum {
 void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed,
                 const char *detail);
 
+/// The longest note ReportNote carries whole. Stated here rather than buried in the buffer, so a
+/// caller with a long note can be checked against it before anything is emitted: a note cut
+/// short leaves the reader half a sentence and no sign that there was more.
+#define REPORT_NOTE_MAX 767
+
 /// A line that is not a case: progress, a note, an environment fact worth recording.
 void ReportNote(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 

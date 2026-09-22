@@ -780,7 +780,10 @@ static void CheckFloatArithmetic(void) {
         } else {
             snprintf(wanted, sizeof(wanted), "%g units in the last place", (double)got.ulps);
         }
-        if (got.reason == NULL || strstr(got.reason, wanted) == NULL) {
+        // strncmp and not a search: a reason that mentioned its number somewhere in the middle,
+        // after a different one at the front, would satisfy a search and would still read as the
+        // wrong budget to anyone looking at the line.
+        if (got.reason == NULL || strncmp(got.reason, wanted, strlen(wanted)) != 0) {
             if (unexplained == 0) {
                 first_unexplained = FMathName((FMathMode)mode);
             }
@@ -790,6 +793,32 @@ static void CheckFloatArithmetic(void) {
     CHECK_TRUE(SUITE, "every float budget's reason begins with the number it is", CHECK_NONE,
                unexplained == 0, "%u budgets did not, first was \"%s\"", (unsigned)unexplained,
                first_unexplained);
+
+    // And every reason has to fit the note that carries it, measured on the very string the
+    // float suite emits: one cut off mid-word leaves the reader half a sentence and no sign that
+    // there was more.
+    uint32_t too_long = 0;
+    const char *first_too_long = "";
+    int longest = 0;
+    for (uint32_t mode = 0; mode < FMATH_MODE_COUNT; ++mode) {
+        const FMathBudget got = FMathBudgetFor((FMathMode)mode);
+        const int needed = snprintf(NULL, 0, FMATH_BUDGET_NOTE_FORMAT,
+                                    FMathName((FMathMode)mode), got.reason);
+        if (needed > longest) {
+            longest = needed;
+        }
+        if (needed > REPORT_NOTE_MAX) {
+            if (too_long == 0) {
+                first_too_long = FMathName((FMathMode)mode);
+            }
+            ++too_long;
+        }
+    }
+    CHECK_TRUE(SUITE, "every float budget's reason fits the note that carries it", CHECK_NONE,
+               too_long == 0,
+               "%u would be cut short, first was \"%s\"; the longest needs %d characters and a "
+               "note carries %d",
+               (unsigned)too_long, first_too_long, longest, (int)REPORT_NOTE_MAX);
 
     // The power of two is the one budget that is not a constant, so the allowance it hands out
     // has to move with the argument rather than sit at whatever the middle of the sweep gets.

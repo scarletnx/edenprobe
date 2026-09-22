@@ -32,7 +32,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Nine suites, in the order they run, because each leans on the ones before it. A run is 152
+Nine suites, in the order they run, because each leans on the ones before it. A run is 167
 cases.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -51,7 +51,7 @@ cases.
   three before it cannot catch a transposed, flipped or shuffled readback and this one can. All
   four are Exact tier: the format is integer and every clear value is a constant, so each channel
   has exactly one right byte.
-- **reference**, forty nine cases, no hardware involved either. The other half of the judge: where
+- **reference**, fifty cases, no hardware involved either. The other half of the judge: where
   clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
   the centres that sit exactly on the edge they share. It runs in both builds, because a
   reference that answered differently on the two processors would be blamed on the graphics unit.
@@ -81,15 +81,19 @@ cases.
   built to land at least 0.49 of a step away from one and the reference suite measures that
   rather than taking it on trust. Two of the cases set both factors to zero under the minimum and
   the maximum, because the specification says those two equations ignore the factors entirely.
-- **depth**, seventeen cases, on the graphics unit. One quad laid down at a known depth and a
-  second one challenging it, once for each of the eight compare operations the graphics library
-  offers, with eleven cases between them because four of the eight differ from another only on an
-  equal depth and are worth asking about on both sides of it. Plus the depth buffer read back and
-  compared as a float bit for bit. Exact tier: the depths are 0.25, 0.5 and 0.75, which survive
-  the transform into depth space untouched, so "the buffer holds exactly one half" is a statement
-  about a bit pattern, and an equal depth really is an equality rather than two numbers that came
-  out close. Three of the cases are about the write rather than the test, which is the half a
-  colour cannot show.
+- **depth**, thirty one cases, on the graphics unit. One quad laid down at a known depth and a
+  second one challenging it: every one of the eight compare operations the graphics library
+  offers, at every one of three depths, which is twenty four cases. Three depths each is the
+  smallest set that works and not padding: three depths give eight patterns of pass and fail,
+  there are eight operations, and each owns exactly one pattern, so leaving any depth out of any
+  operation lets that operation share its answers with another and an emulator that had wired the
+  two together would go unnoticed. One further case works all twenty four answers out on the
+  processor and checks that the eight really are different, which is that argument rather than a
+  claim of it. Plus the depth buffer read back and compared as a float bit for bit. Exact tier:
+  the depths are 0.25, 0.5 and 0.75, which survive the transform into depth space untouched, so
+  "the buffer holds exactly one half" is a statement about a bit pattern, and a fragment at the
+  buffer's own depth really is an equality rather than two numbers that came out close. Three of
+  the cases are about the write rather than the test, which is the half a colour cannot show.
 - **texture**, twelve cases, on the graphics unit. A 4 by 4 texture drawn over the whole target, so
   sixteen by sixteen pixels land on each texel and every pixel names a texel this suite can work
   out. Nearest filtering with repeating, clamping to the edge and mirroring, each with a quad

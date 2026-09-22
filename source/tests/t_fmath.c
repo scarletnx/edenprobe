@@ -84,8 +84,12 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
     float first_got = 0.0f;
     float first_want = 0.0f;
     float first_allowed = 0.0f;
-    float worst_error = 0.0f;
+    // The worst pixel is the one that used the largest share of its own allowance, and the two
+    // numbers reported are that pixel's. A largest error and a largest share taken separately
+    // would read as one pixel and be two.
     float worst_share = 0.0f;
+    float worst_share_error = 0.0f;
+    float worst_share_allowed = 0.0f;
     float tightest = 0.0f;
     float loosest = 0.0f;
     double worst_absolute = 0.0;
@@ -108,15 +112,14 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
                 allowed = FMathAllowedUlps(mode, x, y);
                 const float error = CheckFloatUlpError(got, want);
                 within = error <= allowed;
-                if (error > worst_error) {
-                    worst_error = error;
-                }
-                // How much of its own allowance the worst pixel used, which is the number that
-                // means the same thing across a sweep whose allowance moves.
+                // How much of its own allowance this pixel used, which is the number that means
+                // the same thing across a sweep whose allowance moves.
                 const float share =
                     allowed > 0.0f ? error / allowed : (error > 0.0f ? 1.0e30f : 0.0f);
                 if (share > worst_share) {
                     worst_share = share;
+                    worst_share_error = error;
+                    worst_share_allowed = allowed;
                 }
                 if (x == 0 && y == 0) {
                     tightest = allowed;
@@ -150,14 +153,14 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
                      (double)budget.limit);
         } else if (tightest != loosest) {
             snprintf(detail, detail_size,
-                     "worst was %.4f units in the last place, %.4f of the allowance there; the "
-                     "allowance ran from %g to %g",
-                     (double)worst_error, (double)worst_share, (double)tightest,
-                     (double)loosest);
+                     "the worst pixel used %.4f of its allowance, %.4f units in the last place "
+                     "where %g were allowed; the allowance ran from %g to %g",
+                     (double)worst_share, (double)worst_share_error,
+                     (double)worst_share_allowed, (double)tightest, (double)loosest);
         } else {
             snprintf(detail, detail_size,
                      "worst was %.4f of an allowed %g units in the last place",
-                     (double)worst_error, (double)tightest);
+                     (double)worst_share_error, (double)tightest);
         }
         return true;
     }
@@ -171,8 +174,8 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
     } else {
         snprintf(detail, detail_size,
                  "%u of %u pixels outside their allowance, first at (%u,%u) is %.9g, expected "
-                 "%.9g, where %g units in the last place were allowed; worst used %.4f of its "
-                 "allowance",
+                 "%.9g, where %g units in the last place were allowed; the worst pixel used "
+                 "%.4f of its allowance",
                  (unsigned)wrong, (unsigned)PIXEL_COUNT, (unsigned)first_x, (unsigned)first_y,
                  (double)first_got, (double)first_want, (double)first_allowed,
                  (double)worst_share);
@@ -268,7 +271,7 @@ void RunFmath(void) {
                (double)FMathInputA(0), (double)FMathInputA(TARGET_WIDTH - 1u));
     for (uint32_t mode = 0; mode < FMATH_MODE_COUNT; ++mode) {
         const FMathBudget budget = FMathBudgetFor((FMathMode)mode);
-        ReportNote("fmath budget for \"%s\": %s", FMathName((FMathMode)mode), budget.reason);
+        ReportNote(FMATH_BUDGET_NOTE_FORMAT, FMathName((FMathMode)mode), budget.reason);
     }
 
     for (uint32_t mode = 0; mode < FMATH_MODE_COUNT; ++mode) {
