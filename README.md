@@ -32,7 +32,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Nine suites, in the order they run, because each leans on the ones before it. A run is 170
+Ten suites, in the order they run, because each leans on the ones before it. A run is 200
 cases.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -41,16 +41,17 @@ cases.
   a budget of every value there is, and that a budget of three units in the last place reaches
   six representable values below a power of two and three above it. If one of these fails,
   nothing else the suite says can be believed.
-- **clear**, five cases, on the graphics unit: one that reports whether the graphics device came
-  up at all, at no tier because it compares nothing, and four that draw. Each of the four clears a
-  64 by 64 RGBA8 target and copies all 4096 pixels back to compare them. Three cover the whole
-  target, in three colours in a row, so a readback handing over a stale buffer cannot pass by
-  accident. The fourth covers the target in one colour and then clears a rectangle inside it in
-  another, which is what makes the answer depend on where a pixel is: a target that is all one
-  colour reads back the same whether or not the copy walked its blocks in the right order, so the
-  three before it cannot catch a transposed, flipped or shuffled readback and this one can. All
-  four are Exact tier: the format is integer and every clear value is a constant, so each channel
-  has exactly one right byte.
+- **support**, thirty cases, no hardware and nothing of the hardware's looked at. The two things
+  this program does around a verdict rather than to reach one: the picture it leaves beside a
+  failing case, and the screen the detailed mode shows that picture on. It checks that a case
+  name becomes the file name its own line says it does, that a written picture parses back as
+  the image its header claims to be, that the bytes kept beside a picture of an integer target
+  are every byte that target held, that two case names which spell one file name still get a
+  file each, and that the navigation and the layout are what the screen is made of. One of them
+  carries the whole idea: the diff picture is built from what the judge decided pixel by pixel
+  and not from comparing the two images, so a pixel that differs and was allowed to is not
+  painted as a difference. Every line is the none tier, because none of it is a claim about a
+  machine.
 - **reference**, fifty three cases, no hardware involved either. The other half of the judge: where
   clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
   the centres that sit exactly on the edge they share. It runs in both builds, because a
@@ -62,6 +63,16 @@ cases.
   than inside a float case. Three of its cases are about the blend table rather than about
   arithmetic: that no case asks the graphics library for something it does not send, and that
   what the table gave up in exchange is still covered. The blend suite below says why.
+- **clear**, five cases, on the graphics unit: one that reports whether the graphics device came
+  up at all, at no tier because it compares nothing, and four that draw. Each of the four clears a
+  64 by 64 RGBA8 target and copies all 4096 pixels back to compare them. Three cover the whole
+  target, in three colours in a row, so a readback handing over a stale buffer cannot pass by
+  accident. The fourth covers the target in one colour and then clears a rectangle inside it in
+  another, which is what makes the answer depend on where a pixel is: a target that is all one
+  colour reads back the same whether or not the copy walked its blocks in the right order, so the
+  three before it cannot catch a transposed, flipped or shuffled readback and this one can. All
+  four are Exact tier: the format is integer and every clear value is a constant, so each channel
+  has exactly one right byte.
 - **raster**, ten cases, on the graphics unit. A triangle or a quad drawn in one flat colour
   through a vertex and a fragment shader compiled into the binary, with every pixel compared to
   what the coverage rule says. Exact for pixels at least half a pixel from every edge, position
@@ -187,6 +198,7 @@ its dependencies put it, not at the end.
 | suite | tier | what a failure points at |
 |---|---|---|
 | selfcheck | none, no hardware | the comparators themselves. Nothing below can be believed. |
+| support | none, no hardware | what is written and drawn around a verdict, never a verdict. |
 | reference | none, no hardware | the expected answers: the coverage rule, the blend arithmetic, the texel address. The judge, not the machine. |
 | clear | exact | the render target's memory layout and the path that copies it back. Everything below draws into that same target. |
 | raster | position for edges, exact for interiors | vertex fetch, the clip space to screen space transform, and the coverage rule. In an emulator: the viewport registers, the y direction, the half pixel offset, and the fill rule the host rasteriser is asked for. |
@@ -202,6 +214,13 @@ reference for another's. And every rule a case judges by, wherever that rule is 
 line of arithmetic, is implemented once in `source/` and pinned by the `reference` suite, which
 runs with no graphics device at all: `make -f host.mk host-run` proves the judge before a
 console or an emulator is involved.
+
+Two things in the table are not suites and are not in it: the picture a failing case leaves on
+the memory card, and the detailed mode that shows it. Both are support. Neither decides
+anything, neither is compared to anything, and no run's answer changes if either is turned off.
+They are in the `support` suite's row only because that suite checks them, the way the
+`reference` row is about the judge rather than about a machine. The two sections below say what
+they are for and where the line between them and a verdict is drawn.
 
 ## What it reports
 
@@ -235,6 +254,98 @@ a machine that was never asked anything.
 A run that dies halfway still leaves everything up to its last finished case, and the final line
 carries the counts so a runner does not have to parse the rest.
 
+## What a failing case leaves behind
+
+A verdict says how many pixels were wrong and what the first one held. It cannot say that the
+wrong ones were the right shape in the wrong place, or one block out of sixteen, or every other
+column. So a drawing case that fails writes what it saw next to the report, and names the files
+on its own line:
+
+```json
+{"type":"case","suite":"intmath","name":"bitwise and","tier":"exact","result":"fail",
+ "detail":"4095 of 4096 pixels wrong, first at (1,0) is 0x00000000, expected 0x00106000",
+ "image":"images/intmath/bitwise-and.pam","expected":"images/intmath/bitwise-and-expected.pam",
+ "diff":"images/intmath/bitwise-and-diff.pam","raw":"images/intmath/bitwise-and.bin"}
+```
+
+Each field is a path relative to the directory the report is in, and each appears only when
+that file was written, so every line a run produced before this existed still reads the same.
+The files land under `images/<suite>/`, named after the case with everything that is not a
+letter or a digit turned into a dash and the letters lower cased. Two case names that spell one file name get
+a file each, by number, because one failure quietly overwriting another's evidence is worse
+than a name nobody likes.
+
+This is not a stored reference image and it must never become one. The README's first section
+says why a hash of a frame breaks between two machines that are both right, and that is still
+true of these files. Nothing compares them to anything, no case reads one, and none of them can
+change an answer: the readback is judged, and then the very bytes the judge looked at are
+written. If every image were deleted the run would report exactly what it reported before.
+
+**The formats.** All three pictures are binary PAM, which is the one netpbm format that carries
+four channels, so the alpha of a colour target is in the picture rather than in a second file
+beside it that can go missing. `magick`, `identify` and the netpbm tools read them as they are;
+anything that wants a PNG is one `magick a.pam a.png` away.
+
+| file | what it is |
+|---|---|
+| `<case>.pam` | what the machine drew, four channels, MAXVAL 255 |
+| `<case>-expected.pam` | what the processor worked out for that same pixel |
+| `<case>-diff.pam` | three channels: the judge's verdict per pixel |
+| `<case>.bin` | the target's bytes as they were read back, for the formats an image cannot hold |
+
+The four bytes of a pixel go into the image in the order the readback handed them over, and
+that one rule covers every format the suite uses. For a colour target that is red, green, blue
+and alpha and the picture is the picture. For a target holding 32 bit integers or floats it is
+the little end first, which makes a picture of bit patterns rather than of magnitudes: equal
+values look equal and one changed bit changes a colour, which is what a reader of an integer
+target wants, while a float range has no honest mapping onto a byte and inventing one would
+make the picture a judgement. Those formats also get their bytes verbatim in a `.bin`, so
+`cmp` between two machines has something exact to work on.
+
+**The diff is the judge's verdict and not a comparison of the two images**, and that distinction
+is the whole reason this is safe. Black-grey means the judge accepted the pixel, red that it
+refused it, blue that it declined to judge it at all, which is the band an edge runs through in
+the rasterisation cases. A pixel inside a budget of units in the last place differs in its bytes
+and is not a difference here. An image comparison would paint the entire float suite red on a
+machine that had done nothing wrong, which is precisely the failure the suite exists not to
+report.
+
+By default only a failing case writes anything, because a green run would otherwise leave three
+files for every drawing case and nobody asked for them. A run that wants them all says so in the file described below.
+
+## Looking at it on the console
+
+One binary, two ways to run it.
+
+**Automatic** is what it always did and is still the default: every suite runs, both report
+channels get every line, the program exits, about three seconds.
+
+**Detailed** does all of that first, unchanged and to the last byte, and then puts the cases on
+the screen one at a time: what the hardware drew, what the processor expected and the judge's
+verdict, side by side, each 64 by 64 target scaled up with nearest neighbour so it is legible,
+with the suite, the case, the tier, the verdict and the detail as text above and below. It is
+for the question a verdict cannot answer, which is whether a failure looks like a rendering
+fault or like the judge being wrong.
+
+The order is the safeguard and it is not a detail of the implementation. Every suite runs, every
+line is emitted, the summary is counted and the report is closed, and only then does anything
+reach a screen; the viewer refuses to start while a report is open. So the two modes leave the
+same file: on the run this was written against, 36869 bytes and the same digest either way, and
+the same images beside it. The screen is a second opinion for a person, never an input to one.
+
+Choose it in either of two ways, because a person and a script want different ones:
+
+- put the word `detailed` in `sdmc:/gfxprobe/mode`. The word `images` in the same file, on its
+  own or beside it, also writes the pictures for the passing cases;
+- or hold **X** as the program starts. The pad is asked once it turns up, which on a machine
+  with a controller already attached is two frames, so an automatic run costs what it did
+  before.
+
+On the screen: **A** or right for the next case, **B** or left for the previous one, **down**
+and **up** for the next and previous failure, **X** to cycle between the three side by side and
+each one on its own, and **plus** to quit. The frame is composed on the processor and only when
+something moved, so a still screen costs an emulated machine nothing.
+
 ## Building
 
 For the console, with the toolchain installed:
@@ -257,7 +368,9 @@ make -f host.mk host-run
 It covers the suite's judgement of itself: that two neighbouring floats measure one unit apart,
 that a zero budget rejects them, that a NaN is never equal to anything including itself. If those
 fail, nothing else the suite says can be believed, and you find out in a second instead of after
-a boot.
+a boot. It also covers what is written and drawn around a verdict, which has no console in it
+either: the picture writer against a fixture it then parses back, and the detailed mode's layout
+and navigation against a frame composed in ordinary memory.
 
 ## Running it under an emulator
 
@@ -266,7 +379,8 @@ make run
 ```
 
 `EMULATOR` points at the binary to test. The report lands on the emulator's virtual memory card,
-which on a desktop is an ordinary directory.
+which on a desktop is an ordinary directory, and so do the pictures of whatever failed. That
+directory is also where the `mode` file goes if you want the detailed mode described above.
 
 The run needs a real rendering backend. An emulator set to a null or headless backend will still
 report the selfcheck cases and still open a graphics device, and will then fail every drawing case
