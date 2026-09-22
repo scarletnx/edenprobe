@@ -26,7 +26,9 @@ int main(int argc, char **argv) {
     // Order matters: the selfcheck suite is what proves the comparisons the drawing suite then
     // leans on, so a machine where both are broken says which one broke first.
     RunSelfcheck();
+    RunReference();
     RunClear();
+    RunRaster();
     ReportSummary();
 
     ReportClose();
