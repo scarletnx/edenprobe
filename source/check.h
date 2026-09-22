@@ -51,15 +51,11 @@ float CheckFloatUlpError(float produced, float expected);
 
 /// How many representable values apart two floats are.
 ///
-/// A second measure, and a different one from the budget above: this one counts the values
-/// between, which is what a reader wants next to a result, while the budget is a distance. The
-/// two agree away from a power of two and differ by a factor of two at one. Hands back the
-/// largest possible count for a NaN on either side, and for one infinity against anything that
-/// is not the same infinity, neither of which any budget accepts. No two finite floats are ever
-/// that far apart, so the count cannot be mistaken for a real one.
-///
-/// This one is for a reader's intuition and for the cases that pin the difference between the
-/// two measures. A budget is never written in it.
+/// A different measure from the budget above, which is a distance: the two agree away from a
+/// power of two and differ by a factor of two at one. For a reader's intuition and for the cases
+/// that pin that difference; a budget is never written in it. Hands back the largest possible
+/// count for a NaN on either side and for mismatched infinities, which no two finite floats can
+/// reach.
 uint32_t CheckFloatUlpDistance(float produced, float expected);
 
 /// Whether two 32-bit floats agree to within @p limit measured as a plain difference.

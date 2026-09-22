@@ -264,10 +264,16 @@ void RunTexture(void) {
         return;
     }
 
-    // The four identical rows the linear case needs, built from the one row above.
+    // The four identical rows the linear case needs, built from the one row above. Copied texel
+    // by texel rather than a row at a time: a row is four separate four byte texels in this
+    // array, and one copy across all four would be reaching past the end of the first of them.
     uint8_t linear_texels[TEXTURE_SIZE * TEXTURE_SIZE][4];
     for (uint32_t row = 0; row < TEXTURE_SIZE; ++row) {
-        memcpy(linear_texels[row * TEXTURE_SIZE], LINEAR_ROW, sizeof(LINEAR_ROW));
+        for (uint32_t texel = 0; texel < TEXTURE_SIZE; ++texel) {
+            for (uint32_t channel = 0; channel < 4u; ++channel) {
+                linear_texels[row * TEXTURE_SIZE + texel][channel] = LINEAR_ROW[texel][channel];
+            }
+        }
     }
 
     // The two claims the linear case rests on, checked where the data is rather than asserted:

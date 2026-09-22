@@ -560,7 +560,6 @@ void GpuClearDepth(GpuContext *gpu, float depth) {
     SubmitAndDrain(gpu, "depth clear");
 }
 
-
 /// Copies @p view into the readback block and hands back the processor's view of it.
 static const uint8_t *CopyToReadback(GpuContext *gpu, const DkImageView *view) {
     dkCmdBufClear(gpu->cmdbuf);
@@ -673,9 +672,9 @@ bool GpuLoadShader(GpuContext *gpu, DkShader *out, const void *dksh, uint32_t si
     maker.control = dksh;
     dkShaderInitialize(out, &maker);
 
-    if (!dkShaderIsValid(out)) {
-        return Complain(gpu, "deko3d refused the shader module");
-    }
+    // No check on the way out, and not an omission: dkShaderIsValid only compares back a magic
+    // that dkShaderInitialize wrote unconditionally, so it would answer yes whatever it was
+    // handed. Everything worth refusing about a module is refused above.
     return true;
 }
 

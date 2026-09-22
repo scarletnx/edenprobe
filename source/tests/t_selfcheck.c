@@ -11,12 +11,10 @@
 
 // The suite checking itself. These touch no hardware and must pass identically on the console
 // and on any emulator: if one of them fails, the machinery that judges every other test is
-// broken, and nothing below it can be believed.
+// broken.
 //
-// Every case here reports CHECK_NONE, which is not one of the three tiers. A tier is a claim
-// about what the hardware is allowed to get wrong, and nothing here asked the hardware
-// anything: the subject is this program's own arithmetic. Calling these exact would read, in a
-// diff between two machines, as seven passing hardware claims that were never made.
+// Every case reports CHECK_NONE, because a tier is a claim about what the hardware is allowed to
+// get wrong and nothing here asked the hardware anything.
 
 static const char *const SUITE = "selfcheck";
 
