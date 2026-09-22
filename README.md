@@ -28,6 +28,22 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 - **Units in the last place.** For float work, with the budget stated per case.
 - **Position.** The right answer, possibly a pixel or two away, for rasterisation coverage.
 
+## What it checks today
+
+Two suites, in the order they run, because the second leans on the first.
+
+- **selfcheck**, seven cases, no hardware involved. That two neighbouring floats measure one unit
+  apart, that a zero budget rejects them, that a NaN is never equal to anything including itself.
+  If one of these fails, nothing else the suite says can be believed.
+- **clear**, four cases, on the graphics unit. A 64 by 64 RGBA8 target is cleared to a colour, all
+  4096 of its pixels are copied back and compared, and that happens for three colours in a row, so
+  a readback handing over a stale buffer cannot pass by accident. Exact tier: the format is
+  integer and the clear value is a constant, so each channel has exactly one right byte.
+
+Nothing is ever put on a screen. The target is offscreen and the program reads it back itself,
+which keeps the compositor, the swapchain and vertical sync out of a test that is about none of
+them, and keeps the first problem on a new machine from being "did the screen work".
+
 ## What it reports
 
 One JSON object per line, to two channels at once, because the two machines read different ones:
@@ -71,6 +87,12 @@ make run
 
 `EMULATOR` points at the binary to test. The report lands on the emulator's virtual memory card,
 which on a desktop is an ordinary directory.
+
+The run needs a real rendering backend. An emulator set to a null or headless backend will still
+report the selfcheck cases and still open a graphics device, and will then fail every drawing case
+with every pixel reading zero, because a backend that draws nothing is behaving exactly as asked.
+That is a property of the run, not a defect found, and a report is only worth diffing against
+another machine when both were rendering.
 
 ## Licence
 
