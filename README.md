@@ -50,6 +50,35 @@ Nothing is ever put on a screen. The target is offscreen and the program reads i
 which keeps the compositor, the swapchain and vertical sync out of a test that is about none of
 them, and keeps the first problem on a new machine from being "did the screen work".
 
+## The roadmap
+
+The suites are ordered by how much one case tells you when two machines disagree, and each
+one leans on the ones above it. That order is the whole point: when a run comes back with
+forty failures, the first suite that failed is the only one worth reading, because everything
+below it was measured with a broken instrument.
+
+This is the order they run in. The section above says which of them exist today; the rest is
+the plan, in the order it gets built.
+
+| suite | tier | what a failure points at |
+|---|---|---|
+| selfcheck | none, no hardware | the comparators themselves. Nothing below can be believed. |
+| reference | none, no hardware | the expected answers: the coverage rule, the blend arithmetic, the texel address. The judge, not the machine. |
+| clear | exact | the render target's memory layout and the path that copies it back. Everything below draws into that same target. |
+| raster | position for edges, exact for interiors | vertex fetch, the clip space to screen space transform, and the coverage rule. In an emulator: the viewport registers, the y direction, the half pixel offset, and the fill rule the host rasteriser is asked for. |
+| intmath | exact | the shader translator, bit for bit, and the delivery of the fragment's own coordinate. In an emulator: one wrongly decoded instruction, or an integer render target mapped to a normalised host format. |
+| blend | exact | the fixed function blend unit: the equation and factor registers, and the rounding on the way back to eight bits. |
+| depth | exact | the depth test: the depth target's format and layout, the depth range set up by the viewport, and the compare operation. |
+| texture | exact | the texture and sampler descriptors: the wrap mode and filter fields, and the block linear layout a sampled image is stored in. |
+| fmath | units in the last place | the float side of the shader translator, and the transcendental unit behind it. This is the only suite where two correct machines are allowed to differ, which is why it is last. |
+
+Two rules hold across all of them. Every case computes what it expects on the processor and
+checks every pixel, so there is no stored image anywhere and no machine's answer is the
+reference for another's. And every rule a case judges by, wherever that rule is more than one
+line of arithmetic, is implemented once in `source/` and pinned by the `reference` suite, which
+runs with no graphics device at all: `make -f host.mk host-run` proves the judge before a
+console or an emulator is involved.
+
 ## What it reports
 
 One JSON object per line, to two channels at once, because the two machines read different ones:
