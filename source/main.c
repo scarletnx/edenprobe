@@ -17,14 +17,16 @@ int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
 
-    // Nothing here draws yet, so no console or graphics setup: the report channels are the
-    // whole interface. Keeping it that way means the first bring-up problem on a new machine is
-    // never "did the screen work".
+    // No console and no screen, even now that a suite draws: the report channels stay the whole
+    // interface, so a bring-up problem on a new machine is never "did the screen work".
     mkdir("sdmc:/gfxprobe", 0777);
     ReportOpen(REPORT_PATH);
 
     ReportNote("gfxprobe starting");
+    // Order matters: the selfcheck suite is what proves the comparisons the drawing suite then
+    // leans on, so a machine where both are broken says which one broke first.
     RunSelfcheck();
+    RunClear();
     ReportSummary();
 
     ReportClose();
