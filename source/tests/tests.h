@@ -35,6 +35,9 @@ void RunIntmath(void);
 /// The fixed function blend unit: the equations, the factors, and the rounding back to eight
 /// bits.
 void RunBlend(void);
+
+/// The depth test, the depth write and the depth buffer's own contents.
+void RunDepth(void);
 #endif
 
 #ifdef __cplusplus
