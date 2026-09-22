@@ -47,6 +47,26 @@ void RunSelfcheck(void) {
                !CheckFloatUlp(nan_value, nan_value, 1000000),
                "a NaN compared equal to itself");
 
+    // The absolute comparison, which is what the sine and the cosine are judged by. Two to the
+    // minus eleven is the budget those cases use, so the two values below straddle it.
+    const float budget = 1.0f / 2048.0f;
+    CHECK_TRUE(SUITE, "absolute tolerance accepts within", CHECK_NONE,
+               CheckFloatAbs(0.5f, 0.5f + budget * 0.5f, budget),
+               "half the budget was rejected by it");
+    CHECK_TRUE(SUITE, "absolute tolerance rejects beyond", CHECK_NONE,
+               !CheckFloatAbs(0.5f, 0.5f + budget * 2.0f, budget),
+               "twice the budget was accepted by it");
+    // The same refusal the other comparison makes, restated here because a shader that produced
+    // nothing but NaN would otherwise pass every case judged this way.
+    CHECK_TRUE(SUITE, "absolute tolerance never accepts a nan", CHECK_NONE,
+               !CheckFloatAbs(nan_value, nan_value, 1.0f), "a NaN compared equal to itself");
+    // And the one thing an absolute budget has to get right that a relative one does not: a
+    // difference either side of the expected value is the same distance.
+    CHECK_TRUE(SUITE, "absolute tolerance is symmetric", CHECK_NONE,
+               CheckFloatAbs(0.5f - budget, 0.5f, budget) &&
+                   CheckFloatAbs(0.5f + budget, 0.5f, budget),
+               "the budget was not the same on both sides of the expected value");
+
     CHECK_TRUE(SUITE, "channel threshold accepts within", CHECK_NONE, CheckChannel(128, 130, 2),
                "128 and 130 were not within a threshold of 2");
     CHECK_TRUE(SUITE, "channel threshold rejects beyond", CHECK_NONE, !CheckChannel(128, 131, 2),

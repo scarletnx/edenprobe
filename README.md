@@ -30,11 +30,13 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Eight suites, in the order they run, because each leans on the ones before it.
+Nine suites, in the order they run, because each leans on the ones before it. A run is 136
+cases.
 
-- **selfcheck**, seven cases, no hardware involved. That two neighbouring floats measure one unit
-  apart, that a zero budget rejects them, that a NaN is never equal to anything including itself.
-  If one of these fails, nothing else the suite says can be believed.
+- **selfcheck**, eleven cases, no hardware involved. That two neighbouring floats measure one
+  unit apart, that a zero budget rejects them, that an absolute budget is the same on both sides
+  of the expected value, and that a NaN is never equal to anything including itself. If one of
+  these fails, nothing else the suite says can be believed.
 - **clear**, five cases, on the graphics unit: one that reports whether the graphics device came
   up at all, at no tier because it compares nothing, and four that draw. Each of the four clears a
   64 by 64 RGBA8 target and copies all 4096 pixels back to compare them. Three cover the whole
@@ -45,7 +47,7 @@ Eight suites, in the order they run, because each leans on the ones before it.
   three before it cannot catch a transposed, flipped or shuffled readback and this one can. All
   four are Exact tier: the format is integer and every clear value is a constant, so each channel
   has exactly one right byte.
-- **reference**, eighteen cases, no hardware involved either. The other half of the judge: where
+- **reference**, forty three cases, no hardware involved either. The other half of the judge: where
   clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
   the centres that sit exactly on the edge they share. It runs in both builds, because a
   reference that answered differently on the two processors would be blamed on the graphics unit.
@@ -55,7 +57,7 @@ Eight suites, in the order they run, because each leans on the ones before it.
   for the band an edge runs through, and exact everywhere for the two cases whose geometry puts
   32 pixel centres exactly on a shared edge: those are decided by the fill rule, not by sub pixel
   precision, and an implementation that draws a shared edge twice or not at all says so there.
-- **intmath**, sixteen cases, on the graphics unit. A fragment shader doing integer arithmetic on
+- **intmath**, seventeen cases, on the graphics unit. A fragment shader doing integer arithmetic on
   its own coordinate into an R32_Uint target: add, multiply, all three shifts, and, or, exclusive
   or, bit counting, bit scanning, division and remainder. Exact tier, and it is the strongest
   claim in the suite: an integer target normalises nothing, so a wrong answer is a wrong bit
@@ -70,7 +72,7 @@ Eight suites, in the order they run, because each leans on the ones before it.
   built to land at least 0.49 of a step away from one and the reference suite measures that
   rather than taking it on trust. Two of the cases set both factors to zero under the minimum and
   the maximum, because the specification says those two equations ignore the factors entirely.
-- **depth**, thirteen cases, on the graphics unit. One quad laid down at a known depth and a
+- **depth**, fourteen cases, on the graphics unit. One quad laid down at a known depth and a
   second one challenging it with each compare operation, plus the depth buffer read back and
   compared as a float bit for bit. Exact tier: the depths are 0.25, 0.5 and 0.75, which survive
   the transform into depth space untouched, so "the buffer holds exactly one half" is a statement
@@ -83,6 +85,16 @@ Eight suites, in the order they run, because each leans on the ones before it.
   the only weight the filter can use is one half and every pair of texels averages to a whole
   byte. Exact tier throughout, and what earns it is the layout: no pixel centre comes within a
   thirty second of a texel boundary, which the reference suite measures.
+- **fmath**, thirteen cases, on the graphics unit. Addition, multiplication, a fused multiply and
+  add, division, the square root, powers and logarithms of two, the sine and the cosine, into an
+  R32_Float target, compared against the same arithmetic in double precision. Units in the last
+  place tier, with the budget stated per case because the specification's numbers differ per
+  operation: nought for addition and multiplication, which have to be correctly rounded, one for
+  the multiply and add, three for division and the transcendentals, and an absolute two to the
+  minus eleven for the sine and the cosine, which is how the specification bounds those two. Each
+  case reports the worst distance it saw next to the budget it allowed, so a run that passes
+  still says how much room it had. It runs last because it is the only suite where two correct
+  machines are allowed to disagree.
 
 Nothing is ever put on a screen. The target is offscreen and the program reads it back itself,
 which keeps the compositor, the swapchain and vertical sync out of a test that is about none of
@@ -95,8 +107,8 @@ one leans on the ones above it. That order is the whole point: when a run comes 
 forty failures, the first suite that failed is the only one worth reading, because everything
 below it was measured with a broken instrument.
 
-This is the order they run in. The section above says which of them exist today; the rest is
-the plan, in the order it gets built.
+This is the order they run in, and the order they were built in. Anything added later goes where
+its dependencies put it, not at the end.
 
 | suite | tier | what a failure points at |
 |---|---|---|
@@ -185,6 +197,13 @@ report the selfcheck cases and still open a graphics device, and will then fail 
 with every pixel reading zero, because a backend that draws nothing is behaving exactly as asked.
 That is a property of the run, not a defect found, and a report is only worth diffing against
 another machine when both were rendering.
+
+A run like that is still worth doing, because it proves the things a null backend does not stand
+in for. The graphics library runs on the emulated processor, not on the host, so everything it
+checks about the commands it is given is checked for real: a shader module it will not load, a
+copy it will not make, a rectangle it will not clear all end the program rather than fail a case.
+A headless run that reports every case and reaches its summary has established that none of that
+happened, which is most of what can go wrong before a pixel is involved.
 
 ## Licence
 

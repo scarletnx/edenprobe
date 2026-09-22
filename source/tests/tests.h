@@ -42,6 +42,10 @@ void RunDepth(void);
 /// Texture sampling: the texel a coordinate names, the wrap modes, and a filter weight of
 /// exactly one half.
 void RunTexture(void);
+
+/// Float arithmetic in a shader, judged in units in the last place. Last, because it is the only
+/// suite where two correct machines are allowed to disagree.
+void RunFmath(void);
 #endif
 
 #ifdef __cplusplus
