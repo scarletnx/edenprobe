@@ -62,8 +62,9 @@ static void DrawGlyph(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t sca
     }
 }
 
-void UiText(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t scale,
-            const uint8_t colour[4], const char *text) {
+/// Draws @p text at @p scale times the 8 by 8 cell.
+static void UiText(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t scale,
+                   const uint8_t colour[4], const char *text) {
     if (frame == NULL || frame->pixels == NULL || text == NULL || scale == 0u) {
         return;
     }
@@ -116,9 +117,15 @@ static void DrawPanel(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t sca
                       const PictureRecord *record, UiView which) {
     const uint32_t width = record->width * scale;
     const uint32_t height = record->height * scale;
-    FillRect(frame, x - 1u, y - 1u, width + 2u, 1u, BORDER);
-    FillRect(frame, x - 1u, y + height, width + 2u, 1u, BORDER);
-    FillRect(frame, x - 1u, y, 1u, height, BORDER);
+    // A panel at the very edge of the frame has no room for a border on that side, and a
+    // subtraction there would wrap round and draw it on the opposite one.
+    if (x > 0u) {
+        FillRect(frame, x - 1u, y, 1u, height, BORDER);
+    }
+    if (y > 0u) {
+        FillRect(frame, x, y - 1u, width, 1u, BORDER);
+    }
+    FillRect(frame, x, y + height, width, 1u, BORDER);
     FillRect(frame, x + width, y, 1u, height, BORDER);
 
     for (uint32_t row = 0; row < height; ++row) {
@@ -151,6 +158,40 @@ static void DrawPanel(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t sca
     }
 }
 
+/// Copies at most @p columns characters of @p text, marking a cut with a tilde so a name that
+/// did not fit says so instead of running off the edge.
+static void Fit(char *out, size_t out_size, const char *text, uint32_t columns) {
+    const size_t room = columns + 1u < out_size ? columns : out_size - 1u;
+    const size_t length = strlen(text);
+    const size_t take = length < room ? length : room;
+    memcpy(out, text, take);
+    out[take] = '\0';
+    if (length > take && take > 0u) {
+        out[take - 1u] = '~';
+    }
+}
+
+/// The three colours the diff is made of, named on the screen. The person holding the pad is
+/// not holding the README, and red is the most important thing on this display.
+static void DrawKey(const UiFrame *frame, uint32_t x, uint32_t y) {
+    static const struct {
+        PictureVerdict verdict;
+        const char *word;
+    } KEY[3] = {
+        { PICTURE_MATCHED, "accepted" },
+        { PICTURE_WRONG, "refused" },
+        { PICTURE_UNJUDGED, "not judged" },
+    };
+    uint32_t at = x;
+    for (uint32_t i = 0; i < 3u; ++i) {
+        uint8_t colour[4] = { 0, 0, 0, 0xFF };
+        PictureDiffColour((uint8_t)KEY[i].verdict, colour);
+        FillRect(frame, at, y, 16u, 16u, colour);
+        UiText(frame, at + 22u, y, 2, DIM, KEY[i].word);
+        at += 22u + (uint32_t)strlen(KEY[i].word) * CELL * 2u + 3u * CELL * 2u;
+    }
+}
+
 static const char *ViewLabel(UiView view) {
     switch (view) {
     case UI_VIEW_GOT:
@@ -166,7 +207,7 @@ static const char *ViewLabel(UiView view) {
 }
 
 void UiCompose(const UiFrame *frame, const PictureRecord *record, UiState state, uint32_t count,
-               uint32_t failures) {
+               const uint8_t *failed) {
     if (frame == NULL || frame->pixels == NULL) {
         return;
     }
@@ -176,16 +217,46 @@ void UiCompose(const UiFrame *frame, const PictureRecord *record, UiState state,
         return;
     }
 
-    char header[128];
-    snprintf(header, sizeof(header), "case %u of %u   %s   tier %s   %u failed",
-             (unsigned)(state.index + 1u), (unsigned)count, record->suite, record->tier,
-             (unsigned)failures);
-    UiText(frame, MARGIN, 8, 2, DIM, header);
-    UiText(frame, MARGIN, 30, 2, record->passed ? PASSED : FAILED,
-           record->passed ? "PASS" : "FAIL");
-    UiText(frame, MARGIN + 5u * CELL * 2u, 30, 2, TEXT, record->name);
+    // Only the cases that drew something are in this list, which is why the number is smaller
+    // than the run's, and the header says so rather than leaving a reader to work it out.
+    uint32_t failures = 0;
+    uint32_t rank = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (failed != NULL && failed[i] != 0u) {
+            ++failures;
+            if (i <= state.index) {
+                ++rank;
+            }
+        }
+    }
 
-    const uint32_t top = 64u;
+    char header[160];
+    if (!record->passed && failures > 0u) {
+        snprintf(header, sizeof(header),
+                 "drawing case %u of %u   failure %u of %u   %s   tier %s",
+                 (unsigned)(state.index + 1u), (unsigned)count, (unsigned)rank,
+                 (unsigned)failures, record->suite, record->tier);
+    } else {
+        snprintf(header, sizeof(header), "drawing case %u of %u   %u failed   %s   tier %s",
+                 (unsigned)(state.index + 1u), (unsigned)count, (unsigned)failures,
+                 record->suite, record->tier);
+    }
+    const uint32_t columns_for_name =
+        frame->width > 2u * MARGIN ? (frame->width - 2u * MARGIN) / (CELL * 2u) : 1u;
+
+    // The verdict first, and at the margin, because it is the one thing on this screen that
+    // must be there however narrow the frame is or however long the rest of the line runs.
+    UiText(frame, MARGIN, 8, 2, record->passed ? PASSED : FAILED,
+           record->passed ? "PASS" : "FAIL");
+    char fitted[200];
+    Fit(fitted, sizeof(fitted), header, columns_for_name > 6u ? columns_for_name - 6u : 1u);
+    UiText(frame, MARGIN + 6u * CELL * 2u, 8, 2, DIM, fitted);
+
+    char name[200];
+    Fit(name, sizeof(name), record->name, columns_for_name);
+    UiText(frame, MARGIN, 30, 2, TEXT, name);
+
+    const uint32_t top = UI_PANEL_TOP;
     const uint32_t columns =
         frame->width > 2u * MARGIN ? (frame->width - 2u * MARGIN) / (CELL * 2u) : 1u;
     uint32_t bottom;
@@ -203,7 +274,7 @@ void UiCompose(const UiFrame *frame, const PictureRecord *record, UiState state,
         static const UiView PANELS[3] = { UI_VIEW_GOT, UI_VIEW_EXPECTED, UI_VIEW_DIFF };
         for (uint32_t panel = 0; panel < 3u; ++panel) {
             const uint32_t x = MARGIN + panel * (size + MARGIN);
-            UiText(frame, x, top - 12u, 1, DIM, ViewLabel(PANELS[panel]));
+            UiText(frame, x, top - 20u, 2, DIM, ViewLabel(PANELS[panel]));
             DrawPanel(frame, x, top, scale, record, PANELS[panel]);
         }
         bottom = top + record->height * scale;
@@ -222,12 +293,16 @@ void UiCompose(const UiFrame *frame, const PictureRecord *record, UiState state,
         }
         const uint32_t size = record->width * scale;
         const uint32_t x = frame->width > size ? (frame->width - size) / 2u : 0u;
-        UiText(frame, x, top - 12u, 1, DIM, ViewLabel(state.view));
+        UiText(frame, x, top - 20u, 2, DIM, ViewLabel(state.view));
         DrawPanel(frame, x, top, scale, record, state.view);
         bottom = top + record->height * scale;
     }
 
-    const uint32_t detail_y = bottom + 20u;
+    // The key sits between the pictures and the sentence, because it explains the one and is
+    // read on the way to the other.
+    DrawKey(frame, MARGIN, bottom + 12u);
+
+    const uint32_t detail_y = bottom + 44u;
     const uint32_t room_for_lines =
         frame->height > detail_y + 32u ? (frame->height - detail_y - 32u) / 18u : 1u;
     if (record->detail[0] != '\0') {
@@ -236,7 +311,7 @@ void UiCompose(const UiFrame *frame, const PictureRecord *record, UiState state,
         UiText(frame, MARGIN, detail_y, 2, DIM, "no detail: the case passed");
     }
 
-    UiText(frame, MARGIN, frame->height - 14u, 1, DIM,
+    UiText(frame, MARGIN, frame->height > 14u ? frame->height - 14u : 0u, 1, DIM,
            "A or right next   B or left previous   X view   down next failure   "
            "up previous failure   plus quit");
 }
@@ -330,7 +405,7 @@ UiState UiStep(UiState state, UiInput input, const uint8_t *failed, uint32_t cou
     if (count == 0u) {
         next.index = 0u;
         next.quit = state.quit || input == UI_INPUT_QUIT;
-        next.changed = next.quit != state.quit;
+        next.changed = next.changed || next.quit != state.quit;
         return next;
     }
     if (next.index >= count) {

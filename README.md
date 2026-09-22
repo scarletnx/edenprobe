@@ -32,7 +32,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Ten suites, in the order they run, because each leans on the ones before it. A run is 200
+Ten suites, in the order they run, because each leans on the ones before it. A run is 202
 cases.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -41,17 +41,17 @@ cases.
   a budget of every value there is, and that a budget of three units in the last place reaches
   six representable values below a power of two and three above it. If one of these fails,
   nothing else the suite says can be believed.
-- **support**, thirty cases, no hardware and nothing of the hardware's looked at. The two things
-  this program does around a verdict rather than to reach one: the picture it leaves beside a
-  failing case, and the screen the detailed mode shows that picture on. It checks that a case
-  name becomes the file name its own line says it does, that a written picture parses back as
-  the image its header claims to be, that the bytes kept beside a picture of an integer target
-  are every byte that target held, that two case names which spell one file name still get a
-  file each, and that the navigation and the layout are what the screen is made of. One of them
-  carries the whole idea: the diff picture is built from what the judge decided pixel by pixel
-  and not from comparing the two images, so a pixel that differs and was allowed to is not
-  painted as a difference. Every line is the none tier, because none of it is a claim about a
-  machine.
+- **support**, thirty two cases, no hardware and nothing of the hardware's looked at. The two
+  things this program does around a verdict rather than to reach one: the picture it leaves
+  beside a failing case, and the screen the detailed mode shows that picture on. It checks that
+  a case name becomes the file name its own line says it does, that a written picture parses
+  back as the image its header claims to be, that the bytes kept beside a picture of an integer
+  target are every byte that target held, that two case names which spell one file name still
+  get a file each, that the suite takes its own fixtures away again, and that the navigation and
+  the layout are what the screen is made of. One of them carries the whole idea: the diff
+  picture is built from what the judge decided pixel by pixel and not from comparing the two
+  images, so a pixel that differs and was allowed to is not painted as a difference. Every line
+  is the none tier, because none of it is a claim about a machine.
 - **reference**, fifty three cases, no hardware involved either. The other half of the judge: where
   clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
   the centres that sit exactly on the edge they share. It runs in both builds, because a
@@ -259,7 +259,7 @@ carries the counts so a runner does not have to parse the rest.
 A verdict says how many pixels were wrong and what the first one held. It cannot say that the
 wrong ones were the right shape in the wrong place, or one block out of sixteen, or every other
 column. So a drawing case that fails writes what it saw next to the report, and names the files
-on its own line:
+on its own line, which is one line and is only wrapped here to fit:
 
 ```json
 {"type":"case","suite":"intmath","name":"bitwise and","tier":"exact","result":"fail",
@@ -268,12 +268,15 @@ on its own line:
  "diff":"images/intmath/bitwise-and-diff.pam","raw":"images/intmath/bitwise-and.bin"}
 ```
 
-Each field is a path relative to the directory the report is in, and each appears only when
-that file was written, so every line a run produced before this existed still reads the same.
-The files land under `images/<suite>/`, named after the case with everything that is not a
-letter or a digit turned into a dash and the letters lower cased. Two case names that spell one file name get
-a file each, by number, because one failure quietly overwriting another's evidence is worse
-than a name nobody likes.
+Each field is a path relative to the directory the report is in, which is the one holding
+`report.jsonl`, and each appears only when that file was written, so every line a run produced
+before this existed still reads the same. The files land under `images/<suite>/`, named after
+the case with the letters lower cased and every run of characters that is not a letter or a
+digit turned into a single dash: "the fragment coordinate's x is the pixel centre, bit for bit"
+becomes `the-fragment-coordinate-s-x-is-the-pixel-centre-bit-for-bit.pam`, one dash for the
+apostrophe and one for the comma and the space together. Two case names that spell one file
+name get a file each, the second with `-2` before the rest of its name, because one failure
+quietly overwriting another's evidence is worse than a name nobody likes.
 
 This is not a stored reference image and it must never become one. The README's first section
 says why a hash of a frame breaks between two machines that are both right, and that is still
@@ -288,9 +291,9 @@ anything that wants a PNG is one `magick a.pam a.png` away.
 
 | file | what it is |
 |---|---|
-| `<case>.pam` | what the machine drew, four channels, MAXVAL 255 |
+| `<case>.pam` | what the machine drew, four channels, MAXVAL 255, labelled `drawn` on screen |
 | `<case>-expected.pam` | what the processor worked out for that same pixel |
-| `<case>-diff.pam` | three channels: the judge's verdict per pixel |
+| `<case>-diff.pam` | three channels: the judge's verdict per pixel, labelled `judged` on screen |
 | `<case>.bin` | the target's bytes as they were read back, for the formats an image cannot hold |
 
 The four bytes of a pixel go into the image in the order the readback handed them over, and
@@ -303,7 +306,7 @@ make the picture a judgement. Those formats also get their bytes verbatim in a `
 `cmp` between two machines has something exact to work on.
 
 **The diff is the judge's verdict and not a comparison of the two images**, and that distinction
-is the whole reason this is safe. Black-grey means the judge accepted the pixel, red that it
+is the whole reason this is safe. Dark grey means the judge accepted the pixel, red that it
 refused it, blue that it declined to judge it at all, which is the band an edge runs through in
 the rasterisation cases. A pixel inside a budget of units in the last place differs in its bytes
 and is not a difference here. An image comparison would paint the entire float suite red on a
@@ -311,7 +314,11 @@ machine that had done nothing wrong, which is precisely the failure the suite ex
 report.
 
 By default only a failing case writes anything, because a green run would otherwise leave three
-files for every drawing case and nobody asked for them. A run that wants them all says so in the file described below.
+files for every drawing case and nobody asked for them. A run that wants them all says so in
+the `mode` file described in the next section. The `support` suite is the one exception and
+only while it runs: it writes a handful of eight by four fixtures into `support-check/` beside
+the report, parses them back, and then takes them away again, which is a case of its own. A run
+that leaves that directory behind has failed that case and says so.
 
 ## Looking at it on the console
 
@@ -321,17 +328,24 @@ One binary, two ways to run it.
 channels get every line, the program exits, about three seconds.
 
 **Detailed** does all of that first, unchanged and to the last byte, and then puts the cases on
-the screen one at a time: what the hardware drew, what the processor expected and the judge's
-verdict, side by side, each 64 by 64 target scaled up with nearest neighbour so it is legible,
-with the suite, the case, the tier, the verdict and the detail as text above and below. It is
-for the question a verdict cannot answer, which is whether a failure looks like a rendering
-fault or like the judge being wrong.
+the screen one at a time: the three pictures above, side by side and labelled `drawn`,
+`expected` and `judged`, each 64 by 64 target scaled up with nearest neighbour so it is
+legible, with the suite, the case, the tier, the verdict and the detail as text around them,
+and a key saying what the three colours in `judged` mean. It is for the question a verdict
+cannot answer, which is whether a failure looks like a rendering fault or like the judge being
+wrong.
+
+What it holds is every case that compared pixels, pass or fail, which on a full run is 80 of
+the 202 and is the number the heading counts in. The other 122 compared nothing the graphics
+unit produced and have no picture to show. It holds them in memory rather than reading back
+what it wrote, so a green run and a run that wrote nothing are both worth looking at, and the
+`images` word changes what is on the memory card and not what is on the screen.
 
 The order is the safeguard and it is not a detail of the implementation. Every suite runs, every
 line is emitted, the summary is counted and the report is closed, and only then does anything
 reach a screen; the viewer refuses to start while a report is open. So the two modes leave the
-same file: on the run this was written against, 36869 bytes and the same digest either way, and
-the same images beside it. The screen is a second opinion for a person, never an input to one.
+same file, byte for byte and digest for digest, and the same images beside it. The screen is a
+second opinion for a person, never an input to one.
 
 Choose it in either of two ways, because a person and a script want different ones:
 
@@ -378,9 +392,15 @@ and navigation against a frame composed in ordinary memory.
 make run
 ```
 
-`EMULATOR` points at the binary to test. The report lands on the emulator's virtual memory card,
-which on a desktop is an ordinary directory, and so do the pictures of whatever failed. That
-directory is also where the `mode` file goes if you want the detailed mode described above.
+`EMULATOR` points at the binary to test, and is a variable on the command line:
+`EMULATOR=/path/to/emulator make run`.
+
+The run leaves `report.jsonl`, and `images/` beside it, in `sdmc:/gfxprobe`. On the console
+that is the memory card. On a desktop the emulator keeps its memory card in an ordinary
+directory, wherever it was told to: for the one used here that is
+`$XDG_DATA_HOME/eden/sdmc`, so the report is at `.../sdmc/gfxprobe/report.jsonl` and the
+`mode` file goes next to it at `.../sdmc/gfxprobe/mode`. Any emulator with a different layout
+puts the same three names under whatever it calls its memory card.
 
 The run needs a real rendering backend. An emulator set to a null or headless backend will still
 report the selfcheck cases and still open a graphics device, and will then fail every drawing case
