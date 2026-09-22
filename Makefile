@@ -26,8 +26,13 @@ ARCH     := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 CFLAGS   := $(ARCH) -g -O2 -ffunction-sections -fdata-sections \
             -Wall -Wextra -Werror -Wno-unused-parameter \
             -D__SWITCH__ -I$(LIBNX)/include -Isource
-LDFLAGS  := $(ARCH) -specs=$(LIBNX)/switch.specs -Wl,--gc-sections -g
-LIBS     := -L$(LIBNX)/lib -lnx
+# --wrap on the abort is what lets GpuOpen report a failed bring-up instead of dying: the
+# graphics library answers a failed constructor by calling the runtime's abort, which never comes
+# back. gpu.c arms the wrapper only while the device is being brought up.
+LDFLAGS  := $(ARCH) -specs=$(LIBNX)/switch.specs -Wl,--gc-sections -g \
+            -Wl,--wrap=diagAbortWithResult
+# Order matters: the graphics library leans on the C runtime, not the other way round.
+LIBS     := -L$(LIBNX)/lib -ldeko3d -lnx
 
 # host_main.c is the other build's entry point, and both define main, so sweeping the directory
 # would pick up two of them and fail the link.
