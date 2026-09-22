@@ -12,11 +12,21 @@ extern "C" {
 /// produces a line per case whatever happened.
 void RunSelfcheck(void);
 
+/// The expected answers, checked without a graphics device: where clip space lands, which
+/// pixels a triangle covers, what a blend or a texel address works out to. Runs in both builds,
+/// because a reference that answered differently on the two processors would be blamed on the
+/// graphics unit.
+void RunReference(void);
+
 #ifdef __SWITCH__
 /// Needs a graphics device, so it exists only in the build that runs on the console. The host
 /// makefile names its sources one at a time and this suite is not among them, which is the same
 /// gate that keeps gpu.c out of that build.
 void RunClear(void);
+
+/// Where geometry lands: coverage, the fill rule, the viewport and the scissor. Everything
+/// below it in the order draws, so it runs first among the suites that do.
+void RunRaster(void);
 #endif
 
 #ifdef __cplusplus

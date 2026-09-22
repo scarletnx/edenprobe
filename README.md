@@ -30,7 +30,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Two suites, in the order they run, because the second leans on the first.
+Four suites, in the order they run, because each leans on the ones before it.
 
 - **selfcheck**, seven cases, no hardware involved. That two neighbouring floats measure one unit
   apart, that a zero budget rejects them, that a NaN is never equal to anything including itself.
@@ -45,6 +45,16 @@ Two suites, in the order they run, because the second leans on the first.
   three before it cannot catch a transposed, flipped or shuffled readback and this one can. All
   four are Exact tier: the format is integer and every clear value is a constant, so each channel
   has exactly one right byte.
+- **reference**, eighteen cases, no hardware involved either. The other half of the judge: where
+  clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
+  the centres that sit exactly on the edge they share. It runs in both builds, because a
+  reference that answered differently on the two processors would be blamed on the graphics unit.
+- **raster**, ten cases, on the graphics unit. A triangle or a quad drawn in one flat colour
+  through a vertex and a fragment shader compiled into the binary, with every pixel compared to
+  what the coverage rule says. Exact for pixels at least half a pixel from every edge, position
+  for the band an edge runs through, and exact everywhere for the two cases whose geometry puts
+  32 pixel centres exactly on a shared edge: those are decided by the fill rule, not by sub pixel
+  precision, and an implementation that draws a shared edge twice or not at all says so there.
 
 Nothing is ever put on a screen. The target is offscreen and the program reads it back itself,
 which keeps the compositor, the swapchain and vertical sync out of a test that is about none of

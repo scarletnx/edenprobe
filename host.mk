@@ -6,7 +6,8 @@
 
 HOSTCC   ?= cc
 HOSTOUT  := build-host/gfxprobe-host
-HOSTSRC  := source/report.c source/check.c source/tests/t_selfcheck.c source/host_main.c
+HOSTSRC  := source/report.c source/check.c source/raster.c \
+            source/tests/t_selfcheck.c source/tests/t_reference.c source/host_main.c
 
 # One object per source, so the -MMD below has somewhere to put its dependency files. Without
 # them an edited header rebuilds nothing and the run reports the previous binary's answer.
