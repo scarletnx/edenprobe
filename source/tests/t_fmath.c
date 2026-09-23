@@ -18,8 +18,9 @@
 // The only suite here where two correct machines are allowed to disagree, which is why it runs
 // last. The budget belongs to each case rather than to the suite, because the specification's
 // numbers differ per operation, and each case reports the budget it allowed and the worst
-// distance it saw. The operands are whole numbers over 64 out of the fragment's coordinate, so
-// every pixel is a different input and all of them are exactly representable.
+// distance it saw. The operands come from the fragment's coordinate, as whole numbers over 64, as
+// multiples of a sixteenth or a quarter, or built from their bits, so every pixel is a different
+// input and all of them are exactly representable.
 
 static const char *const SUITE = "fmath";
 
@@ -37,10 +38,16 @@ static const char *const SUITE = "fmath";
 
 #define UNIFORM_SIZE DK_UNIFORM_BUF_ALIGNMENT
 
+// The NaN and the infinity the shader reads out of the uniform buffer, as bits: a quiet NaN with
+// no payload, and positive infinity.
+#define NAN_BITS 0x7FC00000u
+#define INFINITY_BITS 0x7F800000u
+
 typedef struct {
     uint32_t mode;
     float probe;
-    uint32_t padding[2];
+    uint32_t nan_bits;
+    uint32_t infinity_bits;
 } FloatParams;
 
 static GpuVertex Corner(float x, float y) {
@@ -77,6 +84,7 @@ static float PixelValue(const uint8_t *pixels, uint32_t x, uint32_t y) {
 /// The budget is asked for per pixel, not once, because one of them is not a constant: the power
 /// of two's allowance grows with its argument, so a case that took the middle of the sweep would
 /// fail a correct machine at the ends and one that took the ends would wave the middle through.
+/// The rule itself is FMathJudge's, so the reference suite pins the very decision made here.
 static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget budget,
                             Picture *picture, char *detail, size_t detail_size) {
     uint32_t wrong = 0;
@@ -94,27 +102,27 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
     float tightest = 0.0f;
     float loosest = 0.0f;
     double worst_absolute = 0.0;
+    uint32_t other = 0;
 
     for (uint32_t y = 0; y < TARGET_HEIGHT; ++y) {
         for (uint32_t x = 0; x < TARGET_WIDTH; ++x) {
             const float got = PixelValue(pixels, x, y);
             const float want = FMathReference(mode, x, y, UNIFORM_PROBE);
+            const FMathVerdict verdict = FMathJudge(mode, x, y, UNIFORM_PROBE, got);
+            const bool within = verdict.within;
+            const float allowed = verdict.allowed;
+            if (verdict.other) {
+                ++other;
+            }
 
-            bool within;
-            float allowed = 0.0f;
             if (budget.absolute) {
-                within = CheckFloatAbs(got, want, budget.limit);
-                const double difference = (double)got - (double)want;
-                const double magnitude = difference < 0.0 ? -difference : difference;
-                if (magnitude > worst_absolute) {
-                    worst_absolute = magnitude;
+                if ((double)verdict.error > worst_absolute) {
+                    worst_absolute = (double)verdict.error;
                 }
             } else {
-                allowed = FMathAllowedUlps(mode, x, y);
-                const float error = CheckFloatUlpError(got, want);
-                within = error <= allowed;
                 // How much of its own allowance this pixel used, which is the number that means
                 // the same thing across a sweep whose allowance moves.
+                const float error = verdict.error;
                 const float share =
                     allowed > 0.0f ? error / allowed : (error > 0.0f ? 1.0e30f : 0.0f);
                 if (share > worst_share) {
@@ -172,20 +180,34 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
         return true;
     }
 
+    int used = 0;
     if (budget.absolute) {
-        snprintf(detail, detail_size,
+        used = snprintf(detail, detail_size,
                  "%u of %u pixels outside %.9g, first at (%u,%u) is %.9g, expected %.9g; worst "
                  "was %.9g",
                  (unsigned)wrong, (unsigned)PIXEL_COUNT, (double)budget.limit, (unsigned)first_x,
                  (unsigned)first_y, (double)first_got, (double)first_want, worst_absolute);
+    } else if (loosest == 0.0f) {
+        // A budget of nought has no share to speak of: any error at all is all of it.
+        used = snprintf(detail, detail_size,
+                 "%u of %u pixels wrong, first at (%u,%u) is %.9g, expected %.9g, where the "
+                 "budget is nought",
+                 (unsigned)wrong, (unsigned)PIXEL_COUNT, (unsigned)first_x, (unsigned)first_y,
+                 (double)first_got, (double)first_want);
     } else {
-        snprintf(detail, detail_size,
+        used = snprintf(detail, detail_size,
                  "%u of %u pixels outside their allowance, first at (%u,%u) is %.9g, expected "
                  "%.9g, where %g units in the last place were allowed; the worst pixel used "
                  "%.4f of its allowance",
                  (unsigned)wrong, (unsigned)PIXEL_COUNT, (unsigned)first_x, (unsigned)first_y,
                  (double)first_got, (double)first_want, (double)first_allowed,
                  (double)worst_share);
+    }
+    // What a machine that differs from the console usually differs by, named when it is that.
+    if (other > 0u && used > 0 && (size_t)used < detail_size) {
+        snprintf(detail + used, detail_size - (size_t)used,
+                 "; %u of them hold the answer with %s, which the console's binary does not give",
+                 (unsigned)other, FMathOtherName(mode));
     }
     return false;
 }
@@ -195,7 +217,7 @@ static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
     const char *const name = FMathName(mode);
     const FMathBudget budget = FMathBudgetFor(mode);
 
-    // Every case reports the units in the last place tier, including the two whose budget is
+    // Every case reports the units in the last place tier, including the twelve whose budget is
     // nought: a tolerance of nought is still a tolerance, and a float shader never qualifies as
     // exact however tidy the numbers look on one machine. The guard case is the exception, since
     // it computes nothing and only moves a bit pattern through a uniform buffer.
@@ -208,7 +230,7 @@ static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
 
     GpuBeginPass(gpu);
 
-    const FloatParams params = { (uint32_t)mode, UNIFORM_PROBE, { 0u, 0u } };
+    const FloatParams params = { (uint32_t)mode, UNIFORM_PROBE, NAN_BITS, INFINITY_BITS };
     dkCmdBufPushConstants(gpu->cmdbuf, uniform, UNIFORM_SIZE, 0, sizeof(params), &params);
     dkCmdBufBindUniformBuffer(gpu->cmdbuf, DkStage_Fragment, 0, uniform, UNIFORM_SIZE);
 
@@ -231,7 +253,7 @@ static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
 
     Picture *const picture = PictureBegin(TARGET_WIDTH, TARGET_HEIGHT, PICTURE_BITS, pixels);
 
-    char detail[384];
+    char detail[512];
     const bool matched = CheckEveryPixel(pixels, mode, budget, picture, detail, sizeof(detail));
     CHECK_TRUE(SUITE, name, tier, matched, "%s", detail);
 }

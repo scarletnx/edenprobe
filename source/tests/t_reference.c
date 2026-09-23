@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -732,16 +733,19 @@ static void CheckFloatArithmetic(void) {
         if ((double)(a * 8.0f - 4.0f) != (double)a * 8.0 - 4.0) {
             ++inexact;
         }
-        if ((double)(a * 0.25f) != (double)a * 0.25) {
-            ++inexact;
-        }
         if ((double)(a * 6.0f - 3.0f) != (double)a * 6.0 - 3.0) {
             ++inexact;
         }
         // The logarithm's operand has to stay outside the range from a half to two, where the
-        // specification swaps its budget for an absolute one. That is what the quarter is for.
-        if (a * 0.25f >= 0.5f) {
-            ++log_in_range;
+        // specification swaps its budget for an absolute one, and carry a full mantissa, so a
+        // logarithm that drops the operand's low bits is measured.
+        for (uint32_t y = 0; y < 64u; ++y) {
+            const float operand = FMathArgument(FMATH_LOG2, x, y);
+            uint32_t bits;
+            memcpy(&bits, &operand, sizeof(bits));
+            if (operand >= 0.5f || operand < FLT_MIN || (bits & 1u) == 0u) {
+                ++log_in_range;
+            }
         }
         // And the sine and the cosine have to stay inside minus pi to pi, which is the only
         // range the specification bounds them over at all.
@@ -751,10 +755,12 @@ static void CheckFloatArithmetic(void) {
         }
     }
     CHECK_TRUE(SUITE, "every float operand and argument is exactly representable", CHECK_NONE,
-               inexact == 0, "%u of 256 formed values differed between single and double",
+               inexact == 0, "%u of 192 formed values differed between single and double",
                (unsigned)inexact);
     CHECK_TRUE(SUITE, "the logarithm's operand stays where one budget covers it", CHECK_NONE,
-               log_in_range == 0, "%u of 64 operands landed inside the range from a half to two",
+               log_in_range == 0,
+               "%u of 4096 operands landed at a half or above, below the smallest normal, or "
+               "without the mantissa's lowest bit",
                (unsigned)log_in_range);
     CHECK_TRUE(SUITE, "the sine and cosine angles stay inside minus pi to pi", CHECK_NONE,
                trig_out_of_range == 0, "%u of 64 angles left the range",
@@ -775,7 +781,9 @@ static void CheckFloatArithmetic(void) {
             if (FMathReference(FMATH_MULTIPLY, x, y, 0.0f) != a * b) {
                 ++multiply_differs;
             }
-            for (uint32_t mode = 0; mode < FMATH_MODE_COUNT; ++mode) {
+            // The ten that are about arithmetic on ordinary numbers; the edge modes after them
+            // produce infinities and NaNs on purpose and are pinned one value at a time below.
+            for (uint32_t mode = 0; mode < FMATH_FMA_CANCELLATION; ++mode) {
                 const float value = FMathReference((FMathMode)mode, x, y, 1.0f);
                 if (isnan(value) || isinf(value)) {
                     ++not_finite;
@@ -788,11 +796,12 @@ static void CheckFloatArithmetic(void) {
     CHECK_TRUE(SUITE, "the reference's multiplication is the one a float would have done",
                CHECK_NONE, multiply_differs == 0, "%u of 4096 products differed",
                (unsigned)multiply_differs);
-    CHECK_TRUE(SUITE, "no float case produces an infinity or a nan", CHECK_NONE, not_finite == 0,
-               "%u of 40960 reference values were not finite", (unsigned)not_finite);
+    CHECK_TRUE(SUITE, "no ordinary float case produces an infinity or a nan", CHECK_NONE,
+               not_finite == 0, "%u of 40960 reference values were not finite",
+               (unsigned)not_finite);
 
     // And every budget, stated here so that loosening one is a change to this file as well as to
-    // the one that hands it out. All ten, not a sample: the ones that were wrong when this file
+    // the one that hands it out. Every one, not a sample: the ones that were wrong when this file
     // pinned five were among the five it did not pin.
     static const struct {
         FMathMode mode;
@@ -803,9 +812,8 @@ static void CheckFloatArithmetic(void) {
         { FMATH_UNIFORM, false, 0.0f, 0.0f },
         { FMATH_ADD, false, 0.0f, 0.0f },
         { FMATH_MULTIPLY, false, 0.0f, 0.0f },
-        // Three roundings against the fused reference's one, each at most half a unit of a
-        // result that is larger than either operand.
-        { FMATH_MULTIPLY_ADD, false, 1.5f, 0.0f },
+        // The console's FFMA rounds once, as the processor's fused reference does.
+        { FMATH_MULTIPLY_ADD, false, 0.0f, 0.0f },
         // 2.5 from the core table and a half for the reference's own rounding.
         { FMATH_DIVIDE, false, 3.0f, 0.0f },
         // Inherited from one over the inverse square root: 2 and 2.5, and a half again.
@@ -815,7 +823,28 @@ static void CheckFloatArithmetic(void) {
         { FMATH_LOG2, false, 3.5f, 0.0f },
         { FMATH_SINE, true, 1.0f / 2048.0f, 0.0f },
         { FMATH_COSINE, true, 1.0f / 2048.0f, 0.0f },
+        // The edge modes. Nought wherever the answer, once the console's flushing, fusing and
+        // rounding are applied, is exact or a choice between operands.
+        { FMATH_FMA_CANCELLATION, false, 0.0f, 0.0f },
+        { FMATH_MIN_MAX_INFINITY, false, 0.0f, 0.0f },
+        { FMATH_MIN_MAX_NAN, false, 0.0f, 0.0f },
+        { FMATH_MIX_INFINITY_NAN, false, 0.0f, 0.0f },
+        { FMATH_DENORMAL, false, 0.0f, 0.0f },
+        { FMATH_EXP2_EDGES, false, 3.5f, 2.0f },
+        { FMATH_LOG2_EDGES, false, 3.5f, 0.0f },
+        { FMATH_SQRT_TINY, false, 5.0f, 0.0f },
+        // 2 for the inverse square root in the table and a half for the reference.
+        { FMATH_INVERSESQRT_TINY, false, 2.5f, 0.0f },
+        { FMATH_FLOOR, false, 0.0f, 0.0f },
+        { FMATH_FRACT, false, 0.0f, 0.0f },
+        { FMATH_ROUND, false, 0.0f, 0.0f },
+        { FMATH_ROUND_EVEN, false, 0.0f, 0.0f },
     };
+    CHECK_TRUE(SUITE, "every float mode has its budget written down here", CHECK_NONE,
+               sizeof(EXPECTED_BUDGETS) / sizeof(EXPECTED_BUDGETS[0]) == FMATH_MODE_COUNT,
+               "%u budgets pinned for %u modes",
+               (unsigned)(sizeof(EXPECTED_BUDGETS) / sizeof(EXPECTED_BUDGETS[0])),
+               (unsigned)FMATH_MODE_COUNT);
     uint32_t wrong_budgets = 0;
     const char *first_wrong_budget = "";
     double said = 0.0;
@@ -920,10 +949,11 @@ static void CheckFloatArithmetic(void) {
         { FMATH_EXP2, 0, 0x3D8B95C2u },
         { FMATH_EXP2, 23, 0x3F000000u },
         { FMATH_EXP2, 63, 0x41800000u },
-        // the logarithm to base two of 0.00390625, 0.09375 and 0.25
-        { FMATH_LOG2, 0, 0xC1000000u },
-        { FMATH_LOG2, 23, 0xC05A8FF9u },
-        { FMATH_LOG2, 63, 0xC0000000u },
+        // the logarithm to base two of operands from two to the -9 to just under a half, each
+        // with a full mantissa
+        { FMATH_LOG2, 0, 0xC103ABF5u },
+        { FMATH_LOG2, 23, 0xBF889A7Eu },
+        { FMATH_LOG2, 63, 0xBFD1D250u },
         // the sine of -2.90625, -0.75 and 3
         { FMATH_SINE, 0, 0xBE6EC5BEu },
         { FMATH_SINE, 23, 0xBF2E7FE1u },
@@ -1692,6 +1722,220 @@ static void CheckIntegerArithmeticGrown(void) {
                (unsigned)half_patterns);
 }
 
+/// The float edge modes: hand values from exact rationals and 60 digit decimals, and the judge's
+/// rule about noughts, NaNs and the answers the console never gives, pixel by pixel.
+static void CheckFloatEdges(void) {
+    static const struct {
+        FMathMode mode;
+        uint32_t x;
+        uint32_t y;
+        bool nan;
+        uint32_t expected;
+    } BY_HAND[] = {
+        // The original logarithm's operands, now with a full mantissa.
+        { FMATH_LOG2, 41, 17, false, 0xC0FCEAA1u },
+        // The exact product less the rounded one with its low twelve bits cleared.
+        { FMATH_FMA_CANCELLATION, 1, 0, false, 0x362AB000u },
+        { FMATH_FMA_CANCELLATION, 20, 5, false, 0x31600000u },
+        { FMATH_FMA_CANCELLATION, 62, 9, false, 0x32280000u },
+        { FMATH_FMA_CANCELLATION, 9, 6, false, 0x36AAB800u },
+        { FMATH_MIN_MAX_INFINITY, 9, 0, false, 0x3E200000u },
+        { FMATH_MIN_MAX_INFINITY, 9, 1, false, 0x3E200000u },
+        { FMATH_MIN_MAX_INFINITY, 9, 2, false, 0xFF800000u },
+        { FMATH_MIN_MAX_INFINITY, 9, 3, false, 0x7F800000u },
+        { FMATH_MIN_MAX_NAN, 9, 0, false, 0x3E200000u },
+        { FMATH_MIN_MAX_NAN, 9, 1, false, 0x3E200000u },
+        { FMATH_MIN_MAX_NAN, 9, 2, false, 0x3E200000u },
+        { FMATH_MIN_MAX_NAN, 9, 3, false, 0xBE200000u },
+        { FMATH_MIX_INFINITY_NAN, 9, 0, true, 0u },
+        { FMATH_MIX_INFINITY_NAN, 9, 1, false, 0x7F800000u },
+        { FMATH_MIX_INFINITY_NAN, 9, 2, false, 0xFF800000u },
+        { FMATH_MIX_INFINITY_NAN, 9, 3, true, 0u },
+        // Flushed, as the console flushes: nought, nought, the smallest normal, nought.
+        { FMATH_DENORMAL, 5, 0, false, 0x00000000u },
+        { FMATH_DENORMAL, 5, 1, false, 0x00000000u },
+        { FMATH_DENORMAL, 5, 2, false, 0x00800000u },
+        { FMATH_DENORMAL, 5, 3, false, 0x00000000u },
+        // Two to the -128 is a denormal and flushes; to the -126 is the smallest normal, kept.
+        { FMATH_EXP2_EDGES, 0, 0, false, 0x00000000u },
+        { FMATH_EXP2_EDGES, 0, 32, false, 0x00800000u },
+        { FMATH_EXP2_EDGES, 31, 0, false, 0x3D800000u },
+        { FMATH_EXP2_EDGES, 63, 15, false, 0x7DF5257Du },
+        // From just above the smallest normal to nearly the largest float, full mantissas.
+        { FMATH_LOG2_EDGES, 0, 0, false, 0xC2FA757Fu },
+        { FMATH_LOG2_EDGES, 31, 63, false, 0xBF9412B3u },
+        { FMATH_LOG2_EDGES, 32, 0, false, 0x40114B89u },
+        { FMATH_LOG2_EDGES, 63, 63, false, 0x42FCBE73u },
+        // A denormal operand flushes: the root of nought, and its inverse.
+        { FMATH_SQRT_TINY, 0, 0, false, 0x00000000u },
+        { FMATH_SQRT_TINY, 1, 63, false, 0x00000000u },
+        { FMATH_SQRT_TINY, 2, 0, false, 0x20000000u },
+        { FMATH_SQRT_TINY, 63, 63, false, 0x27B44F94u },
+        { FMATH_INVERSESQRT_TINY, 0, 0, false, 0x7F800000u },
+        { FMATH_INVERSESQRT_TINY, 1, 63, false, 0x7F800000u },
+        { FMATH_INVERSESQRT_TINY, 2, 0, false, 0x5EFFFFFFu },
+        { FMATH_INVERSESQRT_TINY, 63, 63, false, 0x5735BB09u },
+        { FMATH_FLOOR, 0, 0, false, 0xC2000000u },
+        { FMATH_FLOOR, 31, 1, false, 0xBF800000u },
+        { FMATH_FLOOR, 32, 63, false, 0x00000000u },
+        { FMATH_FLOOR, 10, 17, false, 0xC1B00000u },
+        { FMATH_FRACT, 31, 1, false, 0x3C800000u },
+        { FMATH_FRACT, 10, 17, false, 0x3E880000u },
+        { FMATH_FRACT, 40, 32, false, 0x3F000000u },
+        // -2.5 to even is -2 under both; 4.5 is 4; -0.25 is minus nought.
+        { FMATH_ROUND, 29, 2, false, 0xC0000000u },
+        { FMATH_ROUND, 35, 2, false, 0x40800000u },
+        { FMATH_ROUND, 30, 1, false, 0xC0000000u },
+        { FMATH_ROUND, 33, 3, false, 0x40000000u },
+        { FMATH_ROUND, 31, 3, false, 0x80000000u },
+        { FMATH_ROUND_EVEN, 29, 2, false, 0xC0000000u },
+        { FMATH_ROUND_EVEN, 35, 2, false, 0x40800000u },
+        { FMATH_ROUND_EVEN, 30, 2, false, 0xC0000000u },
+        { FMATH_ROUND_EVEN, 33, 2, false, 0x40000000u },
+        { FMATH_ROUND_EVEN, 31, 3, false, 0x80000000u },
+    };
+    uint32_t wrong = 0;
+    size_t first = 0;
+    uint32_t first_got = 0;
+    for (size_t i = 0; i < sizeof(BY_HAND) / sizeof(BY_HAND[0]); ++i) {
+        const float value = FMathReference(BY_HAND[i].mode, BY_HAND[i].x, BY_HAND[i].y, 0.0f);
+        uint32_t bits;
+        memcpy(&bits, &value, sizeof(bits));
+        const bool right = BY_HAND[i].nan ? isnan(value) : bits == BY_HAND[i].expected;
+        if (!right) {
+            if (wrong == 0) {
+                first = i;
+                first_got = bits;
+            }
+            ++wrong;
+        }
+    }
+    CHECK_TRUE(SUITE, "the float edge reference matches the values worked out by hand",
+               CHECK_NONE, wrong == 0,
+               "%u of %u disagreed, first \"%s\" at (%u,%u) gave 0x%08x, expected 0x%08x",
+               (unsigned)wrong, (unsigned)(sizeof(BY_HAND) / sizeof(BY_HAND[0])),
+               FMathName(BY_HAND[first].mode), (unsigned)BY_HAND[first].x,
+               (unsigned)BY_HAND[first].y, (unsigned)first_got,
+               (unsigned)BY_HAND[first].expected);
+
+    // The judge, one decision at a time: the console's answer and nothing else, noughts by sign.
+    static const struct {
+        FMathMode mode;
+        uint32_t x;
+        uint32_t y;
+        uint32_t got;
+        bool within;
+        const char *why;
+    } JUDGED[] = {
+        { FMATH_FMA_CANCELLATION, 1, 0, 0x362AB000u, true, "the fused answer" },
+        { FMATH_FMA_CANCELLATION, 1, 0, 0x00000000u, false, "nought for a residual" },
+        { FMATH_FMA_CANCELLATION, 1, 0, 0x362AB001u, false, "a unit off" },
+        { FMATH_MIX_INFINITY_NAN, 9, 0, 0x7FC00000u, true, "a NaN where one is due" },
+        { FMATH_MIX_INFINITY_NAN, 9, 0, 0xFFC12345u, true, "any NaN where one is due" },
+        { FMATH_MIX_INFINITY_NAN, 9, 0, 0x7F800000u, false, "infinity for a NaN" },
+        { FMATH_MIN_MAX_NAN, 9, 0, 0x7FC00000u, false, "a NaN from min" },
+        { FMATH_DENORMAL, 5, 0, 0x00000000u, true, "a flushed product" },
+        { FMATH_DENORMAL, 5, 0, 0x80000000u, false, "minus nought for a flushed positive" },
+        { FMATH_DENORMAL, 5, 0, 0x0000C000u, false, "the denormal kept" },
+        { FMATH_DENORMAL, 5, 2, 0x00800000u, true, "a flushed operand" },
+        { FMATH_EXP2_EDGES, 0, 0, 0x00000000u, true, "a flushed denormal answer" },
+        { FMATH_EXP2_EDGES, 0, 0, 0x80000000u, false, "minus nought for a flushed answer" },
+        { FMATH_EXP2_EDGES, 31, 0, 0x00000000u, false, "nought for a normal answer" },
+        { FMATH_SQRT_TINY, 0, 0, 0x00000000u, true, "the root of a flushed operand" },
+        { FMATH_SQRT_TINY, 2, 0, 0x00000000u, false, "nought for a normal operand" },
+        { FMATH_INVERSESQRT_TINY, 0, 0, 0x7F800000u, true, "infinity for a flushed operand" },
+        { FMATH_ROUND, 29, 2, 0xC0000000u, true, "-2.5 to -2" },
+        { FMATH_ROUND, 29, 2, 0xC0400000u, false, "-2.5 to -3" },
+        { FMATH_ROUND, 31, 3, 0x80000000u, true, "-0.25 to minus nought" },
+        { FMATH_ROUND, 31, 3, 0x00000000u, false, "-0.25 to nought" },
+        { FMATH_ROUND, 30, 1, 0xBF800000u, false, "-1.75 to -1" },
+        { FMATH_FLOOR, 31, 1, 0x00000000u, false, "floor towards nought" },
+        { FMATH_FLOOR, 32, 63, 0x80000000u, false, "floor of 0.98 to minus nought" },
+    };
+    uint32_t misjudged = 0;
+    const char *first_misjudged = "";
+    for (size_t i = 0; i < sizeof(JUDGED) / sizeof(JUDGED[0]); ++i) {
+        float got;
+        memcpy(&got, &JUDGED[i].got, sizeof(got));
+        const FMathVerdict verdict =
+            FMathJudge(JUDGED[i].mode, JUDGED[i].x, JUDGED[i].y, 0.0f, got);
+        if (verdict.within != JUDGED[i].within) {
+            if (misjudged == 0) {
+                first_misjudged = JUDGED[i].why;
+            }
+            ++misjudged;
+        }
+    }
+    CHECK_TRUE(SUITE, "the float judge takes the console's answer, noughts by their sign",
+               CHECK_NONE, misjudged == 0, "%u of %u decisions were wrong, first \"%s\"",
+               (unsigned)misjudged, (unsigned)(sizeof(JUDGED) / sizeof(JUDGED[0])),
+               first_misjudged);
+
+    // And over every pixel: wherever the answer the console's binary does not give differs from
+    // the console's, the judge refuses it and names it, so no machine that fuses nothing, keeps
+    // its denormals or rounds halves away passes one of these cases by being that machine.
+    uint32_t taken = 0;
+    uint32_t differing = 0;
+    for (uint32_t mode = 0; mode < FMATH_MODE_COUNT; ++mode) {
+        for (uint32_t y = 0; y < 64u; ++y) {
+            for (uint32_t x = 0; x < 64u; ++x) {
+                float other;
+                if (!FMathOther((FMathMode)mode, x, y, &other)) {
+                    continue;
+                }
+                const float want = FMathReference((FMathMode)mode, x, y, 0.0f);
+                uint32_t other_bits;
+                uint32_t want_bits;
+                memcpy(&other_bits, &other, sizeof(other_bits));
+                memcpy(&want_bits, &want, sizeof(want_bits));
+                if (other_bits == want_bits) {
+                    continue;
+                }
+                ++differing;
+                const FMathVerdict verdict = FMathJudge((FMathMode)mode, x, y, 0.0f, other);
+                if (verdict.within || !verdict.other) {
+                    ++taken;
+                }
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "the answer the console never gives is refused and named at every pixel",
+               CHECK_NONE, taken == 0 && differing > 0,
+               "%u of %u such pixels were taken or not named", (unsigned)taken,
+               (unsigned)differing);
+
+    // Every operand the edge modes build from bits is what its comment says: the logarithm's
+    // never inside a half to two and never below the smallest normal, the power's exact, and the
+    // roots' denormal in exactly the first two columns.
+    uint32_t misplaced = 0;
+    uint32_t halves = 0;
+    for (uint32_t y = 0; y < 64u; ++y) {
+        for (uint32_t x = 0; x < 64u; ++x) {
+            const float log_operand = FMathArgument(FMATH_LOG2_EDGES, x, y);
+            if ((log_operand >= 0.5f && log_operand < 2.0f) || log_operand < FLT_MIN ||
+                isinf(log_operand)) {
+                ++misplaced;
+            }
+            const float power = FMathArgument(FMATH_EXP2_EDGES, x, y);
+            if ((double)power != (double)x * 4.0 - 128.0 + (double)y / 16.0 || power >= 128.0f) {
+                ++misplaced;
+            }
+            const float root = FMathArgument(FMATH_SQRT_TINY, x, y);
+            if ((root < FLT_MIN) != (x < 2u) || root == 0.0f) {
+                ++misplaced;
+            }
+            const float quarter = FMathArgument(FMATH_ROUND, x, y);
+            if (quarter - floorf(quarter) == 0.5f) {
+                ++halves;
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "the edge operands are where their budgets say", CHECK_NONE,
+               misplaced == 0 && halves == 1024u,
+               "%u operands out of place; %u of 4096 rounding operands on a half, 1024 expected",
+               (unsigned)misplaced, (unsigned)halves);
+}
+
 /// What a format stores: whole pixels worked out by hand, the rules one at a time, and the
 /// properties that make every normalised case exact.
 static void CheckFormats(void) {
@@ -2114,5 +2358,6 @@ void RunReference(void) {
     CheckTextureCoordinates();
     CheckCoherenceRules();
     CheckFloatArithmetic();
+    CheckFloatEdges();
     CheckFormats();
 }
