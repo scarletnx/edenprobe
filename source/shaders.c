@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: MIT
 
 #include "shaders.h"
@@ -6,7 +6,7 @@
 // Written by bin2s from the modules uam produced, and included here and nowhere else, so the
 // table below is the only place a shader's name appears. A shader added to the directory and not
 // to the table leaves its length unused, which this build treats as an error.
-#include "gfxprobe_shaders.h"
+#include "edenprobe_shaders.h"
 
 typedef struct {
     const uint8_t *data;

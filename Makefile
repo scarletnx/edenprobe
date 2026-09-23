@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
+# SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 # SPDX-License-Identifier: MIT
 #
 # Deliberately not the toolchain's template makefile: this builds one flat binary from a handful
@@ -8,7 +8,7 @@ ifeq ($(strip $(DEVKITPRO)),)
 $(error Set DEVKITPRO first, e.g. export DEVKITPRO=$$HOME/devkitpro)
 endif
 
-TARGET   := gfxprobe
+TARGET   := edenprobe
 BUILD    := build
 SOURCES  := source source/tests
 
@@ -20,7 +20,7 @@ TOOLS    := $(DEVKITPRO)/tools/bin
 # What a loader reads out of the .nro's asset section before it will start the program. Without
 # one, at least one emulator refuses the file rather than running it, so the section is not
 # optional even though nothing in this suite looks at what is in it.
-APP_TITLE   := gfxprobe
+APP_TITLE   := edenprobe
 APP_AUTHOR  := reden
 APP_VERSION := 0.1
 APP_ICON    := $(LIBNX)/default_icon.jpg
@@ -48,7 +48,7 @@ SHADER_DIR  := source/shaders
 SHADER_SRC  := $(sort $(wildcard $(SHADER_DIR)/*.glsl))
 SHADER_DKSH := $(patsubst $(SHADER_DIR)/%.glsl,$(BUILD)/shaders/%.dksh,$(SHADER_SRC))
 SHADER_ASM  := $(BUILD)/shaders/blobs.s
-SHADER_HDR  := $(BUILD)/shaders/gfxprobe_shaders.h
+SHADER_HDR  := $(BUILD)/shaders/edenprobe_shaders.h
 SHADER_OBJ  := $(BUILD)/shaders/blobs.o
 
 # host_main.c is the other build's entry point, and both define main, so sweeping the directory
@@ -114,7 +114,26 @@ clean:
 
 # Runs the binary under the emulator and shows what it reported. EMULATOR points at the build
 # being tested, which is the whole point: the same .nro goes to the console unchanged.
-EMULATOR ?= $(HOME)/.claude-worktrees/reden-1870300401/66650747/build-qt/bin/eden-cli
+EMULATOR ?= $(HOME)/WorkDir/accord/bin/eden-cli-e8d142f2b6
+
+# The emulator keeps its settings, its memory card and its caches under the XDG directories, and
+# a frontend saves its settings on the way out. Pointed at a tree inside the build, a run starts
+# from the emulator's own defaults every time, the report lands somewhere this makefile knows,
+# and nothing of the person's own emulator setup is read or rewritten.
+XDG     := $(CURDIR)/$(BUILD)/xdg
+SDMC    := $(XDG)/data/eden/sdmc/$(TARGET)
+
+# Everything the previous run left is removed first, so what is there afterwards is this run's:
+# a report, and only the pictures that report names. The `|| true` is for the filter alone, which
+# finds nothing to print when the emulator prints nothing; whether the run happened is decided by
+# the checks either side of it.
 run: $(TARGET).nro
+	@[ -x "$(EMULATOR)" ] || { echo "make run: no executable emulator at $(EMULATOR)" >&2; exit 1; }
+	@mkdir -p $(XDG)/data $(XDG)/config $(XDG)/cache $(SDMC)
+	@rm -rf $(SDMC)/report.jsonl $(SDMC)/images $(SDMC)/support-check
+	XDG_DATA_HOME=$(XDG)/data XDG_CONFIG_HOME=$(XDG)/config XDG_CACHE_HOME=$(XDG)/cache \
 	DISPLAY=:0 timeout 60 $(EMULATOR) -g $(CURDIR)/$(TARGET).nro 2>&1 \
-	  | sed 's/\x1b\[[0-9;]*m//g' | grep -E "gfxprobe|GFXPROBE|\"type\":" || true
+	  | sed 's/\x1b\[[0-9;]*m//g' | { grep -aE "$(TARGET)|EDENPROBE|\"type\":" || true; }
+	@[ -f $(SDMC)/report.jsonl ] || \
+	  { echo "make run: the emulator left no report at $(SDMC)/report.jsonl" >&2; exit 1; }
+	@echo "report: $(SDMC)/report.jsonl"

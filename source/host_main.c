@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: MIT
 
 #include <stdio.h>
@@ -10,8 +10,8 @@
 // the ones that check this program's own judgement and what it writes around a verdict, so a
 // change to any of them can be proven wrong in a second with no emulator in the loop.
 int main(void) {
-    ReportOpen("gfxprobe-host-report.jsonl");
-    ReportNote("gfxprobe host build");
+    ReportOpen("edenprobe-host-report.jsonl");
+    ReportNote("edenprobe host build");
 
     RunSelfcheck();
     RunSupport();

@@ -34,13 +34,17 @@
 # the -v flag, and the check then fails closed). The test's `--history` mode runs the same
 # check over commits that already exist.
 
-SUBJECT_RE='^gfxprobe: [^ ]'
-SUBJECT_TWICE_RE='^gfxprobe: gfxprobe:'
+# The program was gfxprobe until 23 September 2026 and its commits up to then say so; the old
+# prefix stays accepted so that --history over them passes, and the hint names the new one.
+SUBJECT_RE='^(edenprobe|gfxprobe): [^ ]'
+SUBJECT_TWICE_RE='^(edenprobe|gfxprobe): (edenprobe|gfxprobe):'
 # shellcheck disable=SC2034  # read by test-commit-msg.sh
-SUBJECT_TWICE_EXAMPLE='gfxprobe: gfxprobe: the prefix twice'
-SUBJECT_HINT='gfxprobe: what changed'
+SUBJECT_TWICE_EXAMPLE='gfxprobe: edenprobe: the old prefix and the new'
 # shellcheck disable=SC2034  # read by test-commit-msg.sh
-SUBJECT_EXAMPLE='gfxprobe: a case for the cache a game leans on'
+SUBJECT_HISTORY_EXAMPLE='gfxprobe: a subject from before the rename'
+SUBJECT_HINT='edenprobe: what changed'
+# shellcheck disable=SC2034  # read by test-commit-msg.sh
+SUBJECT_EXAMPLE='edenprobe: a case for the cache a game leans on'
 SUBJECT_MAX=72
 INTENT_MAX=3
 LINE_MAX=90

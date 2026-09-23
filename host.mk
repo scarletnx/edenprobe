@@ -1,11 +1,11 @@
-# SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
+# SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 # SPDX-License-Identifier: MIT
 #
 # Builds the parts that do not touch the console for the machine you are sitting at, so what
 # decides pass and fail can be exercised with no emulator and no device.
 
 HOSTCC   ?= cc
-HOSTOUT  := build-host/gfxprobe-host
+HOSTOUT  := build-host/edenprobe-host
 HOSTSRC  := source/report.c source/check.c source/picture.c source/ui.c \
             source/raster.c source/intref.c source/blendref.c source/texref.c \
             source/fmathref.c source/coherref.c \

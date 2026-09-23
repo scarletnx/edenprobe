@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: MIT
 
 #include <stdio.h>
@@ -37,10 +37,10 @@ static const char *Scratch(void) {
     static char path[FULL_PATH_MAX];
     if (path[0] == '\0') {
 #ifdef __SWITCH__
-        snprintf(path, sizeof(path), "sdmc:/gfxprobe/support-check");
+        snprintf(path, sizeof(path), "sdmc:/edenprobe/support-check");
 #else
         const char *const base = getenv("TMPDIR");
-        snprintf(path, sizeof(path), "%.200s/gfxprobe-support-check",
+        snprintf(path, sizeof(path), "%.200s/edenprobe-support-check",
                  base != NULL && base[0] != '\0' ? base : "/tmp");
 #endif
     }

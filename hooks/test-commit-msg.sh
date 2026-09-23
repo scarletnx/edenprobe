@@ -236,11 +236,24 @@ try refused "no blank line after the subject" "$SUBJECT
 $body1
 
 $SIGNED"
+SUBJECT_HISTORY=$(sed -n "s/^SUBJECT_HISTORY_EXAMPLE='\(.*\)'\$/\1/p" "$hook")
+[ -n "$SUBJECT_HISTORY" ] || { echo "no SUBJECT_HISTORY_EXAMPLE in $hook" >&2; exit 2; }
+try ok      "the prefix from before the rename, for history" "$SUBJECT_HISTORY
+
+$body1
+
+$SIGNED"
 try refused "subject without the prefix" "keep the wakeup a reset used to lose
 
 $body1
 
 $SIGNED"
+if grep -q "subject should read: ${SUBJECT%%:*}: " out; then
+    echo "ok      the refusal names the prefix new subjects take"
+else
+    echo "FAILED  the refusal does not name ${SUBJECT%%:*}:"; sed 's/^/        /' out
+    failures=$((failures + 1))
+fi
 try refused "subject over the limit" "$SUBJECT and then it keeps going on and on past seventy two characters
 
 $body1

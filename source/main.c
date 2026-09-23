@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: MIT
 
 #include <stdio.h>
@@ -14,9 +14,9 @@
 // Where the run leaves its report on the machine it ran on. On an emulator this is a plain
 // directory on the host; on the console it is the memory card. The pictures of the failing
 // cases go under the same directory, so one folder is the whole of what a run leaves behind.
-static const char *const REPORT_DIRECTORY = "sdmc:/gfxprobe";
-static const char *const REPORT_PATH = "sdmc:/gfxprobe/report.jsonl";
-static const char *const MODE_PATH = "sdmc:/gfxprobe/mode";
+static const char *const REPORT_DIRECTORY = "sdmc:/edenprobe";
+static const char *const REPORT_PATH = "sdmc:/edenprobe/report.jsonl";
+static const char *const MODE_PATH = "sdmc:/edenprobe/mode";
 
 int main(int argc, char **argv) {
     (void)argc;
@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
     // Opened first, because reading the mode file and asking the pad both touch services this
     // program otherwise never uses, and a run that dies in either should still leave a report.
     ReportOpen(REPORT_PATH);
-    ReportNote("gfxprobe starting");
+    ReportNote("edenprobe starting");
 
     // What the mode changes is whether the finished pictures are kept in memory and shown once
     // everything is over. It changes no verdict, writes no line, and the two modes leave the
@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
     // A runner watching the log knows the process is finished and what it decided, without
     // parsing the lines above or waiting out a timeout.
     char done[96];
-    snprintf(done, sizeof(done), "GFXPROBE DONE passed=%zu failed=%zu", ReportPassed(),
+    snprintf(done, sizeof(done), "EDENPROBE DONE passed=%zu failed=%zu", ReportPassed(),
              ReportFailed());
     svcOutputDebugString(done, strlen(done));
 
