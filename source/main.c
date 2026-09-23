@@ -67,9 +67,9 @@ int main(int argc, char **argv) {
 
     // A runner watching the log knows the process is finished and what it decided, without
     // parsing the lines above or waiting out a timeout.
-    char done[96];
-    snprintf(done, sizeof(done), "EDENPROBE DONE passed=%zu failed=%zu", ReportPassed(),
-             ReportFailed());
+    char done[128];
+    snprintf(done, sizeof(done), "EDENPROBE DONE passed=%zu failed=%zu skipped=%zu",
+             ReportPassed(), ReportFailed(), ReportSkipped());
     svcOutputDebugString(done, strlen(done));
 
     // Last, and only now: the report is written, counted and closed, so nothing a person does

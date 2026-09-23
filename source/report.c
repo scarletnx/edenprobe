@@ -28,6 +28,7 @@ static FILE *report_file;
 static bool report_open;
 static size_t passed;
 static size_t failed;
+static size_t skipped;
 
 /// Sends one finished line to both channels.
 ///
@@ -75,6 +76,7 @@ static void EscapeInto(char *out, size_t out_size, const char *text) {
 void ReportOpen(const char *path) {
     passed = 0;
     failed = 0;
+    skipped = 0;
     // Set whether or not the file below opens: a run with no memory card still reports through
     // the debug channel, and the guard this flag serves is about a run being under way rather
     // than about a file existing.
@@ -146,6 +148,13 @@ static void AppendPath(char *out, size_t out_size, const char *key, const char *
 size_t ReportBuildCaseLine(char *out, size_t out_size, const char *suite, const char *name,
                            const char *tier, bool passed_, const char *detail,
                            const PicturePaths *paths) {
+    return ReportBuildResultLine(out, out_size, suite, name, tier, passed_ ? "pass" : "fail",
+                                 detail, paths);
+}
+
+size_t ReportBuildResultLine(char *out, size_t out_size, const char *suite, const char *name,
+                             const char *tier, const char *result, const char *detail,
+                             const PicturePaths *paths) {
     char safe_suite[64];
     char safe_name[128];
     char safe_detail[512];
@@ -168,7 +177,7 @@ size_t ReportBuildCaseLine(char *out, size_t out_size, const char *suite, const 
         snprintf(out, room,
                  "{\"type\":\"case\",\"suite\":\"%s\",\"name\":\"%s\",\"tier\":\"%s\","
                  "\"result\":\"%s\",\"detail\":\"%s\"",
-                 safe_suite, safe_name, tier, passed_ ? "pass" : "fail", safe_detail);
+                 safe_suite, safe_name, tier, result, safe_detail);
     if (wrote < 0 || (size_t)wrote >= room) {
         // The caller's buffer cannot hold this case's line at all. An empty object still parses
         // and says nothing; half a line says something and cannot be read.
@@ -209,6 +218,19 @@ void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed
     Emit(line);
 }
 
+void ReportSkip(const char *suite, const char *name, const char *reason) {
+    ++skipped;
+    // Closes whatever picture a case may have opened, so it cannot land on the next one; a skip
+    // compared nothing and is never a failure, so nothing is written for it.
+    PicturePaths paths;
+    PictureFinish(suite, name, TierName(CHECK_NONE), true, reason, &paths);
+
+    char line[REPORT_LINE_MAX];
+    ReportBuildResultLine(line, sizeof(line), suite, name, TierName(CHECK_NONE), "skip", reason,
+                          NULL);
+    Emit(line);
+}
+
 void ReportNote(const char *fmt, ...) {
     // One byte more than the longest note the header promises to carry whole, for the
     // terminator. The two buffers below are sized off this one: the escaping can grow a note,
@@ -230,10 +252,24 @@ void ReportNote(const char *fmt, ...) {
     Emit(line);
 }
 
+size_t ReportBuildSummaryLine(char *out, size_t out_size, size_t passed_, size_t failed_,
+                              size_t skipped_) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    const int wrote = snprintf(out, out_size,
+                               "{\"type\":\"summary\",\"passed\":%zu,\"failed\":%zu,"
+                               "\"skipped\":%zu}",
+                               passed_, failed_, skipped_);
+    if (wrote < 0 || (size_t)wrote >= out_size) {
+        snprintf(out, out_size, "{}");
+    }
+    return strlen(out);
+}
+
 void ReportSummary(void) {
     char line[160];
-    snprintf(line, sizeof(line), "{\"type\":\"summary\",\"passed\":%zu,\"failed\":%zu}", passed,
-             failed);
+    ReportBuildSummaryLine(line, sizeof(line), passed, failed, skipped);
     Emit(line);
 }
 
@@ -243,4 +279,8 @@ size_t ReportPassed(void) {
 
 size_t ReportFailed(void) {
     return failed;
+}
+
+size_t ReportSkipped(void) {
+    return skipped;
 }

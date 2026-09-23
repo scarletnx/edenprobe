@@ -60,6 +60,12 @@ typedef enum {
 void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed,
                 const char *detail);
 
+/// A case that could not ask its question here, with the reason. Counted apart from passes and
+/// failures, because a machine that was never asked has not agreed with anything: a run where
+/// every net case skipped is not a green net run. The line carries the result "skip" and the
+/// none tier, since it compares nothing.
+void ReportSkip(const char *suite, const char *name, const char *reason);
+
 /// The longest line a case can produce: the fields below plus four paths to its pictures.
 #define REPORT_LINE_MAX 2048
 
@@ -75,6 +81,15 @@ size_t ReportBuildCaseLine(char *out, size_t out_size, const char *suite, const 
                            const char *tier, bool passed, const char *detail,
                            const PicturePaths *paths);
 
+/// The same line with the result spelled out, which is how a skip is written.
+size_t ReportBuildResultLine(char *out, size_t out_size, const char *suite, const char *name,
+                             const char *tier, const char *result, const char *detail,
+                             const PicturePaths *paths);
+
+/// The summary line for the given counts, exposed so its shape can be checked on the host.
+size_t ReportBuildSummaryLine(char *out, size_t out_size, size_t passed, size_t failed,
+                              size_t skipped);
+
 
 /// The longest note ReportNote carries whole. Stated here rather than buried in the buffer, so a
 /// caller with a long note can be checked against it before anything is emitted: a note cut
@@ -87,9 +102,10 @@ void ReportNote(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 /// The last line, carrying the counts a runner checks without parsing everything above it.
 void ReportSummary(void);
 
-/// How many cases have passed and failed so far.
+/// How many cases have passed, failed and been skipped so far.
 size_t ReportPassed(void);
 size_t ReportFailed(void);
+size_t ReportSkipped(void);
 
 #ifdef __cplusplus
 }
