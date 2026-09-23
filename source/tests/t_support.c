@@ -617,6 +617,21 @@ static void CheckReportLine(void) {
                    0,
                "%.480s", line);
 
+    // A case that could not ask is a result of its own and a count of its own: a skip read as
+    // a pass would make a run where nothing was asked look green.
+    char skip[REPORT_LINE_MAX];
+    ReportBuildResultLine(skip, sizeof(skip), "acc", "the token", "none", "skip",
+                          "needs an online session", NULL);
+    char summary[160];
+    ReportBuildSummaryLine(summary, sizeof(summary), 3, 1, 2);
+    CHECK_TRUE(SUITE, "a skip is its own result and the summary counts it apart", CHECK_NONE,
+               strcmp(skip, "{\"type\":\"case\",\"suite\":\"acc\",\"name\":\"the token\","
+                            "\"tier\":\"none\",\"result\":\"skip\","
+                            "\"detail\":\"needs an online session\"}") == 0 &&
+                   strcmp(summary, "{\"type\":\"summary\",\"passed\":3,\"failed\":1,"
+                                   "\"skipped\":2}") == 0,
+               "skip %.200s; summary %.100s", skip, summary);
+
     CHECK_TRUE(SUITE, "a run under way says its report is still open", CHECK_NONE,
                ReportIsOpen(),
                "the detailed mode asks this before it presents, and it answered no");
