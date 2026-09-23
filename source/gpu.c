@@ -99,10 +99,9 @@ void GpuSpecDefaults(GpuSpec *spec, uint32_t width, uint32_t height) {
     spec->depth_format = DkImageFormat_None;
 }
 
-/// Lays out one image and gives it memory out of @p block at @p used, which it advances.
-static const char *PlaceImage(GpuContext *gpu, DkImage *image, DkImageLayout *layout,
-                              DkImageFormat format, uint32_t width, uint32_t height,
-                              uint32_t flags, DkMemBlock block, uint32_t *used) {
+/// Lays out one 2D image, @p pitch_or_tile going into the maker's union.
+static void LayOut(GpuContext *gpu, DkImageLayout *layout, DkImageFormat format, uint32_t width,
+                   uint32_t height, uint32_t flags, uint32_t pitch_or_tile) {
     DkImageLayoutMaker maker;
     dkImageLayoutMakerDefaults(&maker, gpu->device);
     maker.type = DkImageType_2D;
@@ -111,7 +110,17 @@ static const char *PlaceImage(GpuContext *gpu, DkImage *image, DkImageLayout *la
     maker.dimensions[0] = width;
     maker.dimensions[1] = height;
     maker.mipLevels = 1;
+    maker.pitchStride = pitch_or_tile;
     dkImageLayoutInitialize(layout, &maker);
+}
+
+/// Lays out one image and gives it memory out of @p block at @p used, which it advances. The
+/// offset it landed at goes to @p placed_at when that is not NULL.
+static const char *PlaceImageAt(GpuContext *gpu, DkImage *image, DkImageLayout *layout,
+                                DkImageFormat format, uint32_t width, uint32_t height,
+                                uint32_t flags, uint32_t pitch_or_tile, DkMemBlock block,
+                                uint32_t *used, uint32_t *placed_at) {
+    LayOut(gpu, layout, format, width, height, flags, pitch_or_tile);
 
     const uint64_t size = dkImageLayoutGetSize(layout);
     const uint32_t alignment = dkImageLayoutGetAlignment(layout);
@@ -125,7 +134,16 @@ static const char *PlaceImage(GpuContext *gpu, DkImage *image, DkImageLayout *la
     }
     dkImageInitialize(image, layout, block, offset);
     *used = offset + (uint32_t)size;
+    if (placed_at != NULL) {
+        *placed_at = offset;
+    }
     return NULL;
+}
+
+static const char *PlaceImage(GpuContext *gpu, DkImage *image, DkImageLayout *layout,
+                              DkImageFormat format, uint32_t width, uint32_t height,
+                              uint32_t flags, DkMemBlock block, uint32_t *used) {
+    return PlaceImageAt(gpu, image, layout, format, width, height, flags, 0, block, used, NULL);
 }
 
 /// Creates one memory block of @p size bytes with @p flags, or returns the sentence to report.
@@ -300,6 +318,21 @@ static const char *BringUp(GpuContext *gpu) {
         }
     }
 
+    // The one image block the processor can reach. Uncached on its side, so a write through the
+    // pointer is in memory when the store retires and dkMemBlockFlushCpuCache is never owed.
+    if (gpu->spec.cpu_image_size != 0u) {
+        problem = MakeBlock(gpu, &gpu->cpu_image_memory, gpu->spec.cpu_image_size,
+                            DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached |
+                                DkMemBlockFlags_Image,
+                            "no memory for the processor-visible textures");
+        if (problem != NULL) {
+            return problem;
+        }
+        if (dkMemBlockGetCpuAddr(gpu->cpu_image_memory) == NULL) {
+            return "the processor-visible texture block is not visible to the processor";
+        }
+    }
+
     return NULL;
 }
 
@@ -379,7 +412,7 @@ void GpuClose(GpuContext *gpu) {
     DkMemBlock *const blocks[] = {
         &gpu->read_memory, &gpu->image_memory, &gpu->depth_memory,
         &gpu->code_memory, &gpu->data_memory,  &gpu->extra_image_memory,
-        &gpu->cmd_memory,
+        &gpu->cpu_image_memory, &gpu->cmd_memory,
     };
     for (size_t i = 0; i < sizeof(blocks) / sizeof(blocks[0]); ++i) {
         if (*blocks[i] != NULL) {
@@ -413,23 +446,18 @@ static void SubmitAndDrain(GpuContext *gpu, const char *during) {
     Drain(gpu, during);
 }
 
-void GpuBeginPass(GpuContext *gpu) {
-    if (gpu == NULL || !gpu->ready) {
-        return;
-    }
-
-    dkCmdBufClear(gpu->cmdbuf);
-
-    // Only the caches that hold copies of memory somebody else wrote. The level two cache is
-    // deliberately left out: it holds the render target the previous pass wrote, and dropping
-    // those lines would lose a result a later case is about to read.
-    dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Full,
-                    DkInvalidateFlags_Image | DkInvalidateFlags_Shader |
-                        DkInvalidateFlags_Descriptors);
-
+/// Binds @p image, or the main target and its depth when NULL, with a viewport and a scissor
+/// over all of it.
+static void BindTarget(GpuContext *gpu, const DkImage *image, uint32_t width, uint32_t height) {
     DkImageView color;
-    dkImageViewDefaults(&color, &gpu->image);
-    if (gpu->spec.depth_format != DkImageFormat_None) {
+    if (image == NULL) {
+        dkImageViewDefaults(&color, &gpu->image);
+        width = gpu->width;
+        height = gpu->height;
+    } else {
+        dkImageViewDefaults(&color, image);
+    }
+    if (image == NULL && gpu->spec.depth_format != DkImageFormat_None) {
         DkImageView depth;
         dkImageViewDefaults(&depth, &gpu->depth_image);
         dkCmdBufBindRenderTarget(gpu->cmdbuf, &color, &depth);
@@ -440,11 +468,14 @@ void GpuBeginPass(GpuContext *gpu) {
     // Everything below would otherwise be whatever the queue was left holding, and an inherited
     // scissor or blend would turn a correct machine into a failure nobody could attribute. A
     // case that wants one of these changed says so after this call and before the submit.
-    const DkViewport viewport = { 0.0f, 0.0f, (float)gpu->width, (float)gpu->height, 0.0f, 1.0f };
+    const DkViewport viewport = { 0.0f, 0.0f, (float)width, (float)height, 0.0f, 1.0f };
     dkCmdBufSetViewports(gpu->cmdbuf, 0, &viewport, 1);
-    const DkScissor scissor = { 0, 0, gpu->width, gpu->height };
+    const DkScissor scissor = { 0, 0, width, height };
     dkCmdBufSetScissors(gpu->cmdbuf, 0, &scissor, 1);
+}
 
+/// The state every pass starts from, after its target.
+static void BindSharedState(GpuContext *gpu) {
     DkRasterizerState rasterizer;
     dkRasterizerStateDefaults(&rasterizer);
     // No culling. Which way round a triangle is wound decides nothing in this suite, and leaving
@@ -485,6 +516,40 @@ void GpuBeginPass(GpuContext *gpu) {
     depth_state.stencilTestEnable = 0;
     dkCmdBufBindDepthStencilState(gpu->cmdbuf, &depth_state);
     dkCmdBufSetDepthBounds(gpu->cmdbuf, false, 0.0f, 1.0f);
+}
+
+void GpuBeginPass(GpuContext *gpu) {
+    if (gpu == NULL || !gpu->ready) {
+        return;
+    }
+
+    dkCmdBufClear(gpu->cmdbuf);
+
+    // Only the caches that hold copies of memory somebody else wrote. The level two cache is
+    // deliberately left out: it holds the render target the previous pass wrote, and dropping
+    // those lines would lose a result a later case is about to read.
+    dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Full,
+                    DkInvalidateFlags_Image | DkInvalidateFlags_Shader |
+                        DkInvalidateFlags_Descriptors);
+
+    BindTarget(gpu, NULL, 0, 0);
+    BindSharedState(gpu);
+}
+
+void GpuBeginList(GpuContext *gpu) {
+    if (gpu == NULL || !gpu->ready) {
+        return;
+    }
+    dkCmdBufClear(gpu->cmdbuf);
+    BindTarget(gpu, NULL, 0, 0);
+    BindSharedState(gpu);
+}
+
+void GpuSetTarget(GpuContext *gpu, const DkImage *image, uint32_t width, uint32_t height) {
+    if (gpu == NULL || !gpu->ready) {
+        return;
+    }
+    BindTarget(gpu, image, width, height);
 }
 
 void GpuSubmit(GpuContext *gpu) {
@@ -561,7 +626,8 @@ void GpuClearDepth(GpuContext *gpu, float depth) {
 }
 
 /// Copies @p view into the readback block and hands back the processor's view of it.
-static const uint8_t *CopyToReadback(GpuContext *gpu, const DkImageView *view) {
+static const uint8_t *CopyToReadback(GpuContext *gpu, const DkImageView *view, uint32_t width,
+                                     uint32_t height) {
     dkCmdBufClear(gpu->cmdbuf);
 
     // The draw ran on the graphics engine and this copy runs on the copy engine. It orders, it
@@ -569,7 +635,7 @@ static const uint8_t *CopyToReadback(GpuContext *gpu, const DkImageView *view) {
     // being collected.
     dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Full, 0);
 
-    const DkImageRect rect = { 0, 0, 0, gpu->width, gpu->height, 1 };
+    const DkImageRect rect = { 0, 0, 0, width, height, 1 };
 
     // Zeroes mean tightly packed, so the pixels land in row order with nothing between them,
     // which is what this function promises to return. No DkBlitFlag_FlipX: that flag alone
@@ -591,7 +657,21 @@ const uint8_t *GpuReadBack(GpuContext *gpu) {
     }
     DkImageView source;
     dkImageViewDefaults(&source, &gpu->image);
-    return CopyToReadback(gpu, &source);
+    return CopyToReadback(gpu, &source, gpu->width, gpu->height);
+}
+
+const uint8_t *GpuReadBackImage(GpuContext *gpu, const DkImage *image, uint32_t width,
+                                uint32_t height) {
+    if (gpu == NULL || !gpu->ready || image == NULL) {
+        return NULL;
+    }
+    if (width == 0u || height == 0u || width > gpu->width || height > gpu->height) {
+        Complain(gpu, "an image larger than the readback block was read back");
+        return NULL;
+    }
+    DkImageView source;
+    dkImageViewDefaults(&source, image);
+    return CopyToReadback(gpu, &source, width, height);
 }
 
 const uint8_t *GpuReadBackDepth(GpuContext *gpu) {
@@ -604,7 +684,7 @@ const uint8_t *GpuReadBackDepth(GpuContext *gpu) {
     // depth is the whole of it. Said here because the field exists and its other value would
     // quietly hand back stencil.
     source.dsSource = DkDsSource_Depth;
-    return CopyToReadback(gpu, &source);
+    return CopyToReadback(gpu, &source, gpu->width, gpu->height);
 }
 
 // The header every module the shader compiler emits begins with. Written out rather than
@@ -695,26 +775,65 @@ void *GpuAllocData(GpuContext *gpu, uint32_t size, uint32_t alignment, DkGpuAddr
 
 bool GpuCreateTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImageFormat format,
                       uint32_t width, uint32_t height) {
-    if (gpu == NULL || !gpu->ready || gpu->extra_image_memory == NULL) {
+    return GpuCreateImage(gpu, out, layout, format, width, height, 0, 0, NULL);
+}
+
+bool GpuCreateImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImageFormat format,
+                    uint32_t width, uint32_t height, uint32_t flags, uint32_t pitch_or_tile,
+                    uint8_t **cpu_bytes) {
+    if (gpu == NULL || !gpu->ready) {
         return false;
     }
-    const char *problem = PlaceImage(gpu, out, layout, format, width, height, 0,
-                                     gpu->extra_image_memory, &gpu->extra_image_used);
+    DkMemBlock block = cpu_bytes != NULL ? gpu->cpu_image_memory : gpu->extra_image_memory;
+    uint32_t *used = cpu_bytes != NULL ? &gpu->cpu_image_used : &gpu->extra_image_used;
+    if (block == NULL) {
+        return Complain(gpu, cpu_bytes != NULL
+                                 ? "an image the processor writes, and the spec asked for no "
+                                   "processor-visible image memory"
+                                 : "an image, and the spec asked for no image memory");
+    }
+    uint32_t offset = 0;
+    const char *problem = PlaceImageAt(gpu, out, layout, format, width, height, flags,
+                                       pitch_or_tile, block, used, &offset);
     if (problem != NULL) {
         return Complain(gpu, problem);
+    }
+    if (cpu_bytes != NULL) {
+        *cpu_bytes = (uint8_t *)dkMemBlockGetCpuAddr(block) + offset;
     }
     return true;
 }
 
-bool GpuUploadTexture(GpuContext *gpu, const DkImage *image, DkImageFormat format, uint32_t width,
-                      uint32_t height, const void *pixels) {
-    if (gpu == NULL || !gpu->ready) {
+bool GpuCreateAliasedImages(GpuContext *gpu, DkImage *first, DkImageFormat first_format,
+                            DkImage *second, DkImageFormat second_format, uint32_t width,
+                            uint32_t height, uint32_t flags) {
+    if (gpu == NULL || !gpu->ready || gpu->extra_image_memory == NULL) {
         return false;
     }
-    if (!FormatIsFourBytes(format)) {
-        return Complain(gpu, "a texture was uploaded in a format this file cannot size");
+    DkImageLayout first_layout;
+    DkImageLayout second_layout;
+    uint32_t offset = 0;
+    const char *problem =
+        PlaceImageAt(gpu, first, &first_layout, first_format, width, height, flags, 0,
+                     gpu->extra_image_memory, &gpu->extra_image_used, &offset);
+    if (problem != NULL) {
+        return Complain(gpu, problem);
     }
+    LayOut(gpu, &second_layout, second_format, width, height, flags, 0);
+    if (dkImageLayoutGetSize(&second_layout) != dkImageLayoutGetSize(&first_layout) ||
+        dkImageLayoutGetAlignment(&second_layout) != dkImageLayoutGetAlignment(&first_layout)) {
+        return Complain(gpu, "the two formats lay the same image out differently, so one is not "
+                             "a view of the other");
+    }
+    dkImageInitialize(second, &second_layout, gpu->extra_image_memory, offset);
+    return true;
+}
 
+bool GpuStagePixels(GpuContext *gpu, uint32_t width, uint32_t height, const void *pixels,
+                    DkCopyBuf *out) {
+    if (gpu == NULL || !gpu->ready || out == NULL) {
+        return false;
+    }
     // The copy engine wants the linear side's pitch aligned, and a four texel row is half of
     // that alignment, so the staging rows are padded out and the pitch is stated rather than
     // left at the packed default. That field is a byte count and not a pixel count, which the
@@ -732,6 +851,27 @@ bool GpuUploadTexture(GpuContext *gpu, const DkImage *image, DkImageFormat forma
         memcpy(staging + (size_t)y * pitch, (const uint8_t *)pixels + (size_t)y * row_bytes,
                row_bytes);
     }
+    // The stride between depth slices, a byte count like the one before it. Left at zero the
+    // library fills it in, which is what this copy wants; a row count there would be wrong and
+    // would look right.
+    out->addr = staging_addr;
+    out->rowLength = pitch;
+    out->imageHeight = 0;
+    return true;
+}
+
+bool GpuUploadTexture(GpuContext *gpu, const DkImage *image, DkImageFormat format, uint32_t width,
+                      uint32_t height, const void *pixels) {
+    if (gpu == NULL || !gpu->ready) {
+        return false;
+    }
+    if (!FormatIsFourBytes(format)) {
+        return Complain(gpu, "a texture was uploaded in a format this file cannot size");
+    }
+    DkCopyBuf source;
+    if (!GpuStagePixels(gpu, width, height, pixels, &source)) {
+        return false;
+    }
 
     dkCmdBufClear(gpu->cmdbuf);
     dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Full, 0);
@@ -739,10 +879,6 @@ bool GpuUploadTexture(GpuContext *gpu, const DkImage *image, DkImageFormat forma
     DkImageView destination;
     dkImageViewDefaults(&destination, image);
     const DkImageRect rect = { 0, 0, 0, width, height, 1 };
-    // The stride between depth slices, a byte count like the one before it. Left at zero the
-    // library fills it in, which is what this copy wants; a row count there would be wrong and
-    // would look right.
-    const DkCopyBuf source = { staging_addr, pitch, 0 };
     dkCmdBufCopyBufferToImage(gpu->cmdbuf, &source, &destination, &rect, 0);
 
     SubmitAndDrain(gpu, "texture upload");

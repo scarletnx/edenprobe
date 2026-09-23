@@ -32,6 +32,9 @@ typedef struct {
     uint32_t data_size;
     /// Bytes of image memory beyond the render targets, for textures.
     uint32_t image_size;
+    /// Bytes of image memory the processor can also write, for the cases that change a texture
+    /// behind the graphics unit's back. Uncached to the processor, so no flush is ever owed.
+    uint32_t cpu_image_size;
 } GpuSpec;
 
 /// Everything a test needs to draw into an offscreen target and read the result back.
@@ -58,6 +61,8 @@ typedef struct {
     uint32_t data_used;
     DkMemBlock extra_image_memory; ///< textures, bump allocated
     uint32_t extra_image_used;
+    DkMemBlock cpu_image_memory; ///< textures the processor also writes, bump allocated
+    uint32_t cpu_image_used;
 
     GpuSpec spec;
     uint32_t width;
@@ -100,6 +105,15 @@ void GpuClose(GpuContext *gpu);
 /// wants one of those changed says so after this call and before GpuSubmit.
 void GpuBeginPass(GpuContext *gpu);
 
+/// GpuBeginPass without its barrier: the same state, bound to the main target, and nothing that
+/// drops a cache. For the cases whose subject is the barrier, which they then issue themselves.
+void GpuBeginList(GpuContext *gpu);
+
+/// Points the open list at @p image, @p width by @p height, with the viewport and the scissor
+/// covering all of it; NULL goes back to the main target. Issues no barrier: moving between
+/// targets is ordered only by what the caller records between them.
+void GpuSetTarget(GpuContext *gpu, const DkImage *image, uint32_t width, uint32_t height);
+
 /// Finishes the list, submits it and waits for the queue to drain.
 void GpuSubmit(GpuContext *gpu);
 
@@ -130,6 +144,10 @@ const uint8_t *GpuReadBack(GpuContext *gpu);
 /// The same for the depth target, four bytes per pixel. NULL when there is no depth target.
 const uint8_t *GpuReadBackDepth(GpuContext *gpu);
 
+/// The same for any four byte image of @p width by @p height, no larger than the main target.
+const uint8_t *GpuReadBackImage(GpuContext *gpu, const DkImage *image, uint32_t width,
+                                uint32_t height);
+
 /// Copies a compiled shader module into code memory and initialises @p out from it.
 ///
 /// @p dksh is the whole module as the compiler emitted it, header included. Returns false and
@@ -149,6 +167,29 @@ void *GpuAllocData(GpuContext *gpu, uint32_t size, uint32_t alignment, DkGpuAddr
 /// Carves image memory for a texture and initialises @p out over it.
 bool GpuCreateTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImageFormat format,
                       uint32_t width, uint32_t height);
+
+/// Carves image memory for a 2D image with the layout @p flags ask for and initialises @p out.
+///
+/// @p pitch_or_tile is the layout maker's union: the row pitch in bytes for a pitch linear
+/// image, the tile size for DkImageFlags_CustomTileSize, zero otherwise. With @p cpu_bytes the
+/// image lives in the processor-visible image block and its first byte is stored there;
+/// without, in the ordinary one.
+bool GpuCreateImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImageFormat format,
+                    uint32_t width, uint32_t height, uint32_t flags, uint32_t pitch_or_tile,
+                    uint8_t **cpu_bytes);
+
+/// Two images over the same bytes, one per format, laid out with the same @p flags.
+///
+/// False with a sentence in `failure` when the two layouts differ in size or alignment, since
+/// then the second is not a view of the first and whatever it reads proves nothing.
+bool GpuCreateAliasedImages(GpuContext *gpu, DkImage *first, DkImageFormat first_format,
+                            DkImage *second, DkImageFormat second_format, uint32_t width,
+                            uint32_t height, uint32_t flags);
+
+/// Writes @p pixels, tightly packed, into scratch with the pitch the copy engine wants, and
+/// describes them in @p out for a copy the caller records. False with a sentence when full.
+bool GpuStagePixels(GpuContext *gpu, uint32_t width, uint32_t height, const void *pixels,
+                    DkCopyBuf *out);
 
 /// Uploads @p pixels, tightly packed, into the whole of @p image.
 ///
