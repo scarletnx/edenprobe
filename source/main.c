@@ -50,6 +50,7 @@ int main(int argc, char **argv) {
     RunBlend();
     RunDepth();
     RunTexture();
+    RunCoherence();
     RunFmath();
     ReportSummary();
 

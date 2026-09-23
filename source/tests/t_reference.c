@@ -964,6 +964,207 @@ static int CompareWords(const void *a, const void *b) {
     return (x > y) - (x < y);
 }
 
+static CohImage model_target;
+static CohImage model_source;
+static CohImage model_copy;
+
+/// The image model the coherence suite builds every expectation from: a rectangle filled, a
+/// rectangle moved, the cell grid painted, a region sampled. Hand worked texels at the edges of
+/// each rectangle, everything outside untouched, and a refusal for anything not wholly inside.
+static void CheckCoherenceModel(void) {
+    // A 5 by 3 rectangle from (2,7) of a pattern moved to (40,50) of a sentinel image.
+    CohImageInit(&model_source, 32, 32);
+    CohFillPattern(&model_source, 9);
+    CohImageInit(&model_target, 64, 64);
+    CohFill(&model_target, COH_SENTINEL);
+    const bool moved =
+        CohMoveRect(&model_target, 40, 50, &model_source, 2, 7, 5, 3, COH_MOVE_BYTES);
+    uint32_t misplaced = 0;
+    for (uint32_t y = 0; y < 64u; ++y) {
+        for (uint32_t x = 0; x < 64u; ++x) {
+            const bool inside = x >= 40u && x < 45u && y >= 50u && y < 53u;
+            uint8_t want[4];
+            if (inside) {
+                CohPattern(9, x - 40u + 2u, y - 50u + 7u, want);
+            } else {
+                memcpy(want, COH_SENTINEL, 4);
+            }
+            misplaced += memcmp(CohTexelAt(&model_target, x, y), want, 4) != 0 ? 1u : 0u;
+        }
+    }
+    // Two corners by hand: (40,50) holds source (2,7), (44,52) holds source (6,9).
+    uint8_t corner_first[4];
+    uint8_t corner_last[4];
+    CohPattern(9, 2, 7, corner_first);
+    CohPattern(9, 6, 9, corner_last);
+    const bool corners = memcmp(CohTexelAt(&model_target, 40, 50), corner_first, 4) == 0 &&
+                         memcmp(CohTexelAt(&model_target, 44, 52), corner_last, 4) == 0 &&
+                         memcmp(CohTexelAt(&model_target, 45, 52), COH_SENTINEL, 4) == 0 &&
+                         memcmp(CohTexelAt(&model_target, 44, 53), COH_SENTINEL, 4) == 0;
+    CHECK_TRUE(SUITE, "a moved rectangle lands at its offset and nothing else changes",
+               CHECK_NONE, moved && misplaced == 0 && corners,
+               "move %s, %u texels wrong, corners %s", moved ? "accepted" : "refused",
+               (unsigned)misplaced, corners ? "right" : "wrong");
+
+    // A move within one image reads the source row before writing it.
+    CohImageInit(&model_copy, 8, 1);
+    for (uint32_t x = 0; x < 8u; ++x) {
+        const uint8_t texel[4] = { (uint8_t)x, 0, 0, 1 };
+        memcpy(CohTexelAt(&model_copy, x, 0), texel, 4);
+    }
+    const bool overlapped = CohMoveRect(&model_copy, 2, 0, &model_copy, 0, 0, 6, 1,
+                                        COH_MOVE_BYTES);
+    static const uint8_t SHIFTED[8] = { 0, 1, 0, 1, 2, 3, 4, 5 };
+    uint32_t shifted_wrong = 0;
+    for (uint32_t x = 0; x < 8u; ++x) {
+        shifted_wrong += CohTexelAt(&model_copy, x, 0)[0] != SHIFTED[x] ? 1u : 0u;
+    }
+    CHECK_TRUE(SUITE, "a rectangle moved over itself reads each source texel before it goes",
+               CHECK_NONE, overlapped && shifted_wrong == 0, "move %s, %u of 8 texels wrong",
+               overlapped ? "accepted" : "refused", (unsigned)shifted_wrong);
+
+    // And down its columns: rows 0 and 1 of a 1 by 3 image holding 10, 11, 12 moved down one
+    // row give 10, 10, 11, where walking top down would give 10, 10, 10. Up one row gives 11,
+    // 12, 12.
+    static const uint8_t DOWN[3] = { 10, 10, 11 };
+    static const uint8_t UP[3] = { 11, 12, 12 };
+    uint32_t vertical_wrong = 0;
+    bool vertical_accepted = true;
+    for (int direction = 0; direction < 2; ++direction) {
+        CohImageInit(&model_copy, 1, 3);
+        for (uint32_t y = 0; y < 3u; ++y) {
+            const uint8_t texel[4] = { (uint8_t)(10u + y), 0, 0, 1 };
+            memcpy(CohTexelAt(&model_copy, 0, y), texel, 4);
+        }
+        vertical_accepted =
+            vertical_accepted && (direction == 0 ? CohMoveRect(&model_copy, 0, 1, &model_copy, 0,
+                                                               0, 1, 2, COH_MOVE_BYTES)
+                                                 : CohMoveRect(&model_copy, 0, 0, &model_copy, 0,
+                                                               1, 1, 2, COH_MOVE_BYTES));
+        const uint8_t *const want = direction == 0 ? DOWN : UP;
+        for (uint32_t y = 0; y < 3u; ++y) {
+            vertical_wrong += CohTexelAt(&model_copy, 0, y)[0] != want[y] ? 1u : 0u;
+        }
+    }
+    CHECK_TRUE(SUITE, "a rectangle moved down or up over itself keeps every source row",
+               CHECK_NONE, vertical_accepted && vertical_wrong == 0,
+               "moves %s, %u of 6 texels wrong", vertical_accepted ? "accepted" : "refused",
+               (unsigned)vertical_wrong);
+
+    const bool aliased =
+        CohMoveRect(&model_target, 0, 0, &model_source, 31, 31, 1, 1, COH_MOVE_ALIASED);
+    uint8_t want_aliased[4];
+    CohAliasedTexel(CohTexelAt(&model_source, 31, 31), want_aliased);
+    CHECK_TRUE(SUITE, "an aliased move writes what the alias shader writes", CHECK_NONE,
+               aliased && memcmp(CohTexelAt(&model_target, 0, 0), want_aliased, 4) == 0,
+               "move %s", aliased ? "accepted but wrote the wrong bytes" : "refused");
+
+    // Cells 5 and 10 of a 32 by 32 image are the 8 by 8 squares at (8,8) and (16,16).
+    CohImageInit(&model_copy, 32, 32);
+    CohFill(&model_copy, COH_SENTINEL);
+    const bool painted = CohPaintCells(&model_copy, 4, (1u << 5) | (1u << 10));
+    uint32_t cells_wrong = 0;
+    for (uint32_t y = 0; y < 32u; ++y) {
+        for (uint32_t x = 0; x < 32u; ++x) {
+            const uint32_t cell = (y / 8u) * 4u + x / 8u;
+            uint8_t want[4];
+            if (cell == 5u || cell == 10u) {
+                CohPattern(4, x, y, want);
+            } else {
+                memcpy(want, COH_SENTINEL, 4);
+            }
+            cells_wrong += memcmp(CohTexelAt(&model_copy, x, y), want, 4) != 0 ? 1u : 0u;
+        }
+    }
+    CohImageInit(&model_target, 30, 32);
+    const bool uneven_refused = !CohPaintCells(&model_target, 4, 0xFFFFu);
+    CHECK_TRUE(SUITE, "painting cells covers exactly the cells in the mask", CHECK_NONE,
+               painted && cells_wrong == 0 && uneven_refused,
+               "paint %s, %u texels wrong, a width that does not divide by four %s",
+               painted ? "accepted" : "refused", (unsigned)cells_wrong,
+               uneven_refused ? "refused" : "accepted");
+
+    // One texel per pixel: sampling a region is moving the whole texture to its corner.
+    CohImageInit(&model_target, 64, 64);
+    CohFill(&model_target, COH_SENTINEL);
+    model_copy = model_target;
+    const CohRect region = { 32, 16, 32, 32 };
+    const bool sampled = CohSampleRegion(&model_target, &region, &model_source, COH_MOVE_BYTES);
+    CohMoveRect(&model_copy, 32, 16, &model_source, 0, 0, 32, 32, COH_MOVE_BYTES);
+    const CohRect overhanging = { 40, 40, 32, 32 };
+    const bool overhang_refused =
+        !CohSampleRegion(&model_target, &overhanging, &model_source, COH_MOVE_BYTES);
+    CHECK_TRUE(SUITE, "sampling a region one texel per pixel moves the texture to its corner",
+               CHECK_NONE,
+               sampled && overhang_refused &&
+                   memcmp(model_target.texels, model_copy.texels, sizeof(model_copy.texels)) ==
+                       0,
+               "sample %s, the overhanging region %s, and the two images %s",
+               sampled ? "accepted" : "refused", overhang_refused ? "refused" : "accepted",
+               memcmp(model_target.texels, model_copy.texels, sizeof(model_copy.texels)) == 0
+                   ? "agree"
+                   : "differ");
+
+    // Four quadrants of one base colour with green set per quadrant, and the images one, two
+    // and three draws behind: corners worked by hand at every lag, the far corner of each
+    // quadrant included. A quadrant with no draw that far back keeps the first green.
+    static const uint8_t BASE[4] = { 0x40, 0x00, 0xA0, 0xFF };
+    static const uint8_t GREENS[4] = { 0x11, 0x55, 0x99, 0xDD };
+    static const struct {
+        uint32_t x;
+        uint32_t y;
+        uint8_t green[4]; ///< by lag
+    } QUADRANT_CORNERS[] = {
+        { 0, 0, { 0x11, 0x11, 0x11, 0x11 } },   { 31, 31, { 0x11, 0x11, 0x11, 0x11 } },
+        { 32, 0, { 0x55, 0x11, 0x11, 0x11 } },  { 63, 31, { 0x55, 0x11, 0x11, 0x11 } },
+        { 0, 32, { 0x99, 0x55, 0x11, 0x11 } },  { 31, 63, { 0x99, 0x55, 0x11, 0x11 } },
+        { 32, 32, { 0xDD, 0x99, 0x55, 0x11 } }, { 63, 63, { 0xDD, 0x99, 0x55, 0x11 } },
+    };
+    bool laid = true;
+    uint32_t quadrant_wrong = 0;
+    for (uint32_t lag = 0; lag < 4u; ++lag) {
+        CohImageInit(&model_target, 64, 64);
+        laid = laid && CohQuadrantColours(&model_target, BASE, 1, GREENS, lag);
+        for (size_t i = 0; i < sizeof(QUADRANT_CORNERS) / sizeof(QUADRANT_CORNERS[0]); ++i) {
+            const uint8_t *const texel =
+                CohTexelAt(&model_target, QUADRANT_CORNERS[i].x, QUADRANT_CORNERS[i].y);
+            if (texel[0] != 0x40 || texel[1] != QUADRANT_CORNERS[i].green[lag] ||
+                texel[2] != 0xA0 || texel[3] != 0xFF) {
+                ++quadrant_wrong;
+            }
+        }
+    }
+    CohImageInit(&model_source, 32, 32);
+    const bool quadrant_refused = !CohQuadrantColours(&model_source, BASE, 1, GREENS, 0) &&
+                                  !CohQuadrantColours(&model_target, BASE, 4, GREENS, 0);
+    CohFillPattern(&model_source, 9);
+    CHECK_TRUE(SUITE, "four quadrants take their own green, and each lag the green that far back",
+               CHECK_NONE, laid && quadrant_wrong == 0 && quadrant_refused,
+               "laid %s, %u of 32 hand worked corners wrong, a 32 by 32 image or a fifth "
+               "channel %s",
+               laid ? "out" : "refused", (unsigned)quadrant_wrong,
+               quadrant_refused ? "refused" : "accepted");
+
+    // One texel past the edge on either side, a size large enough to wrap an addition, and a
+    // fill hanging off the bottom: every one refused and nothing written.
+    CohFill(&model_target, COH_SENTINEL);
+    const bool refused =
+        !CohMoveRect(&model_target, 60, 0, &model_source, 0, 0, 5, 1, COH_MOVE_BYTES) &&
+        !CohMoveRect(&model_target, 0, 0, &model_source, 28, 0, 5, 1, COH_MOVE_BYTES) &&
+        !CohMoveRect(&model_target, 8, 0, &model_source, 0, 0, 0xFFFFFFF8u, 1,
+                     COH_MOVE_BYTES) &&
+        !CohMoveRect(&model_target, 0, 0, &model_source, 0, 0, 0, 1, COH_MOVE_BYTES) &&
+        !CohFillRect(&model_target, 0, 62, 1, 3, COH_SENTINEL) &&
+        !CohImageInit(&model_copy, 65, 1);
+    uint32_t touched = 0;
+    for (uint32_t i = 0; i < 64u * 64u; ++i) {
+        touched += memcmp(model_target.texels[i], COH_SENTINEL, 4) != 0 ? 1u : 0u;
+    }
+    CHECK_TRUE(SUITE, "a rectangle not wholly inside is refused and changes nothing",
+               CHECK_NONE, refused && touched == 0, "%s, %u texels changed",
+               refused ? "all refused" : "one was accepted", (unsigned)touched);
+}
+
 /// The coherence suite's rules: the byte order two formats agree on, where the block linear
 /// layout puts a byte, which texel a region's pixel samples, and that its patterns can be told
 /// apart. Every value by hand, then the sweeps the suite leans on.
@@ -973,17 +1174,19 @@ static void CheckCoherenceRules(void) {
         uint32_t word;
         uint8_t expected[4];
     } ALIAS[] = {
-        { { 0x01, 0x02, 0x03, 0x04 }, 0x04030201u, { 0x02, 0x03, 0x04, 0x05 } },
-        // The carry out of red lands in green, and out of green in blue.
-        { { 0xFF, 0xFF, 0x00, 0x00 }, 0x0000FFFFu, { 0x00, 0x01, 0x02, 0x01 } },
-        // All ones wraps, and the carry out of alpha is lost.
-        { { 0xFF, 0xFF, 0xFF, 0xFF }, 0xFFFFFFFFu, { 0x00, 0x01, 0x01, 0x01 } },
-        { { 0x80, 0x00, 0x00, 0xFE }, 0xFE000080u, { 0x81, 0x01, 0x01, 0xFF } },
+        // 0x04030201 rotated right by four is 0x10403020.
+        { { 0x01, 0x02, 0x03, 0x04 }, 0x04030201u, { 0x20, 0x30, 0x40, 0x10 } },
+        // 0x0000FFFF becomes 0xF0000FFF: the low nibble of red ends up at the top of alpha.
+        { { 0xFF, 0xFF, 0x00, 0x00 }, 0x0000FFFFu, { 0xFF, 0x0F, 0x00, 0xF0 } },
+        // 0x12EFCDAB becomes 0xB12EFCDA.
+        { { 0xAB, 0xCD, 0xEF, 0x12 }, 0x12EFCDABu, { 0xDA, 0xFC, 0x2E, 0xB1 } },
+        // 0xFE000080 becomes 0x0FE00008.
+        { { 0x80, 0x00, 0x00, 0xFE }, 0xFE000080u, { 0x08, 0x00, 0xE0, 0x0F } },
     };
     uint32_t alias_wrong = 0;
     for (size_t i = 0; i < sizeof(ALIAS) / sizeof(ALIAS[0]); ++i) {
         uint8_t got[4];
-        CohAliasExpected(ALIAS[i].rgba, got);
+        CohAliasedTexel(ALIAS[i].rgba, got);
         if (CohAliasWord(ALIAS[i].rgba) != ALIAS[i].word ||
             memcmp(got, ALIAS[i].expected, 4) != 0) {
             ++alias_wrong;
@@ -998,7 +1201,8 @@ static void CheckCoherenceRules(void) {
             ++round_trip_wrong;
         }
     }
-    CHECK_TRUE(SUITE, "an RGBA8 texel read as R32_Uint is its bytes least significant first",
+    CHECK_TRUE(SUITE,
+               "an RGBA8 texel read as R32_Uint and rotated is its word least significant first",
                CHECK_NONE, alias_wrong == 0 && round_trip_wrong == 0,
                "%u of %u hand worked texels and %u of 4096 round trips disagreed",
                (unsigned)alias_wrong, (unsigned)(sizeof(ALIAS) / sizeof(ALIAS[0])),
@@ -1079,34 +1283,55 @@ static void CheckCoherenceRules(void) {
                "closest centre %.6f of a texel from an edge",
                corner, far, middle, left_out, below_out, closest);
 
-    // Every texel of every seed and every cell of every seed different, from each other and
-    // from each other kind, and none with the sentinel's alpha of nought. Sorted rather than
-    // compared pair by pair, since this also runs on the console.
-    static uint32_t seen[16u * 1024u + 16u * 16u];
-    size_t count = 0;
-    uint32_t transparent = 0;
-    for (uint32_t seed = 0; seed < 16u; ++seed) {
-        uint8_t texel[4];
-        for (uint32_t i = 0; i < 1024u; ++i) {
-            CohPatternTexel(seed, i % 32u, i / 32u, texel);
-            transparent += texel[3] == 0u ? 1u : 0u;
-            seen[count++] = CohAliasWord(texel);
-        }
-        for (uint32_t cell = 0; cell < 16u; ++cell) {
-            CohCellColour(seed, cell, texel);
-            transparent += texel[3] == 0u ? 1u : 0u;
-            seen[count++] = CohAliasWord(texel);
-        }
-    }
-    qsort(seen, count, sizeof(seen[0]), CompareWords);
+    CheckCoherenceModel();
+
+    // Worked by hand from the four sums in coherref.h, the last one past 255 in three channels.
+    uint8_t texel[4];
+    CohPattern(1, 0, 0, texel);
+    const bool origin = texel[0] == 0x01 && texel[1] == 0x03 && texel[2] == 0x05 &&
+                        texel[3] == 0x07;
+    CohPattern(1, 31, 31, texel);
+    const bool far_corner = texel[0] == 0x7D && texel[1] == 0x7F && texel[2] == 0x05 &&
+                        texel[3] == 0x45;
+    CohPattern(60, 31, 17, texel);
+    const bool wrapped = texel[0] == 0xB8 && texel[1] == 0xF8 && texel[2] == 0x64 &&
+                         texel[3] == 0xD4;
+    CHECK_TRUE(SUITE, "the coherence pattern is the four sums, modulo 256", CHECK_NONE,
+               origin && far_corner && wrapped,
+               "seed 1 at (0,0) %s, seed 1 at (31,31) %s, seed 60 at (31,17) %s",
+               origin ? "right" : "wrong", far_corner ? "right" : "wrong",
+               wrapped ? "right" : "wrong");
+
+    // Over every seed the suite uses and the largest image it draws, 64 by 64: no texel is the
+    // sentinel, no two texels of one pattern agree, and no two patterns agree at any texel, so a
+    // stale image, a shifted one or an untouched target can never pass for the right one. Each
+    // pattern sorted rather than compared pair by pair, since this also runs on the console.
+    static uint32_t words[64u * 64u];
+    uint32_t sentinel_hits = 0;
     uint32_t repeats = 0;
-    for (size_t i = 1; i < count; ++i) {
-        repeats += seen[i] == seen[i - 1] ? 1u : 0u;
+    uint32_t shared = 0;
+    for (uint32_t seed = COH_SEED_RENDERED_START; seed < COH_SEED_END; ++seed) {
+        for (uint32_t i = 0; i < 64u * 64u; ++i) {
+            CohPattern(seed, i % 64u, i / 64u, texel);
+            sentinel_hits += memcmp(texel, COH_SENTINEL, 4) == 0 ? 1u : 0u;
+            words[i] = CohAliasWord(texel);
+            for (uint32_t other = seed + 1u; other < COH_SEED_END; ++other) {
+                uint8_t theirs[4];
+                CohPattern(other, i % 64u, i / 64u, theirs);
+                shared += memcmp(texel, theirs, 4) == 0 ? 1u : 0u;
+            }
+        }
+        qsort(words, 64u * 64u, sizeof(words[0]), CompareWords);
+        for (uint32_t i = 1; i < 64u * 64u; ++i) {
+            repeats += words[i] == words[i - 1u] ? 1u : 0u;
+        }
     }
-    CHECK_TRUE(SUITE, "no two texels or cells of the coherence patterns are alike", CHECK_NONE,
-               repeats == 0 && transparent == 0,
-               "%u pairs alike and %u with an alpha of nought among %u", (unsigned)repeats,
-               (unsigned)transparent, (unsigned)count);
+    CHECK_TRUE(SUITE, "no coherence pattern texel is the sentinel", CHECK_NONE,
+               sentinel_hits == 0, "%u texels equal the sentinel", (unsigned)sentinel_hits);
+    CHECK_TRUE(SUITE, "no two texels of one coherence pattern are the same", CHECK_NONE,
+               repeats == 0, "%u pairs repeat", (unsigned)repeats);
+    CHECK_TRUE(SUITE, "no two coherence patterns agree at any texel", CHECK_NONE, shared == 0,
+               "%u texels agree between two seeds", (unsigned)shared);
 }
 
 void RunReference(void) {

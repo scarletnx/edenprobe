@@ -333,6 +333,20 @@ static const char *BringUp(GpuContext *gpu) {
         }
     }
 
+    // Pitch memory, not image memory: a pitch linear image needs no swizzled mapping, and the
+    // point of this block is the processor's data cache between its writes and the memory.
+    if (gpu->spec.cpu_cached_size != 0u) {
+        problem = MakeBlock(gpu, &gpu->cpu_cached_memory, gpu->spec.cpu_cached_size,
+                            DkMemBlockFlags_CpuCached | DkMemBlockFlags_GpuCached,
+                            "no memory for the processor-cached textures");
+        if (problem != NULL) {
+            return problem;
+        }
+        if (dkMemBlockGetCpuAddr(gpu->cpu_cached_memory) == NULL) {
+            return "the processor-cached texture block is not visible to the processor";
+        }
+    }
+
     return NULL;
 }
 
@@ -412,7 +426,7 @@ void GpuClose(GpuContext *gpu) {
     DkMemBlock *const blocks[] = {
         &gpu->read_memory, &gpu->image_memory, &gpu->depth_memory,
         &gpu->code_memory, &gpu->data_memory,  &gpu->extra_image_memory,
-        &gpu->cpu_image_memory, &gpu->cmd_memory,
+        &gpu->cpu_image_memory, &gpu->cpu_cached_memory, &gpu->cmd_memory,
     };
     for (size_t i = 0; i < sizeof(blocks) / sizeof(blocks[0]); ++i) {
         if (*blocks[i] != NULL) {
@@ -802,6 +816,38 @@ bool GpuCreateImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImag
         *cpu_bytes = (uint8_t *)dkMemBlockGetCpuAddr(block) + offset;
     }
     return true;
+}
+
+bool GpuCreateCachedLinearImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout,
+                                DkImageFormat format, uint32_t width, uint32_t height,
+                                uint8_t **cpu_bytes, uint32_t *stride) {
+    if (gpu == NULL || !gpu->ready || cpu_bytes == NULL || stride == NULL) {
+        return false;
+    }
+    if (gpu->cpu_cached_memory == NULL) {
+        return Complain(gpu, "a processor-cached image, and the spec asked for no "
+                             "processor-cached memory");
+    }
+    // Stated rather than left to the library, so the processor writes rows at a distance the
+    // caller can be told.
+    *stride = RoundUpTo(width * TARGET_BYTES_PER_PIXEL, DK_IMAGE_LINEAR_STRIDE_ALIGNMENT);
+    uint32_t offset = 0;
+    const char *problem =
+        PlaceImageAt(gpu, out, layout, format, width, height, DkImageFlags_PitchLinear, *stride,
+                     gpu->cpu_cached_memory, &gpu->cpu_cached_used, &offset);
+    if (problem != NULL) {
+        return Complain(gpu, problem);
+    }
+    *cpu_bytes = (uint8_t *)dkMemBlockGetCpuAddr(gpu->cpu_cached_memory) + offset;
+    return true;
+}
+
+void GpuFlushCachedImage(GpuContext *gpu, const uint8_t *bytes, uint32_t size) {
+    if (gpu == NULL || gpu->cpu_cached_memory == NULL || bytes == NULL) {
+        return;
+    }
+    const uint8_t *const base = (const uint8_t *)dkMemBlockGetCpuAddr(gpu->cpu_cached_memory);
+    dkMemBlockFlushCpuCache(gpu->cpu_cached_memory, (uint32_t)(bytes - base), size);
 }
 
 bool GpuCreateAliasedImages(GpuContext *gpu, DkImage *first, DkImageFormat first_format,

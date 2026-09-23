@@ -49,6 +49,11 @@ void RunDepth(void);
 /// exactly one half.
 void RunTexture(void);
 
+/// The caches between draws, submits and copies: a texture rendered, rewritten by the processor
+/// or by the copy engine and sampled again, a uniform buffer rewritten, two formats over one
+/// memory, and a render target copied and read back. After texture, because it samples.
+void RunCoherence(void);
+
 /// Float arithmetic in a shader, judged in units in the last place. Last, because it is the only
 /// suite where two correct machines are allowed to disagree.
 void RunFmath(void);

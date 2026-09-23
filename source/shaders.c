@@ -19,6 +19,9 @@ static const ShaderBlob BLOBS[SHADER_COUNT] = {
     [SHADER_INTMATH_FRAG] = { intmath_frag_dksh, (uint32_t)intmath_frag_dksh_size },
     [SHADER_TEXTURE_FRAG] = { texture_frag_dksh, (uint32_t)texture_frag_dksh_size },
     [SHADER_FMATH_FRAG] = { fmath_frag_dksh, (uint32_t)fmath_frag_dksh_size },
+    [SHADER_UNIFORM_FRAG] = { uniform_frag_dksh, (uint32_t)uniform_frag_dksh_size },
+    [SHADER_ALIAS_FRAG] = { alias_frag_dksh, (uint32_t)alias_frag_dksh_size },
+    [SHADER_PATTERN_FRAG] = { pattern_frag_dksh, (uint32_t)pattern_frag_dksh_size },
 };
 
 const void *ShaderData(ShaderId id) {

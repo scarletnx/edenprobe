@@ -37,14 +37,39 @@ bool CohTexelUnder(const CohRect *region, uint32_t texture_width, uint32_t textu
 double CohClosestTexelEdge(const CohRect *region, uint32_t texture_width,
                            uint32_t texture_height);
 
-/// One texel of pattern @p seed, every texel of a 32 by 32 pattern different from the others
-/// and from every texel of another seed below 16. Alpha is never 0x00 or 0xFF, so a channel
-/// order mistake cannot hide behind an opaque alpha.
-void CohPatternTexel(uint32_t seed, uint32_t x, uint32_t y, uint8_t out[4]);
+/// The seeds of every pattern the suite draws, uploads or writes, one per step so no two steps
+/// can be mistaken for each other. Every one below 256, which the pattern shader relies on.
+typedef enum {
+    COH_SEED_RENDERED_START = 1,
+    COH_SEED_RENDER_WHOLE,
+    COH_SEED_RENDER_PART,
+    COH_SEED_PITCH_START,
+    COH_SEED_PITCH_REWRITE,
+    COH_SEED_BLOCK_START,
+    COH_SEED_BLOCK_REWRITE,
+    COH_SEED_ALIAS_WHOLE,
+    COH_SEED_ALIAS_PART,
+    COH_SEED_COPIED_START,
+    COH_SEED_COPY_STAGED,
+    COH_SEED_COPY_SOURCE,
+    COH_SEED_HELD,
+    COH_SEED_READBACK_WHOLE,
+    COH_SEED_READBACK_PART,
+    COH_SEED_CACHED_START,
+    COH_SEED_CACHED_ROW,
+    COH_SEED_RENDERED_BIG_START,
+    COH_SEED_END,
+} CohSeed;
 
-/// The flat colour of cell @p cell (0 to 15) of a painted pattern, the colour a draw can put
-/// on a render target exactly. Every cell and every seed below 16 different.
-void CohCellColour(uint32_t seed, uint32_t cell, uint8_t out[4]);
+/// The texel pattern @p seed holds at @p x, @p y: the same four sums pattern.frag.glsl works
+/// out from the fragment's coordinate, so a drawn pattern and an uploaded one are one rule.
+///
+///   red   = 4x + seed          green = 4y + 3 seed
+///   blue  = 4 (x xor y) + 5 seed   alpha = x + y + 7 seed      each modulo 256
+///
+/// Red and green together name the texel inside a 64 by 64 image, red alone tells two seeds
+/// apart at the same texel, and alpha varies so the fourth channel is checked like the others.
+void CohPattern(uint32_t seed, uint32_t x, uint32_t y, uint8_t out[4]);
 
 /// The four bytes of a normalised RGBA8 texel read as one R32_Uint word: the first byte in
 /// memory is the least significant, r | g << 8 | b << 16 | a << 24.
@@ -53,12 +78,79 @@ uint32_t CohAliasWord(const uint8_t rgba[4]);
 /// The inverse: the word's bytes, least significant first.
 void CohAliasBytes(uint32_t word, uint8_t out[4]);
 
-/// What the alias shader adds before writing the word's bytes back out. Carries run across
-/// bytes, so a word assembled in the wrong order cannot come out right. Also in alias.frag.glsl.
-#define COH_ALIAS_ADDEND 0x01010101u
+/// What the alias shader writes for a texel whose four bytes are @p rgba: the little endian
+/// word rotated right by four bits, and its bytes, least significant first. The rotation moves
+/// every nibble across a byte boundary, so each output byte mixes two input bytes and the
+/// answer depends on all four arriving in the right order, not merely on each being present.
+/// Also in alias.frag.glsl.
+void CohAliasedTexel(const uint8_t rgba[4], uint8_t out[4]);
 
-/// The bytes the alias case expects for a texel holding @p rgba.
-void CohAliasExpected(const uint8_t rgba[4], uint8_t out[4]);
+/// The largest image the model holds, the size of the target every case reads back.
+#define COH_MAX_SIZE 64u
+
+/// An image as the model holds it: rows of four byte texels, row major, no padding.
+typedef struct {
+    uint32_t width;
+    uint32_t height;
+    uint8_t texels[COH_MAX_SIZE * COH_MAX_SIZE][4];
+} CohImage;
+
+/// What every target is cleared to before a case draws: magenta with no alpha. The reference
+/// suite checks that no pattern texel equals it, so a pixel nothing reached cannot pass.
+extern const uint8_t COH_SENTINEL[4];
+
+/// How a rectangle's texels land somewhere else.
+typedef enum {
+    /// The bytes as they are: a copy, or a nearest sample at a texel centre.
+    COH_MOVE_BYTES,
+    /// The bytes as the alias shader writes them after reading them as one R32_Uint word.
+    COH_MOVE_ALIASED,
+} CohMove;
+
+/// Sets the size and clears the texels. False when it does not fit the model.
+bool CohImageInit(CohImage *image, uint32_t width, uint32_t height);
+
+/// The texel at @p x, @p y, which must be inside.
+static inline uint8_t *CohTexelAt(CohImage *image, uint32_t x, uint32_t y) {
+    return image->texels[y * image->width + x];
+}
+
+void CohFill(CohImage *image, const uint8_t colour[4]);
+
+/// Every texel from CohPattern with @p seed.
+void CohFillPattern(CohImage *image, uint32_t seed);
+
+/// One colour over a rectangle. False, and nothing changed, unless it is wholly inside.
+bool CohFillRect(CohImage *image, uint32_t x, uint32_t y, uint32_t width, uint32_t height,
+                 const uint8_t colour[4]);
+
+/// What the suite's cell draw leaves: the image cut into a 4 by 4 grid of equal cells, and the
+/// cells whose bit is set in @p mask (bit 4 row + column) painted with pattern @p seed at the
+/// image's own coordinates, as the pattern shader does. The mask only chooses what is redrawn.
+/// False, and nothing changed, when the image does not divide into the grid.
+bool CohPaintCells(CohImage *image, uint32_t seed, uint32_t mask);
+
+/// The @p width by @p height rectangle of @p source at @p source_x, @p source_y lands in
+/// @p destination at @p x, @p y, moved as @p how says. The two may be one image and overlap in
+/// any direction; every texel lands as it was before the move. False, and nothing changed,
+/// unless both rectangles are wholly inside their images.
+bool CohMoveRect(CohImage *destination, uint32_t x, uint32_t y, const CohImage *source,
+                 uint32_t source_x, uint32_t source_y, uint32_t width, uint32_t height,
+                 CohMove how);
+
+/// What a quad sampling all of @p texture over @p region of @p target leaves there, texel by
+/// CohTexelUnder, moved as @p how says. False, and nothing changed, unless the region is wholly
+/// inside the target.
+bool CohSampleRegion(CohImage *target, const CohRect *region, const CohImage *texture,
+                     CohMove how);
+
+/// What four draws leave on a 64 by 64 image, one per 32 by 32 quadrant in reading order, each
+/// in @p base with channel @p channel set to @p values of that quadrant. @p lag names the value
+/// @p lag draws earlier instead, the first one where there is none, which is the image a cache
+/// that many rewrites behind would leave. False, and nothing changed, unless the image is 64 by
+/// 64 and the channel is one of the four.
+bool CohQuadrantColours(CohImage *image, const uint8_t base[4], uint32_t channel,
+                        const uint8_t values[4], uint32_t lag);
 
 /// Where byte @p x_bytes of row @p y sits in a block linear image whose rows are
 /// @p width_bytes wide and whose blocks are @p block_height_gobs gobs tall.
