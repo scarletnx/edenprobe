@@ -35,6 +35,9 @@ typedef struct {
     /// Bytes of image memory the processor can also write, for the cases that change a texture
     /// behind the graphics unit's back. Uncached to the processor, so no flush is ever owed.
     uint32_t cpu_image_size;
+    /// Bytes of memory the processor reaches through its data cache, for pitch linear textures
+    /// whose writes have to be flushed before the graphics unit can see them.
+    uint32_t cpu_cached_size;
 } GpuSpec;
 
 /// Everything a test needs to draw into an offscreen target and read the result back.
@@ -63,6 +66,8 @@ typedef struct {
     uint32_t extra_image_used;
     DkMemBlock cpu_image_memory; ///< textures the processor also writes, bump allocated
     uint32_t cpu_image_used;
+    DkMemBlock cpu_cached_memory; ///< the same, through the processor's data cache
+    uint32_t cpu_cached_used;
 
     GpuSpec spec;
     uint32_t width;
@@ -177,6 +182,18 @@ bool GpuCreateTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkIm
 bool GpuCreateImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImageFormat format,
                     uint32_t width, uint32_t height, uint32_t flags, uint32_t pitch_or_tile,
                     uint8_t **cpu_bytes);
+
+/// A pitch linear image in the processor-cached block, rows @p width * 4 bytes apart rounded
+/// to the linear stride alignment, with its first byte stored in @p cpu_bytes. A write through
+/// that pointer sits in the processor's data cache until GpuFlushCachedImage.
+bool GpuCreateCachedLinearImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout,
+                                DkImageFormat format, uint32_t width, uint32_t height,
+                                uint8_t **cpu_bytes, uint32_t *stride);
+
+/// Pushes @p size bytes the processor wrote at @p bytes, inside the processor-cached block, out
+/// of its data cache: dkMemBlockFlushCpuCache, which the library asks for before the graphics
+/// unit reads a processor write to cached memory.
+void GpuFlushCachedImage(GpuContext *gpu, const uint8_t *bytes, uint32_t size);
 
 /// Two images over the same bytes, one per format, laid out with the same @p flags.
 ///
