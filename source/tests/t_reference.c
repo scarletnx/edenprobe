@@ -3,10 +3,12 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "../blendref.h"
 #include "../check.h"
+#include "../coherref.h"
 #include "../fmathref.h"
 #include "../intref.h"
 #include "../raster.h"
@@ -956,6 +958,157 @@ static void CheckFloatArithmetic(void) {
                (unsigned)libm_got, (unsigned)libm_want);
 }
 
+static int CompareWords(const void *a, const void *b) {
+    const uint32_t x = *(const uint32_t *)a;
+    const uint32_t y = *(const uint32_t *)b;
+    return (x > y) - (x < y);
+}
+
+/// The coherence suite's rules: the byte order two formats agree on, where the block linear
+/// layout puts a byte, which texel a region's pixel samples, and that its patterns can be told
+/// apart. Every value by hand, then the sweeps the suite leans on.
+static void CheckCoherenceRules(void) {
+    static const struct {
+        uint8_t rgba[4];
+        uint32_t word;
+        uint8_t expected[4];
+    } ALIAS[] = {
+        { { 0x01, 0x02, 0x03, 0x04 }, 0x04030201u, { 0x02, 0x03, 0x04, 0x05 } },
+        // The carry out of red lands in green, and out of green in blue.
+        { { 0xFF, 0xFF, 0x00, 0x00 }, 0x0000FFFFu, { 0x00, 0x01, 0x02, 0x01 } },
+        // All ones wraps, and the carry out of alpha is lost.
+        { { 0xFF, 0xFF, 0xFF, 0xFF }, 0xFFFFFFFFu, { 0x00, 0x01, 0x01, 0x01 } },
+        { { 0x80, 0x00, 0x00, 0xFE }, 0xFE000080u, { 0x81, 0x01, 0x01, 0xFF } },
+    };
+    uint32_t alias_wrong = 0;
+    for (size_t i = 0; i < sizeof(ALIAS) / sizeof(ALIAS[0]); ++i) {
+        uint8_t got[4];
+        CohAliasExpected(ALIAS[i].rgba, got);
+        if (CohAliasWord(ALIAS[i].rgba) != ALIAS[i].word ||
+            memcmp(got, ALIAS[i].expected, 4) != 0) {
+            ++alias_wrong;
+        }
+    }
+    uint32_t round_trip_wrong = 0;
+    for (uint32_t i = 0; i < 4096u; ++i) {
+        const uint32_t word = i * 0x9E3779B9u;
+        uint8_t bytes[4];
+        CohAliasBytes(word, bytes);
+        if (CohAliasWord(bytes) != word || bytes[0] != (word & 0xFFu)) {
+            ++round_trip_wrong;
+        }
+    }
+    CHECK_TRUE(SUITE, "an RGBA8 texel read as R32_Uint is its bytes least significant first",
+               CHECK_NONE, alias_wrong == 0 && round_trip_wrong == 0,
+               "%u of %u hand worked texels and %u of 4096 round trips disagreed",
+               (unsigned)alias_wrong, (unsigned)(sizeof(ALIAS) / sizeof(ALIAS[0])),
+               (unsigned)round_trip_wrong);
+
+    // Hand worked from the gob's shape: 16 byte runs, row pairs 64 apart, 32 byte halves 256
+    // apart, gobs 512 apart down a block.
+    static const struct {
+        uint32_t x_bytes;
+        uint32_t y;
+        uint32_t width_bytes;
+        uint32_t block_height_gobs;
+        uint32_t offset;
+    } GOB[] = {
+        { 0, 0, 64, 1, 0 },       { 5, 0, 64, 1, 5 },     { 16, 0, 64, 1, 32 },
+        { 0, 1, 64, 1, 16 },      { 0, 2, 64, 1, 64 },    { 32, 0, 64, 1, 256 },
+        { 63, 7, 64, 1, 511 },    { 20, 3, 64, 1, 116 },  { 0, 8, 64, 1, 512 },
+        { 64, 0, 128, 1, 512 },   { 0, 8, 128, 1, 1024 }, { 0, 8, 128, 2, 512 },
+        { 64, 0, 128, 2, 1024 },  { 64, 17, 128, 2, 3088 },
+    };
+    uint32_t gob_wrong = 0;
+    uint32_t first_gob = 0;
+    for (size_t i = 0; i < sizeof(GOB) / sizeof(GOB[0]); ++i) {
+        if (CohBlockLinearOffset(GOB[i].x_bytes, GOB[i].y, GOB[i].width_bytes,
+                                 GOB[i].block_height_gobs) != GOB[i].offset) {
+            if (gob_wrong == 0) {
+                first_gob = (uint32_t)i;
+            }
+            ++gob_wrong;
+        }
+    }
+    CHECK_TRUE(SUITE, "the block linear rule puts hand worked bytes where a gob keeps them",
+               CHECK_NONE, gob_wrong == 0,
+               "%u of %u disagreed, first was byte %u of row %u, giving %u, expected %u",
+               (unsigned)gob_wrong, (unsigned)(sizeof(GOB) / sizeof(GOB[0])),
+               (unsigned)GOB[first_gob].x_bytes, (unsigned)GOB[first_gob].y,
+               (unsigned)CohBlockLinearOffset(GOB[first_gob].x_bytes, GOB[first_gob].y,
+                                              GOB[first_gob].width_bytes,
+                                              GOB[first_gob].block_height_gobs),
+               (unsigned)GOB[first_gob].offset);
+
+    // The texture the suite writes by hand: 32 by 32 texels of four bytes in one gob blocks.
+    // Every texel needs its own four bytes, and together they fill the eight gobs exactly.
+    static uint8_t claimed[4096];
+    memset(claimed, 0, sizeof(claimed));
+    uint32_t collisions = 0;
+    uint32_t outside = 0;
+    for (uint32_t y = 0; y < 32u; ++y) {
+        for (uint32_t x = 0; x < 32u; ++x) {
+            const uint32_t offset = CohBlockLinearOffset(x * 4u, y, 128u, 1u);
+            if (offset % 4u != 0u || offset + 4u > sizeof(claimed)) {
+                ++outside;
+                continue;
+            }
+            for (uint32_t b = 0; b < 4u; ++b) {
+                collisions += claimed[offset + b]++ != 0u ? 1u : 0u;
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "the block linear rule gives each texel of the suite's texture its own "
+                      "four bytes",
+               CHECK_NONE, collisions == 0 && outside == 0,
+               "%u bytes claimed twice and %u texels outside the eight gobs or off a word",
+               (unsigned)collisions, (unsigned)outside);
+
+    const CohRect region = { 32, 16, 32, 32 };
+    uint32_t tx = 99;
+    uint32_t ty = 99;
+    const bool corner = CohTexelUnder(&region, 32, 32, 32, 16, &tx, &ty) && tx == 0 && ty == 0;
+    const bool far = CohTexelUnder(&region, 32, 32, 63, 47, &tx, &ty) && tx == 31 && ty == 31;
+    const bool middle = CohTexelUnder(&region, 32, 32, 45, 30, &tx, &ty) && tx == 13 && ty == 14;
+    const bool left_out = !CohTexelUnder(&region, 32, 32, 31, 20, &tx, &ty);
+    const bool below_out = !CohTexelUnder(&region, 32, 32, 40, 48, &tx, &ty);
+    const double closest = CohClosestTexelEdge(&region, 32, 32);
+    CHECK_TRUE(SUITE, "a region's pixels sample the texel whose centre they sit on", CHECK_NONE,
+               corner && far && middle && left_out && below_out && closest == 0.5,
+               "corner %d, far corner %d, middle %d, left outside %d, below outside %d, "
+               "closest centre %.6f of a texel from an edge",
+               corner, far, middle, left_out, below_out, closest);
+
+    // Every texel of every seed and every cell of every seed different, from each other and
+    // from each other kind, and none with the sentinel's alpha of nought. Sorted rather than
+    // compared pair by pair, since this also runs on the console.
+    static uint32_t seen[16u * 1024u + 16u * 16u];
+    size_t count = 0;
+    uint32_t transparent = 0;
+    for (uint32_t seed = 0; seed < 16u; ++seed) {
+        uint8_t texel[4];
+        for (uint32_t i = 0; i < 1024u; ++i) {
+            CohPatternTexel(seed, i % 32u, i / 32u, texel);
+            transparent += texel[3] == 0u ? 1u : 0u;
+            seen[count++] = CohAliasWord(texel);
+        }
+        for (uint32_t cell = 0; cell < 16u; ++cell) {
+            CohCellColour(seed, cell, texel);
+            transparent += texel[3] == 0u ? 1u : 0u;
+            seen[count++] = CohAliasWord(texel);
+        }
+    }
+    qsort(seen, count, sizeof(seen[0]), CompareWords);
+    uint32_t repeats = 0;
+    for (size_t i = 1; i < count; ++i) {
+        repeats += seen[i] == seen[i - 1] ? 1u : 0u;
+    }
+    CHECK_TRUE(SUITE, "no two texels or cells of the coherence patterns are alike", CHECK_NONE,
+               repeats == 0 && transparent == 0,
+               "%u pairs alike and %u with an alpha of nought among %u", (unsigned)repeats,
+               (unsigned)transparent, (unsigned)count);
+}
+
 void RunReference(void) {
     CheckViewportTransform();
     CheckCoverageRule();
@@ -966,5 +1119,6 @@ void RunReference(void) {
     CheckBlendArithmetic();
     CheckWrapModes();
     CheckTextureCoordinates();
+    CheckCoherenceRules();
     CheckFloatArithmetic();
 }
