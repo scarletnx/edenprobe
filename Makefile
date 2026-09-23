@@ -27,7 +27,7 @@ APP_AUTHOR  := reden
 # from. Both reach the program as macros and open every report. The cover, icon.jpg, is drawn
 # from static/icon.svg by `make icon` (rsvg-convert and magick, not needed for a build).
 APP_VERSION := $(strip $(shell cat VERSION))
-APP_BUILD   := $(strip $(shell git describe --always --dirty 2>/dev/null || echo unknown))
+APP_BUILD   := $(strip $(shell git describe --tags --always --dirty 2>/dev/null || echo unknown))
 APP_ICON    := icon.jpg
 
 # The processor in the console, and the position independence its loader expects.
@@ -38,8 +38,7 @@ ARCH     := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 # can never be reporting a stale binary's answer.
 CFLAGS   := $(ARCH) -g -O2 -ffunction-sections -fdata-sections -MMD -MP \
             -Wall -Wextra -Werror -Wno-unused-parameter \
-            -D__SWITCH__ -I$(LIBNX)/include -Isource -I$(BUILD)/shaders \
-            -DEDENPROBE_VERSION='"$(APP_VERSION)"' -DEDENPROBE_BUILD='"$(APP_BUILD)"'
+            -D__SWITCH__ -I$(LIBNX)/include -Isource -I$(BUILD) -I$(BUILD)/shaders
 # --wrap on the abort is what lets GpuOpen report a failed bring-up instead of dying: the
 # graphics library answers a failed constructor by calling the runtime's abort, which never comes
 # back. gpu.c arms the wrapper only while the device is being brought up.
@@ -96,6 +95,16 @@ $(SHADER_OBJ): $(SHADER_ASM)
 # The one file that names the modules. It is the only one that includes the generated header, so
 # a shader added to the directory and not added there is a build failure rather than dead weight.
 $(BUILD)/source/shaders.o: $(SHADER_HDR)
+
+# The version and the build id reach main.c through a header rewritten only when its content
+# changes, so the starting note follows a new commit or a dirty tree without a clean build.
+$(BUILD)/version.h: FORCE
+	@mkdir -p $(dir $@)
+	@printf '#define EDENPROBE_VERSION "%s"\n#define EDENPROBE_BUILD "%s"\n' "$(APP_VERSION)" "$(APP_BUILD)" > $@.tmp; \
+	if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; fi
+FORCE:
+.PHONY: FORCE
+$(BUILD)/source/main.o: $(BUILD)/version.h
 
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)

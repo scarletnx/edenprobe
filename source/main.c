@@ -12,6 +12,7 @@
 #include "report.h"
 #include "tests/tests.h"
 #include "viewer.h"
+#include "version.h"
 
 // Where the run leaves its report on the machine it ran on. On an emulator this is a plain
 // directory on the host; on the console it is the memory card. The pictures of the failing

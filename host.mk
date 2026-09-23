@@ -15,8 +15,7 @@ HOSTSRC  := source/report.c source/check.c source/mode.c source/picture.c source
 
 # One object per source, so the -MMD below has somewhere to put its dependency files. Without
 # them an edited header rebuilds nothing and the run reports the previous binary's answer.
-HOSTFLAGS := -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -O1 -g -MMD -MP -Isource \
-             -DEDENPROBE_VERSION='"$(strip $(shell cat VERSION))"' -DEDENPROBE_BUILD='"$(strip $(shell git describe --always --dirty 2>/dev/null || echo unknown))"'
+HOSTFLAGS := -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -O1 -g -MMD -MP -Isource
 HOSTOBJ  := $(patsubst source/%.c,build-host/%.o,$(HOSTSRC))
 HOSTDEP  := $(HOSTOBJ:.o=.d)
 
