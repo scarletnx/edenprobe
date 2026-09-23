@@ -64,7 +64,7 @@ int main(int argc, char **argv) {
     // Opened first, because reading the mode file and asking the pad both touch services this
     // program otherwise never uses, and a run that dies in either should still leave a report.
     ReportOpen(REPORT_PATH);
-    ReportNote("edenprobe starting");
+    ReportNote("edenprobe %s (%s) starting", EDENPROBE_VERSION, EDENPROBE_BUILD);
 
     // What the mode changes is which families run, whether the finished pictures are kept in
     // memory and shown once everything is over, and whether every drawing case writes one. It

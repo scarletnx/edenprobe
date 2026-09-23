@@ -866,6 +866,20 @@ and **up** for the next and previous failure, **X** to cycle between the three s
 each one on its own, and **plus** to quit. The frame is composed on the processor and only when
 something moved or the countdown ticked, so a still screen costs an emulated machine nothing.
 
+## Versions
+
+The version is the one line of `VERSION`, semantic (`0.1.0` is the first one), and a tag
+`v<version>` on `main` marks each. Every report opens with a note that names it and the build
+it came from, as git describes the tree: `edenprobe 0.1.0 (9632b63) starting`, or `-dirty` when
+uncommitted changes were built. Two reports are worth diffing only when that line agrees, or
+when the difference between the two builds is the thing being measured. The version moves when
+what a case asks or how it judges changes; a new suite or a new case is a minor step, a changed
+verdict for an existing case is at least that, and the README's counts move with it.
+
+The cover a loader shows beside the file is `icon.jpg`, drawn from `static/icon.svg` (the reden
+mark, the Eden sunset without the palm, on the site's dark ground) by `make icon`; the JPEG is
+committed so a build needs neither drawing tool.
+
 ## Building
 
 For the console, with the toolchain installed:
