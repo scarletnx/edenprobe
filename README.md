@@ -36,7 +36,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Twelve suites, in the order they run, because each leans on the ones before it. A run is 370
+Twelve suites, in the order they run, because each leans on the ones before it. A run is 388
 cases.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -58,7 +58,7 @@ cases.
   whole idea: the diff picture is built from what the judge decided pixel by pixel and not from
   comparing the two images, so a pixel that differs and was allowed to is not painted as a
   difference. Every line is the none tier, because none of it is a claim about a machine.
-- **reference**, eighty seven cases, no hardware involved either. The other half of the judge: where
+- **reference**, ninety two cases, no hardware involved either. The other half of the judge: where
   clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
   the centres that sit exactly on the edge they share. It runs in both builds, because a
   reference that answered differently on the two processors would be blamed on the graphics unit.
@@ -81,6 +81,10 @@ cases.
   away from this program's code, and each rule against a second algorithm over the whole sweep,
   the minimum, maximum and clamps against 64 bit comparisons and the half patterns against the
   rule that builds them among them.
+  Five pin the grown fmath suite: 54 answers worked out with exact rationals and sixty digit
+  decimals, the float judge's decisions one at a time, the answer the console never gives
+  refused at every pixel where it differs, where the edge operands sit, and a budget written
+  down for every mode.
 - **clear**, five cases, on the graphics unit: one that reports whether the graphics device came
   up at all, at no tier because it compares nothing, and four that draw. Each of the four clears a
   64 by 64 RGBA8 target and copies all 4096 pixels back to compare them. Three cover the whole
@@ -252,9 +256,14 @@ cases.
   where the processor touches the memory, since a wait anywhere else would hide the fault the
   suite is there to find. Every expectation comes from one image model in `source/coherref.c`,
   pinned by the reference suite.
-- **fmath**, thirteen cases, on the graphics unit. Addition, multiplication, a fused multiply and
+- **fmath**, twenty six cases, on the graphics unit. Addition, multiplication, a fused multiply and
   add, division, the square root, powers and logarithms of two, the sine and the cosine, into an
-  R32_Float target, compared against the same arithmetic in double precision. Units in the last
+  R32_Float target, compared against the same arithmetic in double precision; and the edges: a
+  fused multiply and add that nearly cancels its own product, the minimum and the maximum against
+  infinities and NaNs, mix carrying them through, denormal products, sums and operands, the power
+  of two from -128 to nearly 128, the logarithm from the smallest normal to nearly the largest
+  float, square roots and inverse square roots of denormals and tiny normals, and floor, fract,
+  round and roundEven on negatives and halves. Units in the last
   place tier, with the budget per case, because the tables give each operation a different figure
   and two of them are not even the same shape. They all come from one place, named in
   `source/fmathref.h`: the Vulkan specification's precision tables, core for the operations that
@@ -267,12 +276,36 @@ cases.
   | operation | the table | what the case allows |
   |---|---|---|
   | addition, multiplication | correctly rounded | nought |
-  | a multiply and an add | inherited from a multiply and an add | 1.5 |
+  | a multiply and an add | inherited from a multiply and an add; the console's FFMA fuses | nought |
   | division | 2.5 | 3 |
   | the square root | inherited from one over the inverse square root, which is 2 and 2.5 | 5 |
   | two to the power of x | 3 plus twice the magnitude of x | 3.5 plus 2 per unit of it |
   | the logarithm to base two | 3 outside the range from a half to two | 3.5 |
   | the sine and the cosine | an absolute 2^-11 inside minus pi to pi | the same |
+  | the edges of the power of two and the logarithm | as above, over the wider ranges | as above |
+  | the inverse square root of tiny operands | 2 | 2.5 |
+  | the square root of tiny operands | inherited from one over the inverse square root, 2 and 2.5 | 5 |
+  | fma nearly cancelling its product, floor, fract, round, roundEven, min and max against infinities, denormals | exact once the console's rules are applied | nought |
+  | min and max against a NaN | the console hands back the other operand, as NMin and NMax do | nought |
+  | mix through infinities and NaNs | the formula in IEEE arithmetic | nought |
+
+  Where the tables allow more than one answer and the console's compiled shader gives exactly
+  one, the case holds a machine to the console's, as the integer suite does for its shifts and its
+  division. Read out of `fmath.frag.dksh`: every float instruction flushes denormals (the FMUL,
+  FFMA, FADD and FMNMX flush bits are set, and MUFU has none to clear), every fma is one fused
+  FFMA, and round compiles to the same round to nearest even as roundEven. So denormal answers
+  and denormal operands are nought, a multiply and an add round once, and a half goes to even.
+  The fma case subtracts the rounded product with its low twelve bits cleared, so a fused machine
+  keeps the product's rounding error and a machine that multiplies and adds apart loses it at
+  nearly every pixel. A failing case says how many of its wrong pixels hold the answer the tables
+  would allow and the console does not give, and names it: denormals kept, the multiply and the
+  add done apart, halves rounded away from nought, plus nought where the console's rounding
+  keeps minus nought. The judge's rule is one function,
+  `FMathJudge`, pinned case by case by the reference suite: a NaN expected is met by any NaN, a
+  nought by the same nought with its sign, and anything else by the budget. The NaN and infinity
+  cases hold an emulator to the console rather than to the Vulkan tables, which let a host
+  assume neither arrives; a failure there is a difference from the console, and the budget line
+  says so.
 
   Most of those carry half a unit on top of the table's figure, for the reference itself being a
   double precision answer rounded to single. Three do not, and each says why on its own line:
@@ -321,7 +354,7 @@ its dependencies put it, not at the end.
 | depth | exact | the depth test: the depth target's format and layout, the depth range set up by the viewport, and the compare operation. |
 | texture | exact | the texture and sampler descriptors: the wrap mode and filter fields, and the block linear layout a sampled image is stored in. |
 | coherence | exact | a cache between two uses of the same memory. In an emulator: the texture cache not marking an image the graphics unit wrote as modified, or missing a processor write to one (`texture_cache/texture_cache.h`, `MarkModification`, `WriteMemory`); the buffer cache serving a uniform buffer the processor rewrote, or dropping an update pushed inside the list (`buffer_cache/buffer_cache.h`, `Maxwell3D::ProcessCBData`); the copy engine's writes not reaching the images it overlaps (`engines/maxwell_dma.cpp`), or a render target not flushed before the copy engine reads it; or two formats over one memory joined as a conversion rather than a view (`texture_cache/texture_cache.h`, `JoinImages`). The region two pixels that still hold region one's contents say which. |
-| fmath | units in the last place | the float side of the shader translator, and the transcendental unit behind it. This is the only suite where two correct machines are allowed to differ, which is why it is last. |
+| fmath | units in the last place | the float side of the shader translator, and the transcendental unit behind it; for the edge cases, the minimum and maximum's NaN rule, denormal handling and the rounding modes. This is the only suite where two correct machines are allowed to differ, which is why it is last. |
 
 What comes next, in this order, each one its own change with its own critic:
 
@@ -477,7 +510,7 @@ like a rendering fault or like the judge being wrong.
 three seconds. It is the same run up to the report closing, and then it stops.
 
 What the screen holds is every case that compared pixels, pass or fail, which on a full run is
-185 of the 370 and is the number the heading counts in. The other 185 compared nothing the
+198 of the 388 and is the number the heading counts in. The other 190 compared nothing the
 graphics unit produced and have no picture to show. A case that failed before it read a target
 back has no picture either, so it is not in the list; when that happens the screen says how
 many of the run's failures are missing from it rather than letting the count quietly disagree.
