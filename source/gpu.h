@@ -20,8 +20,8 @@ extern "C" {
 typedef struct {
     uint32_t width;
     uint32_t height;
-    /// What the colour target holds. Every format used here is four bytes per pixel, which is
-    /// what keeps the readback a single tight copy.
+    /// What the colour target holds: any format GpuFormatBytes knows the size of. The readback
+    /// is one tight copy at that size.
     DkImageFormat color_format;
     /// DkImageFormat_None for no depth target.
     DkImageFormat depth_format;
@@ -38,6 +38,9 @@ typedef struct {
     /// Bytes of memory the processor reaches through its data cache, for pitch linear textures
     /// whose writes have to be flushed before the graphics unit can see them.
     uint32_t cpu_cached_size;
+    /// The widest pixel the suite will read back from an image of its own at the main target's
+    /// size, when that is wider than the main target's. Zero means only the main target's.
+    uint32_t readback_bytes_per_pixel;
 } GpuSpec;
 
 /// Everything a test needs to draw into an offscreen target and read the result back.
@@ -51,6 +54,7 @@ typedef struct {
     DkCmdBuf cmdbuf;
     DkMemBlock image_memory; ///< the colour render target
     DkMemBlock read_memory;  ///< CPU-visible destination for readback
+    uint32_t read_size;      ///< how many bytes it holds
     DkImage image;
     DkImageLayout layout;
 
@@ -87,6 +91,10 @@ typedef struct {
     float u, v;       ///< texture coordinates, ignored by the cases that do not sample
     float r, g, b, a; ///< flat, so the fragment receives it unaltered
 } GpuVertex;
+
+/// The bytes one pixel of @p format occupies, for the colour formats a target can have and the
+/// four byte depth format. Nought for anything else, which GpuOpenSpec refuses.
+uint32_t GpuFormatBytes(DkImageFormat format);
 
 /// Fills @p spec with a colour-only target and nothing else.
 void GpuSpecDefaults(GpuSpec *spec, uint32_t width, uint32_t height);
@@ -152,6 +160,11 @@ const uint8_t *GpuReadBackDepth(GpuContext *gpu);
 /// The same for any four byte image of @p width by @p height, no larger than the main target.
 const uint8_t *GpuReadBackImage(GpuContext *gpu, const DkImage *image, uint32_t width,
                                 uint32_t height);
+
+/// The same for an image of any size GpuFormatBytes knows, @p bytes_per_pixel wide, packed in
+/// row order. Refused with a sentence when it would not fit the readback block.
+const uint8_t *GpuReadBackImageBytes(GpuContext *gpu, const DkImage *image, uint32_t width,
+                                     uint32_t height, uint32_t bytes_per_pixel);
 
 /// Copies a compiled shader module into code memory and initialises @p out from it.
 ///
