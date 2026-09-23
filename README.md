@@ -401,6 +401,11 @@ a boot. It also covers what is written and drawn around a verdict, which has no 
 either: the picture writer against a fixture it then parses back, and the detailed mode's layout
 and navigation against a frame composed in ordinary memory.
 
+Commit messages have a convention too: `gfxprobe: what changed`, one to three lines of intent,
+one Signed-off-by that is also the author and the committer, ASCII, no merges. `git config
+core.hooksPath hooks` once per clone turns the check on; `sh hooks/test-commit-msg.sh` shows
+what it accepts and `--history <range>` runs it over existing commits.
+
 ## Running it under an emulator
 
 ```sh
