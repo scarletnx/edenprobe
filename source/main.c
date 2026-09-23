@@ -52,6 +52,7 @@ int main(int argc, char **argv) {
     const uint32_t families = ModeFamiliesToRun(&mode, MODE_FAMILIES_PRESENT);
     if ((families & MODE_FAMILY_GRAPHICS) != 0u) {
         RunClear();
+        RunFormat();
         RunRaster();
         RunIntmath();
         RunBlend();

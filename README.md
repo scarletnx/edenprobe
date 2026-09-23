@@ -36,7 +36,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Eleven suites, in the order they run, because each leans on the ones before it. A run is 259
+Twelve suites, in the order they run, because each leans on the ones before it. A run is 330
 cases.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -58,7 +58,7 @@ cases.
   whole idea: the diff picture is built from what the judge decided pixel by pixel and not from
   comparing the two images, so a pixel that differs and was allowed to is not painted as a
   difference. Every line is the none tier, because none of it is a claim about a machine.
-- **reference**, sixty nine cases, no hardware involved either. The other half of the judge: where
+- **reference**, seventy six cases, no hardware involved either. The other half of the judge: where
   clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
   the centres that sit exactly on the edge they share. It runs in both builds, because a
   reference that answered differently on the two processors would be blamed on the graphics unit.
@@ -69,6 +69,14 @@ cases.
   than inside a float case. Three of its cases are about the blend table rather than about
   arithmetic: that no case asks the graphics library for something it does not send, and that
   what the table gave up in exchange is still covered. The blend suite below says why.
+  Seven of its cases pin the rules the format suite judges by: the clear and drawn pixel of all
+  sixty formats, worked out from each format's name by a separate script
+  (`tools/format-pixels.py`, which prints the table the test holds) that shares no code with
+  `formatref.c`, every format's fields against its pixel, the half, small float and sRGB
+  conversions inverted over every code they have, and the quad covering exactly its rectangle.
+  One of those caught the emulator's processor rather than its graphics unit: under Eden, `rint`,
+  which is a single `frintx`, rounds 1024.5 to 1025 with the rounding mode at nearest, where the
+  architecture gives 1024, so the format reference rounds its halves by hand.
 - **clear**, five cases, on the graphics unit: one that reports whether the graphics device came
   up at all, at no tier because it compares nothing, and four that draw. Each of the four clears a
   64 by 64 RGBA8 target and copies all 4096 pixels back to compare them. Three cover the whole
@@ -79,6 +87,48 @@ cases.
   three before it cannot catch a transposed, flipped or shuffled readback and this one can. All
   four are Exact tier: the format is integer and every clear value is a constant, so each channel
   has exactly one right byte.
+- **format**, sixty four cases, on the graphics unit. Every colour format the graphics library can
+  render to, sixty of them: one to four channels, eight to thirty two bits, normalised, signed
+  normalised, integer, signed integer, float, the two small floats of RG11B10, sRGB, the packed
+  RGB10A2 and the blue first sixteen bit ones, and the X formats whose fourth channel is stored
+  and not defined. Each gets its own 32 by 32 target, cleared to one value, with a quad drawn
+  over a rectangle of it (x 4 to 20, y 12 to 28, aligned to nothing and not centred) with a
+  second value out of a uniform buffer, and every pixel read back at the format's own size and
+  compared with what `source/formatref.c` says the format stores there: the drawn value inside,
+  the clear outside. The four other cases are the bring-up and a check that the reference's
+  table and the library's formats are paired by name.
+
+  The layout rule is one line: a format's name lists its fields from the least significant bit
+  up, little endian, so RGBA8 is red in the first byte and BGR565 is blue in bits 0 to 4 and red
+  in 11 to 15. The conversion rules are the specification's: clamp and round to the nearest code
+  for normalised channels, minus one as minus the largest code (never the one below it), the low
+  bits of an integer, binary16 and the small floats rounded to nearest even, and the sRGB curve
+  before the normalised rule. The values are chosen so that each rule has one answer. The
+  specification's conversion must return the integer its product lands on exactly and may
+  otherwise pick either neighbour, so every normalised value is the nearest float to a code over
+  the largest code, and its product with the largest code in single precision is exactly that
+  code, for every code used at every width from 1 to 16 bits; the reference suite checks it. The
+  sRGB values decode from a code and encode back within three millionths of it. The drawn value
+  also carries one channel above the range and one below it, so both clamps are judged; the
+  integer ones are the golden ratio's word and its complement, so every stored bit changes; the
+  float ones are exactly representable, including the largest half, the smallest normal and an
+  infinity, and no denormal, which a target may flush. Integer and normalised formats are Exact;
+  the float ones report the units in the last place tier at a budget of nought. sRGB clears use
+  nought and one, which encode to themselves, so whether a clear goes through the curve decides
+  nothing.
+
+  The formats the library refuses as a target are named in a note with the reason, not left out
+  quietly: the twelve byte RGB32 ones, the sampling only packed ones, the shared exponent one,
+  the compressed ones and the depth ones. A failing case says how many pixels were wrong, the
+  first one's bytes against the expected ones under the mask of defined bits, and how many
+  inside the quad still hold the clear value and outside hold the drawn one, which separates a
+  conversion from a coverage fault. In an emulator a failure here points at the format tables:
+  the render target format mapping and the host format it becomes (`video_core/surface.cpp`,
+  `video_core/renderer_vulkan/maxwell_to_vk.cpp`), the clear of that format, or the fragment
+  output's type for it. Run against the emulator build from before the integer target fix
+  (`eden-cli-dacd0e59f2`), every one of the 25 integer formats fails, and only outside the quad:
+  the clear wrote the wrong bits and the draw was right, which is the defect that fix addressed,
+  now seen for every integer format rather than for R32_Uint alone.
 - **raster**, ten cases, on the graphics unit. A triangle or a quad drawn in one flat colour
   through a vertex and a fragment shader compiled into the binary, with every pixel compared to
   what the coverage rule says. Exact for pixels at least half a pixel from every edge, position
@@ -233,6 +283,7 @@ its dependencies put it, not at the end.
 | support | none, no hardware | what is written and drawn around a verdict, never a verdict. |
 | reference | none, no hardware | the expected answers: the coverage rule, the blend arithmetic, the texel address. The judge, not the machine. |
 | clear | exact | the render target's memory layout and the path that copies it back. Everything below draws into that same target. |
+| format | exact, ulp for floats | the render target format mapping for one format: its host format, its clear and its fragment output type. In an emulator: `video_core/surface.cpp` and `maxwell_to_vk.cpp`, and the clear of an integer target. Inside or outside the quad tells a conversion from a coverage fault. |
 | raster | position for edges, exact for interiors | vertex fetch, the clip space to screen space transform, and the coverage rule. In an emulator: the viewport registers, the y direction, the half pixel offset, and the fill rule the host rasteriser is asked for. |
 | intmath | exact | the shader translator, bit for bit, and the delivery of the fragment's own coordinate. In an emulator: one wrongly decoded instruction, or an integer render target mapped to a normalised host format. |
 | blend | exact | the fixed function blend unit: the equation and factor registers, and the rounding on the way back to eight bits. |
@@ -243,14 +294,6 @@ its dependencies put it, not at the end.
 
 What comes next, in this order, each one its own change with its own critic:
 
-- **format**, a suite right after clear: every colour format the graphics library can render to
-  and read back, eight to thirty two bits, one to four channels, integer, normalised and float,
-  each cleared to one value and drawn over with another, judged exactly or in units in the last
-  place. `R32_Uint` is the known failure on Eden, and the suite is built to show it as one
-  failing case among passing neighbours. With it, `intmath` and `fmath` grow: conversions,
-  packing, shifts past the width, signed division, bit operations, fused rounding, NaN and
-  infinity through the minimum and the maximum, denormals, and the edges of the exponential and
-  the logarithm, every budget stated and justified where it is set.
 - **time per case**: each drawing case records how long its draw and readback took, repeated
   until two runs on one machine agree within a tenth, with a summary per suite and a script that
   lists what moved between two reports. Nothing a verdict depends on changes.
@@ -403,7 +446,7 @@ like a rendering fault or like the judge being wrong.
 three seconds. It is the same run up to the report closing, and then it stops.
 
 What the screen holds is every case that compared pixels, pass or fail, which on a full run is
-96 of the 259 and is the number the heading counts in. The other 163 compared nothing the
+156 of the 330 and is the number the heading counts in. The other 174 compared nothing the
 graphics unit produced and have no picture to show. A case that failed before it read a target
 back has no picture either, so it is not in the list; when that happens the screen says how
 many of the run's failures are missing from it rather than letting the count quietly disagree.
@@ -443,7 +486,7 @@ is not a letter between them, one per line or all on one:
 | `quick` | the automatic run: every suite, the report, exit |
 | `detailed` | detailed even beside `quick`, the same as holding X |
 | `images` | a picture for every drawing case, passing ones too, on either mode |
-| `graphics` | the graphics family: the eight drawing suites, clear to fmath; selfcheck, support and reference always run, whatever family is named |
+| `graphics` | the graphics family: the nine drawing suites, clear to fmath; selfcheck, support and reference always run, whatever family is named |
 | `net` | a suite family that is not in this build yet; named so a file written for a later build is reported rather than refused |
 
 Families choose what runs beyond the judge. None named means every family this build has;

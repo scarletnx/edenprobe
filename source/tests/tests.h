@@ -30,6 +30,10 @@ void RunReference(void);
 /// gate that keeps gpu.c out of that build.
 void RunClear(void);
 
+/// Every colour format a target can have, cleared, drawn over and read back. Right after clear,
+/// which proves the one format everything else draws into.
+void RunFormat(void);
+
 /// Where geometry lands: coverage, the fill rule, the viewport and the scissor. Everything
 /// below it in the order draws, so it runs first among the suites that do.
 void RunRaster(void);

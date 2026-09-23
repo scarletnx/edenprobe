@@ -10,6 +10,7 @@
 #include "../check.h"
 #include "../coherref.h"
 #include "../fmathref.h"
+#include "../formatref.h"
 #include "../intref.h"
 #include "../raster.h"
 #include "../texref.h"
@@ -1334,6 +1335,416 @@ static void CheckCoherenceRules(void) {
                "%u texels agree between two seeds", (unsigned)shared);
 }
 
+
+/// What a format stores: whole pixels worked out by hand, the rules one at a time, and the
+/// properties that make every normalised case exact.
+static void CheckFormats(void) {
+    CHECK_TRUE(SUITE, "the format table has the sixty renderable colour formats", CHECK_NONE,
+               FORMAT_COUNT == 60u, "%u formats", (unsigned)FORMAT_COUNT);
+
+    // Every format's clear and drawn pixel and its defined bits, worked out from the format's
+    // name alone and the value rules restated, by tools/format-pixels.py, which shares nothing
+    // with source/formatref.c and prints this table. BGR565 drawn, for one:
+    // red 25 in bits 11 to 15, green 7 in 5 to 10, blue 31 in 0 to 4, so 0xC8FF.
+    static const struct {
+        const char *format;
+        uint8_t clear[FORMAT_MAX_BYTES];
+        uint8_t drawn[FORMAT_MAX_BYTES];
+        uint8_t mask[FORMAT_MAX_BYTES];
+    } BY_HAND[] = {
+        { "R8_Unorm", { 0x33 },
+          { 0xCC },
+          { 0xFF } },
+        { "R8_Snorm", { 0x2A },
+          { 0x9B },
+          { 0xFF } },
+        { "R8_Uint", { 0xB9 },
+          { 0x46 },
+          { 0xFF } },
+        { "R8_Sint", { 0xB9 },
+          { 0x46 },
+          { 0xFF } },
+        { "R16_Float", { 0x00, 0x38 },
+          { 0x00, 0x3E },
+          { 0xFF, 0xFF } },
+        { "R16_Unorm", { 0x33, 0x33 },
+          { 0xCC, 0xCC },
+          { 0xFF, 0xFF } },
+        { "R16_Snorm", { 0xAA, 0x2A },
+          { 0x9B, 0x99 },
+          { 0xFF, 0xFF } },
+        { "R16_Uint", { 0xB9, 0x79 },
+          { 0x46, 0x86 },
+          { 0xFF, 0xFF } },
+        { "R16_Sint", { 0xB9, 0x79 },
+          { 0x46, 0x86 },
+          { 0xFF, 0xFF } },
+        { "R32_Float", { 0x00, 0x00, 0x00, 0x3F },
+          { 0xDB, 0x0F, 0x49, 0x40 },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "R32_Uint", { 0xB9, 0x79, 0x37, 0x9E },
+          { 0x46, 0x86, 0xC8, 0x61 },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "R32_Sint", { 0xB9, 0x79, 0x37, 0x9E },
+          { 0x46, 0x86, 0xC8, 0x61 },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RG8_Unorm", { 0x33, 0x66 },
+          { 0xCC, 0x1C },
+          { 0xFF, 0xFF } },
+        { "RG8_Snorm", { 0x2A, 0xC1 },
+          { 0x9B, 0x12 },
+          { 0xFF, 0xFF } },
+        { "RG8_Uint", { 0xB9, 0x72 },
+          { 0x46, 0x8D },
+          { 0xFF, 0xFF } },
+        { "RG8_Sint", { 0xB9, 0x72 },
+          { 0x46, 0x8D },
+          { 0xFF, 0xFF } },
+        { "RG16_Float", { 0x00, 0x38, 0x00, 0xBD },
+          { 0x00, 0x3E, 0x80, 0xC0 },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RG16_Unorm", { 0x33, 0x33, 0x66, 0x66 },
+          { 0xCC, 0xCC, 0x71, 0x1C },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RG16_Snorm", { 0xAA, 0x2A, 0x01, 0xC0 },
+          { 0x9B, 0x99, 0x49, 0x12 },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RG16_Uint", { 0xB9, 0x79, 0x72, 0xF3 },
+          { 0x46, 0x86, 0x8D, 0x0C },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RG16_Sint", { 0xB9, 0x79, 0x72, 0xF3 },
+          { 0x46, 0x86, 0x8D, 0x0C },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RG32_Float", { 0x00, 0x00, 0x00, 0x3F, 0x00, 0x00, 0xA0, 0xBF },
+          { 0xDB, 0x0F, 0x49, 0x40, 0xCA, 0xF2, 0x49, 0xF1 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RG32_Uint", { 0xB9, 0x79, 0x37, 0x9E, 0x72, 0xF3, 0x6E, 0x3C },
+          { 0x46, 0x86, 0xC8, 0x61, 0x8D, 0x0C, 0x91, 0xC3 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RG32_Sint", { 0xB9, 0x79, 0x37, 0x9E, 0x72, 0xF3, 0x6E, 0x3C },
+          { 0x46, 0x86, 0xC8, 0x61, 0x8D, 0x0C, 0x91, 0xC3 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBA8_Unorm", { 0x33, 0x66, 0x99, 0xFF },
+          { 0xCC, 0x1C, 0xFF, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBA8_Snorm", { 0x2A, 0xC1, 0x81, 0x7F },
+          { 0x9B, 0x12, 0x7F, 0x81 },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBA8_Uint", { 0xB9, 0x72, 0x2B, 0xE4 },
+          { 0x46, 0x8D, 0xD4, 0x1B },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBA8_Sint", { 0xB9, 0x72, 0x2B, 0xE4 },
+          { 0x46, 0x8D, 0xD4, 0x1B },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBA16_Float", { 0x00, 0x38, 0x00, 0xBD, 0x00, 0x64, 0x80, 0xC3 },
+          { 0x00, 0x3E, 0x80, 0xC0, 0xFF, 0x7B, 0x00, 0x04 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBA16_Unorm", { 0x33, 0x33, 0x66, 0x66, 0x99, 0x99, 0xFF, 0xFF },
+          { 0xCC, 0xCC, 0x71, 0x1C, 0xFF, 0xFF, 0x00, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBA16_Snorm", { 0xAA, 0x2A, 0x01, 0xC0, 0x01, 0x80, 0xFF, 0x7F },
+          { 0x9B, 0x99, 0x49, 0x12, 0xFF, 0x7F, 0x01, 0x80 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBA16_Uint", { 0xB9, 0x79, 0x72, 0xF3, 0x2B, 0x6D, 0xE4, 0xE6 },
+          { 0x46, 0x86, 0x8D, 0x0C, 0xD4, 0x92, 0x1B, 0x19 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBA16_Sint", { 0xB9, 0x79, 0x72, 0xF3, 0x2B, 0x6D, 0xE4, 0xE6 },
+          { 0x46, 0x86, 0x8D, 0x0C, 0xD4, 0x92, 0x1B, 0x19 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBA32_Float", { 0x00, 0x00, 0x00, 0x3F, 0x00, 0x00, 0xA0, 0xBF, 0x00, 0x00, 0x80, 0x44, 0x00, 0x00, 0x70, 0xC0 },
+          { 0xDB, 0x0F, 0x49, 0x40, 0xCA, 0xF2, 0x49, 0xF1, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x80, 0x7F },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBA32_Uint", { 0xB9, 0x79, 0x37, 0x9E, 0x72, 0xF3, 0x6E, 0x3C, 0x2B, 0x6D, 0xA6, 0xDA, 0xE4, 0xE6, 0xDD, 0x78 },
+          { 0x46, 0x86, 0xC8, 0x61, 0x8D, 0x0C, 0x91, 0xC3, 0xD4, 0x92, 0x59, 0x25, 0x1B, 0x19, 0x22, 0x87 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBA32_Sint", { 0xB9, 0x79, 0x37, 0x9E, 0x72, 0xF3, 0x6E, 0x3C, 0x2B, 0x6D, 0xA6, 0xDA, 0xE4, 0xE6, 0xDD, 0x78 },
+          { 0x46, 0x86, 0xC8, 0x61, 0x8D, 0x0C, 0x91, 0xC3, 0xD4, 0x92, 0x59, 0x25, 0x1B, 0x19, 0x22, 0x87 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBX8_Unorm_sRGB", { 0x00, 0xFF, 0x00, 0x00 },
+          { 0xBC, 0x3C, 0xFF, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0x00 } },
+        { "RGBA8_Unorm_sRGB", { 0x00, 0xFF, 0x00, 0xFF },
+          { 0xBC, 0x3C, 0xFF, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGB10A2_Unorm", { 0xCC, 0x64, 0x56, 0xE6 },
+          { 0x33, 0xC7, 0xF1, 0x3F },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGB10A2_Uint", { 0xB9, 0xC9, 0xBD, 0x12 },
+          { 0x46, 0x36, 0x42, 0xED },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RG11B10_Float", { 0x80, 0x83, 0x1E, 0x84 },
+          { 0xE0, 0x03, 0x2B, 0x68 },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "RGBX8_Unorm", { 0x33, 0x66, 0x99, 0x00 },
+          { 0xCC, 0x1C, 0xFF, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0x00 } },
+        { "RGBX8_Snorm", { 0x2A, 0xC1, 0x81, 0x00 },
+          { 0x9B, 0x12, 0x7F, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0x00 } },
+        { "RGBX8_Uint", { 0xB9, 0x72, 0x2B, 0x00 },
+          { 0x46, 0x8D, 0xD4, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0x00 } },
+        { "RGBX8_Sint", { 0xB9, 0x72, 0x2B, 0x00 },
+          { 0x46, 0x8D, 0xD4, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0x00 } },
+        { "RGBX16_Float", { 0x00, 0x38, 0x00, 0xBD, 0x00, 0x64, 0x00, 0x00 },
+          { 0x00, 0x3E, 0x80, 0xC0, 0xFF, 0x7B, 0x00, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00 } },
+        { "RGBX16_Unorm", { 0x33, 0x33, 0x66, 0x66, 0x99, 0x99, 0x00, 0x00 },
+          { 0xCC, 0xCC, 0x71, 0x1C, 0xFF, 0xFF, 0x00, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00 } },
+        { "RGBX16_Snorm", { 0xAA, 0x2A, 0x01, 0xC0, 0x01, 0x80, 0x00, 0x00 },
+          { 0x9B, 0x99, 0x49, 0x12, 0xFF, 0x7F, 0x00, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00 } },
+        { "RGBX16_Uint", { 0xB9, 0x79, 0x72, 0xF3, 0x2B, 0x6D, 0x00, 0x00 },
+          { 0x46, 0x86, 0x8D, 0x0C, 0xD4, 0x92, 0x00, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00 } },
+        { "RGBX16_Sint", { 0xB9, 0x79, 0x72, 0xF3, 0x2B, 0x6D, 0x00, 0x00 },
+          { 0x46, 0x86, 0x8D, 0x0C, 0xD4, 0x92, 0x00, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00 } },
+        { "RGBX32_Float", { 0x00, 0x00, 0x00, 0x3F, 0x00, 0x00, 0xA0, 0xBF, 0x00, 0x00, 0x80, 0x44, 0x00, 0x00, 0x00, 0x00 },
+          { 0xDB, 0x0F, 0x49, 0x40, 0xCA, 0xF2, 0x49, 0xF1, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00 } },
+        { "RGBX32_Uint", { 0xB9, 0x79, 0x37, 0x9E, 0x72, 0xF3, 0x6E, 0x3C, 0x2B, 0x6D, 0xA6, 0xDA, 0x00, 0x00, 0x00, 0x00 },
+          { 0x46, 0x86, 0xC8, 0x61, 0x8D, 0x0C, 0x91, 0xC3, 0xD4, 0x92, 0x59, 0x25, 0x00, 0x00, 0x00, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00 } },
+        { "RGBX32_Sint", { 0xB9, 0x79, 0x37, 0x9E, 0x72, 0xF3, 0x6E, 0x3C, 0x2B, 0x6D, 0xA6, 0xDA, 0x00, 0x00, 0x00, 0x00 },
+          { 0x46, 0x86, 0xC8, 0x61, 0x8D, 0x0C, 0x91, 0xC3, 0xD4, 0x92, 0x59, 0x25, 0x00, 0x00, 0x00, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00 } },
+        { "BGR565_Unorm", { 0x32, 0x33 },
+          { 0xFF, 0xC8 },
+          { 0xFF, 0xFF } },
+        { "BGR5_Unorm", { 0x92, 0x19 },
+          { 0x7F, 0x64 },
+          { 0xFF, 0x7F } },
+        { "BGR5A1_Unorm", { 0x92, 0x99 },
+          { 0x7F, 0x64 },
+          { 0xFF, 0xFF } },
+        { "BGRX8_Unorm", { 0x99, 0x66, 0x33, 0x00 },
+          { 0xFF, 0x1C, 0xCC, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0x00 } },
+        { "BGRA8_Unorm", { 0x99, 0x66, 0x33, 0xFF },
+          { 0xFF, 0x1C, 0xCC, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+        { "BGRX8_Unorm_sRGB", { 0x00, 0xFF, 0x00, 0x00 },
+          { 0xFF, 0x3C, 0xBC, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0x00 } },
+        { "BGRA8_Unorm_sRGB", { 0x00, 0xFF, 0x00, 0xFF },
+          { 0xFF, 0x3C, 0xBC, 0x00 },
+          { 0xFF, 0xFF, 0xFF, 0xFF } },
+    };
+    uint32_t wrong = 0;
+    uint32_t found = 0;
+    const char *first_wrong = "";
+    for (size_t i = 0; i < sizeof(BY_HAND) / sizeof(BY_HAND[0]); ++i) {
+        const FormatInfo *format = NULL;
+        for (uint32_t f = 0; f < FORMAT_COUNT; ++f) {
+            if (strcmp(FORMAT_TABLE[f].name, BY_HAND[i].format) == 0) {
+                format = &FORMAT_TABLE[f];
+            }
+        }
+        bool right = false;
+        if (format != NULL) {
+            ++found;
+            uint8_t clear[FORMAT_MAX_BYTES];
+            uint8_t drawn[FORMAT_MAX_BYTES];
+            uint8_t mask[FORMAT_MAX_BYTES];
+            const FormatValue clear_value = FormatClearValue(format);
+            const FormatValue drawn_value = FormatDrawValue(format);
+            FormatPack(format, &clear_value, clear, mask);
+            FormatPack(format, &drawn_value, drawn, mask);
+            right = memcmp(clear, BY_HAND[i].clear, format->bytes) == 0 &&
+                    memcmp(drawn, BY_HAND[i].drawn, format->bytes) == 0 &&
+                    memcmp(mask, BY_HAND[i].mask, format->bytes) == 0;
+        }
+        if (!right) {
+            if (wrong == 0) {
+                first_wrong = BY_HAND[i].format;
+            }
+            ++wrong;
+        }
+    }
+    CHECK_TRUE(SUITE, "every format packs the pixels worked out from its name", CHECK_NONE,
+               wrong == 0 && found == FORMAT_COUNT,
+               "%u of %u disagreed, first %s; %u of the %u formats were in the list",
+               (unsigned)wrong, (unsigned)(sizeof(BY_HAND) / sizeof(BY_HAND[0])), first_wrong,
+               (unsigned)found, (unsigned)FORMAT_COUNT);
+
+    // Over every format: the fields fit the pixel and do not overlap, the defined bits are the
+    // fields' bits and nothing else, every unorm and snorm value times its largest code is a
+    // code in single precision and every sRGB one within a thousandth of one, and the clear and
+    // the drawn value differ in every channel the format stores.
+    uint32_t layout = 0;
+    uint32_t margin = 0;
+    uint32_t same = 0;
+    double worst_margin = 0.0;
+    const char *first_bad = "";
+    for (uint32_t f = 0; f < FORMAT_COUNT; ++f) {
+        const FormatInfo *format = &FORMAT_TABLE[f];
+        uint8_t claimed[FORMAT_MAX_BYTES] = { 0 };
+        uint32_t field_bits = 0;
+        bool bad = format->bytes == 0u || format->bytes > FORMAT_MAX_BYTES;
+        for (uint32_t c = 0; c < 5u; ++c) {
+            const FormatField *field = c < 4u ? &format->channel[c] : &format->undefined;
+            if (field->kind == FORMAT_UNUSED) {
+                continue;
+            }
+            for (uint32_t bit = field->shift; bit < (uint32_t)field->shift + field->bits; ++bit) {
+                if (bit >= format->bytes * 8u || (claimed[bit / 8u] >> (bit % 8u)) & 1u) {
+                    bad = true;
+                    break;
+                }
+                claimed[bit / 8u] |= (uint8_t)(1u << (bit % 8u));
+            }
+            if (c < 4u) {
+                field_bits += field->bits;
+            }
+        }
+        const FormatValue clear = FormatClearValue(format);
+        const FormatValue drawn = FormatDrawValue(format);
+        uint8_t bytes[FORMAT_MAX_BYTES];
+        uint8_t mask[FORMAT_MAX_BYTES];
+        FormatPack(format, &clear, bytes, mask);
+        uint32_t mask_bits = 0;
+        for (uint32_t i = 0; i < FORMAT_MAX_BYTES; ++i) {
+            mask_bits += (uint32_t)__builtin_popcount(mask[i]);
+        }
+        if (mask_bits != field_bits) {
+            bad = true;
+        }
+        if (bad) {
+            if (layout == 0) {
+                first_bad = format->name;
+            }
+            ++layout;
+        }
+        for (uint32_t c = 0; c < 4u; ++c) {
+            const FormatField *field = &format->channel[c];
+            if (field->kind == FORMAT_UNUSED) {
+                continue;
+            }
+            for (uint32_t which = 0; which < 2u; ++which) {
+                const uint32_t word = which == 0u ? clear.word[c] : drawn.word[c];
+                if (field->kind == FORMAT_SRGB) {
+                    const double off =
+                        FormatCodeMargin((FormatKind)field->kind, field->bits, word);
+                    if (off > worst_margin) {
+                        worst_margin = off;
+                    }
+                    if (off > 0.001) {
+                        ++margin;
+                    }
+                } else if (!FormatCodeExact((FormatKind)field->kind, field->bits, word)) {
+                    ++margin;
+                }
+            }
+            if (FormatEncodeField((FormatKind)field->kind, field->bits, clear.word[c]) ==
+                FormatEncodeField((FormatKind)field->kind, field->bits, drawn.word[c])) {
+                ++same;
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "every format's fields fit its pixel and the mask is exactly them",
+               CHECK_NONE, layout == 0, "%u formats broke it, first %s", (unsigned)layout,
+               first_bad);
+    CHECK_TRUE(SUITE, "every normalised value times its largest code is a code in single "
+               "precision", CHECK_NONE, margin == 0,
+               "%u values were not; the worst sRGB one was %.6f of a code from its code",
+               (unsigned)margin, worst_margin);
+    CHECK_TRUE(SUITE, "the clear and the drawn value differ in every stored channel",
+               CHECK_NONE, same == 0, "%u channels store the same code for both",
+               (unsigned)same);
+
+    // The conversions on their own, against their inverses over every code they have.
+    uint32_t half = 0;
+    for (uint32_t h = 0; h < 0x10000u; ++h) {
+        const float value = FormatFloatFromHalf(h);
+        if (!isnan(value) && FormatHalfFromFloat(value) != h) {
+            ++half;
+        }
+    }
+    uint32_t small = 0;
+    for (uint32_t bits = 10u; bits <= 11u; ++bits) {
+        for (uint32_t code = 0; code < (1u << bits); ++code) {
+            const float value = FormatFloatFromUfloat(code, bits);
+            if (!isnan(value) && FormatUfloatFromFloat(value, bits) != code) {
+                ++small;
+            }
+        }
+    }
+    uint32_t srgb = 0;
+    for (uint32_t code = 0; code < 256u; ++code) {
+        const double linear = FormatSrgbDecode((double)code / 255.0);
+        if (FormatEncodeField(FORMAT_SRGB, 8u, 0u) != 0u ||
+            FormatUnorm(FormatSrgbEncode((double)(float)linear), 8u) != code) {
+            ++srgb;
+        }
+    }
+    // Rounding at the ends: the largest half and a value past it, a half-way value to even, and
+    // minus one and below it in snorm. Each one named, so a runtime that disagrees says where.
+    const struct {
+        bool held;
+        const char *what;
+    } ENDS[] = {
+        { FormatHalfFromFloat(65504.0f) == 0x7BFFu, "65504 is the largest half" },
+        { FormatHalfFromFloat(65520.0f) == 0x7C00u, "65520 rounds up to infinity" },
+        { FormatHalfFromFloat(1.0f + 1.0f / 2048.0f) == 0x3C00u, "a tie rounds down to even" },
+        { FormatHalfFromFloat(1.0f + 3.0f / 2048.0f) == 0x3C02u, "a tie rounds up to even" },
+        { FormatSnorm(-1.0, 8u) == 0x81u, "minus one is -127" },
+        { FormatSnorm(-2.0, 8u) == 0x81u, "minus two clamps to -127" },
+        { FormatSnorm(1.0, 16u) == 0x7FFFu, "one is 32767" },
+        { FormatUnorm(1.5, 5u) == 31u, "1.5 clamps to the largest code" },
+        { FormatUfloatFromFloat(-1.0f, 11u) == 0u, "a negative small float is nought" },
+    };
+    uint32_t ends_broken = 0;
+    const char *first_end = "";
+    for (size_t i = 0; i < sizeof(ENDS) / sizeof(ENDS[0]); ++i) {
+        if (!ENDS[i].held) {
+            if (ends_broken == 0) {
+                first_end = ENDS[i].what;
+            }
+            ++ends_broken;
+        }
+    }
+    CHECK_TRUE(SUITE, "the format conversions invert over every code and round at the ends",
+               CHECK_NONE, half == 0 && small == 0 && srgb == 0 && ends_broken == 0,
+               "%u halves, %u small floats and %u sRGB codes failed to come back; %u end cases "
+               "did not hold, first \"%s\"",
+               (unsigned)half, (unsigned)small, (unsigned)srgb, (unsigned)ends_broken, first_end);
+
+    // The quad, projected by the rasterisation rule with a margin that no legal implementation
+    // could argue with, covers exactly the rectangle the judge expects the drawn value in.
+    float clip[12];
+    FormatQuadClip(clip);
+    const RasterViewport viewport = { 0.0f, 0.0f, (float)FORMAT_TARGET_SIZE,
+                                      (float)FORMAT_TARGET_SIZE };
+    RasterTriangle first_half;
+    RasterTriangle second_half;
+    RasterTriangleFromClip(&first_half, &viewport, clip);
+    RasterTriangleFromClip(&second_half, &viewport, clip + 6);
+    uint32_t misplaced = 0;
+    for (uint32_t y = 0; y < FORMAT_TARGET_SIZE; ++y) {
+        for (uint32_t x = 0; x < FORMAT_TARGET_SIZE; ++x) {
+            const RasterVerdict a = RasterClassifyPixel(&first_half, x, y, 0.25);
+            const RasterVerdict b = RasterClassifyPixel(&second_half, x, y, 0.25);
+            const bool inside = a == RASTER_INSIDE || b == RASTER_INSIDE;
+            // A centre on the diagonal the two halves share is inside one of them by the fill
+            // rule; anywhere else near an edge would be a pixel the judge could not claim.
+            const bool near_outer_edge =
+                (a == RASTER_NEAR_EDGE && b == RASTER_OUTSIDE) ||
+                (b == RASTER_NEAR_EDGE && a == RASTER_OUTSIDE);
+            const bool covered = inside || RasterCovers(&first_half, x + 0.5, y + 0.5) ||
+                                 RasterCovers(&second_half, x + 0.5, y + 0.5);
+            if (near_outer_edge || covered != FormatInsideQuad(x, y)) {
+                ++misplaced;
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "the format quad covers exactly its rectangle, no centre near its edges",
+               CHECK_NONE, misplaced == 0, "%u of %u pixels disagreed", (unsigned)misplaced,
+               (unsigned)(FORMAT_TARGET_SIZE * FORMAT_TARGET_SIZE));
+}
+
 void RunReference(void) {
     CheckViewportTransform();
     CheckCoverageRule();
@@ -1346,4 +1757,5 @@ void RunReference(void) {
     CheckTextureCoordinates();
     CheckCoherenceRules();
     CheckFloatArithmetic();
+    CheckFormats();
 }

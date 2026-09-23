@@ -24,8 +24,9 @@
 // their own alignment instead.
 #define SCRATCH_ALIGNMENT 256u
 
-// The four bytes every format in this suite occupies. Stated once so the readback block, the
-// copy pitch and the pixel stepping in every case cannot drift apart.
+// The four bytes the formats the older suites use occupy: the staging for texture uploads and
+// the pitch of the processor-written images are sized off it. The format suite's targets name
+// their own size through GpuFormatBytes.
 #define TARGET_BYTES_PER_PIXEL 4u
 
 /// deko3d does not report failure by returning: its constructors call libnx's abort and never
@@ -72,22 +73,76 @@ static uint32_t RoundUpTo(uint32_t value, uint32_t alignment) {
     return (value + alignment - 1u) & ~(alignment - 1u);
 }
 
-/// Whether a format is one this file knows how to size, clear and copy.
-///
-/// Every entry is four bytes wide, which is what lets one readback block and one copy pitch serve
-/// every suite; another width would need both reconsidered, not a line added here.
-static bool FormatIsFourBytes(DkImageFormat format) {
+uint32_t GpuFormatBytes(DkImageFormat format) {
     switch (format) {
-    case DkImageFormat_RGBA8_Unorm:
-    case DkImageFormat_RGBA8_Uint:
-    case DkImageFormat_RGBA8_Sint:
+    case DkImageFormat_R8_Unorm:
+    case DkImageFormat_R8_Snorm:
+    case DkImageFormat_R8_Uint:
+    case DkImageFormat_R8_Sint:
+        return 1u;
+    case DkImageFormat_R16_Float:
+    case DkImageFormat_R16_Unorm:
+    case DkImageFormat_R16_Snorm:
+    case DkImageFormat_R16_Uint:
+    case DkImageFormat_R16_Sint:
+    case DkImageFormat_RG8_Unorm:
+    case DkImageFormat_RG8_Snorm:
+    case DkImageFormat_RG8_Uint:
+    case DkImageFormat_RG8_Sint:
+    case DkImageFormat_BGR565_Unorm:
+    case DkImageFormat_BGR5_Unorm:
+    case DkImageFormat_BGR5A1_Unorm:
+        return 2u;
     case DkImageFormat_R32_Float:
     case DkImageFormat_R32_Uint:
     case DkImageFormat_R32_Sint:
+    case DkImageFormat_RG16_Float:
+    case DkImageFormat_RG16_Unorm:
+    case DkImageFormat_RG16_Snorm:
+    case DkImageFormat_RG16_Uint:
+    case DkImageFormat_RG16_Sint:
+    case DkImageFormat_RGBA8_Unorm:
+    case DkImageFormat_RGBA8_Snorm:
+    case DkImageFormat_RGBA8_Uint:
+    case DkImageFormat_RGBA8_Sint:
+    case DkImageFormat_RGBX8_Unorm:
+    case DkImageFormat_RGBX8_Snorm:
+    case DkImageFormat_RGBX8_Uint:
+    case DkImageFormat_RGBX8_Sint:
+    case DkImageFormat_RGBX8_Unorm_sRGB:
+    case DkImageFormat_RGBA8_Unorm_sRGB:
+    case DkImageFormat_RGB10A2_Unorm:
+    case DkImageFormat_RGB10A2_Uint:
+    case DkImageFormat_RG11B10_Float:
+    case DkImageFormat_BGRX8_Unorm:
+    case DkImageFormat_BGRA8_Unorm:
+    case DkImageFormat_BGRX8_Unorm_sRGB:
+    case DkImageFormat_BGRA8_Unorm_sRGB:
     case DkImageFormat_ZF32:
-        return true;
+        return 4u;
+    case DkImageFormat_RG32_Float:
+    case DkImageFormat_RG32_Uint:
+    case DkImageFormat_RG32_Sint:
+    case DkImageFormat_RGBA16_Float:
+    case DkImageFormat_RGBA16_Unorm:
+    case DkImageFormat_RGBA16_Snorm:
+    case DkImageFormat_RGBA16_Uint:
+    case DkImageFormat_RGBA16_Sint:
+    case DkImageFormat_RGBX16_Float:
+    case DkImageFormat_RGBX16_Unorm:
+    case DkImageFormat_RGBX16_Snorm:
+    case DkImageFormat_RGBX16_Uint:
+    case DkImageFormat_RGBX16_Sint:
+        return 8u;
+    case DkImageFormat_RGBA32_Float:
+    case DkImageFormat_RGBA32_Uint:
+    case DkImageFormat_RGBA32_Sint:
+    case DkImageFormat_RGBX32_Float:
+    case DkImageFormat_RGBX32_Uint:
+    case DkImageFormat_RGBX32_Sint:
+        return 16u;
     default:
-        return false;
+        return 0u;
     }
 }
 
@@ -270,7 +325,13 @@ static const char *BringUp(GpuContext *gpu) {
     // Uncached to the processor on purpose: the driver offers no way to drop a processor read,
     // so a cached block would hand back whatever the data cache held from before the copy, and
     // a stale readback is the one failure this suite must never report as a pass.
-    problem = MakeBlock(gpu, &gpu->read_memory, gpu->width * gpu->height * TARGET_BYTES_PER_PIXEL,
+    // As large as the widest of the main target and whatever the spec says it will read back
+    // from its own images, which is what lets one block serve every format a suite renders to.
+    gpu->read_size = gpu->width * gpu->height *
+                     (gpu->spec.readback_bytes_per_pixel > gpu->bytes_per_pixel
+                          ? gpu->spec.readback_bytes_per_pixel
+                          : gpu->bytes_per_pixel);
+    problem = MakeBlock(gpu, &gpu->read_memory, gpu->read_size,
                         DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached,
                         "no memory for the readback");
     if (problem != NULL) {
@@ -358,22 +419,22 @@ bool GpuOpenSpec(GpuContext *gpu, const GpuSpec *spec) {
     gpu->spec = *spec;
     gpu->width = spec->width;
     gpu->height = spec->height;
-    gpu->bytes_per_pixel = TARGET_BYTES_PER_PIXEL;
+    gpu->bytes_per_pixel = GpuFormatBytes(spec->color_format);
 
     if (gpu->width == 0u || gpu->height == 0u || gpu->width > MAXIMUM_DIMENSION ||
         gpu->height > MAXIMUM_DIMENSION) {
         return Fail(gpu, "target size out of range");
     }
-    if (!FormatIsFourBytes(spec->color_format)) {
-        return Fail(gpu, "colour format is not one of the four byte formats this file handles");
+    if (gpu->bytes_per_pixel == 0u) {
+        return Fail(gpu, "colour format is not one this file knows the size of");
     }
-    if (spec->depth_format != DkImageFormat_None && !FormatIsFourBytes(spec->depth_format)) {
+    if (spec->depth_format != DkImageFormat_None && GpuFormatBytes(spec->depth_format) != 4u) {
         return Fail(gpu, "depth format is not one of the four byte formats this file handles");
     }
     // The copy this file issues has no opinion about the pitch, since the linear stride
     // alignment binds only the 2D engine. Guarded anyway, so that every target stays usable by a
     // copy that is one flip flag away from reaching it.
-    if ((gpu->width * TARGET_BYTES_PER_PIXEL) % DK_IMAGE_LINEAR_STRIDE_ALIGNMENT != 0u) {
+    if ((gpu->width * gpu->bytes_per_pixel) % DK_IMAGE_LINEAR_STRIDE_ALIGNMENT != 0u) {
         return Fail(gpu, "target width would give a pitch a 2D engine copy could not use");
     }
 
@@ -676,10 +737,17 @@ const uint8_t *GpuReadBack(GpuContext *gpu) {
 
 const uint8_t *GpuReadBackImage(GpuContext *gpu, const DkImage *image, uint32_t width,
                                 uint32_t height) {
+    return GpuReadBackImageBytes(gpu, image, width, height, TARGET_BYTES_PER_PIXEL);
+}
+
+const uint8_t *GpuReadBackImageBytes(GpuContext *gpu, const DkImage *image, uint32_t width,
+                                     uint32_t height, uint32_t bytes_per_pixel) {
     if (gpu == NULL || !gpu->ready || image == NULL) {
         return NULL;
     }
-    if (width == 0u || height == 0u || width > gpu->width || height > gpu->height) {
+    if (width == 0u || height == 0u || bytes_per_pixel == 0u || width > gpu->width ||
+        height > gpu->height ||
+        (uint64_t)width * height * bytes_per_pixel > (uint64_t)gpu->read_size) {
         Complain(gpu, "an image larger than the readback block was read back");
         return NULL;
     }
@@ -911,7 +979,7 @@ bool GpuUploadTexture(GpuContext *gpu, const DkImage *image, DkImageFormat forma
     if (gpu == NULL || !gpu->ready) {
         return false;
     }
-    if (!FormatIsFourBytes(format)) {
+    if (GpuFormatBytes(format) != TARGET_BYTES_PER_PIXEL) {
         return Complain(gpu, "a texture was uploaded in a format this file cannot size");
     }
     DkCopyBuf source;
