@@ -389,6 +389,10 @@ void PictureFinish(const char *suite, const char *name, const char *tier, bool p
     }
 }
 
+void PictureDiscard(void) {
+    current.open = false;
+}
+
 size_t PictureCount(void) {
     return record_count;
 }

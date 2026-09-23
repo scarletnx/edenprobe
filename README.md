@@ -38,7 +38,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 ## What it checks today
 
 Eighteen suites, in the order they run, because each leans on the ones before it: the judge,
-then the graphics family, then the net family. A run is 460 cases, 410 of them the judge and
+then the graphics family, then the net family. A run is 479 cases, 429 of them the judge and
 the graphics family and 50 the net family.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -47,7 +47,7 @@ the graphics family and 50 the net family.
   a budget of every value there is, and that a budget of three units in the last place reaches
   six representable values below a power of two and three above it. If one of these fails,
   nothing else the suite says can be believed.
-- **support**, fifty three cases, no hardware and nothing of the hardware's looked at. The two
+- **support**, seventy two cases, no hardware and nothing of the hardware's looked at. The two
   things this program does around a verdict rather than to reach one: the picture it leaves
   beside a failing case, and the screen the detailed mode shows that picture on. It checks that
   a case name becomes the file name its own line says it does, that a written picture parses
@@ -56,8 +56,9 @@ the graphics family and 50 the net family.
   get a file each, that the suite takes its own fixtures away again, that the navigation and
   the layout are what the screen is made of, and that the mode file reads as the section on the
   console says: each word alone and together, a missing file, words it does not know, a family
-  this build lacks, and the ten seconds an unattended screen waits; and that a case which could
-  not ask its question is a result of its own, `skip`, counted apart. One of them carries the
+  this build lacks, and the ten seconds an unattended screen waits; that a case which could
+  not ask its question is a result of its own, `skip`, counted apart; and that the time a case
+  reports is the one its samples give (see "Time per case"). One of them carries the
   whole idea: the diff picture is built from what the judge decided pixel by pixel and not from
   comparing the two images, so a pixel that differs and was allowed to is not painted as a
   difference. Every line is the none tier, because none of it is a claim about a machine.
@@ -442,9 +443,6 @@ its dependencies put it, not at the end.
 
 What comes next, in this order, each one its own change with its own critic:
 
-- **time per case**: each drawing case records how long its draw and readback took, repeated
-  until two runs on one machine agree within a tenth, with a summary per suite and a script that
-  lists what moved between two reports. Nothing a verdict depends on changes.
 - **the net family, sharper**: a rewrite whose destination has an address of its own, so that
   the two sfdnsres rewrite cases can tell a published rewrite from the session's loopback
   redirect (today the fixture's destination is `localhost`, which the redirect also gives); and a
@@ -510,6 +508,195 @@ A run that dies halfway still leaves everything up to its last finished case, an
 line carries the counts so a runner does not have to parse the rest. The summary is the last
 line of every run but one kind: a detailed run nobody attended adds one note after it, which the
 section on the console below describes.
+
+## Time per case
+
+Every line a drawing suite reports ends with how long that case kept the graphics unit busy, in
+microseconds, and every drawing suite ends with a line that sums its cases up:
+
+```json
+{"type":"case","suite":"clear","name":"clear to transparent cyan","tier":"exact","result":"pass","detail":"","us":231}
+{"type":"perf","suite":"clear","timed":4,"total_us":7161,"min_us":192,"max_us":6530,"median_us":219,"submits":9,"samples":9}
+```
+
+**What is measured.** Every piece of work a case puts on the graphics unit goes through one
+function in `source/gpu.c`, which reads the system tick when it closes a command list and again
+when the queue stands idle after it. A case's time is the sum of those intervals since the line
+before it: its clears, its uploads, its draw and the copy that reads the target back. A line with
+no work since the previous one has no `us`: the device opening, a shader loading, a case judged
+from a readback another case already made.
+
+**What is not.** Recording the commands, the judge comparing pixels, building the line, writing
+the report and writing a picture all happen outside those intervals. A number here is the
+machine's work, not this program's, and a slower judge cannot move it.
+
+**How it is repeated.** A drawing suite runs ten times. The first is a warm-up whose numbers are
+dropped; the next eight are rehearsals with the report muted, so they write no line, count no
+case and leave no picture; the tenth is the verdict pass, the only one a reader sees, and each of
+its lines carries the smallest of that case's nine samples. The smallest because everything else
+on the machine only ever adds time to a sample. Five runs of a build that kept every sample, on
+this machine while other builds shared it, settled both choices: over the ten pairs, the minimum
+of nine put 92 percent of cases within a tenth of the other run and the median of nine 79, and
+going past nine bought almost nothing (93 at thirteen). The perf line's median is over the
+suite's cases, the middle one or between the two middle ones rounded down, and `samples` says how
+many runs each case's number is the smallest of. `submits` is how many submits the timed cases
+made in the verdict pass, for the floor below.
+
+**Why no verdict moves.** Each suite opens its own graphics device and closes it before it
+returns, so a rehearsal leaves the verdict pass nothing to inherit but the emulator's shader
+cache, which a second `make run` inherits anyway. The verdict pass is the same code it always was
+with the report open. Checked against the build before this was added, run the same way: all
+259 case lines were byte for byte the same once `"us"` was taken off, in the quick mode, the
+detailed mode and with `images`, and the 315 pictures the `images` run wrote were identical.
+Checked again on the build with the `format` suite, the grown `intmath` and `fmath` and the
+`net` family: all 460 case lines the same, failures and skips included, in six quick runs and in
+a `notime` run, and the pictures of the failures identical. The one allowance is the `detail` of
+the net family's lines, which carries the ports and buffers the run was given and differs between
+two runs of that build on its own; their suite, name, tier and result are the same.
+
+**When a rehearsal hangs.** A hang now happens in a rehearsal first, before the suite has written
+a case line, so the run says where in two places. The report carries one note before each drawing
+suite's rehearsals:
+
+```json
+{"type":"note","text":"timing depth: 1 warm-up and 8 rehearsals before the verdict pass"}
+```
+
+A report that ends on that note stopped while the suite it names was being timed. The debug
+channel, and only it, gets a line before every rehearsed case, so the emulator's log then ends on
+the case that was about to run:
+
+```
+EDENPROBE TIMING depth pass 4 case a fragment nearer than the buffer passes
+```
+
+The pass counts from one, the warm-up first. The warm-up has no pass before it to have learnt
+the names from, so its lines number the case instead, `pass 1 case number 3 after a depth clear
+writes the value it was given`, which is the case after the one named; a number one past the
+suite's last case is the work after it, closing the device. The log line means something only
+when the report ends on the timing note: a hang in the verdict pass leaves the report ending on
+the case line before the hang, as it always did, and the log's last timing line is then a stale
+one from the last rehearsal, pointing at a device that closed cleanly. On a console with no
+debugger the note is all there is. Either way, `notime` in the mode file (`make run MODE="quick
+notime"`) skips the warm-up and the rehearsals entirely: every drawing suite runs once, no case
+line carries `us`, no perf line and no timing note is written, and the mode note ends in `no
+timing passes`. That is the old drawing run case for case, plus the support cases this feature
+adds (nineteen, all checks of the timing itself), and the way to get the case line a hang stops
+at, or the old behaviour for any other reason.
+
+**What a number can see.** Every submit costs a round trip, whatever it carries. Under eden-cli,
+over the 374 case lines under two milliseconds in two runs at a load near eight, a case's time
+is about 145 microseconds plus 31 per submit, or 80 per submit taken alone (the middle half
+between 73 and 102). The targets are 64 by 64, so for most cases that round trip is the whole
+number: a case of three submits takes about 235 microseconds, which is its floor and not its
+draw. The critic proved it the direct way, on three runs of a build with one case changed each,
+40 comparisons of three runs a side:
+
+| one case changed to | its time | listed |
+|---|---|---|
+| read its target back twice | 190 to 270 microseconds to 320 to 370 | 40 of 40 |
+| clear twice | about 40 more, inside the noise | 0 of 40 |
+| draw its triangle twice, or sixteen times | no change | 0 of 40 |
+| upload its 4 by 4 texture once more | 45 to 70 more, one round trip | 0 of 40, unsteady in 20 |
+
+So under an emulator what this can watch is the readbacks and the first case of each suite,
+whose time is the device's first work (below). A clear, a draw or an upload of the size these
+suites use costs less than one round trip, about a hundred microseconds, and sits under the
+floor. The perf line's `submits` times the per-submit cost is the floor under a suite's total;
+what is above it is the work. A console's floor is unknown until one has run it.
+
+Two kinds of case are dominated by something other than their draw, and the warm-up fixes
+neither, because every pass opens a fresh device and the emulator pays again for each one:
+
+- the first case of every suite, which is the first work on a new device: 6 to 10
+  milliseconds where that work is a clear, a draw and a readback. It is not a shader being
+  compiled: the `clear` suite has no shader and pays it too. In `texture` and `coherence` the
+  first work is an upload, and that case's 2 to 2.9 milliseconds is the device's first work
+  too, not the upload, which the table above shows costs one round trip;
+- the first draw that samples a texture, 14 to 18.5 milliseconds in `texture` and `coherence`.
+
+And those two first cases are not one number at all: "the texels reach the textures" in
+`texture` and "the starting texels reach the textures" in `coherence` take 2 to 2.9 milliseconds
+in most emulator processes and anything from 60 microseconds to 1.6 milliseconds in about one in
+five, the whole process in that mode for that case. A side of three that holds one such process
+has a spread past the unsteady limit below, and with one process in five that is about half the
+sides: there perf.py cannot see a move in either case and names it as unsteady instead (the
+`texture` one was set aside in 7140 of the 9240 splits below, the `coherence` one in 4620).
+
+**How stable it is, and the method that follows.** Inside one process the smallest of nine
+samples is steady. Between processes it is not: one emulator process runs nearly every case
+about 13 percent slower than the next, now and then, and no number of samples inside a process
+can see that. So one report is one sample of the process, and a comparison takes three runs a
+side, both sides run in the same sitting:
+
+```sh
+tools/perf.py a1.jsonl a2.jsonl a3.jsonl -- b1.jsonl b2.jsonl b3.jsonl
+```
+
+A case's time on a side is its median over the three, which needs two processes to agree; the
+smallest over them was tried and lost, because the one fast process then decides the side: with
+the same limits it listed a move in 9 of 840 splits of nine runs and 16206 of 185640 of eighteen.
+A move is listed when it is more than 20 percent **and** more than 100 microseconds, and a case
+whose three runs on either side are more than 75 percent apart is named as unsteady and not
+compared.
+
+Which of the three does the work, measured on twelve runs of this build in one sitting (six at a
+load of 4 to 5.5, six at 1 to 14), every way to split them into two sides of three, 9240
+comparisons of two runs of one build:
+
+| limits | comparisons listing a move |
+|---|---|
+| 20 percent alone | 840 |
+| 20 percent and 100 microseconds | 840 |
+| 20 percent and unsteady at 100 percent, with or without the floor | 91 |
+| 20 percent, 100 microseconds, unsteady at 75: the defaults | 0 |
+| 30 percent, 100 microseconds, unsteady at 100 | 0 |
+
+The percent is the brief's 20 and is not what keeps noise out. The unsteady rule is: everything
+the lesser limits listed was one of the two first-work uploads above. At 75 it sets aside those
+two and nothing else on these twelve runs (on nine runs of the build before `format`, one
+intmath case that one process ran fast was set aside too, in 260 of 840 splits); at 50 steady
+`blend` cases start being set aside. The floor is what keeps the quarter-millisecond cases quiet
+on a noisier day: over the critic's nine runs of the build before `format`, twenty percent with
+no floor listed a move in 76 of 1680 ordered splits, and none with it. And 30 would have hidden
+a 20 to 30 percent move in exactly the cases this can watch.
+
+Agreement between the two sides, same twelve runs: cases within a tenth, 85.4 percent at worst
+and 98.0 typical; within a fifth, 99.0 at worst; suite medians within 10.1 percent. The six runs
+at a load of 4 to 5.5 alone: every case within a tenth in all ten splits, suite medians within
+4.7 percent. Six more runs of the build as it lands, with the `net` family, at a load near nine:
+no split listed a move, cases within a tenth 99.0 percent at worst, suite medians within 7.5
+percent, the `texture` upload set aside in all ten. One report a side is still accepted, for a
+quick look, but 32 of the 66 pairs of the twelve, and 8 of the 15 of the six, list a case that
+did not change.
+
+Both sides in the same sitting is part of the method, not advice. Pooling those eighteen runs,
+which came from two sittings about an hour apart at different loads, the defaults listed a move
+in 24135 of 185640 splits, nearly all of them the two first sampling draws, about 18.3
+milliseconds typical in the first sitting and 14.8 in the second: the device's first work moves
+with the machine more than anything else does. Run the two builds alternately if the machine is
+shared. The perf line and the case's `us` stay one process's figure; the method lives in the
+comparison.
+
+**Comparing two runs.**
+
+```sh
+tools/perf.py a1.jsonl a2.jsonl a3.jsonl -- b1.jsonl b2.jsonl b3.jsonl
+tools/perf.py before.jsonl after.jsonl      # one run a side
+tools/perf.py report.jsonl                  # the per-suite table of one run
+tools/perf.py r1.jsonl r2.jsonl r3.jsonl -- # the table of one side of three
+```
+
+It lists the cases that moved, largest first, then the unsteady ones, then the cases only one
+side timed, then a table per suite: cases timed, the two totals, the two medians and the change
+in each. `--threshold`, `--floor` and `--unsteady` change the three limits; each must be a
+finite number of nought or more. It reads the case lines, not the perf lines, and skips a line
+it cannot parse with a count on standard error, so a report cut off by a killed run still
+compares; a line that is not UTF-8 is skipped and counted the same way. A report with nothing
+timed, an empty file, a `notime` run or a report from before cases were timed, is refused on
+standard error with exit status 1 wherever it stands, alone or as one run of a side, rather than
+compared as a hundred percent faster; and a suite only one side timed says so in the table
+instead of a percent. Its tests run with the host suite.
 
 ## What a failing case leaves behind
 
@@ -600,11 +787,13 @@ verdict and the detail as text around them, and a key naming each of the four co
 is made of. It is for the question a verdict cannot answer, which is whether a failure looks
 like a rendering fault or like the judge being wrong.
 
-**Quick** is what a script wants: every suite, both channels, and the program exits, about
-three seconds. It is the same run up to the report closing, and then it stops.
+**Quick** is what a script wants: every suite, both channels, and the program exits, about six
+to seven seconds under eden-cli (6.4 to 7.3 in most runs at a load of 4 to 9, emulator start
+included) and up to several times that when the machine is busy. It is the
+same run up to the report closing, and then it stops.
 
 What the screen holds is every case that compared pixels, pass or fail, which on a full run is
-198 of the 460 and is the number the heading counts in. The other 262 compared nothing the
+198 of the 479 and is the number the heading counts in. The other 281 compared nothing the
 graphics unit produced and have no picture to show. A case that failed before it read a target
 back has no picture either, so it is not in the list; when that happens the screen says how
 many of the run's failures are missing from it rather than letting the count quietly disagree.
@@ -644,6 +833,7 @@ is not a letter between them, one per line or all on one:
 | `quick` | the automatic run: every suite, the report, exit |
 | `detailed` | detailed even beside `quick`, the same as holding X |
 | `images` | a picture for every drawing case, passing ones too, on either mode |
+| `notime` | no timing passes: each drawing suite runs once, and no line carries a time; see "Time per case" |
 | `graphics` | the graphics family: the nine drawing suites, clear to fmath; selfcheck, support and reference always run, whatever family is named |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
 
@@ -700,7 +890,9 @@ that a zero budget rejects them, that a NaN is never equal to anything including
 fail, nothing else the suite says can be believed, and you find out in a second instead of after
 a boot. It also covers what is written and drawn around a verdict, which has no console in it
 either: the picture writer against a fixture it then parses back, the detailed mode's layout
-and navigation against a frame composed in ordinary memory, and the words of the mode file.
+and navigation against a frame composed in ordinary memory, the words of the mode file, and the
+time a case reports. Last it runs the tests of `tools/perf.py`, which needs Python 3 and nothing
+else.
 
 Commit messages have a convention too: `edenprobe: what changed`, one to three lines of intent,
 one Signed-off-by that is also the author and the committer, ASCII, no merges. `git config

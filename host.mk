@@ -8,9 +8,9 @@ HOSTCC   ?= cc
 HOSTOUT  := build-host/edenprobe-host
 HOSTSRC  := source/report.c source/check.c source/mode.c source/picture.c source/ui.c \
             source/raster.c source/intref.c source/blendref.c source/texref.c \
-            source/fmathref.c source/coherref.c source/formatref.c source/netref.c \
-            source/tests/t_selfcheck.c source/tests/t_support.c source/tests/t_reference.c \
-            source/tests/t_netref.c \
+            source/fmathref.c source/coherref.c source/formatref.c source/netref.c source/perf.c \
+            source/tests/t_selfcheck.c source/tests/t_support.c source/tests/t_perf.c \
+            source/tests/t_reference.c source/tests/t_netref.c \
             source/host_main.c
 
 # One object per source, so the -MMD below has somewhere to put its dependency files. Without
@@ -31,10 +31,12 @@ $(HOSTOUT): $(HOSTOBJ)
 	$(HOSTCC) $(HOSTFLAGS) $(HOSTOBJ) -lm -o $@
 
 # Twice, the second from somewhere else on purpose: a path built relative to the working
-# directory works from here and nowhere else, and the suite has to be able to notice that.
+# directory works from here and nowhere else, and the suite has to be able to notice that. Then
+# the report tools, which read what the binary wrote and have tests of their own.
 host-run: $(HOSTOUT)
 	./$(HOSTOUT)
 	cd / && exec $(CURDIR)/$(HOSTOUT)
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools
 
 host-clean:
 	rm -rf build-host

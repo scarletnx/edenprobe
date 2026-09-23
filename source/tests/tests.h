@@ -18,6 +18,10 @@ void RunSelfcheck(void);
 /// anything the graphics unit produced.
 void RunSupport(void);
 
+/// The time each drawing case reports and the perf line each drawing suite ends on: the sampling,
+/// the arithmetic and the shape of both lines. Support cases, so it runs in both builds.
+void RunSupportPerf(void);
+
 /// The expected answers, checked without a graphics device: where clip space lands, which
 /// pixels a triangle covers, what a blend or a texel address works out to. Runs in both builds,
 /// because a reference that answered differently on the two processors would be blamed on the

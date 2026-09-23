@@ -15,6 +15,7 @@ int main(void) {
 
     RunSelfcheck();
     RunSupport();
+    RunSupportPerf();
     RunReference();
 
     ReportSummary();

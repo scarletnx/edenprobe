@@ -9,6 +9,7 @@
 #include <switch.h>
 
 #include "gpu.h"
+#include "perf.h"
 
 // Far more than any pass here needs, and sized for the case not yet written: a list that runs
 // out of room mid-way reads like a driver fault and is really a budget.
@@ -516,9 +517,15 @@ static void Drain(GpuContext *gpu, const char *during) {
 }
 
 /// Closes the list, sends it and waits, naming what was being done for the report.
+///
+/// Every piece of work any case puts on the graphics unit comes through here, which makes it the
+/// one place to time: from closing the list to the queue standing idle again. Reading the clock
+/// either side changes nothing the list does.
 static void SubmitAndDrain(GpuContext *gpu, const char *during) {
+    const uint64_t start = armGetSystemTick();
     dkQueueSubmitCommands(gpu->queue, dkCmdBufFinishList(gpu->cmdbuf));
     Drain(gpu, during);
+    PerfAddWork(armTicksToNs(armGetSystemTick() - start));
 }
 
 /// Binds @p image, or the main target and its depth when NULL, with a viewport and a scissor
