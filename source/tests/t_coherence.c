@@ -16,11 +16,14 @@
 // wrong: does the next reader see the last write, or a copy of what was there before.
 //
 // Every other suite draws once into memory nobody has read, so an emulator's texture, buffer and
-// render target caches never have an old answer to give. Here every case first makes the reader
-// hold the old contents (a draw samples the texture, a readback downloads the image, a draw reads
-// the uniform), then writes new contents by one path and reads them by another, in the same
-// list wherever a game would. Region one of the 64 by 64 target shows the old contents and
-// region two the new ones; the rest stays the sentinel, and every pixel is judged.
+// render target caches never have an old answer to give. Here every sampling and uniform case
+// but the first alias one first makes the reader hold the old contents (a draw samples the
+// texture, a draw reads the uniform), then writes new contents by one path and reads them by
+// another, in the same list wherever a game would; the alias redraw case after it holds them.
+// Region one of the 64 by 64 target shows the old contents and region two the new ones; the
+// rest stays the sentinel, and every pixel is judged. The render, copy and read back cases are
+// the exception: what they test is that rendered pixels are flushed before the copy engine
+// reads them.
 //
 // The synchronisation is what deko3d.h documents for each hand over, and nothing more:
 //   DkBarrier_Fragments "orders the processing of fragments (similar to Vulkan renderpasses)",
@@ -791,8 +794,10 @@ void RunCoherence(void) {
     }
 
     {
-        // The copy destination starts known, and is read back once, so a cache of its contents
-        // exists before anything replaces them.
+        // The copy destination starts known, so a copy that missed part of it shows as the old
+        // pattern. The readback does not leave a cache of it behind on every machine (an emulator
+        // may read an image the graphics unit never wrote straight from memory): what the two
+        // cases below test is that the render target is flushed before the copy engine reads it.
         static CohImage held;
         static CohImage drawn;
         CohImageInit(&held, TARGET_SIZE, TARGET_SIZE);
