@@ -1,7 +1,8 @@
 # edenprobe
 
 A test program that runs on the console and inside an emulator of it, decides for itself whether
-the graphics came out right, and writes a report you can diff between the two.
+the graphics came out right and whether the online services answered as their protocol says, and
+writes a report you can diff between the two.
 
 It is not a benchmark and not a demo. Every case computes the answer it expects and checks the
 answer it got. Nothing here needs a person to look at the screen and judge.
@@ -36,8 +37,9 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Twelve suites, in the order they run, because each leans on the ones before it. A run is 388
-cases.
+Eighteen suites, in the order they run, because each leans on the ones before it: the judge,
+then the graphics family, then the net family. A run is 460 cases, 410 of them the judge and
+the graphics family and 50 the net family.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
   unit apart, that a zero budget rejects them, that an absolute budget is the same on both sides
@@ -45,7 +47,7 @@ cases.
   a budget of every value there is, and that a budget of three units in the last place reaches
   six representable values below a power of two and three above it. If one of these fails,
   nothing else the suite says can be believed.
-- **support**, fifty two cases, no hardware and nothing of the hardware's looked at. The two
+- **support**, fifty three cases, no hardware and nothing of the hardware's looked at. The two
   things this program does around a verdict rather than to reach one: the picture it leaves
   beside a failing case, and the screen the detailed mode shows that picture on. It checks that
   a case name becomes the file name its own line says it does, that a written picture parses
@@ -54,14 +56,16 @@ cases.
   get a file each, that the suite takes its own fixtures away again, that the navigation and
   the layout are what the screen is made of, and that the mode file reads as the section on the
   console says: each word alone and together, a missing file, words it does not know, a family
-  this build lacks, and the ten seconds an unattended screen waits. One of them carries the
+  this build lacks, and the ten seconds an unattended screen waits; and that a case which could
+  not ask its question is a result of its own, `skip`, counted apart. One of them carries the
   whole idea: the diff picture is built from what the judge decided pixel by pixel and not from
   comparing the two images, so a pixel that differs and was allowed to is not painted as a
   difference. Every line is the none tier, because none of it is a claim about a machine.
-- **reference**, ninety two cases, no hardware involved either. The other half of the judge: where
-  clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
-  the centres that sit exactly on the edge they share. It runs in both builds, because a
-  reference that answered differently on the two processors would be blamed on the graphics unit.
+- **reference**, one hundred and thirteen cases, no hardware involved either. The other half of
+  the judge: where clip space lands on the target, which pixels a triangle covers, and which of
+  two triangles owns the centres that sit exactly on the edge they share. It runs in both builds,
+  because a reference that answered differently on the two processors would be blamed on the
+  graphics unit.
   It also projects the very clip space numbers the rasterisation cases hand the hardware, so what
   it proves is the geometry those cases draw and not a restatement of it, and it pins fifteen
   transcendental answers as bit patterns worked out to fifty digits away from any C library, so
@@ -85,6 +89,15 @@ cases.
   decimals, the float judge's decisions one at a time, the answer the console never gives
   refused at every pixel where it differs, where the edge operands sit, and a budget written
   down for every mode.
+  Twenty one are the net family's judge, in `source/netref.c`: the file that says what a
+  backend publishes, what each service is expected to answer from it, and every format a service
+  answers in, each fixture written out by hand from the format rather than captured from a
+  machine. The resolver's two serialisations, a certificate in PEM and in DER and whether it names
+  itself as its issuer (against bytes openssl printed), the two forms a handshake hands a
+  certificate back in, an HTTP response head, a service status document, a friend profile at the
+  offsets the guest reads, a bearer token's alphabet, a result code as the platform prints one;
+  and the expectations: what nsd and sfdnsres should answer for a name, when the sign-in wait is
+  over, a picture url's `{size}`, and what makes a profile slot the right one.
 - **clear**, five cases, on the graphics unit: one that reports whether the graphics device came
   up at all, at no tier because it compares nothing, and four that draw. Each of the four clears a
   64 by 64 RGBA8 target and copies all 4096 pixels back to compare them. Three cover the whole
@@ -327,6 +340,71 @@ cases.
   and computes nothing. The suite runs last because it is the only one where two correct
   machines are allowed to disagree.
 
+The net family asks the services a program reaches the network through, the way a game asks them,
+and judges each answer against its protocol or against what `sdmc:/edenprobe/net` says the backend
+publishes (the section on the net family below). Every line says what was expected and what came
+back, pass or fail. A case that needs a backend the file does not name, or a service this program
+cannot open, is `skip` with the reason, and counted apart from passes. The tier is exact wherever
+a value is compared and none where a line only says a service opened. Nothing waits without a
+budget of its own: every connect is non-blocking and polled for three seconds, every read is
+polled first, and every handshake, write and read over ssl runs in non-blocking mode against five
+or three seconds, so a server that drops the connection attempt or accepts and never speaks costs
+a failed case with the reason, never the run.
+
+  - **nifm**, seven cases. The service opens; a request nobody submitted says so; and, when the
+  file names a backend, the connection is reported connected, the machine has an address of its
+  own, a submitted request is accepted without being asked for its result and again when it is,
+  and while one stands the service says an internet request is accepted.
+  - **dns**, eleven cases, sfdnsres and nsd. A dotted address resolves to itself through both of
+  sfdnsres's serialisations, read by this program's own parsers; a name under `.invalid` does not
+  resolve (RFC 6761); nsd names its environment, replaces the `%` placeholder with it, and leaves
+  a plain name as it is. With a session, and only once the session answers (the fork signs in in
+  the background when the program loads, so the suite asks nsd until it gives the session's
+  answer, for at most the fork's fifteen second sign-in budget, and a note says how long it took):
+  nsd hands back the destination the backend publishes for a name, sfdnsres resolves that name to
+  the destination's address as a hostent, as addrinfo and through the C library, and a name
+  carrying the placeholder, and the name nsd expanded, both go to loopback (the contract's host
+  rewriting rules, reden's `docs/OnlineService.md`).
+  - **bsd**, eight cases. Two datagram sockets bind to loopback; a datagram goes from one to the
+  other and is sent back, arriving whole both ways and each time from the socket that sent it, so
+  the second socket is the suite's own echo through the same service; an empty socket has nothing
+  to read; a stream to a listener the suite opens carries bytes both ways; a port nothing listens
+  on refuses; a receive timeout set with `SO_RCVTIMEO` gives up with `EAGAIN` in its time (bounded
+  by a datagram another thread sends two seconds in, so a machine that ignores the option fails
+  the case and does not hang the run). With a server: a stream connects to it, and a connect that
+  does not block completes, polls writable and reports no pending error, which is what a game
+  does.
+  - **ssl**, thirteen cases. A context; a new connection's default verification (the peer and the
+  name, as libnx documents); the name set on a connection reading back; a connection taking a
+  socket and blocking mode, and saying so; a descriptor handed back by default and none with
+  `DoNotCloseSocket` (libnx's `ssl.h` on `sslConnectionSetSocketDescriptor`). With a server whose
+  certificate the file names: a verifying handshake refuses a certificate that names itself as
+  issuer, succeeds once that certificate is imported, and hands back exactly its bytes; a
+  handshake that does not verify succeeds, carries a request out whole and reads back a 200 with a
+  status document that says nothing is wrong; and the connection keeps its socket after the
+  program closes its own descriptor, since the service works on a duplicate.
+  - **acc**, six cases. acc:u0 and a user, the network account manager, and with a session: the
+  account id is the one the backend publishes, the id token refresh completes, succeeds and leaves
+  a token in the cache, the token is a bearer token (RFC 6750's alphabet) terminated inside its
+  buffer, and the cache hands back the same token again.
+  - **friend**, five cases. The service opens, and with a session: the blocked user list is the
+  backend's, a profile the backend knows comes back valid with its name and picture, one it does
+  not comes back invalid in its own slot with the id that was asked, and a picture url comes back
+  with every `{size}` replaced by the size asked for.
+
+When a session is named and never answers the sign-in wait, every session case in dns, acc and
+friend says so at the end of its detail, so a failure there reads as a sign-in that did not happen
+rather than as a fault in the service.
+
+Some expectations rest on documentation and reasoning, not on a console run yet, and a run on one
+is what would settle them: that an unknown profile's slot carries the id that was asked (the
+contract says only that it comes back invalid; the id is the fork's `profile_query.cpp`); that the
+ssl connection keeps its socket when the program closes its own descriptor (POSIX `dup`
+semantics); that a submitted nifm request is accepted by itself within three seconds (the three
+seconds are this program's); the descriptor `sslConnectionSetSocketDescriptor` hands back (libnx's
+reading of it); and nsd expanding the placeholder with no session (the contract's statement about
+the real service). Each case's detail says the same.
+
 Nothing is ever put on a screen. The target is offscreen and the program reads it back itself,
 which keeps the compositor, the swapchain and vertical sync out of a test that is about none of
 them, and keeps the first problem on a new machine from being "did the screen work".
@@ -354,17 +432,23 @@ its dependencies put it, not at the end.
 | depth | exact | the depth test: the depth target's format and layout, the depth range set up by the viewport, and the compare operation. |
 | texture | exact | the texture and sampler descriptors: the wrap mode and filter fields, and the block linear layout a sampled image is stored in. |
 | coherence | exact | a cache between two uses of the same memory. In an emulator: the texture cache not marking an image the graphics unit wrote as modified, or missing a processor write to one (`texture_cache/texture_cache.h`, `MarkModification`, `WriteMemory`); the buffer cache serving a uniform buffer the processor rewrote, or dropping an update pushed inside the list (`buffer_cache/buffer_cache.h`, `Maxwell3D::ProcessCBData`); the copy engine's writes not reaching the images it overlaps (`engines/maxwell_dma.cpp`), or a render target not flushed before the copy engine reads it; or two formats over one memory joined as a conversion rather than a view (`texture_cache/texture_cache.h`, `JoinImages`). The region two pixels that still hold region one's contents say which. |
-| fmath | units in the last place | the float side of the shader translator, and the transcendental unit behind it; for the edge cases, the minimum and maximum's NaN rule, denormal handling and the rounding modes. This is the only suite where two correct machines are allowed to differ, which is why it is last. |
+| fmath | units in the last place | the float side of the shader translator, and the transcendental unit behind it; for the edge cases, the minimum and maximum's NaN rule, denormal handling and the rounding modes. This is the only suite where two correct machines are allowed to differ, which is why it is last among the graphics suites. |
+| nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
+| dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
+| bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
+| ssl | exact | the secure connection: its defaults and getters, the descriptor it hands back, verification, an imported certificate, the handshake, and a request and its answer (`hle/service/ssl/ssl.cpp`, `ssl_backend_openssl.cpp`). |
+| acc | exact | the account a signed in session reports and the id token it caches (`hle/service/acc/acc.cpp`, `IManagerForApplication`, `EnsureIdTokenCacheAsyncInterface`). |
+| friend | exact | the blocked list and the profiles a session fetches (`hle/service/friend/{friend,profile_query}.cpp`). |
 
 What comes next, in this order, each one its own change with its own critic:
 
 - **time per case**: each drawing case records how long its draw and readback took, repeated
   until two runs on one machine agree within a tenth, with a summary per suite and a script that
   lists what moved between two reports. Nothing a verdict depends on changes.
-- **net**, the second family: the online services an emulator provides, network state, name
-  resolution, sockets, secure connections, the account token and the friends list, checked
-  against a local backend, every expectation computed from the protocol and a case that needs the
-  backend skipped, and counted as skipped, when it is absent.
+- **the net family, sharper**: a rewrite whose destination has an address of its own, so that
+  the two sfdnsres rewrite cases can tell a published rewrite from the session's loopback
+  redirect (today the fixture's destination is `localhost`, which the redirect also gives); and a
+  verifying handshake with a name the certificate does not carry, which must be refused.
 - **another emulator**: the same binary under Ryujinx, with its own keys, and the two reports
   diffed against Eden's and against a console's. Nothing in this program depends on the emulator
   it runs under, and that run is what proves it.
@@ -411,6 +495,16 @@ any drawing case that was stopped before it could compare anything, which still 
 reason in its detail. The tier describes the comparison the line carries, not the ambition of the
 case that wrote it. Calling any of those `exact` would read, in a diff, as a passing claim about
 a machine that was never asked anything.
+
+A case that could not ask its question at all, because the backend it needs is not named or the
+service it needs cannot be opened, says so with the result `skip`, the none tier and the reason
+in its detail. It is counted apart from passes and failures, because a machine that was never
+asked has agreed with nothing:
+
+```json
+{"type":"case","suite":"acc","name":"the id token refresh completes and succeeds","tier":"none","result":"skip","detail":"needs an online session: ..."}
+{"type":"summary","passed":424,"failed":9,"skipped":27}
+```
 
 A run that dies halfway still leaves everything up to its last finished case, and the summary
 line carries the counts so a runner does not have to parse the rest. The summary is the last
@@ -510,7 +604,7 @@ like a rendering fault or like the judge being wrong.
 three seconds. It is the same run up to the report closing, and then it stops.
 
 What the screen holds is every case that compared pixels, pass or fail, which on a full run is
-198 of the 388 and is the number the heading counts in. The other 190 compared nothing the
+198 of the 460 and is the number the heading counts in. The other 262 compared nothing the
 graphics unit produced and have no picture to show. A case that failed before it read a target
 back has no picture either, so it is not in the list; when that happens the screen says how
 many of the run's failures are missing from it rather than letting the count quietly disagree.
@@ -551,11 +645,12 @@ is not a letter between them, one per line or all on one:
 | `detailed` | detailed even beside `quick`, the same as holding X |
 | `images` | a picture for every drawing case, passing ones too, on either mode |
 | `graphics` | the graphics family: the nine drawing suites, clear to fmath; selfcheck, support and reference always run, whatever family is named |
-| `net` | a suite family that is not in this build yet; named so a file written for a later build is reported rather than refused |
+| `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
 
 Families choose what runs beyond the judge. None named means every family this build has;
 naming some runs those, and a named family this build does not have is listed in the mode line
-and skipped, so `net` alone today runs the three judge suites and nothing else. The judge itself,
+and skipped, so a file written for a later build is reported rather than refused. `net` alone
+runs the judge and the six net suites, which is what the fixture below writes. The judge itself,
 selfcheck, support and reference, always runs, because nothing a family reports can be believed
 without it. Any other word is reported in the mode line, quoted and counted, and ignored: a typo
 costs a line in the report, never the run.
@@ -634,7 +729,9 @@ emulator's defaults every time, which also makes two runs comparable. The target
 previous report, its pictures and the support suite's scratch directory first, so a run that
 never started cannot leave an old report looking like its own, and a green run cannot sit beside
 the pictures of an earlier failing one. An emulator path that is missing or not executable, or a
-run that leaves no report, stops the target with a line saying which, and a non-zero exit.
+run that leaves no report or a report with no summary line (the emulator is stopped at 60
+seconds, and killed ten after that), stops the target with a line saying which, and a non-zero
+exit.
 Any emulator with a different layout puts the same names under whatever it calls its memory
 card.
 
@@ -656,6 +753,83 @@ checks about the commands it is given is checked for real: a shader module it wi
 copy it will not make, a rectangle it will not clear all end the program rather than fail a case.
 A headless run that reports every case and reaches its summary has established that none of that
 happened, which is most of what can go wrong before a pixel is involved.
+
+## The net family
+
+The net family needs to know what the machine's backend promises, and a file on the memory card
+says it: `sdmc:/edenprobe/net`, one `key value` per line, `#` to the end of a line a comment, a
+line it does not understand counted and named in the report and otherwise ignored.
+
+| line | what it promises |
+|---|---|
+| `session <origin>` | an online session in the sense of reden's `docs/OnlineService.md` is configured against this backend, so the cases that ask one run |
+| `account <16 hex digits>` | the account id its `/api/v1/config` publishes |
+| `rewrite <source> <destination> <a.b.c.d>` | a rewrite it publishes, and the address the destination has |
+| `blocked <16 hex digits>` | one entry of its `/api/v1/blocked` |
+| `profile <16 hex digits> <url or -> <name>` | one entry of its `/api/v1/profiles`, the name running to the end of the line |
+| `server <a.b.c.d> <port>` | a game server reachable over TCP and TLS; an address, not a name, so a server known by name is resolved by hand first |
+| `server-name <name>` | the name to present to it, which its certificate has to carry as a subject alternative name for the verifying cases to pass |
+| `server-cert <path>` | the certificate it presents, PEM, relative to `sdmc:/edenprobe` |
+
+With no file every case that needs a backend is skipped and the rest still run: loopback sockets,
+a dotted address resolving to itself, a connection's defaults. Without a `session` line nothing
+asks acc or friend for anything that reaches a server, which on a console would be the platform's
+own. A console run against a deployed game server names `server`, `server-name` and, when the
+certificate is one no authority signed, `server-cert`, and nothing else changes: the same file
+runs there and here. By hand, for a server at 203.0.113.7 whose certificate names
+`game.example.org`, copied to the card as `sdmc:/edenprobe/game.pem`:
+
+```
+# sdmc:/edenprobe/net
+server 203.0.113.7 443
+server-name game.example.org
+server-cert game.pem
+```
+
+And every key, as the fixture below writes it for a backend here (the session lines only make
+sense against an emulator configured for that backend):
+
+```
+session http://127.0.0.1:41234
+account bb00000100000002
+rewrite game.edenprobe.invalid localhost 127.0.0.1
+blocked bb00000100000009
+blocked bb0000010000000a
+profile bb00000100000002 http://127.0.0.1:41234/avatar/{size}.png edenprobe
+server 127.0.0.1 8443
+server-name redenex
+server-cert net-server.pem
+```
+
+**Here**, `tools/net-fixture.sh` does all of it and takes it down again:
+
+```sh
+EMULATOR=/path/to/eden-cli tools/net-fixture.sh
+```
+
+It builds redenex from `REDENEX` (default `~/WorkDir/accord/redenex`) and starts it on a free port
+with a certificate it makes for the name `redenex` (as a subject alternative name), starts reden's
+reference online backend from `REDEN` through `tools/net-backend.py` on another free port with one
+rewrite, a profile and two blocked ids to publish, and then asks that backend over its own
+protocol (discovery, a token per scope, the three reads) what it publishes and writes the answers
+into the net file, so an expectation is only ever what the backend said. It puts the three
+`reden_online_*` settings in the scratch `XDG_CONFIG_HOME` that `make run` uses (eden-cli's
+`eden/sdl2-config.ini`, group `[Services]`), runs `make run MODE="net quick"`, prints a table of
+passes, failures and skips per suite, and stops both servers. The settings file is copied aside
+before anything else happens and put back as it was whatever way the run ends, and the net file
+and the certificate come off the scratch memory card, so a later plain `make run` skips rather
+than fails against servers that are gone. redenex keeps its database on port 45432 (under
+`~/.local/share/redenex`) and adopts one already running there; one that loses the race with
+another redenex bringing that database up is started again, three tries in all, each with its own
+log (`build/net/redenex-1.log` and on). Building it writes Go's own caches under the home
+directory, as any `go build` does.
+
+It fails loudly rather than print a table: a server that does not come up, `make run` exiting
+non-zero (an emulator that is not there, a build error, a run with no summary), or a run whose
+output has no `EDENPROBE DONE` line ends it with one line saying which and a non-zero exit, and
+the previous report is deleted before the run, so nothing from an earlier run can be read as this
+one's. `NET_CONFIG_DELAY=6` makes the backend hold `/api/v1/config` for six seconds, which is how
+the sign-in wait is tested.
 
 ## Licence
 

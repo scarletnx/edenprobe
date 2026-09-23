@@ -22,7 +22,8 @@ extern "C" {
 ///   detailed  the screen even when `quick` is there too, the same as holding X at launch.
 ///   images    a picture for every drawing case, passing ones included.
 ///   graphics  a suite family; see below.
-///   net       another one, named now so a file written for a later build is not an error.
+///   net       another: the online services, nifm to friend, against the backend the file
+///             sdmc:/edenprobe/net names (see netref.h).
 ///
 /// Families choose which suites beyond the judge run. None named means every family this build
 /// has. The judge itself (selfcheck, support, reference) always runs, because no verdict below
@@ -37,7 +38,7 @@ enum {
 
 /// The families this build carries. A family named in the file and missing here is reported,
 /// not run.
-#define MODE_FAMILIES_PRESENT ((uint32_t)MODE_FAMILY_GRAPHICS)
+#define MODE_FAMILIES_PRESENT ((uint32_t)(MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET))
 
 /// How much of the mode file is read: every word there is fits many times over. A longer file is
 /// read to here and the report says so; a word the limit cuts in two is dropped, never quoted as
