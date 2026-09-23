@@ -1,0 +1,308 @@
+#!/bin/sh
+# What a commit message here has to look like, checked before the commit exists.
+#
+# Install once per clone:  git config core.hooksPath hooks
+#
+# Three paragraphs and nothing else: a one-line subject with the repository's prefix, at most
+# 72 characters; one to three lines of intent, none over 90 characters and none shaped like a
+# trailer; and the trailers, in this order: one `Change-Id: I<40 hex>` (the key a commit keeps
+# through rebase, amend and cherry-pick, as in Gerrit; the hook writes one when the message has
+# none), any number of `Squashed: I<40 hex>` naming the commits this one absorbed, at most one
+# `Ref: ECFE-<year>-<number>` (the fork's own code for the change, given when it lands), and the
+# `Signed-off-by: NAME <EMAIL>` lines, one per author of what was squashed, the last of them
+# naming the author, who is also the committer. Printable ASCII only, no tabs, no trailing whitespace, no CR. No merge commits.
+# Words in `git config --add hook.forbidWord <word>` are refused wherever they appear. A
+# `fixup! <subject>` naming a recent commit and carrying no body passes, since autosquash folds
+# it into its target; `squash!` is refused, its body would land unchecked; `amend! <subject>`
+# is checked as the message it will become.
+#
+# The hook sees the file before git cleans it. Git tells it whether an editor ran: GIT_EDITOR is
+# exactly ":" when none did, and then -m and -F keep every line, so a comment line is refused as
+# content. With an editor, git strips comment lines and, for `commit -v`, everything from the
+# scissors line down; the hook does the same before the shape check (`git stripspace
+# --strip-comments`, the scissors block recognised by its shape: the line, comment lines, a
+# diff). A cleanup mode set in the config other than the default is refused.
+#
+# What this guards against is a message that misses the convention by accident. The command
+# line of `git commit` is read only for -v, since a saved `commit -v` message retried without
+# it would otherwise land its diff; `--cleanup` flags are not read: `--cleanup=verbatim` with
+# an editor, or a scissors block typed by hand, are deliberate, and `--no-verify` exists for
+# that. Not covered either, by construction:
+# cherry-pick, revert, rebase pick/squash/fixup, commit-tree, `git am`, commits made in a clone
+# where the hook is not installed, a script that exports GIT_EDITOR=: and still opens an
+# editor (use --no-edit), and a core.hooksPath wrapper that does not `exec` this hook (it hides
+# the -v flag, and the check then fails closed). The test's `--history` mode runs the same
+# check over commits that already exist.
+
+SUBJECT_RE='^gfxprobe: [^ ]'
+SUBJECT_TWICE_RE='^gfxprobe: gfxprobe:'
+# shellcheck disable=SC2034  # read by test-commit-msg.sh
+SUBJECT_TWICE_EXAMPLE='gfxprobe: gfxprobe: the prefix twice'
+SUBJECT_HINT='gfxprobe: what changed'
+# shellcheck disable=SC2034  # read by test-commit-msg.sh
+SUBJECT_EXAMPLE='gfxprobe: a case for the cache a game leans on'
+SUBJECT_MAX=72
+INTENT_MAX=3
+LINE_MAX=90
+FIXUP_REACH=500
+
+export LC_ALL=C
+unset GIT_CONFIG    # a legacy override of what `git config` reads; the hook reads the repository
+
+message=$1
+cut=$(mktemp) || exit 1
+trap 'rm -f "$cut" "$cut.new"' EXIT
+
+fail() {
+    printf 'commit-msg: %s\n' "$*" >&2
+    exit 1
+}
+
+# A merge is a merge whatever its message says. (--history checks old messages, not the tree.)
+if [ -z "${HOOK_HISTORY-}" ] && git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+    fail "no merge commits here; rebase and fast-forward instead"
+fi
+
+comment=$(git config --get-regexp '^core\.comment(char|string)$' 2>/dev/null | tail -n 1 | cut -d ' ' -f 2-)
+[ -n "$comment" ] && [ "$comment" != auto ] || comment='#'
+
+amending=
+cleanup=$(git config commit.cleanup 2>/dev/null)
+verbose=$(git config --type=int commit.verbose 2>/dev/null || git config --type=bool commit.verbose 2>/dev/null)
+case "$verbose" in true|[1-9]*) verbose=true ;; *) verbose=false ;; esac
+if [ -r "/proc/$PPID/cmdline" ]; then
+    # Only whether -v was given, the last word winning as in git; a value that happens to look
+    # like it costs nothing here. In a bundle, a v counts before any letter that takes a value.
+    amending=$(tr '\n\0' '\001\n' < "/proc/$PPID/cmdline" | awk '$0 == "--" { exit } /^--amend$|^--amen$|^--ame$|^--am$/ { a = "yes" } END { print a }')
+    found=$(tr '\n\0' '\001\n' < "/proc/$PPID/cmdline" | awk '
+        $0 == "--" { exit }
+        /^--verbose$|^--verb$|^--verbo$|^--verbos$/ { v = "true"; next }
+        /^--no-verbose$|^--no-verb$|^--no-verbo$|^--no-verbos$/ { v = "false"; next }
+        /^-[a-zA-Z]/ && !/^--/ {
+            for (i = 2; i <= length($0); i++) {
+                ch = substr($0, i, 1)
+                if (ch == "v") { v = "true"; break }
+                if (index("mFcCtSu", ch)) break
+            }
+        }
+        END { print v }')
+    [ -z "$found" ] || verbose=$found
+fi
+
+if [ "${GIT_EDITOR-}" = ':' ]; then
+    # No editor: git keeps the file as it is, blank lines at the ends aside; verbatim keeps even those.
+    if [ "$cleanup" = verbatim ] && ! sed -n '1p' "$message" | grep -q '^fixup! '; then
+        awk 'NR == 1 && /^$/ { bad = 1 } /^$/ && prev { bad = 1 } { prev = ($0 == "") } END { exit (bad || prev) }' "$message" \
+            || fail "commit.cleanup=verbatim keeps the blank lines at the ends and the doubled ones"
+    fi
+    awk '{ line[NR] = $0 } END { end = NR; while (end > 0 && line[end] ~ /^$/) end--; for (i = 1; i <= end; i++) print line[i] }' "$message" > "$cut"
+else
+    case "$cleanup" in
+        ''|default|strip) ;;
+        *) fail "commit.cleanup=$cleanup keeps lines an editor session leaves; use the default (strip)" ;;
+    esac
+    if [ "$(git config --get-regexp '^core\.comment(char|string)$' 2>/dev/null | tail -n 1 | cut -d ' ' -f 2-)" = auto ]; then
+        fail "core.commentChar=auto picks a character per commit; set one so the hook can read it"
+    fi
+    if awk -v c="$comment" 'index($0, c) == 1 && index($0, "will be kept; you may remove them") > 0 { found = 1 } END { exit !found }' "$message"; then
+        fail "this cleanup mode keeps comment lines; use the default (strip)"
+    fi
+    # The scissors block git writes for `commit -v`: its line, comment lines, then the diff.
+    # Git cuts there only when verbose is on, so the hook does the same; a saved -v message
+    # retried without -v keeps its diff and fails the shape check.
+    awk -v c="$comment" -v verbose="$verbose" '
+        function is_comment(s) { return index(s, c) == 1 }
+        {
+            line[NR] = $0
+            if (!scissors && is_comment($0) &&
+                substr($0, length(c) + 1) == " ------------------------ >8 ------------------------") scissors = NR
+        }
+        END {
+            end = NR
+            if (scissors && verbose == "true") {
+                ok = 0
+                for (i = scissors + 1; i <= NR; i++) {
+                    if (line[i] ~ /^(diff --(git|cc) |Submodule [^ ]+ )/) { ok = 1; break }
+                    if (!is_comment(line[i]) && line[i] !~ /^$/) break
+                }
+                if (ok) end = scissors - 1
+            }
+            for (i = 1; i <= end; i++) print line[i]
+        }' "$message" | git stripspace --strip-comments > "$cut"
+fi
+
+[ -s "$cut" ] || fail "empty message"
+
+line=$(awk -v c="$comment" 'substr($0, 1, length(c)) == c { print NR; exit }' "$cut")
+[ -z "$line" ] || fail "line $line starts with '$comment', and without an editor git keeps it"
+line=$(grep -an "$(printf '\r')" "$cut" | head -1 | cut -d: -f1)
+[ -z "$line" ] || fail "line $line ends in CR; LF line endings only"
+line=$(grep -an "$(printf '\t')" "$cut" | head -1 | cut -d: -f1)
+[ -z "$line" ] || fail "line $line has a tab; spaces only"
+line=$(grep -an '[[:space:]]$' "$cut" | head -1 | cut -d: -f1)
+[ -z "$line" ] || fail "line $line has trailing whitespace"
+line=$(grep -an '[^ -~]' "$cut" | head -1 | cut -d: -f1)
+[ -z "$line" ] || fail "line $line is not printable ASCII"
+
+git config --get-all hook.forbidWord 2>/dev/null | while IFS= read -r word; do
+    [ -n "$word" ] || continue
+    if grep -iqF -- "$word" "$cut"; then
+        echo "commit-msg: a word from hook.forbidWord appears in the message" >&2
+        exit 1
+    fi
+done || exit 1
+
+# Number the paragraphs, so the shape can be read off directly.
+paras=$(awk 'BEGIN { p = 0; blank = 1 }
+    /^$/ { blank = 1; next }
+    { if (blank) { p++; blank = 0 } printf "%d\t%s\n", p, $0 }' "$cut")
+nparas=$(printf '%s\n' "$paras" | awk -F '\t' 'END { print $1 + 0 }')
+para() {
+    printf '%s\n' "$paras" | awk -F '\t' -v n="$1" '$1 == n { sub(/^[0-9]+\t/, ""); print }'
+}
+count() {
+    printf '%s\n' "$1" | grep -c .
+}
+names_an_unpushed_commit() {
+    git log --format=%s -n "$FIXUP_REACH" HEAD --not --remotes 2>/dev/null | grep -qFx -- "$1"
+}
+
+first=1
+subject=$(para 1)
+case "$subject" in
+    'fixup! '*)
+        [ "$(count "$subject")" -eq 1 ] || fail "a fixup! is one line and nothing else"
+        # `-s` appends a sign-off that autosquash drops with the rest; anything else is a body.
+        if [ "$nparas" -eq 2 ]; then
+            [ "$(para 2)" = "Signed-off-by: $(git var GIT_AUTHOR_IDENT | sed 's/ [0-9][0-9]* [-+][0-9][0-9]*$//')" ] \
+                || fail "a fixup! carries no body; autosquash drops it"
+        elif [ "$nparas" -ne 1 ]; then
+            fail "a fixup! carries no body; autosquash drops it"
+        fi
+        names_an_unpushed_commit "${subject#fixup! }" \
+            || fail "fixup! names no unpushed commit among the last $FIXUP_REACH; it would land as itself"
+        exit 0 ;;
+    'squash! '*)
+        fail "squash! would land its body unchecked; use fixup! and reword the target" ;;
+    'amend! '*)
+        [ "$(count "$subject")" -eq 1 ] || fail "an amend! line is one line, then the message"
+        names_an_unpushed_commit "${subject#amend! }" \
+            || fail "amend! names no unpushed commit among the last $FIXUP_REACH; it would land as itself"
+        # The message that replaces the target's keeps the target's key.
+        inherit=$(git log --format='%H %s' -n "$FIXUP_REACH" HEAD --not --remotes 2>/dev/null | awk -v s="${subject#amend! }" 'substr($0, 42) == s { print $1; exit }')
+        # The paragraphs after the first are the message the target will get.
+        first=2
+        subject=$(para 2) ;;
+    'Merge '*)
+        fail "no merge commits here; rebase and fast-forward instead" ;;
+esac
+
+[ "$nparas" -ge "$first" ] || fail "empty message"
+[ "$(count "$subject")" -eq 1 ] || fail "the subject is one line, then a blank line"
+[ ${#subject} -le $SUBJECT_MAX ] || fail "subject is ${#subject} characters, at most $SUBJECT_MAX"
+printf '%s\n' "$subject" | grep -Eq "$SUBJECT_RE" || fail "subject should read: $SUBJECT_HINT"
+printf '%s\n' "$subject" | grep -Eq "$SUBJECT_TWICE_RE" && fail "one prefix in the subject"
+
+ident() {
+    git var "$1" | sed 's/ [0-9][0-9]* [-+][0-9][0-9]*$//'
+}
+author=$(ident GIT_AUTHOR_IDENT)
+committer=$(ident GIT_COMMITTER_IDENT)
+wanted="Signed-off-by: $author"
+
+case "$nparas" in
+    "$first") fail "three paragraphs: the subject, one to three lines of intent, the sign-off" ;;
+    "$((first + 1))")
+        last=$(para "$((first + 1))")
+        if [ "$last" = "$wanted" ]; then
+            fail "one to three lines of intent between the subject and the sign-off, found none"
+        fi
+        case "$last" in
+            *"$wanted") fail "the sign-off needs a blank line before it (git -s glues it to a line that looks like a trailer)" ;;
+        esac
+        fail "the last paragraph is the trailers, ending in the one line '$wanted'" ;;
+    "$((first + 2))") ;;
+    *) fail "three paragraphs: the subject, one to three lines of intent, the sign-off; found $((nparas - first + 1))" ;;
+esac
+
+intent=$(para "$((first + 1))")
+n=$(count "$intent")
+[ "$n" -le $INTENT_MAX ] || fail "one to three lines of intent, found $n"
+printf '%s\n' "$intent" | while IFS= read -r text; do
+    [ ${#text} -le $LINE_MAX ] || { printf 'commit-msg: a line of intent is %s characters, at most %s\n' "${#text}" "$LINE_MAX" >&2; exit 1; }
+    case "$text" in
+        *[A-Za-z0-9]*) ;;
+        *) echo "commit-msg: a line of intent says something; punctuation alone is filler" >&2; exit 1 ;;
+    esac
+    # A trailer key is hyphenated (Signed-off-by, X-Agent, Co-authored-by2), or one of the plain
+    # ones forges act on. A single word with a colon is prose: Note:, Ruby:, ARM64:, Before:.
+    key=$(printf '%s\n' "$text" | sed -n 's/^ *\([A-Za-z0-9_-][A-Za-z0-9_-]*\) *:.*/\1/p' | tr '[:upper:]' '[:lower:]')
+    case "$key" in
+        '') ;;
+        *-*|fix|fixes|fixed|link|cc|bug|close|closes|closed|resolve|resolves|resolved|see|ref|refs)
+            printf 'commit-msg: "%s:" is a trailer, and the only trailer here is Signed-off-by\n' "$key" >&2
+            exit 1 ;;
+    esac
+done || exit 1
+
+# The trailer paragraph: Change-Id, Squashed lines, Signed-off-by last. A missing Change-Id is
+# written into the message, as Gerrit's hook does, unless a landed message is being checked.
+trailers=$(para "$((first + 2))")
+printf '%s\n' "$trailers" | while IFS= read -r line; do
+    case "$line" in
+        'Change-Id: I'*) ;;
+        'Squashed: I'*) ;;
+        'Ref: '*) ;;
+        'Signed-off-by: '*' <'*'>') ;;
+        'Signed-off-by:'*) printf 'commit-msg: a sign-off reads NAME <EMAIL>, found %s\n' "'$line'" >&2; exit 1 ;;
+        *) printf 'commit-msg: the last paragraph holds only Change-Id, Squashed, Ref and the sign-offs, found %s\n' "'$line'" >&2; exit 1 ;;
+    esac
+done || exit 1
+change_ids=$(printf '%s\n' "$trailers" | grep -c '^Change-Id: ')
+signoffs=$(printf '%s\n' "$trailers" | grep -c '^Signed-off-by: ')
+[ "$signoffs" -ge 1 ] || fail "the message ends with the sign-offs, the last being '$wanted'"
+[ "$(printf '%s\n' "$trailers" | tail -n 1)" = "$wanted" ] || fail "the last line is '$wanted': the author signs last"
+# Sign-offs sit together at the end; a key line after one is out of order.
+printf '%s\n' "$trailers" | awk '/^Signed-off-by: / { seen = 1; next } seen { exit 1 }' \
+    || fail "the sign-offs are the last lines; Change-Id, Squashed and Ref come before them"
+printf '%s\n' "$trailers" | grep '^Ref: ' | grep -Eqv '^Ref: ECFE-[0-9]{4}-[0-9]{4,}$' \
+    && fail "a Ref reads ECFE-<year>-<number>, as the site gives it"
+[ "$(printf '%s\n' "$trailers" | grep -c '^Ref: ')" -le 1 ] || fail "one Ref at most"
+printf '%s\n' "$trailers" | awk '/^Ref: / { seen = 1; next } seen && /^(Change-Id|Squashed): / { exit 1 }' \
+    || fail "Ref comes after the Change-Id and the Squashed lines"
+dup=$(printf '%s\n' "$trailers" | sort | uniq -d | head -1)
+[ -z "$dup" ] || fail "the same line twice in the trailers: $dup"
+[ "$change_ids" -le 1 ] || fail "one Change-Id, found $change_ids"
+printf '%s\n' "$trailers" | grep -E '^(Change-Id|Squashed): ' | grep -Eqv '^(Change-Id|Squashed): I[0-9a-f]{40}$' \
+    && fail "a Change-Id or Squashed value is I followed by 40 hex digits"
+dup=$(printf '%s\n' "$trailers" | sed -n 's/^\(Change-Id\|Squashed\): //p' | sort | uniq -d | head -1)
+[ -z "$dup" ] || fail "the same key twice in the trailers: $dup"
+if [ "$change_ids" -eq 1 ]; then
+    [ "$(printf '%s\n' "$trailers" | sed -n '1p')" = "$(printf '%s\n' "$trailers" | grep '^Change-Id: ')" ] \
+        || fail "Change-Id is the first line of the last paragraph"
+fi
+if [ "$change_ids" -eq 0 ]; then
+    [ -z "${HOOK_HISTORY-}" ] || fail "no Change-Id; the rewrite gives every landed commit one"
+    # An amend keeps the key of the commit it replaces; an amend! the key of its target. Otherwise
+    # the Id is a hash of what this commit is: its tree, parent, identities and message, the way
+    # the Gerrit hook builds it. Written above the first trailer line of the file git commits.
+    id=
+    if [ "$amending" = yes ]; then
+        id=$(git log -1 --format='%(trailers:key=Change-Id,valueonly)' HEAD 2>/dev/null | tr -d ' \n' | sed 's/^I//')
+    elif [ -n "${inherit-}" ]; then
+        id=$(git log -1 --format='%(trailers:key=Change-Id,valueonly)' "$inherit" 2>/dev/null | tr -d ' \n' | sed 's/^I//')
+    fi
+    if ! printf '%s' "$id" | grep -Eq '^[0-9a-f]{40}$'; then
+        tree=$(git write-tree 2>/dev/null) || tree=none
+        parent=$(git rev-parse -q --verify HEAD 2>/dev/null) || parent=none
+        id=$(printf 'tree %s\nparent %s\nauthor %s\ncommitter %s\n\n%s\n' "$tree" "$parent" "$(git var GIT_AUTHOR_IDENT)" "$(git var GIT_COMMITTER_IDENT)" "$(cat "$cut")" | git hash-object --stdin)
+    fi
+    [ -n "$id" ] || fail "could not compute a Change-Id"
+    first=$(printf '%s\n' "$trailers" | sed -n '1p')
+    awk -v want="$first" -v id="Change-Id: I$id" 'BEGIN { done = 0 } { l = $0; sub(/[ \t\r]+$/, "", l) } l == want && !done { print id; done = 1 } { print }' "$message" > "$cut.new" \
+        && cat "$cut.new" > "$message" && rm -f "$cut.new"
+    grep -qx "Change-Id: I$id" "$message" || fail "could not write the Change-Id into the message"
+fi
+[ "$committer" = "$author" ] || fail "committer '$committer' is not the author '$author'"
+
+exit 0
