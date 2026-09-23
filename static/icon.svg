@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- edenprobe's cover: the reden mark (the Eden sunset without the palm, cut by its bands)
+       on the site's dark ground, with the program's name. Source of icon.jpg: make icon. -->
+  <defs>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff2e88"/>
+      <stop offset="0.45" stop-color="#bf42f6"/>
+      <stop offset="0.9" stop-color="#5da5ed"/>
+    </linearGradient>
+    <mask id="bands">
+      <rect width="256" height="256" fill="#fff"/>
+      <rect x="0" y="103" width="256" height="6" fill="#000"/>
+      <rect x="0" y="128" width="256" height="9" fill="#000"/>
+      <rect x="0" y="153" width="256" height="12" fill="#000"/>
+      <rect x="0" y="178" width="256" height="15" fill="#000"/>
+    </mask>
+  </defs>
+  <rect width="256" height="256" fill="#1b1b1f"/>
+  <circle cx="128" cy="112" r="90" fill="url(#sun)" mask="url(#bands)"/>
+  <text x="128" y="238" text-anchor="middle" font-family="DejaVu Sans, Liberation Sans, sans-serif" font-weight="bold" font-size="30" letter-spacing="1" fill="#e8e8ec">edenprobe</text>
+</svg>

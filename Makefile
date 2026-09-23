@@ -22,8 +22,13 @@ TOOLS    := $(DEVKITPRO)/tools/bin
 # optional even though nothing in this suite looks at what is in it.
 APP_TITLE   := edenprobe
 APP_AUTHOR  := reden
-APP_VERSION := 0.1
-APP_ICON    := $(LIBNX)/default_icon.jpg
+# The version is the one line of VERSION (semantic: a tag v<VERSION> on main marks each one);
+# the build id is what git says about the tree, so a report names the exact source it came
+# from. Both reach the program as macros and open every report. The cover, icon.jpg, is drawn
+# from static/icon.svg by `make icon` (rsvg-convert and magick, not needed for a build).
+APP_VERSION := $(strip $(shell cat VERSION))
+APP_BUILD   := $(strip $(shell git describe --always --dirty 2>/dev/null || echo unknown))
+APP_ICON    := icon.jpg
 
 # The processor in the console, and the position independence its loader expects.
 ARCH     := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
@@ -33,7 +38,8 @@ ARCH     := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 # can never be reporting a stale binary's answer.
 CFLAGS   := $(ARCH) -g -O2 -ffunction-sections -fdata-sections -MMD -MP \
             -Wall -Wextra -Werror -Wno-unused-parameter \
-            -D__SWITCH__ -I$(LIBNX)/include -Isource -I$(BUILD)/shaders
+            -D__SWITCH__ -I$(LIBNX)/include -Isource -I$(BUILD)/shaders \
+            -DEDENPROBE_VERSION='"$(APP_VERSION)"' -DEDENPROBE_BUILD='"$(APP_BUILD)"'
 # --wrap on the abort is what lets GpuOpen report a failed bring-up instead of dying: the
 # graphics library answers a failed constructor by calling the runtime's abort, which never comes
 # back. gpu.c arms the wrapper only while the device is being brought up.
@@ -99,10 +105,10 @@ $(TARGET).elf: $(OFILES)
 	$(CC) $(LDFLAGS) $^ $(LIBS) -o $@
 
 # Rebuilt when this file changes, so a title edited here cannot leave a stale one in the binary.
-$(TARGET).nacp: Makefile
+$(TARGET).nacp: Makefile VERSION
 	$(TOOLS)/nacptool --create "$(APP_TITLE)" "$(APP_AUTHOR)" "$(APP_VERSION)" $@
 
-$(TARGET).nro: $(TARGET).elf $(TARGET).nacp
+$(TARGET).nro: $(TARGET).elf $(TARGET).nacp $(APP_ICON)
 	$(TOOLS)/elf2nro $< $@ --nacp=$(TARGET).nacp --icon=$(APP_ICON)
 
 clean:
@@ -147,3 +153,10 @@ run: $(TARGET).nro
 	@grep -q '"type":"summary"' $(SDMC)/report.jsonl || \
 	  { echo "make run: no summary in the report: stopped at 60 s, or died first" >&2; exit 1; }
 	@echo "report: $(SDMC)/report.jsonl"
+
+# The cover from its source, 256 by 256 baseline JPEG as the loader wants it. Only when the
+# picture changes: the JPEG is committed so a build needs neither tool.
+icon: static/icon.svg
+	rsvg-convert -w 256 -h 256 $< -o $(BUILD)/icon.png
+	magick $(BUILD)/icon.png -background '#1b1b1f' -alpha remove -alpha off -interlace none -sampling-factor 1x1 -quality 92 icon.jpg
+.PHONY: icon
