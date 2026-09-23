@@ -61,29 +61,28 @@ typedef enum {
     UI_INPUT_QUIT,
 } UiInput;
 
-/// What a run was asked to do, which is a word in a file and so belongs somewhere it can be
-/// checked without one.
-typedef struct {
-    /// Present the cases on screen once every suite has finished.
-    bool detailed;
-    /// Write a picture for a passing case too, which is off by default because a green run
-    /// would otherwise leave eighty files nobody asked for.
-    bool every_case;
-} UiMode;
-
-/// Reads the words in @p text, whole words only and in any order, ignoring case.
-UiMode UiModeFromText(const char *text);
-
-/// What a launch asks for, from the words in the mode file and the buttons held at the time.
-/// The button can only add the detailed mode, never take it away.
-UiMode UiModeAtLaunch(const char *text, bool cycle_button_held);
-
 /// How many frames the pad is given to turn up before the launch button is given up on.
 #define UI_PAD_WAIT_FRAMES 12u
 
 /// Whether to keep waiting for a controller to appear. It stops the moment one answers, so a
 /// machine that already has one pays two frames and a machine with none pays the ceiling.
 bool UiWaitsForPad(uint32_t frame_index, bool connected);
+
+/// How long a detailed run waits, once its report is closed, for anyone to press anything.
+/// An emulator shows a controller as connected whether or not a person holds it, so the only
+/// sign of a person is a press. A script that forgot the mode file must not hang an emulator.
+/// Ten seconds, so that a person reading the first screen on a console does not lose it.
+#define UI_UNATTENDED_NANOSECONDS 10000000000ull
+
+/// Whether the screen leaves by itself: nothing pressed, @p elapsed_ns after the report closed.
+bool UiLeavesUnattended(uint64_t elapsed_ns, bool pressed);
+
+/// Whole seconds left before it does, rounded up, and 0 once a press has been seen or the time
+/// is up. What the screen counts down with.
+uint32_t UiUnattendedSecondsLeft(uint64_t elapsed_ns, bool pressed);
+
+/// Draws the countdown line above the key at the bottom of the frame, or clears it for 0.
+void UiComposeCountdown(const UiFrame *frame, uint32_t seconds_left);
 
 /// The buttons the screen knows about. Named here rather than taken from the console's own
 /// header so that what each one does is a decision this build can check.

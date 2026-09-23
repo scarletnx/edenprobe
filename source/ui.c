@@ -328,56 +328,38 @@ void UiCompose(const UiFrame *frame, const PictureRecord *record, UiState state,
            "up previous failure   plus quit");
 }
 
-/// Whether @p word appears in @p text on its own, rather than inside a longer word. Case is
-/// ignored, and so is everything that is not a letter, so a file with one word per line and a
-/// file with them on one line say the same thing.
-static bool HasWord(const char *text, const char *word) {
-    const size_t length = strlen(word);
-    for (size_t i = 0; text[i] != '\0'; ++i) {
-        const char before = i == 0 ? ' ' : text[i - 1];
-        if ((before >= 'a' && before <= 'z') || (before >= 'A' && before <= 'Z')) {
-            continue;
-        }
-        size_t matched = 0;
-        while (matched < length) {
-            char c = text[i + matched];
-            if (c >= 'A' && c <= 'Z') {
-                c = (char)(c - 'A' + 'a');
-            }
-            if (c != word[matched]) {
-                break;
-            }
-            ++matched;
-        }
-        if (matched != length) {
-            continue;
-        }
-        const char after = text[i + length];
-        if (!((after >= 'a' && after <= 'z') || (after >= 'A' && after <= 'Z'))) {
-            return true;
-        }
-    }
-    return false;
-}
-
-UiMode UiModeFromText(const char *text) {
-    UiMode mode = { false, false };
-    if (text == NULL) {
-        return mode;
-    }
-    mode.detailed = HasWord(text, "detailed");
-    mode.every_case = HasWord(text, "images");
-    return mode;
-}
-
-UiMode UiModeAtLaunch(const char *text, bool cycle_button_held) {
-    UiMode mode = UiModeFromText(text);
-    mode.detailed = mode.detailed || cycle_button_held;
-    return mode;
-}
-
 bool UiWaitsForPad(uint32_t frame_index, bool connected) {
     return !connected && frame_index < UI_PAD_WAIT_FRAMES;
+}
+
+bool UiLeavesUnattended(uint64_t elapsed_ns, bool pressed) {
+    return !pressed && elapsed_ns >= UI_UNATTENDED_NANOSECONDS;
+}
+
+uint32_t UiUnattendedSecondsLeft(uint64_t elapsed_ns, bool pressed) {
+    if (pressed || elapsed_ns >= UI_UNATTENDED_NANOSECONDS) {
+        return 0;
+    }
+    const uint64_t left = UI_UNATTENDED_NANOSECONDS - elapsed_ns;
+    return (uint32_t)((left + 999999999ull) / 1000000000ull);
+}
+
+void UiComposeCountdown(const UiFrame *frame, uint32_t seconds_left) {
+    if (frame == NULL || frame->pixels == NULL || frame->height < 30u) {
+        return;
+    }
+    // Between the last line a detail can reach, which stops 32 rows from the bottom, and the
+    // key, which starts 14 from it, so neither is ever drawn over.
+    const uint32_t y = frame->height - 28u;
+    FillRect(frame, 0, y - 2u, frame->width, 12u, BACKGROUND);
+    if (seconds_left == 0u) {
+        return;
+    }
+    char line[96];
+    snprintf(line, sizeof(line),
+             "nothing pressed yet: this screen closes by itself in %u s, any button keeps it",
+             (unsigned)seconds_left);
+    UiText(frame, MARGIN, y, 1, FAILED, line);
 }
 
 UiInput UiInputFromButtons(uint32_t buttons, uint32_t frame_index) {

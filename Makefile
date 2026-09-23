@@ -123,14 +123,22 @@ EMULATOR ?= $(HOME)/WorkDir/accord/bin/eden-cli-e8d142f2b6
 XDG     := $(CURDIR)/$(BUILD)/xdg
 SDMC    := $(XDG)/data/eden/sdmc/$(TARGET)
 
+# What goes into the mode file first. Quick, because the default with no file is the detailed
+# screen, which is for a person; a run from here is a script's. MODE= runs with no file at all,
+# which shows the screen and then leaves by itself ten seconds after nobody pressed anything.
+MODE ?= quick
+
 # Everything the previous run left is removed first, so what is there afterwards is this run's:
-# a report, and only the pictures that report names. The `|| true` is for the filter alone, which
-# finds nothing to print when the emulator prints nothing; whether the run happened is decided by
-# the checks either side of it.
+# a report, and only the pictures that report names. -r because a mode that somebody made a
+# directory must not stop the target. The `|| true` is for the filter alone, which finds nothing
+# to print when the emulator prints nothing; whether the run happened is decided by the checks
+# either side of it.
 run: $(TARGET).nro
 	@[ -x "$(EMULATOR)" ] || { echo "make run: no executable emulator at $(EMULATOR)" >&2; exit 1; }
 	@mkdir -p $(XDG)/data $(XDG)/config $(XDG)/cache $(SDMC)
-	@rm -rf $(SDMC)/report.jsonl $(SDMC)/images $(SDMC)/support-check
+	@rm -rf $(SDMC)/report.jsonl $(SDMC)/images $(SDMC)/support-check $(SDMC)/mode
+	@if [ -n "$(strip $(MODE))" ]; then printf '%s\n' "$(MODE)" > $(SDMC)/mode; \
+	  echo "mode file: $(MODE)"; else echo "mode file: none, so the detailed screen"; fi
 	XDG_DATA_HOME=$(XDG)/data XDG_CONFIG_HOME=$(XDG)/config XDG_CACHE_HOME=$(XDG)/cache \
 	DISPLAY=:0 timeout 60 $(EMULATOR) -g $(CURDIR)/$(TARGET).nro 2>&1 \
 	  | sed 's/\x1b\[[0-9;]*m//g' | { grep -aE "$(TARGET)|EDENPROBE|\"type\":" || true; }

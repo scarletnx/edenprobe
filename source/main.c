@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <switch.h>
 
+#include "mode.h"
 #include "picture.h"
 #include "report.h"
 #include "tests/tests.h"
@@ -31,27 +32,34 @@ int main(int argc, char **argv) {
     ReportOpen(REPORT_PATH);
     ReportNote("edenprobe starting");
 
-    // What the mode changes is whether the finished pictures are kept in memory and shown once
-    // everything is over. It changes no verdict, writes no line, and the two modes leave the
-    // same report behind.
-    const UiMode mode = ViewerModeAtLaunch(MODE_PATH);
+    // What the mode changes is which families run, whether the finished pictures are kept in
+    // memory and shown once everything is over, and whether every drawing case writes one. It
+    // changes no verdict, and before the summary the line below is all it adds to the report.
+    const RunMode mode = ViewerModeAtLaunch(MODE_PATH);
+    char described[REPORT_NOTE_MAX + 1];
+    ModeDescribe(described, sizeof(described), &mode, MODE_FAMILIES_PRESENT);
+    ReportNote("%s", described);
     PictureSetRoot(REPORT_DIRECTORY);
     PictureWriteEveryCase(mode.every_case);
     PictureRetain(mode.detailed);
 
-    // Order matters: the selfcheck suite is what proves the comparisons the drawing suite then
+    // The judge first and always: the selfcheck suite proves the comparisons every family then
     // leans on, so a machine where both are broken says which one broke first.
     RunSelfcheck();
     RunSupport();
     RunReference();
-    RunClear();
-    RunRaster();
-    RunIntmath();
-    RunBlend();
-    RunDepth();
-    RunTexture();
-    RunCoherence();
-    RunFmath();
+
+    const uint32_t families = ModeFamiliesToRun(&mode, MODE_FAMILIES_PRESENT);
+    if ((families & MODE_FAMILY_GRAPHICS) != 0u) {
+        RunClear();
+        RunRaster();
+        RunIntmath();
+        RunBlend();
+        RunDepth();
+        RunTexture();
+        RunCoherence();
+        RunFmath();
+    }
     ReportSummary();
 
     ReportClose();
@@ -65,8 +73,15 @@ int main(int argc, char **argv) {
 
     // Last, and only now: the report is written, counted and closed, so nothing a person does
     // in front of the screen can reach it.
-    if (mode.detailed) {
-        ViewerRun();
+    if (mode.detailed && ViewerRun() == VIEWER_UNATTENDED) {
+        // The one line that comes after the summary, and only on this path: a detailed run
+        // nobody attended says it left by itself, on both channels, so a script that forgot the
+        // mode file finds out why its emulator took ten seconds longer to stop.
+        ReportAppend(REPORT_PATH);
+        ReportNote("detailed mode: nothing pressed for %u seconds after the report closed, "
+                   "left by itself",
+                   (unsigned)(UI_UNATTENDED_NANOSECONDS / 1000000000ull));
+        ReportClose();
     }
 
     return ReportFailed() == 0 ? 0 : 1;

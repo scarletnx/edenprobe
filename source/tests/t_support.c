@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "../check.h"
+#include "../mode.h"
 #include "../picture.h"
 #include "../report.h"
 #include "../ui.h"
@@ -785,36 +786,144 @@ static void CheckNavigation(void) {
                (int)UiWaitsForPad(0, false), (int)UiWaitsForPad(0, true),
                (int)UiWaitsForPad(UI_PAD_WAIT_FRAMES, false));
 
-    // Holding the button is the other way in, and it can only ever add the detailed mode.
+    // Once the report is closed, a detailed screen nobody presses anything on is not waited on
+    // for ever: ten seconds, counted down in whole seconds, and a press ends the count for good.
+    const uint64_t second = 1000000000ull;
+    const uint64_t limit = UI_UNATTENDED_NANOSECONDS;
+    const bool timer_right =
+        limit == 10u * second && !UiLeavesUnattended(0, false) &&
+        !UiLeavesUnattended(limit - 1u, false) && UiLeavesUnattended(limit, false) &&
+        !UiLeavesUnattended(limit * 100u, true) && UiUnattendedSecondsLeft(0, false) == 10u &&
+        UiUnattendedSecondsLeft(1u, false) == 10u &&
+        UiUnattendedSecondsLeft(9u * second, false) == 1u &&
+        UiUnattendedSecondsLeft(9u * second + 1u, false) == 1u &&
+        UiUnattendedSecondsLeft(limit, false) == 0u && UiUnattendedSecondsLeft(0, true) == 0u;
+    CHECK_TRUE(SUITE, "the detailed screen leaves by itself when nothing is pressed", CHECK_NONE,
+               timer_right,
+               "limit %llu ns; leaves at the limit %d, just before %d, pressed long after %d; "
+               "seconds left at nought %u, at nine %u",
+               (unsigned long long)limit, (int)UiLeavesUnattended(limit, false),
+               (int)UiLeavesUnattended(limit - 1u, false),
+               (int)UiLeavesUnattended(limit * 100u, true),
+               (unsigned)UiUnattendedSecondsLeft(0, false),
+               (unsigned)UiUnattendedSecondsLeft(9u * second, false));
+
+    // Holding the button is the other way in, and it can only ever add the detailed mode. It
+    // matters only on a card that says quick, which is the only time the pad is asked.
+    const RunMode held_quick = ModeAtLaunch("quick", true);
+    const RunMode held_none = ModeAtLaunch(NULL, true);
     CHECK_TRUE(SUITE, "holding the button asks for the detailed mode and never cancels it",
                CHECK_NONE,
-               UiModeAtLaunch("", true).detailed && UiModeAtLaunch("", false).detailed == false &&
-                   UiModeAtLaunch("detailed", false).detailed &&
-                   UiModeAtLaunch("detailed images", true).every_case,
-               "the four readings did not come out as they should");
+               held_quick.detailed && held_quick.detailed_by_button &&
+                   !ModeAtLaunch("quick", false).detailed && held_none.detailed &&
+                   !held_none.detailed_by_button &&
+                   ModeAtLaunch("quick detailed", false).detailed &&
+                   ModeAtLaunch("quick images", true).every_case &&
+                   ModeAsksPad(&(RunMode){ .detailed = false }) &&
+                   !ModeAsksPad(&held_none),
+               "the readings with the button held did not come out as they should");
 
+    // Every word, alone and together, any case, in a file that is missing, empty, or has words
+    // nobody knows. What the run does is the first two columns; the rest is what it reports.
     static const struct {
-        const char *text;
+        const char *text; // NULL is no file at all
         bool detailed;
         bool images;
+        uint32_t families;
+        uint32_t unknown;
+        uint32_t run; // the families that run, in this build
     } MODES[] = {
-        { "detailed\n", true, false },
-        { "DETAILED images", true, true },
-        { "undetailed", false, false },
-        { "detailedly", false, false },
-        { "images", false, true },
-        { "", false, false },
+        { NULL, true, false, 0, 0, MODE_FAMILIES_PRESENT },
+        { "", true, false, 0, 0, MODE_FAMILIES_PRESENT },
+        { "\n\n", true, false, 0, 0, MODE_FAMILIES_PRESENT },
+        { "quick", false, false, 0, 0, MODE_FAMILIES_PRESENT },
+        { "QUICK\n", false, false, 0, 0, MODE_FAMILIES_PRESENT },
+        { "quick detailed", true, false, 0, 0, MODE_FAMILIES_PRESENT },
+        { "quick images", false, true, 0, 0, MODE_FAMILIES_PRESENT },
+        { "images", true, true, 0, 0, MODE_FAMILIES_PRESENT },
+        { "detailed\n", true, false, 0, 0, MODE_FAMILIES_PRESENT },
+        { "DETAILED images", true, true, 0, 0, MODE_FAMILIES_PRESENT },
+        { "undetailed", true, false, 0, 1, MODE_FAMILIES_PRESENT },
+        { "detailedly", true, false, 0, 1, MODE_FAMILIES_PRESENT },
+        { "quickly", true, false, 0, 1, MODE_FAMILIES_PRESENT },
+        { "graphics", true, false, MODE_FAMILY_GRAPHICS, 0, MODE_FAMILY_GRAPHICS },
+        { "quick net", false, false, MODE_FAMILY_NET, 0, 0 },
+        { "graphics,net;quick", false, false, MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET, 0,
+          MODE_FAMILY_GRAPHICS },
+        { "grpahics fast quick", false, false, 0, 2, MODE_FAMILIES_PRESENT },
+        { "quick2images", false, true, 0, 0, MODE_FAMILIES_PRESENT },
     };
     uint32_t wrong = 0;
+    size_t first_wrong = 0;
     for (size_t i = 0; i < sizeof(MODES) / sizeof(MODES[0]); ++i) {
-        const UiMode mode = UiModeFromText(MODES[i].text);
-        if (mode.detailed != MODES[i].detailed || mode.every_case != MODES[i].images) {
+        const RunMode mode = ModeFromText(MODES[i].text);
+        if (mode.detailed != MODES[i].detailed || mode.every_case != MODES[i].images ||
+            mode.families_named != MODES[i].families || mode.unknown_count != MODES[i].unknown ||
+            (mode.source == MODE_SOURCE_FILE) != (MODES[i].text != NULL) ||
+            ModeFamiliesToRun(&mode, MODE_FAMILIES_PRESENT) != MODES[i].run) {
+            if (wrong == 0u) {
+                first_wrong = i;
+            }
             ++wrong;
         }
     }
+
     CHECK_TRUE(SUITE, "the mode file is read a whole word at a time", CHECK_NONE, wrong == 0,
-               "%u of %u readings came out wrong", (unsigned)wrong,
-               (unsigned)(sizeof(MODES) / sizeof(MODES[0])));
+               "%u of %u readings wrong, the first \"%.40s\"", (unsigned)wrong,
+               (unsigned)(sizeof(MODES) / sizeof(MODES[0])),
+               wrong > 0u && MODES[first_wrong].text != NULL ? MODES[first_wrong].text
+                                                             : "(no file)");
+
+    // What the report says about the file: the words it did not know, quoted and never fatal, a
+    // family this build does not have, a list too long to quote ending short but counted, a
+    // directory where the file should be, and a file longer than is read, whose cut word is
+    // dropped rather than quoted as a word nobody wrote.
+    char said[REPORT_NOTE_MAX + 1];
+    const RunMode typo = ModeFromText("grpahics fast quick net");
+    ModeDescribe(said, sizeof(said), &typo, MODE_FAMILY_GRAPHICS);
+    const bool typo_said =
+        strcmp(said, "mode: quick, from the mode file; pictures of failures only; families none;"
+                     " not in this build: net; 2 unknown words ignored: grpahics fast") == 0;
+    const RunMode none = ModeFromText(NULL);
+    char none_said[REPORT_NOTE_MAX + 1];
+    ModeDescribe(none_said, sizeof(none_said), &none, MODE_FAMILY_GRAPHICS);
+    const bool none_said_right =
+        strcmp(none_said,
+               "mode: detailed, no mode file; pictures of failures only; families graphics") == 0;
+    const RunMode folder = ModeFromFile(MODE_SOURCE_DIRECTORY, NULL, 0, false);
+    char folder_said[REPORT_NOTE_MAX + 1];
+    ModeDescribe(folder_said, sizeof(folder_said), &folder, MODE_FAMILY_GRAPHICS);
+    const bool folder_right =
+        folder.detailed && strstr(folder_said, "mode is a directory, read as no file") != NULL;
+    const RunMode flood = ModeFromText(
+        "aaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbb cccccccccccccccccccc dddddddddddddddddddd "
+        "eeeeeeeeeeeeeeeeeeee ffffffffffffffffffff abcdefghijklmnopqrstuvwxyzabc");
+    const size_t flood_length = strlen(flood.unknown);
+    const bool flood_right = flood.unknown_count == 7u && flood_length < MODE_UNKNOWN_TEXT_MAX &&
+                             flood_length >= 3u &&
+                             strcmp(flood.unknown + flood_length - 3u, "...") == 0 &&
+                             strstr(flood.unknown, "dddd") != NULL;
+    // "images quick" with the limit falling inside "quick": the fragment "qui" is dropped, and
+    // the same limit falling on the space after a whole word keeps it.
+    static const char LONG[] = "images quick more";
+    const RunMode cut = ModeFromFile(MODE_SOURCE_FILE, LONG, 10u, true);
+    const RunMode whole = ModeFromFile(MODE_SOURCE_FILE, LONG, 12u, true);
+    char cut_said[REPORT_NOTE_MAX + 1];
+    ModeDescribe(cut_said, sizeof(cut_said), &cut, MODE_FAMILY_GRAPHICS);
+    const bool cut_right = cut.longer && cut.unknown_count == 0u && cut.every_case &&
+                           cut.detailed && whole.longer && !whole.detailed &&
+                           whole.unknown_count == 0u &&
+                           strstr(cut_said, "mode file longer than 4096 bytes, the rest ignored") !=
+                               NULL &&
+                           MODE_FILE_MAX == 4096u;
+    CHECK_TRUE(SUITE, "the report says what the mode file was and what was not understood",
+               CHECK_NONE,
+               typo_said && none_said_right && folder_right && flood_right && cut_right,
+               "typo line %.100s; no file line %.80s; directory line %.80s; long list %.40s; "
+               "cut file %.80s",
+               typo_said ? "right" : said, none_said_right ? "right" : none_said,
+               folder_right ? "right" : folder_said, flood_right ? "right" : flood.unknown,
+               cut_right ? "right" : cut_said);
 }
 
 /// How many pixels between two rows are drawn in something other than the background.

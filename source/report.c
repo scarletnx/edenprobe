@@ -89,6 +89,14 @@ void ReportOpen(const char *path) {
     }
 }
 
+void ReportAppend(const char *path) {
+    if (report_open) {
+        return;
+    }
+    report_open = true;
+    report_file = fopen(path, "a");
+}
+
 bool ReportIsOpen(void) {
     return report_open;
 }
