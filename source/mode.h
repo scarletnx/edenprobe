@@ -21,6 +21,7 @@ extern "C" {
 ///             detailed: every suite, the report closed, then the cases on the screen.
 ///   detailed  the screen even when `quick` is there too, the same as holding X at launch.
 ///   images    a picture for every drawing case, passing ones included.
+///   notime    no timing passes: each drawing suite runs once, and no line carries a time.
 ///   graphics  a suite family; see below.
 ///   net       another: the online services, nifm to friend, against the backend the file
 ///             sdmc:/edenprobe/net names (see netref.h).
@@ -71,6 +72,9 @@ typedef struct {
     /// Write a picture for a passing case too, which is off by default because a green run
     /// would otherwise leave a hundred files nobody asked for.
     bool every_case;
+    /// The word `notime`: each drawing suite runs once, with no warm-up and no rehearsals, so
+    /// the run is the single pass it was before cases were timed.
+    bool no_timing;
     /// The family words in the file, whether or not this build has them.
     uint32_t families_named;
     /// How many words were not understood, and the first of them, space separated.

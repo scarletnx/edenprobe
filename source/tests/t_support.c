@@ -1,6 +1,11 @@
 // SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: MIT
 
+// mkdtemp, for the host build's scratch directory below.
+#ifndef __SWITCH__
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,6 +39,9 @@ static const char *const SUITE = "support";
 /// Its own corner to write into, and an absolute one: a path relative to the working directory
 /// makes the binary run from anywhere else report a pile of failures that all blame the picture
 /// writer for the same missing directory.
+///
+/// On the host, a fresh one per process: two host runs at once on one machine shared the fixed
+/// name, and each swept away the other's pictures mid-check. The sweep at the end removes it.
 static const char *Scratch(void) {
     static char path[FULL_PATH_MAX];
     if (path[0] == '\0') {
@@ -41,8 +49,14 @@ static const char *Scratch(void) {
         snprintf(path, sizeof(path), "sdmc:/edenprobe/support-check");
 #else
         const char *const base = getenv("TMPDIR");
-        snprintf(path, sizeof(path), "%.200s/edenprobe-support-check",
+        snprintf(path, sizeof(path), "%.200s/edenprobe-support-check-XXXXXX",
                  base != NULL && base[0] != '\0' ? base : "/tmp");
+        if (mkdtemp(path) == NULL) {
+            // Unique enough to keep two runs apart, and the cases below say so if it is not
+            // somewhere they can write.
+            snprintf(path, sizeof(path), "%.200s/edenprobe-support-check-%ld",
+                     base != NULL && base[0] != '\0' ? base : "/tmp", (long)getpid());
+        }
 #endif
     }
     return path;

@@ -54,6 +54,10 @@ static void Take(RunMode *mode, const char *word, bool cut) {
             mode->every_case = true;
             return;
         }
+        if (strcmp(word, "notime") == 0) {
+            mode->no_timing = true;
+            return;
+        }
         for (size_t i = 0; i < sizeof(FAMILIES) / sizeof(FAMILIES[0]); ++i) {
             if (strcmp(word, FAMILIES[i].word) == 0) {
                 mode->families_named |= FAMILIES[i].family;
@@ -185,6 +189,11 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
     snprintf(out, out_size, "mode: %s; pictures of %s; families ", why,
              mode->every_case ? "every drawing case" : "failures only");
     AppendFamilies(out, out_size, ModeFamiliesToRun(mode, present));
+    // Only when asked for, so a run that times its cases describes its mode as it always did.
+    if (mode->no_timing) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; no timing passes");
+    }
     const uint32_t missing = mode->families_named & ~present;
     if (missing != 0u) {
         size_t used = strlen(out);

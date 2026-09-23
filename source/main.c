@@ -7,6 +7,7 @@
 #include <switch.h>
 
 #include "mode.h"
+#include "perf.h"
 #include "picture.h"
 #include "report.h"
 #include "tests/tests.h"
@@ -18,6 +19,39 @@
 static const char *const REPORT_DIRECTORY = "sdmc:/edenprobe";
 static const char *const REPORT_PATH = "sdmc:/edenprobe/report.jsonl";
 static const char *const MODE_PATH = "sdmc:/edenprobe/mode";
+
+/// Runs one drawing suite for its time and then for its verdict.
+///
+/// Each suite opens its own graphics device and closes it before it returns, so the passes before
+/// the verdict pass leave it nothing to inherit but the emulator's shader cache, which a second
+/// `make run` inherits anyway. They are muted: no line, no count, no picture. The verdict pass is
+/// the same code with the report open, and each of its lines carries the smallest of its samples.
+///
+/// A hang in a rehearsal is read from two places: the report ends on this suite's timing note,
+/// which says why nothing of the suite follows it, and the emulator's log ends on the
+/// `EDENPROBE TIMING` line naming the pass and the case that was about to run. With the mode
+/// word `notime` none of this happens and the suite runs once, as it did before cases were timed.
+static void RunTimed(const char *suite, void (*run)(void), bool timing) {
+    if (!timing) {
+        run();
+        return;
+    }
+    ReportNote("timing %s: %u warm-up and %u rehearsals before the verdict pass", suite,
+               (unsigned)PERF_WARMUPS, (unsigned)PERF_REHEARSALS);
+
+    PerfSuiteBegin();
+    for (unsigned i = 0; i < PERF_WARMUPS + PERF_REHEARSALS; ++i) {
+        PerfPassBegin(i < PERF_WARMUPS ? PERF_WARMUP : PERF_REHEARSAL);
+        // After the pass has begun, so the first breadcrumb carries its number.
+        ReportRehearse(suite);
+        run();
+    }
+    ReportRehearse(NULL);
+    PerfPassBegin(PERF_VERDICT);
+    run();
+    PerfPassBegin(PERF_UNTIMED);
+    ReportPerf(suite);
+}
 
 int main(int argc, char **argv) {
     (void)argc;
@@ -47,19 +81,21 @@ int main(int argc, char **argv) {
     // leans on, so a machine where both are broken says which one broke first.
     RunSelfcheck();
     RunSupport();
+    RunSupportPerf();
     RunReference();
 
     const uint32_t families = ModeFamiliesToRun(&mode, MODE_FAMILIES_PRESENT);
+    const bool timing = !mode.no_timing;
     if ((families & MODE_FAMILY_GRAPHICS) != 0u) {
-        RunClear();
-        RunFormat();
-        RunRaster();
-        RunIntmath();
-        RunBlend();
-        RunDepth();
-        RunTexture();
-        RunCoherence();
-        RunFmath();
+        RunTimed("clear", RunClear, timing);
+        RunTimed("format", RunFormat, timing);
+        RunTimed("raster", RunRaster, timing);
+        RunTimed("intmath", RunIntmath, timing);
+        RunTimed("blend", RunBlend, timing);
+        RunTimed("depth", RunDepth, timing);
+        RunTimed("texture", RunTexture, timing);
+        RunTimed("coherence", RunCoherence, timing);
+        RunTimed("fmath", RunFmath, timing);
     }
     if ((families & MODE_FAMILY_NET) != 0u) {
         RunNet();

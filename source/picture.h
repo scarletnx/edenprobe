@@ -140,6 +140,10 @@ static inline void PictureSet(Picture *picture, uint32_t x, uint32_t y,
 void PictureFinish(const char *suite, const char *name, const char *tier, bool passed,
                    const char *detail, PicturePaths *paths);
 
+/// Closes the picture under way with nothing written, kept or named. For the passes a timed suite
+/// makes before its verdict pass, which must leave no trace but a time.
+void PictureDiscard(void);
+
 size_t PictureCount(void);
 const PictureRecord *PictureAt(size_t index);
 

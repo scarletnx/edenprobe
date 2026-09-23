@@ -29,6 +29,8 @@ static bool report_open;
 static size_t passed;
 static size_t failed;
 static size_t skipped;
+static bool rehearsing;
+static char rehearsal_suite[64];
 
 /// Sends one finished line to both channels.
 ///
@@ -152,9 +154,24 @@ size_t ReportBuildCaseLine(char *out, size_t out_size, const char *suite, const 
                                  detail, paths);
 }
 
+size_t ReportBuildTimedCaseLine(char *out, size_t out_size, const char *suite, const char *name,
+                                const char *tier, bool passed_, const char *detail,
+                                const PicturePaths *paths, const uint32_t *us) {
+    return ReportBuildTimedResultLine(out, out_size, suite, name, tier,
+                                      passed_ ? "pass" : "fail", detail, paths, us);
+}
+
 size_t ReportBuildResultLine(char *out, size_t out_size, const char *suite, const char *name,
                              const char *tier, const char *result, const char *detail,
                              const PicturePaths *paths) {
+    return ReportBuildTimedResultLine(out, out_size, suite, name, tier, result, detail, paths,
+                                      NULL);
+}
+
+size_t ReportBuildTimedResultLine(char *out, size_t out_size, const char *suite,
+                                  const char *name, const char *tier, const char *result,
+                                  const char *detail, const PicturePaths *paths,
+                                  const uint32_t *us) {
     char safe_suite[64];
     char safe_name[128];
     char safe_detail[512];
@@ -192,14 +209,74 @@ size_t ReportBuildResultLine(char *out, size_t out_size, const char *suite, cons
         AppendPath(out, room, "diff", paths->diff);
         AppendPath(out, room, "raw", paths->raw);
     }
+    if (us != NULL) {
+        // Last, after everything a verdict wrote, so a line with its time taken off is the line
+        // this program wrote before it kept time.
+        char field[24];
+        const int length = snprintf(field, sizeof(field), ",\"us\":%u", (unsigned)*us);
+        const size_t before = strlen(out);
+        if (length > 0 && before + (size_t)length < room) {
+            memcpy(out + before, field, (size_t)length + 1u);
+        }
+    }
     const size_t used = strlen(out);
     out[used] = '}';
     out[used + 1u] = '\0';
     return used + 1u;
 }
 
+size_t ReportBuildBreadcrumb(char *out, size_t out_size, const char *suite, uint32_t pass,
+                             uint32_t index, const char *name, const char *previous) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    if (name != NULL) {
+        snprintf(out, out_size, "EDENPROBE TIMING %s pass %u case %s", suite, (unsigned)pass,
+                 name);
+    } else if (previous != NULL) {
+        snprintf(out, out_size, "EDENPROBE TIMING %s pass %u case number %u after %s", suite,
+                 (unsigned)pass, (unsigned)(index + 1u), previous);
+    } else {
+        snprintf(out, out_size, "EDENPROBE TIMING %s pass %u case number %u", suite,
+                 (unsigned)pass, (unsigned)(index + 1u));
+    }
+    return strlen(out);
+}
+
+/// Says on the debug channel which case of the rehearsal comes next. Never to the file: the
+/// report stays exactly the lines the verdict passes wrote, and the note before the rehearsals.
+static void Breadcrumb(void) {
+    // Only inside a timed pass: the support suite's own check of the mute has none, and a line
+    // naming a pass nought would send whoever greps the log looking for a hang that never was.
+    if (PerfPassNumber() == 0u) {
+        return;
+    }
+    const uint32_t index = PerfCaseIndex();
+    char line[256];
+    ReportBuildBreadcrumb(line, sizeof(line), rehearsal_suite, PerfPassNumber(), index,
+                          PerfNameAt(index), index > 0u ? PerfNameAt(index - 1u) : NULL);
+    SendToDebugChannel(line, strlen(line));
+}
+
+void ReportRehearse(const char *suite) {
+    rehearsing = suite != NULL;
+    snprintf(rehearsal_suite, sizeof(rehearsal_suite), "%s", suite != NULL ? suite : "");
+    if (rehearsing) {
+        Breadcrumb();
+    }
+}
+
 void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed_,
                 const char *detail) {
+    uint32_t us = 0;
+    const bool timed = PerfCaseEnd(name, &us);
+    if (rehearsing) {
+        // The picture is closed unwritten and unkept, and nothing else of the case remains: a
+        // rehearsal leaves the report, the counts and the names of the files as it found them.
+        PictureDiscard();
+        Breadcrumb();
+        return;
+    }
     if (passed_) {
         ++passed;
     } else {
@@ -213,12 +290,20 @@ void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed
     PictureFinish(suite, name, TierName(tier), passed_, detail, &paths);
 
     char line[REPORT_LINE_MAX];
-    ReportBuildCaseLine(line, sizeof(line), suite, name, TierName(tier), passed_, detail,
-                        &paths);
+    ReportBuildTimedCaseLine(line, sizeof(line), suite, name, TierName(tier), passed_, detail,
+                             &paths, timed ? &us : NULL);
     Emit(line);
 }
 
 void ReportSkip(const char *suite, const char *name, const char *reason) {
+    // A skip closes a case like any other, so a timed suite's positions stay in step; it asked
+    // nothing, so its line never carries a time, and a rehearsal counts it no more than a case.
+    (void)PerfCaseEnd(name, NULL);
+    if (rehearsing) {
+        PictureDiscard();
+        Breadcrumb();
+        return;
+    }
     ++skipped;
     // Closes whatever picture a case may have opened, so it cannot land on the next one; a skip
     // compared nothing and is never a failure, so nothing is written for it.
@@ -232,6 +317,9 @@ void ReportSkip(const char *suite, const char *name, const char *reason) {
 }
 
 void ReportNote(const char *fmt, ...) {
+    if (rehearsing) {
+        return;
+    }
     // One byte more than the longest note the header promises to carry whole, for the
     // terminator. The two buffers below are sized off this one: the escaping can grow a note,
     // and the line adds its own two dozen characters of shape around it.
@@ -270,6 +358,38 @@ size_t ReportBuildSummaryLine(char *out, size_t out_size, size_t passed_, size_t
 void ReportSummary(void) {
     char line[160];
     ReportBuildSummaryLine(line, sizeof(line), passed, failed, skipped);
+    Emit(line);
+}
+
+size_t ReportBuildPerfLine(char *out, size_t out_size, const char *suite,
+                           const PerfSummary *summary, unsigned samples) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    char safe_suite[64];
+    EscapeInto(safe_suite, sizeof(safe_suite), suite);
+    const int wrote = snprintf(
+        out, out_size,
+        "{\"type\":\"perf\",\"suite\":\"%s\",\"timed\":%u,\"total_us\":%llu,\"min_us\":%u,"
+        "\"max_us\":%u,\"median_us\":%u,\"submits\":%u,\"samples\":%u}",
+        safe_suite, (unsigned)summary->timed, (unsigned long long)summary->total,
+        (unsigned)summary->min, (unsigned)summary->max, (unsigned)summary->median,
+        (unsigned)summary->submits, samples);
+    if (wrote < 0 || (size_t)wrote >= out_size) {
+        // An empty object parses; the front of a real one does not.
+        out[0] = '\0';
+        if (out_size >= 3u) {
+            snprintf(out, out_size, "{}");
+        }
+    }
+    return strlen(out);
+}
+
+void ReportPerf(const char *suite) {
+    PerfSummary summary;
+    PerfSuiteSummary(&summary);
+    char line[256];
+    ReportBuildPerfLine(line, sizeof(line), suite, &summary, PERF_SAMPLES);
     Emit(line);
 }
 

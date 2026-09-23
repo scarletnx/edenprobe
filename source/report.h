@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "perf.h"
 #include "picture.h"
 
 #ifdef __cplusplus
@@ -89,6 +90,41 @@ size_t ReportBuildResultLine(char *out, size_t out_size, const char *suite, cons
 /// The summary line for the given counts, exposed so its shape can be checked on the host.
 size_t ReportBuildSummaryLine(char *out, size_t out_size, size_t passed, size_t failed,
                               size_t skipped);
+
+/// The same line with the case's time in microseconds last, as `"us":N`, when @p us is not NULL.
+/// Whole or not at all, like a picture's path: a line with no room for it goes without.
+size_t ReportBuildTimedCaseLine(char *out, size_t out_size, const char *suite, const char *name,
+                                const char *tier, bool passed, const char *detail,
+                                const PicturePaths *paths, const uint32_t *us);
+
+/// Mutes the report for the passes a timed suite makes before its verdict pass: no line, no
+/// count, no picture, only the time each case took. Off, everything is as it was.
+///
+/// While on, the debug channel alone gets a line before each case of @p suite starts, and one
+/// now for the first, so that a hang in a rehearsal is named in the emulator's log down to the
+/// case; see ReportBuildBreadcrumb. NULL turns it off.
+void ReportRehearse(const char *suite);
+
+/// Builds the line that says which case of a rehearsal is about to run:
+/// `EDENPROBE TIMING <suite> pass <n> case <name>`, with the name the case had in the pass before.
+/// The warm-up, which has no pass before it, says `case number <k>` instead, and the name of the
+/// case before it when there is one: `case number 3 after <name>`.
+size_t ReportBuildBreadcrumb(char *out, size_t out_size, const char *suite, uint32_t pass,
+                             uint32_t index, const char *name, const char *previous);
+
+/// Builds the line that sums up a timed suite's cases, without emitting it. @p samples is how many
+/// timed runs each case's number is the smallest of, the verdict pass included.
+size_t ReportBuildPerfLine(char *out, size_t out_size, const char *suite,
+                           const PerfSummary *summary, unsigned samples);
+
+/// Emits the perf line for the suite just run.
+void ReportPerf(const char *suite);
+
+/// Both of the above at once, the one every other line builder here ends in.
+size_t ReportBuildTimedResultLine(char *out, size_t out_size, const char *suite,
+                                  const char *name, const char *tier, const char *result,
+                                  const char *detail, const PicturePaths *paths,
+                                  const uint32_t *us);
 
 
 /// The longest note ReportNote carries whole. Stated here rather than buried in the buffer, so a
