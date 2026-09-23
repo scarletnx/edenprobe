@@ -1,10 +1,14 @@
-# gfxprobe
+# edenprobe
 
 A test program that runs on the console and inside an emulator of it, decides for itself whether
 the graphics came out right, and writes a report you can diff between the two.
 
 It is not a benchmark and not a demo. Every case computes the answer it expects and checks the
 answer it got. Nothing here needs a person to look at the screen and judge.
+
+It was gfxprobe until 23 September 2026. The name changed because the program is growing suite
+families beyond the graphics unit, and one binary with one judge is the reason to keep them
+together rather than start a second program next to it.
 
 ## Why not compare screenshots
 
@@ -389,7 +393,7 @@ second opinion for a person, never an input to one.
 
 Choose it in either of two ways, because a person and a script want different ones:
 
-- put the word `detailed` in `sdmc:/gfxprobe/mode`. The word `images` in the same file, on its
+- put the word `detailed` in `sdmc:/edenprobe/mode`. The word `images` in the same file, on its
   own or beside it, also writes the pictures for the passing cases;
 - or hold **X** as the program starts. The pad is asked once it turns up, which on a machine
   with a controller already attached is a frame or two; the wait is twelve frames at the very
@@ -411,7 +415,7 @@ export DEVKITPRO=$HOME/devkitpro
 make
 ```
 
-That produces `gfxprobe.nro`. The same file runs on hardware and in an emulator, unchanged: that
+That produces `edenprobe.nro`. The same file runs on hardware and in an emulator, unchanged: that
 is the point, since the two reports are only comparable if the binary is identical.
 
 There is also a host build, which compiles the parts that touch no console and runs them on the
@@ -428,7 +432,7 @@ a boot. It also covers what is written and drawn around a verdict, which has no 
 either: the picture writer against a fixture it then parses back, and the detailed mode's layout
 and navigation against a frame composed in ordinary memory.
 
-Commit messages have a convention too: `gfxprobe: what changed`, one to three lines of intent,
+Commit messages have a convention too: `edenprobe: what changed`, one to three lines of intent,
 one Signed-off-by that is also the author and the committer, ASCII, no merges. `git config
 core.hooksPath hooks` once per clone turns the check on; `sh hooks/test-commit-msg.sh` shows
 what it accepts and `--history <range>` runs it over existing commits.
@@ -440,14 +444,24 @@ make run
 ```
 
 `EMULATOR` points at the binary to test, and is a variable on the command line:
-`EMULATOR=/path/to/emulator make run`.
+`make run EMULATOR=/path/to/emulator`. With nothing given it is the eden-cli build kept in
+`~/WorkDir/accord/bin`.
 
-The run leaves `report.jsonl`, and `images/` beside it, in `sdmc:/gfxprobe`. On the console
+The run leaves `report.jsonl`, and `images/` beside it, in `sdmc:/edenprobe`. On the console
 that is the memory card. On a desktop the emulator keeps its memory card in an ordinary
-directory, wherever it was told to: for the one used here that is
-`$XDG_DATA_HOME/eden/sdmc`, so the report is at `.../sdmc/gfxprobe/report.jsonl` and the
-`mode` file goes next to it at `.../sdmc/gfxprobe/mode`. Any emulator with a different layout
-puts the same three names under whatever it calls its memory card.
+directory under `$XDG_DATA_HOME`, and its settings and caches under `$XDG_CONFIG_HOME` and
+`$XDG_CACHE_HOME`. `make run` points all three at `build/xdg/` inside this tree before it starts
+the emulator, so the report is at `build/xdg/data/eden/sdmc/edenprobe/report.jsonl`, the last
+line of the target prints that path, and `make clean` takes the lot away. That is not tidiness.
+An emulator's frontend saves its settings when it exits, so a run pointed at your own
+directories reads your settings and may rewrite them; one pointed here starts from the
+emulator's defaults every time, which also makes two runs comparable. The target deletes the
+previous report, its pictures and the support suite's scratch directory first, so a run that
+never started cannot leave an old report looking like its own, and a green run cannot sit beside
+the pictures of an earlier failing one. An emulator path that is missing or not executable, or a
+run that leaves no report, stops the target with a line saying which, and a non-zero exit.
+Any emulator with a different layout puts the same names under whatever it calls its memory
+card.
 
 The run needs a real rendering backend. An emulator set to a null or headless backend will still
 report the selfcheck cases and still open a graphics device, and will then fail every drawing case

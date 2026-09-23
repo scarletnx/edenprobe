@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // The only vertex shader in the suite, so a broken vertex stage fails everything at once rather

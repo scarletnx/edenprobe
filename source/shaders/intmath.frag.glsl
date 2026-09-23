@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Integer arithmetic into an integer render target, one operation per draw, chosen by a number

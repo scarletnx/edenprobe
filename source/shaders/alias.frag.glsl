@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Reads a texel as one unsigned word and writes it back out as four bytes, least significant

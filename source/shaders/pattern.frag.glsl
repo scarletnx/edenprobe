@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // A different four bytes at every pixel, from the pixel's own coordinate and a seed, so an image

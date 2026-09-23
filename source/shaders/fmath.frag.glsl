@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2026 gfxprobe contributors
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Float arithmetic into a 32 bit float render target, one operation per draw, chosen by a number

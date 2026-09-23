@@ -1,6 +1,6 @@
 /build/
 /build-host/
-/gfxprobe.elf
-/gfxprobe.nro
-/gfxprobe.nacp
-/gfxprobe-host-report.jsonl
+/edenprobe.elf
+/edenprobe.nro
+/edenprobe.nacp
+/edenprobe-host-report.jsonl
