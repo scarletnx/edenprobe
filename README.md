@@ -36,7 +36,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Twelve suites, in the order they run, because each leans on the ones before it. A run is 330
+Twelve suites, in the order they run, because each leans on the ones before it. A run is 370
 cases.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -58,7 +58,7 @@ cases.
   whole idea: the diff picture is built from what the judge decided pixel by pixel and not from
   comparing the two images, so a pixel that differs and was allowed to is not painted as a
   difference. Every line is the none tier, because none of it is a claim about a machine.
-- **reference**, seventy six cases, no hardware involved either. The other half of the judge: where
+- **reference**, eighty seven cases, no hardware involved either. The other half of the judge: where
   clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
   the centres that sit exactly on the edge they share. It runs in both builds, because a
   reference that answered differently on the two processors would be blamed on the graphics unit.
@@ -77,6 +77,10 @@ cases.
   One of those caught the emulator's processor rather than its graphics unit: under Eden, `rint`,
   which is a single `frintx`, rounds 1024.5 to 1025 with the rounding mode at nearest, where the
   architecture gives 1024, so the format reference rounds its halves by hand.
+  Eleven pin the grown intmath suite: 58 answers at two pixels worked out with exact rationals
+  away from this program's code, and each rule against a second algorithm over the whole sweep,
+  the minimum, maximum and clamps against 64 bit comparisons and the half patterns against the
+  rule that builds them among them.
 - **clear**, five cases, on the graphics unit: one that reports whether the graphics device came
   up at all, at no tier because it compares nothing, and four that draw. Each of the four clears a
   64 by 64 RGBA8 target and copies all 4096 pixels back to compare them. Three cover the whole
@@ -135,13 +139,40 @@ cases.
   for the band an edge runs through, and exact everywhere for the two cases whose geometry puts
   32 pixel centres exactly on a shared edge: those are decided by the fill rule, not by sub pixel
   precision, and an implementation that draws a shared edge twice or not at all says so there.
-- **intmath**, seventeen cases, on the graphics unit. A fragment shader doing integer arithmetic on
-  its own coordinate into an R32_Uint target: add, multiply, all three shifts, and, or, exclusive
-  or, bit counting, bit scanning, division and remainder. Exact tier, and it is the strongest
-  claim in the suite: an integer target normalises nothing, so a wrong answer is a wrong bit
-  pattern rather than a difference of opinion about the last place. The first three cases are the
-  fragment coordinate and the uniform buffer, which every case after them reads its operands and
-  its instructions out of.
+- **intmath**, forty six cases, on the graphics unit. Fragment shaders doing integer arithmetic on
+  their own coordinate into an R32_Uint target: add, multiply, all three shifts, and, or, exclusive
+  or, bit counting, bit scanning, division and remainder; conversions between integers and floats
+  both ways, above two to the 31 included; packUnorm4x8, packSnorm2x16 and packHalf2x16 and
+  their round trips, 0x8000 coming back as 0x8001; shifts by 31, 32 and 33 and by every count
+  up to 63; signed division and remainder with every combination of signs; findMSB and findLSB
+  of nought and of minus one; bitfieldExtract and bitfieldInsert at every offset and width,
+  nought and 32 included; bitfieldReverse; and the signed and unsigned minimum, maximum and
+  clamp, with the most negative and most positive values, nought and minus one against each
+  other on the last row. Exact tier, and it is the strongest claim in the suite: an integer target normalises
+  nothing, so a wrong answer is a wrong bit pattern rather than a difference of opinion about the
+  last place.
+
+  Two of those needed a rule the language does not give, and the rule is the console's own,
+  read out of the compiled shader. The language leaves a shift by 32 or more undefined; `uam`
+  emits every register shift here without the wrap flag (bit 39 of the instruction clear, read
+  with a decoder of the opcode table in the emulator's `frontend/maxwell/maxwell.inc`), and
+  such a shift clamps its count to 32, which is how PTX defines the same instructions: 32 and up
+  shift everything out, to nought or to the sign. And the console has no integer divide: `uam`
+  says so as it builds (`program uses non-constant integer division/modulo ... floating point
+  emulation with resulting loss of precision has been applied`), and the compiled division is
+  two conversions, a reciprocal, a multiply and a truncation. A quotient near a whole number is
+  then the reciprocal's to decide, so the operands are built to keep it honest: under two to the
+  18, never a multiple of the divisor, so the true quotient is at least a part in 2334 from a
+  whole number and a float error of a few units cannot move the truncation. The reference suite
+  measures both properties.
+
+  The modes are spread over six shaders by family (the original fourteen, conversions and
+  packing, shifts, division, remainder, bit operations), so an instruction an emulator cannot
+  translate, which fails the whole shader it is in, takes down its own family and no other; a
+  case whose every pixel still holds the sentinel says so. The emulator's log names the
+  instruction it could not translate, not the shader; the family of the failing cases says which
+  shader it was in. The first three cases are the fragment coordinate and the uniform buffer,
+  which every case after them reads its operands and its instructions out of.
 - **blend**, thirteen cases, on the graphics unit. The fixed function blend unit: adding,
   subtracting both ways round, the minimum and the maximum, the source alpha, the blend constant,
   and the clamp at each end of the range. Exact tier on a normalised target, which takes an
@@ -285,7 +316,7 @@ its dependencies put it, not at the end.
 | clear | exact | the render target's memory layout and the path that copies it back. Everything below draws into that same target. |
 | format | exact, ulp for floats | the render target format mapping for one format: its host format, its clear and its fragment output type. In an emulator: `video_core/surface.cpp` and `maxwell_to_vk.cpp`, and the clear of an integer target. Inside or outside the quad tells a conversion from a coverage fault. |
 | raster | position for edges, exact for interiors | vertex fetch, the clip space to screen space transform, and the coverage rule. In an emulator: the viewport registers, the y direction, the half pixel offset, and the fill rule the host rasteriser is asked for. |
-| intmath | exact | the shader translator, bit for bit, and the delivery of the fragment's own coordinate. In an emulator: one wrongly decoded instruction, or an integer render target mapped to a normalised host format. |
+| intmath | exact | the shader translator, bit for bit, and the delivery of the fragment's own coordinate. In an emulator: one wrongly decoded or untranslated instruction (`shader_recompiler/frontend/maxwell/translate/impl/`; the log names the instruction, the failing family names the shader), or an integer render target mapped to a normalised host format. |
 | blend | exact | the fixed function blend unit: the equation and factor registers, and the rounding on the way back to eight bits. |
 | depth | exact | the depth test: the depth target's format and layout, the depth range set up by the viewport, and the compare operation. |
 | texture | exact | the texture and sampler descriptors: the wrap mode and filter fields, and the block linear layout a sampled image is stored in. |
@@ -446,7 +477,7 @@ like a rendering fault or like the judge being wrong.
 three seconds. It is the same run up to the report closing, and then it stops.
 
 What the screen holds is every case that compared pixels, pass or fail, which on a full run is
-156 of the 330 and is the number the heading counts in. The other 174 compared nothing the
+185 of the 370 and is the number the heading counts in. The other 185 compared nothing the
 graphics unit produced and have no picture to show. A case that failed before it read a target
 back has no picture either, so it is not in the list; when that happens the screen says how
 many of the run's failures are missing from it rather than letting the count quietly disagree.

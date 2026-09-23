@@ -129,10 +129,41 @@ static bool CheckEveryPixel(const uint8_t *pixels, IntMathMode mode, Picture *pi
     }
     snprintf(detail, detail_size,
              "%u of %u pixels wrong, first at (%u,%u) is 0x%08x, expected 0x%08x; %u still hold "
-             "the sentinel 0x%08x",
+             "the sentinel 0x%08x%s",
              (unsigned)wrong, (unsigned)PIXEL_COUNT, (unsigned)first_x, (unsigned)first_y,
-             (unsigned)first_got, (unsigned)first_want, (unsigned)untouched, (unsigned)SENTINEL);
+             (unsigned)first_got, (unsigned)first_want, (unsigned)untouched, (unsigned)SENTINEL,
+             untouched == PIXEL_COUNT ? ", so the draw wrote nothing at all: under an emulator, a "
+                                        "shader that did not translate, and the emulator's log "
+                                        "names the instruction"
+                                      : "");
     return false;
+}
+
+/// The shaders the modes are spread over. One shader per family rather than one for all, so an
+/// instruction an emulator cannot translate, which fails the whole shader it is in, takes down
+/// its own family's cases and leaves the rest measuring what their names say.
+static const struct {
+    ShaderId shader;
+    IntMathMode first;
+} FAMILIES[] = {
+    { SHADER_INTMATH_FRAG, INTMATH_FRAGCOORD_X },
+    { SHADER_INTCONV_FRAG, INTMATH_INT_TO_FLOAT },
+    { SHADER_INTSHIFT_FRAG, INTMATH_SHIFT_LEFT_WIDE },
+    { SHADER_INTDIV_FRAG, INTMATH_SIGNED_DIVIDE },
+    { SHADER_INTREM_FRAG, INTMATH_SIGNED_REMAINDER },
+    { SHADER_INTBITS_FRAG, INTMATH_FIND_MSB_UINT },
+};
+
+#define FAMILY_COUNT (sizeof(FAMILIES) / sizeof(FAMILIES[0]))
+
+static size_t FamilyOf(IntMathMode mode) {
+    size_t family = 0;
+    for (size_t i = 0; i < FAMILY_COUNT; ++i) {
+        if (mode >= FAMILIES[i].first) {
+            family = i;
+        }
+    }
+    return family;
 }
 
 /// One operation: clear, tell the shader which one, draw over everything, read back, compare.
@@ -185,7 +216,7 @@ void RunIntmath(void) {
     // format would put a conversion between the shader and memory and there would be nothing
     // left to compare bit for bit.
     spec.color_format = DkImageFormat_R32_Uint;
-    spec.code_size = 16u * 1024u;
+    spec.code_size = 64u * 1024u;
     spec.data_size = 64u * 1024u;
 
     GpuContext gpu;
@@ -197,12 +228,14 @@ void RunIntmath(void) {
     }
 
     DkShader vertex_shader;
-    DkShader fragment_shader;
-    const bool loaded = GpuLoadShader(&gpu, &vertex_shader, ShaderData(SHADER_COMMON_VERT),
-                                      ShaderSize(SHADER_COMMON_VERT)) &&
-                        GpuLoadShader(&gpu, &fragment_shader, ShaderData(SHADER_INTMATH_FRAG),
-                                      ShaderSize(SHADER_INTMATH_FRAG));
-    CHECK_TRUE(SUITE, "the integer shader loads", CHECK_NONE, loaded, "%s", gpu.failure);
+    DkShader fragment_shaders[FAMILY_COUNT];
+    bool loaded = GpuLoadShader(&gpu, &vertex_shader, ShaderData(SHADER_COMMON_VERT),
+                                ShaderSize(SHADER_COMMON_VERT));
+    for (size_t i = 0; i < FAMILY_COUNT && loaded; ++i) {
+        loaded = GpuLoadShader(&gpu, &fragment_shaders[i], ShaderData(FAMILIES[i].shader),
+                               ShaderSize(FAMILIES[i].shader));
+    }
+    CHECK_TRUE(SUITE, "the integer shaders load", CHECK_NONE, loaded, "%s", gpu.failure);
     if (!loaded) {
         GpuClose(&gpu);
         return;
@@ -222,7 +255,8 @@ void RunIntmath(void) {
                TARGET_WIDTH, TARGET_HEIGHT, (unsigned)PIXEL_COUNT, (unsigned)SENTINEL);
 
     for (uint32_t mode = 0; mode < INTMATH_MODE_COUNT; ++mode) {
-        ModeCase(&gpu, &vertex_shader, &fragment_shader, uniform, (IntMathMode)mode);
+        ModeCase(&gpu, &vertex_shader, &fragment_shaders[FamilyOf((IntMathMode)mode)], uniform,
+                 (IntMathMode)mode);
     }
 
     GpuClose(&gpu);

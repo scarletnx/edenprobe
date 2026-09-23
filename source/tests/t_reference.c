@@ -1336,6 +1336,362 @@ static void CheckCoherenceRules(void) {
 }
 
 
+/// The integer modes added after the first fourteen: each one worked out at two pixels away from
+/// this program's own code, and each rule underneath checked over a sweep against a second
+/// algorithm that shares no line with the one in source/intref.c.
+static void CheckIntegerArithmeticGrown(void) {
+    // Worked out with exact rationals, away from this program's own code: (37,23)
+    // has the mix 0x71A39D6A, top bit clear; (2,37) has 0xBC3BF8D5, top bit set, a negative
+    // dividend over a negative divisor and a shift count of 33.
+    static const struct {
+        IntMathMode mode;
+        uint32_t x;
+        uint32_t y;
+        uint32_t expected;
+    } BY_HAND[] = {
+        // 1906548074 needs 31 bits, so the float keeps 24 of them: 0x71A39D6A rounds up to
+        // 0x71A39D80, which is 1.7755 times two to the 30.
+        { INTMATH_INT_TO_FLOAT, 37, 23, 0x4EE3473Bu },
+        { INTMATH_UINT_TO_FLOAT, 37, 23, 0x4EE3473Bu },
+        // (37 - 31.5) * 3.25 + 23 / 8 is 20.75, towards nought 20.
+        { INTMATH_FLOAT_TO_INT, 37, 23, 0x00000014u },
+        { INTMATH_FLOAT_TO_UINT, 37, 23, 0x71A39D00u },
+        // -29/256 clamps to nought; 45, 119 and 193 256ths times 255 are 44.82, 118.54 and
+        // 192.25, so 0x2D, 0x77 and 0xC0 above the nought in the low byte.
+        { INTMATH_PACK_UNORM4X8, 37, 23, 0xC0772D00u },
+        { INTMATH_ROUNDTRIP_UNORM4X8, 37, 23, 0x71A39D6Au },
+        // -309/256 clamps to minus one, which packs as -32767, 0x8001; -107/256 times 32767 is
+        // -13695.57, and the nearest code is -13696, 0xCA80.
+        { INTMATH_PACK_SNORM2X16, 37, 23, 0xCA808001u },
+        { INTMATH_ROUNDTRIP_SNORM2X16, 37, 23, 0x71A39D6Au },
+        { INTMATH_PACK_HALF2X16, 37, 23, 0x71A39D6Au },
+        // 0x9D6A is -0.00528717041015625 and 0x71A3 is 11544: 0xBBAD4000 ^ 0x46346000.
+        { INTMATH_UNPACK_HALF2X16, 37, 23, 0xFD992000u },
+        // 37 % 3 is 1, so a count of 32: everything shifted out.
+        { INTMATH_SHIFT_LEFT_WIDE, 37, 23, 0x00000000u },
+        { INTMATH_SHIFT_RIGHT_WIDE, 37, 23, 0x00000000u },
+        { INTMATH_SHIFT_ARITHMETIC_WIDE, 37, 23, 0x00000000u },
+        { INTMATH_SHIFT_LEFT_BY_REGISTER, 37, 23, 0xB5000000u },
+        { INTMATH_SHIFT_RIGHT_BY_REGISTER, 37, 23, 0x000000E3u },
+        { INTMATH_SHIFT_ARITHMETIC_BY_REGISTER, 37, 23, 0x000000E3u },
+        // 32211 over -854 is -37.72, towards nought -37, and 32211 - 37 * 854 is 613.
+        { INTMATH_SIGNED_DIVIDE, 37, 23, 0xFFFFFFDBu },
+        { INTMATH_SIGNED_REMAINDER, 37, 23, 0x00000265u },
+        { INTMATH_FIND_MSB_UINT, 37, 23, 0x00000019u },
+        { INTMATH_FIND_MSB_INT, 37, 23, 0x00000019u },
+        { INTMATH_FIND_LSB, 37, 23, 0x00000006u },
+        // Offset 5, width 23.
+        { INTMATH_BITFIELD_EXTRACT_UINT, 37, 23, 0x000D1CEBu },
+        { INTMATH_BITFIELD_EXTRACT_INT, 37, 23, 0x000D1CEBu },
+        { INTMATH_BITFIELD_INSERT, 37, 23, 0x7A2AFCCAu },
+        { INTMATH_BITFIELD_REVERSE, 37, 23, 0x56B9C58Eu },
+        { INTMATH_MIN_SIGNED, 37, 23, 0xBE5157E6u },
+        { INTMATH_MAX_UNSIGNED, 37, 23, 0xBE5157E6u },
+        { INTMATH_CLAMP_SIGNED, 37, 23, 0x20000000u },
+        { INTMATH_CLAMP_UNSIGNED, 37, 23, 0x71A39D6Au },
+        // -1136920363 as a float rounds to -1136920320.
+        { INTMATH_INT_TO_FLOAT, 2, 37, 0xCE87880Eu },
+        { INTMATH_UINT_TO_FLOAT, 2, 37, 0x4F3C3BF9u },
+        // (2 - 31.5) * 3.25 + 37 / 8 is -91.25, towards nought -91.
+        { INTMATH_FLOAT_TO_INT, 2, 37, 0xFFFFFFA5u },
+        { INTMATH_FLOAT_TO_UINT, 2, 37, 0xBC3BF800u },
+        { INTMATH_PACK_UNORM4X8, 2, 37, 0x00FFF8AEu },
+        { INTMATH_ROUNDTRIP_UNORM4X8, 2, 37, 0xBC3BF8D5u },
+        { INTMATH_PACK_SNORM2X16, 2, 37, 0x8001667Fu },
+        { INTMATH_ROUNDTRIP_SNORM2X16, 2, 37, 0xBC3BF8D5u },
+        { INTMATH_PACK_HALF2X16, 2, 37, 0xBC3BF8D5u },
+        { INTMATH_UNPACK_HALF2X16, 2, 37, 0x789DC000u },
+        // A count of 33: nought, nought, and the sign all the way down.
+        { INTMATH_SHIFT_LEFT_WIDE, 2, 37, 0x00000000u },
+        { INTMATH_SHIFT_RIGHT_WIDE, 2, 37, 0x00000000u },
+        { INTMATH_SHIFT_ARITHMETIC_WIDE, 2, 37, 0xFFFFFFFFu },
+        { INTMATH_SHIFT_LEFT_BY_REGISTER, 2, 37, 0x00000000u },
+        { INTMATH_SHIFT_RIGHT_BY_REGISTER, 2, 37, 0x00000000u },
+        { INTMATH_SHIFT_ARITHMETIC_BY_REGISTER, 2, 37, 0xFFFFFFFFu },
+        // -3033 over -1372 is 2.21, so 2, and the remainder keeps the dividend's sign: -289.
+        { INTMATH_SIGNED_DIVIDE, 2, 37, 0x00000002u },
+        { INTMATH_SIGNED_REMAINDER, 2, 37, 0xFFFFFEDFu },
+        { INTMATH_FIND_MSB_UINT, 2, 37, 0x0000001Du },
+        // Negative, so the highest bit that is nought: bit 28 of 0xEF0EFE35.
+        { INTMATH_FIND_MSB_INT, 2, 37, 0x0000001Cu },
+        { INTMATH_FIND_LSB, 2, 37, 0x00000002u },
+        { INTMATH_BITFIELD_EXTRACT_UINT, 2, 37, 0x00000005u },
+        { INTMATH_BITFIELD_EXTRACT_INT, 2, 37, 0x00000005u },
+        { INTMATH_BITFIELD_INSERT, 2, 37, 0xBC3BF8FDu },
+        { INTMATH_BITFIELD_REVERSE, 2, 37, 0xAB1FDC3Du },
+        { INTMATH_MIN_SIGNED, 2, 37, 0xBC3BF8D5u },
+        { INTMATH_MAX_UNSIGNED, 2, 37, 0xBC3BF8D5u },
+        { INTMATH_CLAMP_SIGNED, 2, 37, 0xF0000000u },
+        { INTMATH_CLAMP_UNSIGNED, 2, 37, 0xBC3BF8D5u },
+    };
+    uint32_t wrong = 0;
+    uint32_t covered = 0;
+    size_t first = 0;
+    uint32_t first_got = 0;
+    for (size_t i = 0; i < sizeof(BY_HAND) / sizeof(BY_HAND[0]); ++i) {
+        covered |= 1u << (BY_HAND[i].mode - INTMATH_INT_TO_FLOAT);
+        const uint32_t got = IntMathReference(BY_HAND[i].mode, BY_HAND[i].x, BY_HAND[i].y, 0u);
+        if (got != BY_HAND[i].expected) {
+            if (wrong == 0) {
+                first = i;
+                first_got = got;
+            }
+            ++wrong;
+        }
+    }
+    const uint32_t grown = INTMATH_MODE_COUNT - INTMATH_INT_TO_FLOAT;
+    CHECK_TRUE(SUITE, "the grown integer reference matches the values worked out by hand",
+               CHECK_NONE, wrong == 0 && covered == (1u << grown) - 1u,
+               "%u of %u disagreed, first \"%s\" at (%u,%u) gave 0x%08x, expected 0x%08x; "
+               "modes covered 0x%08x",
+               (unsigned)wrong, (unsigned)(sizeof(BY_HAND) / sizeof(BY_HAND[0])),
+               IntMathName(BY_HAND[first].mode), (unsigned)BY_HAND[first].x,
+               (unsigned)BY_HAND[first].y, (unsigned)first_got,
+               (unsigned)BY_HAND[first].expected, (unsigned)covered);
+
+    // Sweeps over every pixel the suite draws, each against a second way of saying the rule.
+    uint32_t conversion = 0;
+    uint32_t unorm_margin = 0;
+    uint32_t snorm_margin = 0;
+    uint32_t shifts = 0;
+    uint32_t division = 0;
+    uint32_t scans = 0;
+    uint32_t fields = 0;
+    uint32_t sign_combinations = 0;
+    uint32_t wide_counts = 0;
+    uint32_t extract_negative = 0;
+    for (uint32_t y = 0; y < 64u; ++y) {
+        for (uint32_t x = 0; x < 64u; ++x) {
+            const uint32_t v = IntMathMix(x, y);
+
+            // The processor's own conversions, which round to nearest even by default: a
+            // different algorithm from the one written out with integers.
+            const float as_signed = (float)(int32_t)v;
+            const float as_unsigned = (float)v;
+            uint32_t bits_signed;
+            uint32_t bits_unsigned;
+            memcpy(&bits_signed, &as_signed, sizeof(bits_signed));
+            memcpy(&bits_unsigned, &as_unsigned, sizeof(bits_unsigned));
+            if (IntMathReference(INTMATH_INT_TO_FLOAT, x, y, 0u) != bits_signed ||
+                IntMathReference(INTMATH_UINT_TO_FLOAT, x, y, 0u) != bits_unsigned ||
+                IntMathReference(INTMATH_FLOAT_TO_INT, x, y, 0u) !=
+                    (uint32_t)(int32_t)IntMathSmallFloat(x, y)) {
+                ++conversion;
+            }
+
+            // Every packed component at least a 256th of a code from a halfway point, which is
+            // what makes the language's round have one answer.
+            for (uint32_t i = 0; i < 4u; ++i) {
+                const double code = (double)IntMathUnormInput(x, y, i) * 255.0;
+                const double fraction = code - floor(code);
+                if (code > 0.0 && code < 255.0 && fabs(fraction - 0.5) < 1.0 / 256.0) {
+                    ++unorm_margin;
+                }
+            }
+            for (uint32_t i = 0; i < 2u; ++i) {
+                const double code = (double)IntMathSnormInput(x, y, i) * 32767.0;
+                const double fraction = code - floor(code);
+                if (fabs(code) < 32767.0 && fabs(fraction - 0.5) < 1.0 / 256.0) {
+                    ++snorm_margin;
+                }
+            }
+
+            // The shifts, with the count clamped: below 32 they are C's, at 32 and above
+            // everything is shifted out.
+            for (uint32_t count = 0; count < 70u; count += 1u) {
+                const uint32_t left = count < 32u ? v << count : 0u;
+                const uint32_t right = count < 32u ? v >> count : 0u;
+                const uint32_t sign = (v & 0x80000000u) != 0u ? 0xFFFFFFFFu : 0u;
+                const uint32_t arithmetic =
+                    count == 0u ? v : (count < 32u ? (right | (sign << (32u - count))) : sign);
+                if (IntMathShiftLeft(v, count) != left || IntMathShiftRight(v, count) != right ||
+                    IntMathShiftArithmetic(v, count) != arithmetic) {
+                    ++shifts;
+                }
+            }
+            if (31u + x % 3u >= 32u) {
+                ++wide_counts;
+            }
+
+            // The division's operands keep the float reciprocal honest: under two to the 18,
+            // never a multiple, and the quotient a known number of whole divisors.
+            const int32_t dividend = IntMathDividend(x, y);
+            const int32_t divisor = IntMathDivisor(y);
+            const int32_t magnitude = divisor < 0 ? -divisor : divisor;
+            const int32_t whole = dividend < 0 ? -dividend : dividend;
+            const int32_t sign = (dividend < 0) == (divisor < 0) ? 1 : -1;
+            const int32_t remainder = whole - (int32_t)x * magnitude;
+            if (whole >= (1 << 18) || remainder < 1 || remainder >= magnitude ||
+                (int32_t)IntMathReference(INTMATH_SIGNED_DIVIDE, x, y, 0u) != sign * (int32_t)x ||
+                (int32_t)IntMathReference(INTMATH_SIGNED_REMAINDER, x, y, 0u) !=
+                    (dividend < 0 ? -remainder : remainder)) {
+                ++division;
+            }
+            sign_combinations |= 1u << ((dividend < 0 ? 2u : 0u) + (divisor < 0 ? 1u : 0u));
+
+            // The scans against the compiler's own count of leading and trailing noughts.
+            const uint32_t shifted = v >> (x & 31u);
+            const uint32_t msb = shifted == 0u ? 0xFFFFFFFFu : 31u - (uint32_t)__builtin_clz(shifted);
+            const uint32_t left_shifted = v << (x & 31u);
+            const uint32_t lsb =
+                left_shifted == 0u ? 0xFFFFFFFFu : (uint32_t)__builtin_ctz(left_shifted);
+            if (IntMathReference(INTMATH_FIND_MSB_UINT, x, y, 0u) != msb ||
+                IntMathReference(INTMATH_FIND_LSB, x, y, 0u) != lsb) {
+                ++scans;
+            }
+
+            // The fields against masks and shifts, where the reference walks bit by bit.
+            const uint32_t offset = IntMathFieldOffset(x);
+            const uint32_t width = IntMathFieldBits(x, y);
+            const uint32_t mask = width >= 32u ? 0xFFFFFFFFu : ((1u << width) - 1u);
+            const uint32_t field = (v >> offset) & mask;
+            uint32_t extended = field;
+            if (width > 0u && width < 32u && ((field >> (width - 1u)) & 1u) != 0u) {
+                extended |= ~mask;
+                ++extract_negative;
+            }
+            const uint32_t w = IntMathSecond(x, y);
+            const uint32_t inserted = (v & ~(mask << offset)) | ((w & mask) << offset);
+            if (offset + width > 32u ||
+                IntMathReference(INTMATH_BITFIELD_EXTRACT_UINT, x, y, 0u) != field ||
+                IntMathReference(INTMATH_BITFIELD_EXTRACT_INT, x, y, 0u) !=
+                    (width == 0u ? 0u : extended) ||
+                IntMathReference(INTMATH_BITFIELD_INSERT, x, y, 0u) != inserted ||
+                IntMathReverse(IntMathReverse(v)) != v) {
+                ++fields;
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "the integer to float conversions agree with the processor's own",
+               CHECK_NONE, conversion == 0, "%u of 4096 pixels disagreed", (unsigned)conversion);
+    CHECK_TRUE(SUITE, "every packed component is at least a 256th of a code from a half",
+               CHECK_NONE, unorm_margin == 0 && snorm_margin == 0,
+               "%u unorm and %u snorm components came closer", (unsigned)unorm_margin,
+               (unsigned)snorm_margin);
+    CHECK_TRUE(SUITE, "the shifts clamp their count to 32 and the sweep reaches past it",
+               CHECK_NONE, shifts == 0 && wide_counts > 0,
+               "%u of 286720 shifts disagreed; %u pixels had a count of 32 or more",
+               (unsigned)shifts, (unsigned)wide_counts);
+    CHECK_TRUE(SUITE, "the signed division's operands keep a float reciprocal exact", CHECK_NONE,
+               division == 0 && sign_combinations == 0xFu,
+               "%u of 4096 pixels broke the construction; sign combinations seen 0x%x of 0xf",
+               (unsigned)division, (unsigned)sign_combinations);
+    CHECK_TRUE(SUITE, "the bit scans agree with counting leading and trailing noughts",
+               CHECK_NONE, scans == 0, "%u of 4096 pixels disagreed", (unsigned)scans);
+    CHECK_TRUE(SUITE, "the bitfield modes agree with masks and shifts and see negative fields",
+               CHECK_NONE, fields == 0 && extract_negative > 0,
+               "%u of 4096 pixels disagreed; %u fields had their top bit set", (unsigned)fields,
+               (unsigned)extract_negative);
+
+    // The minimum, maximum and clamps against sixty four bit comparisons, which share nothing
+    // with the thirty two bit ones in the reference, and the half precision patterns against the
+    // rule they are built by: an exponent of nought gains exactly bit 10, a NaN loses exactly its
+    // mantissa, everything else is untouched. Both over every pixel, the ends row included.
+    uint32_t ordering = 0;
+    uint32_t ends_seen = 0;
+    uint32_t patterns = 0;
+    uint32_t raised = 0;
+    for (uint32_t y = 0; y < 64u; ++y) {
+        for (uint32_t x = 0; x < 64u; ++x) {
+            uint32_t a;
+            uint32_t b;
+            IntMathMinMaxOperands(x, y, &a, &b);
+            const int64_t sa = (int64_t)(int32_t)a;
+            const int64_t sb = (int64_t)(int32_t)b;
+            const int64_t signed_min = sa <= sb ? sa : sb;
+            const uint64_t unsigned_max = (uint64_t)a >= (uint64_t)b ? a : b;
+            int64_t signed_clamp = sa;
+            if (signed_clamp < -0x10000000LL) {
+                signed_clamp = -0x10000000LL;
+            }
+            if (signed_clamp > 0x20000000LL) {
+                signed_clamp = 0x20000000LL;
+            }
+            uint64_t unsigned_clamp = a;
+            if (unsigned_clamp < 0x40000000ull) {
+                unsigned_clamp = 0x40000000ull;
+            }
+            if (unsigned_clamp > 0xC0000000ull) {
+                unsigned_clamp = 0xC0000000ull;
+            }
+            if (IntMathReference(INTMATH_MIN_SIGNED, x, y, 0u) != (uint32_t)signed_min ||
+                IntMathReference(INTMATH_MAX_UNSIGNED, x, y, 0u) != (uint32_t)unsigned_max ||
+                IntMathReference(INTMATH_CLAMP_SIGNED, x, y, 0u) != (uint32_t)signed_clamp ||
+                IntMathReference(INTMATH_CLAMP_UNSIGNED, x, y, 0u) != (uint32_t)unsigned_clamp) {
+                ++ordering;
+            }
+            if (a == 0x80000000u && b == 0x7FFFFFFFu) {
+                ++ends_seen;
+            }
+
+            const uint32_t v = IntMathMix(x, y);
+            const uint32_t built = IntMathHalfPatterns(x, y);
+            for (uint32_t part = 0; part < 2u; ++part) {
+                const uint32_t h = (v >> (part * 16u)) & 0xFFFFu;
+                const uint32_t exponent = (h >> 10) & 0x1Fu;
+                uint32_t want = h;
+                if (exponent == 0u) {
+                    want = h + 0x400u;
+                    ++raised;
+                } else if (exponent == 31u) {
+                    want = h - (h & 0x3FFu);
+                }
+                if (((built >> (part * 16u)) & 0xFFFFu) != want) {
+                    ++patterns;
+                }
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "the minimum, maximum and clamps agree with 64 bit comparisons",
+               CHECK_NONE, ordering == 0 && ends_seen > 0,
+               "%u of 4096 pixels disagreed; the most negative against the most positive was "
+               "seen %u times",
+               (unsigned)ordering, (unsigned)ends_seen);
+    CHECK_TRUE(SUITE, "the half patterns raise exponent nought and quiet nothing else",
+               CHECK_NONE, patterns == 0 && raised > 0,
+               "%u of 8192 halves disagreed; %u had an exponent of nought", (unsigned)patterns,
+               (unsigned)raised);
+
+    // The two round trips, over every value a half can hold: the snorm one against unpacking
+    // and packing in single precision, and the half one against the format reference's
+    // converter, which is written differently.
+    uint32_t snorm_roundtrip = 0;
+    uint32_t minus_32768 = 0;
+    uint32_t half_patterns = 0;
+    for (uint32_t h = 0; h < 0x10000u; ++h) {
+        const int16_t code = (int16_t)h;
+        float unpacked = (float)code / 32767.0f;
+        unpacked = unpacked < -1.0f ? -1.0f : unpacked;
+        const float pair[2] = { unpacked, 0.0f };
+        const uint32_t repacked = IntMathPackSnorm2x16(pair) & 0xFFFFu;
+        if ((IntMathRoundtripSnorm2x16(h) & 0xFFFFu) != repacked) {
+            ++snorm_roundtrip;
+        }
+        if (h == 0x8000u && repacked == 0x8001u) {
+            ++minus_32768;
+        }
+        const uint32_t exponent = (h >> 10) & 0x1Fu;
+        if (exponent != 0u && !(exponent == 31u && (h & 0x3FFu) != 0u)) {
+            const uint32_t bits = IntMathFloatFromHalfBits(h);
+            float value;
+            memcpy(&value, &bits, sizeof(value));
+            const float other = FormatFloatFromHalf(h);
+            uint32_t other_bits;
+            memcpy(&other_bits, &other, sizeof(other_bits));
+            if (bits != other_bits || FormatHalfFromFloat(value) != h) {
+                ++half_patterns;
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "an snorm round trip returns every half but 0x8000, which becomes 0x8001",
+               CHECK_NONE, snorm_roundtrip == 0 && minus_32768 == 1u,
+               "%u of 65536 disagreed, and 0x8000 %s", (unsigned)snorm_roundtrip,
+               minus_32768 == 1u ? "did become 0x8001" : "did not become 0x8001");
+    CHECK_TRUE(SUITE, "the half precision patterns agree with the format reference both ways",
+               CHECK_NONE, half_patterns == 0, "%u normal and infinite halves disagreed",
+               (unsigned)half_patterns);
+}
+
 /// What a format stores: whole pixels worked out by hand, the rules one at a time, and the
 /// properties that make every normalised case exact.
 static void CheckFormats(void) {
@@ -1752,6 +2108,7 @@ void RunReference(void) {
     CheckSharedEdge();
     CheckEdgeDistanceAndMargin();
     CheckIntegerArithmetic();
+    CheckIntegerArithmeticGrown();
     CheckBlendArithmetic();
     CheckWrapModes();
     CheckTextureCoordinates();
