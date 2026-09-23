@@ -21,6 +21,10 @@ extern "C" {
 void ReportOpen(const char *path);
 void ReportClose(void);
 
+/// Reopens a closed report to add to its end, with the counts left as they were. For the one
+/// line a run can owe after its summary, which is why the detailed mode stopped by itself.
+void ReportAppend(const char *path);
+
 /// Whether a report is still being written. The detailed mode asks before it puts anything on
 /// a screen, so that presentation can never reach a line.
 bool ReportIsOpen(void);

@@ -36,7 +36,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Eleven suites, in the order they run, because each leans on the ones before it. A run is 257
+Eleven suites, in the order they run, because each leans on the ones before it. A run is 259
 cases.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -45,17 +45,19 @@ cases.
   a budget of every value there is, and that a budget of three units in the last place reaches
   six representable values below a power of two and three above it. If one of these fails,
   nothing else the suite says can be believed.
-- **support**, fifty cases, no hardware and nothing of the hardware's looked at. The two
+- **support**, fifty two cases, no hardware and nothing of the hardware's looked at. The two
   things this program does around a verdict rather than to reach one: the picture it leaves
   beside a failing case, and the screen the detailed mode shows that picture on. It checks that
   a case name becomes the file name its own line says it does, that a written picture parses
   back as the image its header claims to be, that the bytes kept beside a picture of an integer
   target are every byte that target held, that two case names which spell one file name still
-  get a file each, that the suite takes its own fixtures away again, and that the navigation and
-  the layout are what the screen is made of. One of them carries the whole idea: the diff
-  picture is built from what the judge decided pixel by pixel and not from comparing the two
-  images, so a pixel that differs and was allowed to is not painted as a difference. Every line
-  is the none tier, because none of it is a claim about a machine.
+  get a file each, that the suite takes its own fixtures away again, that the navigation and
+  the layout are what the screen is made of, and that the mode file reads as the section on the
+  console says: each word alone and together, a missing file, words it does not know, a family
+  this build lacks, and the ten seconds an unattended screen waits. One of them carries the
+  whole idea: the diff picture is built from what the judge decided pixel by pixel and not from
+  comparing the two images, so a pixel that differs and was allowed to is not painted as a
+  difference. Every line is the none tier, because none of it is a claim about a machine.
 - **reference**, sixty nine cases, no hardware involved either. The other half of the judge: where
   clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
   the centres that sit exactly on the edge they share. It runs in both builds, because a
@@ -239,6 +241,27 @@ its dependencies put it, not at the end.
 | coherence | exact | a cache between two uses of the same memory. In an emulator: the texture cache not marking an image the graphics unit wrote as modified, or missing a processor write to one (`texture_cache/texture_cache.h`, `MarkModification`, `WriteMemory`); the buffer cache serving a uniform buffer the processor rewrote, or dropping an update pushed inside the list (`buffer_cache/buffer_cache.h`, `Maxwell3D::ProcessCBData`); the copy engine's writes not reaching the images it overlaps (`engines/maxwell_dma.cpp`), or a render target not flushed before the copy engine reads it; or two formats over one memory joined as a conversion rather than a view (`texture_cache/texture_cache.h`, `JoinImages`). The region two pixels that still hold region one's contents say which. |
 | fmath | units in the last place | the float side of the shader translator, and the transcendental unit behind it. This is the only suite where two correct machines are allowed to differ, which is why it is last. |
 
+What comes next, in this order, each one its own change with its own critic:
+
+- **format**, a suite right after clear: every colour format the graphics library can render to
+  and read back, eight to thirty two bits, one to four channels, integer, normalised and float,
+  each cleared to one value and drawn over with another, judged exactly or in units in the last
+  place. `R32_Uint` is the known failure on Eden, and the suite is built to show it as one
+  failing case among passing neighbours. With it, `intmath` and `fmath` grow: conversions,
+  packing, shifts past the width, signed division, bit operations, fused rounding, NaN and
+  infinity through the minimum and the maximum, denormals, and the edges of the exponential and
+  the logarithm, every budget stated and justified where it is set.
+- **time per case**: each drawing case records how long its draw and readback took, repeated
+  until two runs on one machine agree within a tenth, with a summary per suite and a script that
+  lists what moved between two reports. Nothing a verdict depends on changes.
+- **net**, the second family: the online services an emulator provides, network state, name
+  resolution, sockets, secure connections, the account token and the friends list, checked
+  against a local backend, every expectation computed from the protocol and a case that needs the
+  backend skipped, and counted as skipped, when it is absent.
+- **another emulator**: the same binary under Ryujinx, with its own keys, and the two reports
+  diffed against Eden's and against a console's. Nothing in this program depends on the emulator
+  it runs under, and that run is what proves it.
+
 Two rules hold across all of them. Every case computes what it expects on the processor and
 checks every pixel, so there is no stored image anywhere and no machine's answer is the
 reference for another's. And every rule a case judges by, wherever that rule is more than one
@@ -282,8 +305,10 @@ reason in its detail. The tier describes the comparison the line carries, not th
 case that wrote it. Calling any of those `exact` would read, in a diff, as a passing claim about
 a machine that was never asked anything.
 
-A run that dies halfway still leaves everything up to its last finished case, and the final line
-carries the counts so a runner does not have to parse the rest.
+A run that dies halfway still leaves everything up to its last finished case, and the summary
+line carries the counts so a runner does not have to parse the rest. The summary is the last
+line of every run but one kind: a detailed run nobody attended adds one note after it, which the
+section on the console below describes.
 
 ## What a failing case leaves behind
 
@@ -355,56 +380,99 @@ comparison would paint the entire float suite red on a machine that had done not
 which is precisely the failure the suite exists not to report.
 
 By default only a failing case writes anything, because a green run would otherwise leave three
-files for every drawing case and nobody asked for them. A run that wants them all says so in
-the `mode` file described in the next section. The `support` suite is the one exception and
-only while it runs: it writes a handful of eight by four fixtures into `support-check/` beside
-the report, parses them back, and then takes them away again, which is a case of its own. A run
-that leaves that directory behind has failed that case and says so.
+files for every drawing case and nobody asked for them. A run that wants them all says so with
+the word `images` in the `mode` file described in the next section. The `support` suite is the
+one exception and only while it runs: it writes a handful of eight by four fixtures into
+`support-check/` beside the report, parses them back, and then takes them away again, which is a
+case of its own. A run that leaves that directory behind has failed that case and says so.
 
 ## Looking at it on the console
 
-One binary, two ways to run it.
+One binary, two ways to run it, and a file on the memory card that chooses.
 
-**Automatic** is what it always did and is still the default: every suite runs, both report
-channels get every line, the program exits, about three seconds.
+**Detailed** is the default, because the person who starts this on a console is standing in
+front of the screen: every suite runs, both report channels get every line, the summary is
+counted and the report is closed, and then the cases go on the screen one at a time: the three
+pictures above, side by side and labelled `drawn`, `expected` and `judged`, each 64 by 64 target
+scaled up with nearest neighbour so it is legible, with the suite, the case, the tier, the
+verdict and the detail as text around them, and a key naming each of the four colours `judged`
+is made of. It is for the question a verdict cannot answer, which is whether a failure looks
+like a rendering fault or like the judge being wrong.
 
-**Detailed** does all of that first, unchanged and to the last byte, and then puts the cases on
-the screen one at a time: the three pictures above, side by side and labelled `drawn`,
-`expected` and `judged`, each 64 by 64 target scaled up with nearest neighbour so it is
-legible, with the suite, the case, the tier, the verdict and the detail as text around them,
-and a key naming each of the four colours `judged` is made of. It is for the question a verdict
-cannot answer, which is whether a failure looks like a rendering fault or like the judge being
-wrong.
+**Quick** is what a script wants: every suite, both channels, and the program exits, about
+three seconds. It is the same run up to the report closing, and then it stops.
 
-What it holds is every case that compared pixels, pass or fail, which on a full run is 96 of the
-257 and is the number the heading counts in. The other 161 compared nothing the graphics unit
-produced and have no picture to show. A case that failed before it read a target back has no
-picture either, so it is not in the list; when that happens the screen says how many of the
-run's failures are missing from it rather than letting the count quietly disagree. It holds them
-in memory rather than reading back what it wrote, so a green run and a run that wrote nothing
-are both worth looking at, and the `images` word changes what is on the memory card and not what
-is on the screen.
+What the screen holds is every case that compared pixels, pass or fail, which on a full run is
+96 of the 259 and is the number the heading counts in. The other 163 compared nothing the
+graphics unit produced and have no picture to show. A case that failed before it read a target
+back has no picture either, so it is not in the list; when that happens the screen says how
+many of the run's failures are missing from it rather than letting the count quietly disagree.
+It holds them in memory rather than reading back what it wrote, so a green run and a run that
+wrote nothing are both worth looking at, and the `images` word changes what is on the memory
+card and not what is on the screen.
 
 The order is the safeguard and it is not a detail of the implementation. Every suite runs, every
 line is emitted, the summary is counted and the report is closed, and only then does anything
 reach a screen; the viewer refuses to start while a report is open. So the two modes leave the
-same file, byte for byte and digest for digest, and the same images beside it. The screen is a
+same verdicts, line for line, and the same images beside them. The report differs in the one
+note near the top that says which mode ran and why, and in the one case below. The screen is a
 second opinion for a person, never an input to one.
 
-Choose it in either of two ways, because a person and a script want different ones:
+**Nobody there.** A detailed run whose screen sees no button pressed for ten seconds after the
+report closed leaves by itself, and appends one line after the summary saying so:
 
-- put the word `detailed` in `sdmc:/edenprobe/mode`. The word `images` in the same file, on its
-  own or beside it, also writes the pictures for the passing cases;
-- or hold **X** as the program starts. The pad is asked once it turns up, which on a machine
-  with a controller already attached is a frame or two; the wait is twelve frames at the very
-  most, and it is skipped altogether when the file has already asked for the detailed mode. The
-  report is opened before any of this, so a machine that cannot read the file or reach the pad
-  still leaves a report saying how far it got.
+```json
+{"type":"note","text":"detailed mode: nothing pressed for 10 seconds after the report closed, left by itself"}
+```
+
+That is for a script that forgot the mode file, which must not leave an emulator running until
+something kills it. Ten seconds rather than fewer because on a console the person is reading the
+first case when the count starts, and must not lose it. It is a press and not a connected
+controller that counts, because an emulator presents a controller as connected whether or not
+anyone is holding it. The screen counts the seconds down on its bottom line, and any button at all
+stops the count for the rest of the run. The first eight frames of the screen are not a press, for
+the same reason they are not navigation: a controller arriving with the window reports its whole
+mask as newly pressed.
+
+**The mode file** is `sdmc:/edenprobe/mode`, a few words in any order and any case, anything that
+is not a letter between them, one per line or all on one:
+
+| word | what it does |
+|---|---|
+| no file, or no `quick` in it | detailed |
+| `quick` | the automatic run: every suite, the report, exit |
+| `detailed` | detailed even beside `quick`, the same as holding X |
+| `images` | a picture for every drawing case, passing ones too, on either mode |
+| `graphics` | the graphics family: the eight drawing suites, clear to fmath; selfcheck, support and reference always run, whatever family is named |
+| `net` | a suite family that is not in this build yet; named so a file written for a later build is reported rather than refused |
+
+Families choose what runs beyond the judge. None named means every family this build has;
+naming some runs those, and a named family this build does not have is listed in the mode line
+and skipped, so `net` alone today runs the three judge suites and nothing else. The judge itself,
+selfcheck, support and reference, always runs, because nothing a family reports can be believed
+without it. Any other word is reported in the mode line, quoted and counted, and ignored: a typo
+costs a line in the report, never the run.
+
+The first 4096 bytes of the file are read, which is every word there is many times over. A
+longer file is read that far, the mode line says "mode file longer than 4096 bytes, the rest
+ignored", and a word the limit cuts in two is dropped rather than reported as an unknown word
+nobody wrote. A directory called `mode` is read as no file, and the mode line says that too.
+
+```json
+{"type":"note","text":"mode: quick, from the mode file; pictures of failures only; families graphics; 2 unknown words ignored: grpahics fast"}
+```
+
+**Holding X** as the program starts is the other way into the detailed mode, for a person with a
+card that says `quick` and no way to change it. The pad is asked only then, since with no
+`quick` the run is detailed already; it is asked once it turns up, which on a machine with a
+controller already attached is a frame or two, and the wait is twelve frames at the very most.
+The report is opened before any of this, so a machine that cannot read the file or reach the pad
+still leaves a report saying how far it got.
 
 On the screen: **A** or right for the next case, **B** or left for the previous one, **down**
 and **up** for the next and previous failure, **X** to cycle between the three side by side and
 each one on its own, and **plus** to quit. The frame is composed on the processor and only when
-something moved, so a still screen costs an emulated machine nothing.
+something moved or the countdown ticked, so a still screen costs an emulated machine nothing.
 
 ## Building
 
@@ -429,8 +497,8 @@ It covers the suite's judgement of itself: that two neighbouring floats measure 
 that a zero budget rejects them, that a NaN is never equal to anything including itself. If those
 fail, nothing else the suite says can be believed, and you find out in a second instead of after
 a boot. It also covers what is written and drawn around a verdict, which has no console in it
-either: the picture writer against a fixture it then parses back, and the detailed mode's layout
-and navigation against a frame composed in ordinary memory.
+either: the picture writer against a fixture it then parses back, the detailed mode's layout
+and navigation against a frame composed in ordinary memory, and the words of the mode file.
 
 Commit messages have a convention too: `edenprobe: what changed`, one to three lines of intent,
 one Signed-off-by that is also the author and the committer, ASCII, no merges. `git config
@@ -462,6 +530,12 @@ the pictures of an earlier failing one. An emulator path that is missing or not 
 run that leaves no report, stops the target with a line saying which, and a non-zero exit.
 Any emulator with a different layout puts the same names under whatever it calls its memory
 card.
+
+Before the emulator starts, the target writes the word `quick` into the mode file and says so,
+because without it the run would stop on the detailed screen, which is for a person. `MODE` is a
+variable too: `make run MODE="quick images"` keeps every picture, and `make run MODE=` writes no
+file at all, so the screen comes up, counts down ten seconds and leaves by itself, which is the
+way to see it from here.
 
 The run needs a real rendering backend. An emulator set to a null or headless backend will still
 report the selfcheck cases and still open a graphics device, and will then fail every drawing case
