@@ -32,7 +32,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Ten suites, in the order they run, because each leans on the ones before it. A run is 220
+Eleven suites, in the order they run, because each leans on the ones before it. A run is 257
 cases.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
@@ -52,7 +52,7 @@ cases.
   picture is built from what the judge decided pixel by pixel and not from comparing the two
   images, so a pixel that differs and was allowed to is not painted as a difference. Every line
   is the none tier, because none of it is a claim about a machine.
-- **reference**, fifty three cases, no hardware involved either. The other half of the judge: where
+- **reference**, sixty nine cases, no hardware involved either. The other half of the judge: where
   clip space lands on the target, which pixels a triangle covers, and which of two triangles owns
   the centres that sit exactly on the edge they share. It runs in both builds, because a
   reference that answered differently on the two processors would be blamed on the graphics unit.
@@ -139,6 +139,32 @@ cases.
   thirty second of a texel boundary, which the reference suite measures, and no two texels the
   linear case blends differ by more than 48, so the filter's weight would have to be wrong by one
   part in 96 before any byte moved.
+- **coherence**, twenty one cases, on the graphics unit. Five are the none tier: the device, the
+  shaders, the images and their starting texels coming up, and the block linear texture having
+  exactly the size the gob rule below assumes. Sixteen are exact. Every suite above draws once
+  into memory nobody has read, so the caches an emulator keeps between draws, submits and copies
+  never have an old answer to give. Here each sampling and uniform case, except the first alias
+  case, first makes the reader hold the old contents, then writes new ones by one path and reads
+  them by another: a texture rendered and sampled in the same list, whole and in part; a texture
+  the processor rewrites between two submits, pitch linear, block linear from the middle of a gob,
+  and one row through a cached mapping flushed with `dkMemBlockFlushCpuCache`; a uniform buffer
+  the processor rewrites between submits, once whole and then one word at a time over four
+  submits, and one the list itself pushes between two draws; a render target sampled through an
+  R32_Uint view of the same memory, judged as the little endian word rotated right by four bits,
+  so every output byte mixes two input bytes; a texture filled by the copy engine from a buffer
+  and from part of another image; and a render target copied, whole and in part, to another image
+  and read back, which tests that rendered pixels are flushed before the copy engine reads them.
+  Everything drawn or written is a pattern whose four bytes are unique to each texel and to each
+  step, so a shift, a transposition or a stale texel is always a wrong byte, and the reference
+  suite checks that over every seed. Region one of the target shows the old contents, region two
+  the new, and a failing case counts how many of its wrong pixels hold exactly the old contents,
+  which is what a stale cache looks like. The synchronisation is what `deko3d.h` documents for
+  each hand over and no more, named in the suite's header: the fragments barrier between a draw
+  that samples an image and one that renders it, the full barrier around the copy engine, the
+  image or the shader invalidation before reading what was rewritten, and a wait on the queue only
+  where the processor touches the memory, since a wait anywhere else would hide the fault the
+  suite is there to find. Every expectation comes from one image model in `source/coherref.c`,
+  pinned by the reference suite.
 - **fmath**, thirteen cases, on the graphics unit. Addition, multiplication, a fused multiply and
   add, division, the square root, powers and logarithms of two, the sine and the cosine, into an
   R32_Float target, compared against the same arithmetic in double precision. Units in the last
@@ -206,6 +232,7 @@ its dependencies put it, not at the end.
 | blend | exact | the fixed function blend unit: the equation and factor registers, and the rounding on the way back to eight bits. |
 | depth | exact | the depth test: the depth target's format and layout, the depth range set up by the viewport, and the compare operation. |
 | texture | exact | the texture and sampler descriptors: the wrap mode and filter fields, and the block linear layout a sampled image is stored in. |
+| coherence | exact | a cache between two uses of the same memory. In an emulator: the texture cache not marking an image the graphics unit wrote as modified, or missing a processor write to one (`texture_cache/texture_cache.h`, `MarkModification`, `WriteMemory`); the buffer cache serving a uniform buffer the processor rewrote, or dropping an update pushed inside the list (`buffer_cache/buffer_cache.h`, `Maxwell3D::ProcessCBData`); the copy engine's writes not reaching the images it overlaps (`engines/maxwell_dma.cpp`), or a render target not flushed before the copy engine reads it; or two formats over one memory joined as a conversion rather than a view (`texture_cache/texture_cache.h`, `JoinImages`). The region two pixels that still hold region one's contents say which. |
 | fmath | units in the last place | the float side of the shader translator, and the transcendental unit behind it. This is the only suite where two correct machines are allowed to differ, which is why it is last. |
 
 Two rules hold across all of them. Every case computes what it expects on the processor and
@@ -345,8 +372,8 @@ and a key naming each of the four colours `judged` is made of. It is for the que
 cannot answer, which is whether a failure looks like a rendering fault or like the judge being
 wrong.
 
-What it holds is every case that compared pixels, pass or fail, which on a full run is 80 of the
-220 and is the number the heading counts in. The other 140 compared nothing the graphics unit
+What it holds is every case that compared pixels, pass or fail, which on a full run is 96 of the
+257 and is the number the heading counts in. The other 161 compared nothing the graphics unit
 produced and have no picture to show. A case that failed before it read a target back has no
 picture either, so it is not in the list; when that happens the screen says how many of the
 run's failures are missing from it rather than letting the count quietly disagree. It holds them
