@@ -140,8 +140,10 @@ run: $(TARGET).nro
 	@if [ -n "$(strip $(MODE))" ]; then printf '%s\n' "$(MODE)" > $(SDMC)/mode; \
 	  echo "mode file: $(MODE)"; else echo "mode file: none, so the detailed screen"; fi
 	XDG_DATA_HOME=$(XDG)/data XDG_CONFIG_HOME=$(XDG)/config XDG_CACHE_HOME=$(XDG)/cache \
-	DISPLAY=:0 timeout 60 $(EMULATOR) -g $(CURDIR)/$(TARGET).nro 2>&1 \
+	DISPLAY=:0 timeout -k 10 60 $(EMULATOR) -g $(CURDIR)/$(TARGET).nro 2>&1 \
 	  | sed 's/\x1b\[[0-9;]*m//g' | { grep -aE "$(TARGET)|EDENPROBE|\"type\":" || true; }
 	@[ -f $(SDMC)/report.jsonl ] || \
 	  { echo "make run: the emulator left no report at $(SDMC)/report.jsonl" >&2; exit 1; }
+	@grep -q '"type":"summary"' $(SDMC)/report.jsonl || \
+	  { echo "make run: no summary in the report: stopped at 60 s, or died first" >&2; exit 1; }
 	@echo "report: $(SDMC)/report.jsonl"

@@ -862,9 +862,11 @@ static void CheckNavigation(void) {
         { "detailedly", true, false, 0, 1, MODE_FAMILIES_PRESENT },
         { "quickly", true, false, 0, 1, MODE_FAMILIES_PRESENT },
         { "graphics", true, false, MODE_FAMILY_GRAPHICS, 0, MODE_FAMILY_GRAPHICS },
-        { "quick net", false, false, MODE_FAMILY_NET, 0, 0 },
+        { "quick net", false, false, MODE_FAMILY_NET, 0, MODE_FAMILY_NET },
+        { "NET", true, false, MODE_FAMILY_NET, 0, MODE_FAMILY_NET },
         { "graphics,net;quick", false, false, MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET, 0,
-          MODE_FAMILY_GRAPHICS },
+          MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET },
+        { "nets", true, false, 0, 1, MODE_FAMILIES_PRESENT },
         { "grpahics fast quick", false, false, 0, 2, MODE_FAMILIES_PRESENT },
         { "quick2images", false, true, 0, 0, MODE_FAMILIES_PRESENT },
     };
@@ -910,6 +912,15 @@ static void CheckNavigation(void) {
     ModeDescribe(folder_said, sizeof(folder_said), &folder, MODE_FAMILY_GRAPHICS);
     const bool folder_right =
         folder.detailed && strstr(folder_said, "mode is a directory, read as no file") != NULL;
+    // This build has both families, so a file naming one runs that one and names nothing
+    // missing.
+    const RunMode net_only = ModeFromText("quick net");
+    char net_said[REPORT_NOTE_MAX + 1];
+    ModeDescribe(net_said, sizeof(net_said), &net_only, MODE_FAMILIES_PRESENT);
+    const bool net_said_right =
+        MODE_FAMILIES_PRESENT == (MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET) &&
+        strcmp(net_said,
+               "mode: quick, from the mode file; pictures of failures only; families net") == 0;
     const RunMode flood = ModeFromText(
         "aaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbb cccccccccccccccccccc dddddddddddddddddddd "
         "eeeeeeeeeeeeeeeeeeee ffffffffffffffffffff abcdefghijklmnopqrstuvwxyzabc");
@@ -933,12 +944,13 @@ static void CheckNavigation(void) {
                            MODE_FILE_MAX == 4096u;
     CHECK_TRUE(SUITE, "the report says what the mode file was and what was not understood",
                CHECK_NONE,
-               typo_said && none_said_right && folder_right && flood_right && cut_right,
-               "typo line %.100s; no file line %.80s; directory line %.80s; long list %.40s; "
-               "cut file %.80s",
+               typo_said && none_said_right && folder_right && net_said_right && flood_right &&
+                   cut_right,
+               "typo line %.90s; no file line %.70s; directory line %.70s; net line %.70s; "
+               "long list %.40s; cut file %.70s",
                typo_said ? "right" : said, none_said_right ? "right" : none_said,
-               folder_right ? "right" : folder_said, flood_right ? "right" : flood.unknown,
-               cut_right ? "right" : cut_said);
+               folder_right ? "right" : folder_said, net_said_right ? "right" : net_said,
+               flood_right ? "right" : flood.unknown, cut_right ? "right" : cut_said);
 }
 
 /// How many pixels between two rows are drawn in something other than the background.

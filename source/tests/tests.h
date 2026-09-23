@@ -61,7 +61,15 @@ void RunCoherence(void);
 /// Float arithmetic in a shader, judged in units in the last place. Last, because it is the only
 /// suite where two correct machines are allowed to disagree.
 void RunFmath(void);
+
+/// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
+/// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not
+/// name, or a service this program cannot open, is skipped with the reason and counted apart.
+void RunNet(void);
 #endif
+
+/// The net family's parsers and expectations, with no service: part of the reference suite.
+void RunReferenceNet(void);
 
 #ifdef __cplusplus
 }

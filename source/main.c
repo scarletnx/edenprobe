@@ -61,6 +61,9 @@ int main(int argc, char **argv) {
         RunCoherence();
         RunFmath();
     }
+    if ((families & MODE_FAMILY_NET) != 0u) {
+        RunNet();
+    }
     ReportSummary();
 
     ReportClose();

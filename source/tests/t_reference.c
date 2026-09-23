@@ -2360,4 +2360,5 @@ void RunReference(void) {
     CheckFloatArithmetic();
     CheckFloatEdges();
     CheckFormats();
+    RunReferenceNet();
 }
