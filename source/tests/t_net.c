@@ -923,14 +923,19 @@ static void RunBsd(const char *sockets_why) {
         int read_error = 0;
         const ssize_t read = RecvWithin(b, got, sizeof(got), &from, &from_length,
                                         RECEIVE_BUDGET_MS, &read_error);
+        // recvfrom says how long the address it wrote is; a length it left unset is not one to
+        // answer with (the echo goes to the whole sockaddr_in, and the case says what came back).
+        const bool from_named = NetAddressLengthUsable((size_t)from_length, sizeof(from));
         const bool there = wrote == (ssize_t)sizeof(sent) && read == (ssize_t)sizeof(sent) &&
-                           memcmp(got, sent, sizeof(sent)) == 0 && SameEndpoint(&from, &a_name);
+                           from_named && memcmp(got, sent, sizeof(sent)) == 0 &&
+                           SameEndpoint(&from, &a_name);
         // The echo: the second socket sends what it received back to where it came from.
         uint8_t back[128];
         memset(back, 0, sizeof(back));
-        const ssize_t echoed = read > 0 ? sendto(b, got, (size_t)read, 0,
-                                                 (struct sockaddr *)&from, from_length)
-                                        : -1;
+        const ssize_t echoed = read > 0 && from_named
+                                   ? sendto(b, got, (size_t)read, 0, (struct sockaddr *)&from,
+                                            sizeof(from))
+                                   : -1;
         struct sockaddr_in replier;
         socklen_t replier_length = sizeof(replier);
         memset(&replier, 0, sizeof(replier));
@@ -944,11 +949,11 @@ static void RunBsd(const char *sockets_why) {
                           SameEndpoint(&replier, &b_name);
         Case(S, DATAGRAM, CHECK_EXACT, there && home,
              "expected the same 64 bytes at %s from %s and back at %s from %s, each within %u "
-             "ms; out: sent %d, received %d from %s (%s, errno %d); back: sent %d, received %d "
-             "from %s (%s, errno %d)",
+             "ms; out: sent %d, received %d from %s (%s, address length %u, errno %d); back: "
+             "sent %d, received %d from %s (%s, errno %d)",
              Endpoint(&b_name), Endpoint(&a_name), Endpoint(&a_name), Endpoint(&b_name),
              RECEIVE_BUDGET_MS, (int)wrote, (int)read, Endpoint(&from),
-             there ? "same" : "wrong", read_error, (int)echoed, (int)returned,
+             there ? "same" : "wrong", (unsigned)from_length, read_error, (int)echoed, (int)returned,
              Endpoint(&replier), home ? "same" : "wrong", back_error);
 
         errno = 0;

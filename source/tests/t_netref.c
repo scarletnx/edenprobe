@@ -197,6 +197,11 @@ static void CheckWords(void) {
     const uint64_t c[] = { 1, 2, 3, 3 };
     const bool sets = NetSameIds(a, 4, b, 4) && !NetSameIds(a, 4, c, 4) &&
                       !NetSameIds(a, 3, b, 4) && NetSameIds(a, 0, b, 0);
+    const bool lengths = NetAddressLengthUsable(16, 16) && NetAddressLengthUsable(16, 32) &&
+                         !NetAddressLengthUsable(0, 16) && !NetAddressLengthUsable(8, 16) &&
+                         !NetAddressLengthUsable(20, 16);
+    CHECK_TRUE(SUITE, "an address length recvfrom left unset is not answered with", CHECK_NONE,
+               lengths, "lengths %s", lengths ? "right" : "wrong");
     CHECK_TRUE(SUITE, "a bearer token's alphabet, and two id lists compared as sets", CHECK_NONE,
                tokens && sets, "tokens %s, sets %s", tokens ? "right" : "wrong",
                sets ? "right" : "wrong");
