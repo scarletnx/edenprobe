@@ -28,7 +28,13 @@ void RunSupportPerf(void);
 /// graphics unit.
 void RunReference(void);
 
+/// The cpu suite's expected answers, pinned against numbers written by hand: part of the
+/// reference suite, so both builds run it.
+void RunReferenceCpu(void);
 #ifdef __SWITCH__
+/// The processor's vector instructions, compared bit for bit with the reference. Console only,
+/// because its cases are AArch64 instructions; no device, so it runs in every mode.
+void RunCpu(void);
 /// Needs a graphics device, so it exists only in the build that runs on the console. The host
 /// makefile names its sources one at a time and this suite is not among them, which is the same
 /// gate that keeps gpu.c out of that build.
