@@ -112,6 +112,11 @@ bool NetIsB64Token(const uint8_t *token, size_t length);
 /// Whether two lists hold the same ids, each as often, in any order.
 bool NetSameIds(const uint64_t *a, size_t a_count, const uint64_t *b, size_t b_count);
 
+// Whether an address length recvfrom handed back names a whole sockaddr_in that fits the
+// buffer it was given. An emulator that leaves it unset (0) must not be answered with it: one
+// crashed on the echo (Ryujinx 1.3.351) instead of refusing it.
+bool NetAddressLengthUsable(size_t length, size_t buffer_size);
+
 #define NET_ADDRESSES_MAX 8u
 
 /// What sfdnsres's GetHostByNameRequest serialises: the name, the aliases, and the addresses.

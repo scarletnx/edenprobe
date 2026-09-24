@@ -367,6 +367,11 @@ bool NetIsB64Token(const uint8_t *token, size_t length) {
     return true;
 }
 
+bool NetAddressLengthUsable(size_t length, size_t buffer_size) {
+    const size_t sockaddr_in_size = 16;
+    return length >= sockaddr_in_size && length <= buffer_size;
+}
+
 bool NetSameIds(const uint64_t *a, size_t a_count, const uint64_t *b, size_t b_count) {
     if (a_count != b_count) {
         return false;
