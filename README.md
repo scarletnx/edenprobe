@@ -37,9 +37,9 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Eighteen suites, in the order they run, because each leans on the ones before it: the judge,
-then the graphics family, then the net family. A run is 479 cases, 429 of them the judge and
-the graphics family and 50 the net family.
+Nineteen suites, in the order they run, because each leans on the ones before it: the judge,
+then the processor, then the graphics family, then the net family. A run is 487 cases, 437 of
+them the judge, the processor and the graphics family and 50 the net family.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
   unit apart, that a zero budget rejects them, that an absolute budget is the same on both sides
@@ -62,7 +62,7 @@ the graphics family and 50 the net family.
   whole idea: the diff picture is built from what the judge decided pixel by pixel and not from
   comparing the two images, so a pixel that differs and was allowed to is not painted as a
   difference. Every line is the none tier, because none of it is a claim about a machine.
-- **reference**, one hundred and thirteen cases, no hardware involved either. The other half of
+- **reference**, one hundred and eighteen cases, no hardware involved either. The other half of
   the judge: where clip space lands on the target, which pixels a triangle covers, and which of
   two triangles owns the centres that sit exactly on the edge they share. It runs in both builds,
   because a reference that answered differently on the two processors would be blamed on the
@@ -99,6 +99,13 @@ the graphics family and 50 the net family.
   offsets the guest reads, a bearer token's alphabet, a result code as the platform prints one;
   and the expectations: what nsd and sfdnsres should answer for a name, when the sign-in wait is
   over, a picture url's `{size}`, and what makes a profile slot the right one.
+- **cpu**, three cases, on the processor and in every mode, since it needs no device: count
+  leading zeros over the sixteen 8-bit, eight 16-bit and four 32-bit lanes of one vector
+  register, loaded from memory so a translator cannot fold the answer away, compared exactly with
+  the reference, which pins its own answers against numbers written by hand in four cases. The
+  16-bit case is there because a translator that widened the lanes to count them lost the upper
+  half on hosts with AVX-512: lanes four to seven came back as 0xfff0. Console build only, since
+  its cases are AArch64 instructions.
 - **clear**, five cases, on the graphics unit: one that reports whether the graphics device came
   up at all, at no tier because it compares nothing, and four that draw. Each of the four clears a
   64 by 64 RGBA8 target and copies all 4096 pixels back to compare them. Three cover the whole

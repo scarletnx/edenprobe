@@ -84,6 +84,9 @@ int main(int argc, char **argv) {
     RunSupport();
     RunSupportPerf();
     RunReference();
+    // The processor's own instructions next: no device and a few microseconds, so every mode
+    // runs them.
+    RunCpu();
 
     const uint32_t families = ModeFamiliesToRun(&mode, MODE_FAMILIES_PRESENT);
     const bool timing = !mode.no_timing;

@@ -2361,4 +2361,5 @@ void RunReference(void) {
     CheckFloatEdges();
     CheckFormats();
     RunReferenceNet();
+    RunReferenceCpu();
 }
