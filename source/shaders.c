@@ -41,6 +41,7 @@ static const ShaderBlob BLOBS[SHADER_COUNT] = {
     [SHADER_FETCH_FRAG] = { fetch_frag_dksh, (uint32_t)fetch_frag_dksh_size },
     [SHADER_SWIZZLE_FRAG] = { swizzle_frag_dksh, (uint32_t)swizzle_frag_dksh_size },
     [SHADER_TEXEL_FRAG] = { texel_frag_dksh, (uint32_t)texel_frag_dksh_size },
+    [SHADER_VALUE_UBO_ALL_FRAG] = { value_ubo_all_frag_dksh, (uint32_t)value_ubo_all_frag_dksh_size },
 };
 
 const void *ShaderData(ShaderId id) {
