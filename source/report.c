@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef __SWITCH__
@@ -32,6 +33,11 @@ static size_t skipped;
 static bool rehearsing;
 static char rehearsal_suite[64];
 
+static bool retaining;
+static ReportRecord *records;
+static size_t record_count;
+static size_t record_capacity;
+
 /// Sends one finished line to both channels.
 ///
 /// The debug string service is the only one an emulator sees for free, and the only one that
@@ -55,10 +61,12 @@ static void Emit(const char *line) {
 }
 
 /// Copies @p text into @p out with the escapes JSON requires, and nothing else: the strings
-/// here are test names and short details written by this program, not arbitrary input.
-static void EscapeInto(char *out, size_t out_size, const char *text) {
+/// here are test names and short details written by this program, not arbitrary input. Hands
+/// back how many characters of @p text made it in.
+static size_t EscapeInto(char *out, size_t out_size, const char *text) {
     size_t w = 0;
-    for (size_t r = 0; text[r] != '\0' && w + 2 < out_size; ++r) {
+    size_t r = 0;
+    for (; text[r] != '\0' && w + 2 < out_size; ++r) {
         const char c = text[r];
         if (c == '"' || c == '\\') {
             out[w++] = '\\';
@@ -73,6 +81,7 @@ static void EscapeInto(char *out, size_t out_size, const char *text) {
         }
     }
     out[w] = '\0';
+    return r;
 }
 
 void ReportOpen(const char *path) {
@@ -172,9 +181,9 @@ size_t ReportBuildTimedResultLine(char *out, size_t out_size, const char *suite,
                                   const char *name, const char *tier, const char *result,
                                   const char *detail, const PicturePaths *paths,
                                   const uint32_t *us) {
-    char safe_suite[64];
-    char safe_name[128];
-    char safe_detail[512];
+    char safe_suite[REPORT_KEPT_SUITE];
+    char safe_name[REPORT_KEPT_NAME];
+    char safe_detail[REPORT_KEPT_DETAIL];
     EscapeInto(safe_suite, sizeof(safe_suite), suite);
     EscapeInto(safe_name, sizeof(safe_name), name);
     EscapeInto(safe_detail, sizeof(safe_detail), detail != NULL ? detail : "");
@@ -266,6 +275,78 @@ void ReportRehearse(const char *suite) {
     }
 }
 
+/// Keeps the case whose line was just emitted, for the screens. Never when the line was not
+/// emitted, so nothing is on a screen that is not in the report.
+static void Keep(const char *suite, const char *name, const char *tier, ReportResult result,
+                 const char *detail, int32_t picture) {
+    if (!retaining || !report_open || record_count >= REPORT_MAX_RECORDS) {
+        return;
+    }
+    if (record_count == record_capacity) {
+        size_t grown = record_capacity == 0u ? 256u : record_capacity * 2u;
+        if (grown > REPORT_MAX_RECORDS) {
+            grown = REPORT_MAX_RECORDS;
+        }
+        ReportRecord *const more = (ReportRecord *)realloc(records, grown * sizeof(*records));
+        if (more == NULL) {
+            retaining = false;
+            return;
+        }
+        records = more;
+        record_capacity = grown;
+    }
+    ReportRecordFill(&records[record_count++], suite, name, tier, result, detail, picture);
+}
+
+/// Copies what a reader of the line gets back for @p text, which the line escaped into a buffer
+/// of @p size: the same characters, stopping where escaping stopped, and control characters as
+/// the spaces the line turned them into.
+static void KeepAsLine(char *out, size_t size, const char *text) {
+    char escaped[REPORT_KEPT_DETAIL];
+    const size_t kept = EscapeInto(escaped, size < sizeof(escaped) ? size : sizeof(escaped),
+                                   text != NULL ? text : "");
+    for (size_t i = 0; i < kept; ++i) {
+        out[i] = (unsigned char)text[i] < 0x20 && text[i] != '\n' ? ' ' : text[i];
+    }
+    out[kept] = '\0';
+}
+
+void ReportRecordFill(ReportRecord *record, const char *suite, const char *name,
+                      const char *tier, ReportResult result, const char *detail,
+                      int32_t picture) {
+    if (record == NULL) {
+        return;
+    }
+    // Each buffer is the size of the one the line escapes that field into.
+    KeepAsLine(record->suite, sizeof(record->suite), suite);
+    KeepAsLine(record->name, sizeof(record->name), name);
+    snprintf(record->tier, sizeof(record->tier), "%s", tier != NULL ? tier : "");
+    KeepAsLine(record->detail, sizeof(record->detail), detail);
+    record->result = result;
+    record->picture = picture;
+}
+
+void ReportRetain(bool on) {
+    retaining = on;
+}
+
+bool ReportIsRetaining(void) {
+    return retaining;
+}
+
+const ReportRecord *ReportRecords(size_t *count) {
+    if (count != NULL) {
+        *count = record_count;
+    }
+    return record_count > 0u ? records : NULL;
+}
+
+/// The index PictureAt will answer for the picture PictureFinish just kept, or -1 when it kept
+/// none; @p before is PictureCount from just before the finish.
+static int32_t PictureKept(size_t before) {
+    return PictureCount() > before ? (int32_t)before : -1;
+}
+
 void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed_,
                 const char *detail) {
     uint32_t us = 0;
@@ -287,12 +368,15 @@ void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed
     // bytes written are the ones the judge looked at, and nothing written here can move a
     // result that has already been decided.
     PicturePaths paths;
+    const size_t pictures = PictureCount();
     PictureFinish(suite, name, TierName(tier), passed_, detail, &paths);
 
     char line[REPORT_LINE_MAX];
     ReportBuildTimedCaseLine(line, sizeof(line), suite, name, TierName(tier), passed_, detail,
                              &paths, timed ? &us : NULL);
     Emit(line);
+    Keep(suite, name, TierName(tier), passed_ ? REPORT_PASS : REPORT_FAIL, detail,
+         PictureKept(pictures));
 }
 
 void ReportSkip(const char *suite, const char *name, const char *reason) {
@@ -314,6 +398,8 @@ void ReportSkip(const char *suite, const char *name, const char *reason) {
     ReportBuildResultLine(line, sizeof(line), suite, name, TierName(CHECK_NONE), "skip", reason,
                           NULL);
     Emit(line);
+    // No picture on the screens either, as on the line: nothing in one was judged.
+    Keep(suite, name, TierName(CHECK_NONE), REPORT_SKIP, reason, -1);
 }
 
 void ReportNote(const char *fmt, ...) {

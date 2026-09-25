@@ -26,9 +26,8 @@
 
 #define FRAME_NANOSECONDS 16000000ull
 
-// Sized off the store's own cap rather than off a number that could drift away from it, since
-// the count below indexes this array.
-static uint8_t failed[PICTURE_MAX_RECORDS];
+// Static, because the index is eight kilobytes of case numbers and built once.
+static UiRun run;
 
 static void ReadPad(PadState *pad) {
     padConfigureInput(1, HidNpadStyleSet_NpadStandard);
@@ -73,44 +72,50 @@ RunMode ViewerModeAtLaunch(const char *mode_path) {
     return ModeWithButton(from_file, (padGetButtons(&pad) & HidNpadButton_X) != 0u);
 }
 
-/// Translates the console's own button bits into the ones the screen is written against. A flat
-/// mapping and nothing else: what each one does, and when a press counts at all, is in ui.c
+/// Translates the console's own button bits into the ones the screens are written against. A
+/// flat mapping and nothing else: what each one does, and when a press counts at all, is in ui.c
 /// where this build can check it.
 static uint32_t ButtonsFrom(uint64_t pressed) {
+    static const struct {
+        uint64_t console;
+        uint32_t screen;
+    } MAP[] = {
+        { HidNpadButton_Plus | HidNpadButton_Minus, UI_BUTTON_QUIT },
+        { HidNpadButton_B, UI_BUTTON_BACK },
+        { HidNpadButton_A, UI_BUTTON_OPEN },
+        { HidNpadButton_X, UI_BUTTON_CYCLE_VIEW },
+        { HidNpadButton_R | HidNpadButton_ZR, UI_BUTTON_NEXT_FAILURE },
+        { HidNpadButton_L | HidNpadButton_ZL, UI_BUTTON_PREVIOUS_FAILURE },
+        { HidNpadButton_AnyUp, UI_BUTTON_UP },
+        { HidNpadButton_AnyDown, UI_BUTTON_DOWN },
+        { HidNpadButton_AnyLeft, UI_BUTTON_LEFT },
+        { HidNpadButton_AnyRight, UI_BUTTON_RIGHT },
+    };
     uint32_t buttons = 0;
-    if ((pressed & (HidNpadButton_Plus | HidNpadButton_Minus)) != 0u) {
-        buttons |= UI_BUTTON_QUIT;
-    }
-    if ((pressed & HidNpadButton_X) != 0u) {
-        buttons |= UI_BUTTON_CYCLE_VIEW;
-    }
-    if ((pressed & HidNpadButton_AnyDown) != 0u) {
-        buttons |= UI_BUTTON_NEXT_FAILURE;
-    }
-    if ((pressed & HidNpadButton_AnyUp) != 0u) {
-        buttons |= UI_BUTTON_PREVIOUS_FAILURE;
-    }
-    if ((pressed & (HidNpadButton_A | HidNpadButton_AnyRight)) != 0u) {
-        buttons |= UI_BUTTON_NEXT;
-    }
-    if ((pressed & (HidNpadButton_B | HidNpadButton_AnyLeft)) != 0u) {
-        buttons |= UI_BUTTON_PREVIOUS;
+    for (size_t i = 0; i < sizeof(MAP) / sizeof(MAP[0]); ++i) {
+        if ((pressed & MAP[i].console) != 0u) {
+            buttons |= MAP[i].screen;
+        }
     }
     return buttons;
+}
+
+/// The kept picture of the case the cursor has open, or NULL, which draws the case as its detail.
+static const PictureRecord *OpenPicture(UiState state) {
+    const int32_t index = UiOpenPicture(&run, state);
+    return index >= 0 ? PictureAt((size_t)index) : NULL;
 }
 
 ViewerEnd ViewerRun(void) {
     if (ReportIsOpen()) {
         return VIEWER_NO_SCREEN;
     }
-    size_t count = PictureCount();
-    if (count > sizeof(failed)) {
-        count = sizeof(failed);
-    }
-    for (size_t i = 0; i < count; ++i) {
-        const PictureRecord *const record = PictureAt(i);
-        failed[i] = record != NULL && !record->passed ? 1u : 0u;
-    }
+    // What the run recorded, and nothing else: the cases as their lines went out, and the count
+    // the report's own summary carries, so a store that ran out is said to have.
+    size_t count = 0;
+    const ReportRecord *const records = ReportRecords(&count);
+    UiRunIndex(&run, records, (uint32_t)count,
+               (uint32_t)(ReportPassed() + ReportFailed() + ReportSkipped()));
 
     Framebuffer fb;
     if (R_FAILED(framebufferCreate(&fb, nwindowGetDefault(), SCREEN_WIDTH, SCREEN_HEIGHT,
@@ -126,7 +131,8 @@ ViewerEnd ViewerRun(void) {
 
     PadState pad;
     ReadPad(&pad);
-    UiState state = UiStart(failed, (uint32_t)count);
+    UiState state = UiStart(&run);
+    UiRepeat repeat = { 0, 0 };
 
     // Counted from here, which is the moment after the report closed. A clock rather than a
     // count of frames, because a frame here is a sleep plus however long composing took.
@@ -144,7 +150,10 @@ ViewerEnd ViewerRun(void) {
         if (frames_seen >= UI_SETTLING_FRAMES && down != 0u) {
             pressed = true;
         }
-        const UiInput input = UiInputFromButtons(ButtonsFrom(down), frames_seen);
+        const uint32_t buttons =
+            UiRepeatButtons(&repeat, ButtonsFrom(padGetButtons(&pad)), ButtonsFrom(down),
+                            frames_seen);
+        const UiInput input = UiInputFromButtons(buttons, frames_seen);
         if (frames_seen < UI_SETTLING_FRAMES) {
             ++frames_seen;
         }
@@ -154,15 +163,14 @@ ViewerEnd ViewerRun(void) {
             break;
         }
         const uint32_t left = UiUnattendedSecondsLeft(elapsed, pressed);
-        state = UiStep(state, input, failed, (uint32_t)count);
+        state = UiStep(state, input, &run);
         if (state.changed || left != shown_left) {
             uint32_t stride = 0;
             UiFrame frame = { (uint8_t *)framebufferBegin(&fb, &stride), SCREEN_WIDTH,
                               SCREEN_HEIGHT, stride };
             // The whole frame every time, the countdown included: there are two buffers, and
             // the one handed over holds whatever was drawn two frames ago.
-            UiCompose(&frame, PictureAt(state.index), state, (uint32_t)count, failed,
-                      (uint32_t)ReportFailed());
+            UiCompose(&frame, &run, state, OpenPicture(state));
             UiComposeCountdown(&frame, left);
             framebufferEnd(&fb);
             UiFrameDrawn(&state);

@@ -67,9 +67,10 @@ int main(int argc, char **argv) {
     ReportOpen(REPORT_PATH);
     ReportNote("edenprobe %s (%s) starting", EDENPROBE_VERSION, EDENPROBE_BUILD);
 
-    // What the mode changes is which families run, whether the finished pictures are kept in
-    // memory and shown once everything is over, and whether every drawing case writes one. It
-    // changes no verdict, and before the summary the line below is all it adds to the report.
+    // What the mode changes is which families run, whether the finished cases and pictures are
+    // kept in memory and shown once everything is over, and whether every drawing case writes
+    // one. It changes no verdict, and before the summary the line below is all it adds to the
+    // report.
     const RunMode mode = ViewerModeAtLaunch(MODE_PATH);
     char described[REPORT_NOTE_MAX + 1];
     ModeDescribe(described, sizeof(described), &mode, MODE_FAMILIES_PRESENT);
@@ -77,6 +78,7 @@ int main(int argc, char **argv) {
     PictureSetRoot(REPORT_DIRECTORY);
     PictureWriteEveryCase(mode.every_case);
     PictureRetain(mode.detailed);
+    ReportRetain(mode.detailed);
 
     // The judge first and always: the selfcheck suite proves the comparisons every family then
     // leans on, so a machine where both are broken says which one broke first.

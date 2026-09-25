@@ -28,8 +28,9 @@ typedef enum {
     VIEWER_NO_SCREEN,
 } ViewerEnd;
 
-/// Presents the cases kept in memory until the viewer is quit, or until nobody has pressed
-/// anything for UI_UNATTENDED_NANOSECONDS, which is how a forgotten mode file ends.
+/// Presents the cases the report kept, group by group, and the pictures of the drawing cases,
+/// until the viewer is quit, or until nobody has pressed anything for UI_UNATTENDED_NANOSECONDS,
+/// which is how a forgotten mode file ends.
 ///
 /// Does nothing while a report is still being written: the verdicts are decided, emitted and
 /// closed before a pixel reaches a screen, so the two modes cannot report different bytes.

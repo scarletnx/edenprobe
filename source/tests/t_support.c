@@ -711,102 +711,9 @@ static void CheckReportLine(void) {
                written > 0u ? longest[written - 1u] : '?');
 }
 
-static void CheckNavigation(void) {
-    static const uint8_t FAILED[6] = { 0, 1, 0, 0, 1, 0 };
-
-    UiState state = UiStart(FAILED, 6);
-    CHECK_TRUE(SUITE, "the detailed mode opens on the first failure", CHECK_NONE,
-               state.index == 1u && state.view == UI_VIEW_ALL, "opened at %u",
-               (unsigned)state.index);
-
-    // The screen owes a frame before anything has been pressed, or the first thing a person
-    // sees is whatever the last program left in the window.
-    UiState fresh = UiStep(UiStart(FAILED, 6), UI_INPUT_NONE, FAILED, 6);
-    const bool asked_first = fresh.changed;
-    UiFrameDrawn(&fresh);
-    fresh = UiStep(fresh, UI_INPUT_NONE, FAILED, 6);
-    CHECK_TRUE(SUITE, "a frame is owed until one is drawn, and not again until something moves",
-               CHECK_NONE, asked_first && !fresh.changed &&
-                               UiStep(fresh, UI_INPUT_NEXT, FAILED, 6).changed,
-               "asked first %d, asked again %d", (int)asked_first, (int)fresh.changed);
-
-    state = UiStep(state, UI_INPUT_NEXT_FAILURE, FAILED, 6);
-    CHECK_TRUE(SUITE, "jumping forward skips every case that passed", CHECK_NONE,
-               state.index == 4u, "landed on %u", (unsigned)state.index);
-    state = UiStep(state, UI_INPUT_NEXT_FAILURE, FAILED, 6);
-    CHECK_TRUE(SUITE, "jumping past the last failure comes round to the first", CHECK_NONE,
-               state.index == 1u, "landed on %u", (unsigned)state.index);
-    state = UiStep(state, UI_INPUT_PREVIOUS_FAILURE, FAILED, 6);
-    CHECK_TRUE(SUITE, "jumping backwards comes round the other way", CHECK_NONE,
-               state.index == 4u, "landed on %u", (unsigned)state.index);
-
-    uint32_t walked = 0;
-    UiState walk = UiStep(state, UI_INPUT_NONE, FAILED, 6);
-    for (uint32_t step = 0; step < 6u; ++step) {
-        walk = UiStep(walk, UI_INPUT_NEXT, FAILED, 6);
-        ++walked;
-    }
-    CHECK_TRUE(SUITE, "stepping through every case comes back where it started", CHECK_NONE,
-               walk.index == state.index && walked == 6u, "landed on %u after %u steps",
-               (unsigned)walk.index, (unsigned)walked);
-
-    UiState cycled = state;
-    for (uint32_t step = 0; step < 4u; ++step) {
-        cycled = UiStep(cycled, UI_INPUT_CYCLE_VIEW, FAILED, 6);
-    }
-    CHECK_TRUE(SUITE, "cycling the view four times is back to all three", CHECK_NONE,
-               cycled.view == UI_VIEW_ALL && !cycled.quit, "view %d", (int)cycled.view);
-
-    // A run with nothing kept must still be able to leave, or the only way out of the detailed
-    // mode would be to kill the process.
-    UiState empty = UiStart(NULL, 0);
-    empty = UiStep(empty, UI_INPUT_NEXT, NULL, 0);
-    CHECK_TRUE(SUITE, "a run that kept nothing still draws the frame that says so", CHECK_NONE,
-               empty.index == 0u && !empty.quit && empty.changed &&
-                   UiStep(empty, UI_INPUT_QUIT, NULL, 0).quit,
-               "index %u, owed a frame %d", (unsigned)empty.index, (int)empty.changed);
-
-    // The photograph bug. A controller arriving with the window reports its whole mask as
-    // newly pressed, and every one of those was obeyed before a person had touched anything,
-    // so the screen opened on a view nobody had chosen.
-    uint32_t obeyed_early = 0;
-    for (uint32_t f = 0; f < UI_SETTLING_FRAMES; ++f) {
-        if (UiInputFromButtons(0xFFFFFFFFu, f) != UI_INPUT_NONE) {
-            ++obeyed_early;
-        }
-    }
-    CHECK_TRUE(SUITE, "a press before the pad has settled is not a press", CHECK_NONE,
-               obeyed_early == 0u && UiInputFromButtons(UI_BUTTON_NEXT, UI_SETTLING_FRAMES) ==
-                                         UI_INPUT_NEXT,
-               "%u of the first %u frames were obeyed", (unsigned)obeyed_early,
-               (unsigned)UI_SETTLING_FRAMES);
-
-    // One button, one meaning, and quitting ahead of everything so a mask with the lot in it
-    // still leaves rather than cycling views forever.
-    static const struct {
-        uint32_t button;
-        UiInput means;
-    } BUTTONS[] = {
-        { UI_BUTTON_NEXT, UI_INPUT_NEXT },
-        { UI_BUTTON_PREVIOUS, UI_INPUT_PREVIOUS },
-        { UI_BUTTON_NEXT_FAILURE, UI_INPUT_NEXT_FAILURE },
-        { UI_BUTTON_PREVIOUS_FAILURE, UI_INPUT_PREVIOUS_FAILURE },
-        { UI_BUTTON_CYCLE_VIEW, UI_INPUT_CYCLE_VIEW },
-        { UI_BUTTON_QUIT, UI_INPUT_QUIT },
-    };
-    uint32_t mismapped = 0;
-    for (size_t i = 0; i < sizeof(BUTTONS) / sizeof(BUTTONS[0]); ++i) {
-        if (UiInputFromButtons(BUTTONS[i].button, UI_SETTLING_FRAMES) != BUTTONS[i].means) {
-            ++mismapped;
-        }
-    }
-    CHECK_TRUE(SUITE, "every button means one thing, and everything at once still quits",
-               CHECK_NONE,
-               mismapped == 0u &&
-                   UiInputFromButtons(0xFFFFFFFFu, UI_SETTLING_FRAMES) == UI_INPUT_QUIT &&
-                   UiInputFromButtons(0u, UI_SETTLING_FRAMES) == UI_INPUT_NONE,
-               "%u of six buttons meant something else", (unsigned)mismapped);
-
+// The navigation between the screens, and the screens themselves, are checked in t_screens.c;
+// what is left here is what happens before and after them: the launch and the mode file.
+static void CheckLaunchAndMode(void) {
     // The pad is waited for until it answers, and no longer.
     CHECK_TRUE(SUITE, "the pad is waited for until it answers and then not at all", CHECK_NONE,
                UiWaitsForPad(0, false) && !UiWaitsForPad(0, true) &&
@@ -967,21 +874,6 @@ static void CheckNavigation(void) {
                flood_right ? "right" : flood.unknown, cut_right ? "right" : cut_said);
 }
 
-/// How many pixels between two rows are drawn in something other than the background.
-static uint32_t CountLit(const UiFrame *frame, uint32_t top, uint32_t bottom) {
-    static const uint8_t BACKGROUND[3] = { 0x10, 0x12, 0x18 };
-    uint32_t seen = 0;
-    for (uint32_t y = top; y < bottom; ++y) {
-        for (uint32_t x = 0; x < frame->width; ++x) {
-            const uint8_t *const pixel = UiPixel(frame, x, y);
-            if (pixel != NULL && memcmp(pixel, BACKGROUND, 3u) != 0) {
-                ++seen;
-            }
-        }
-    }
-    return seen;
-}
-
 /// How much of the heading band is drawn in the colour a failure is shouted in.
 static uint32_t CountRed(const UiFrame *frame) {
     static const uint8_t SHOUT[3] = { 0xF0, 0x50, 0x50 };
@@ -1034,10 +926,22 @@ static void CheckLayout(void) {
         return;
     }
 
-    static const uint8_t ONE_FAILED[1] = { 1 };
-    UiState state = UiStart(ONE_FAILED, 1);
+    // The fixture as the one case of a run, opened on its pictures, as the report would have
+    // kept it.
+    static ReportRecord line;
+    static UiRun run;
+    memset(&line, 0, sizeof(line));
+    snprintf(line.suite, sizeof(line.suite), "support");
+    snprintf(line.name, sizeof(line.name), "a fixture");
+    snprintf(line.tier, sizeof(line.tier), "none");
+    snprintf(line.detail, sizeof(line.detail), "one pixel wrong");
+    line.result = REPORT_FAIL;
+    line.picture = 0;
+    UiRunIndex(&run, &line, 1, 1);
+    UiState state = UiStart(&run);
+    state.level = UI_LEVEL_CASE;
     state.view = UI_VIEW_DIFF;
-    UiCompose(&frame, &record, state, 1, ONE_FAILED, 1);
+    UiCompose(&frame, &run, state, &record);
 
     // The single panel is centred, so where its first pixel lands is arithmetic a case can do
     // as well as the layout can, and a panel drawn anywhere else fails here.
@@ -1080,17 +984,17 @@ static void CheckLayout(void) {
     // across the band rather than read at one pixel, so moving the word along the line is a
     // layout change and not a broken case, while dropping it altogether still fails.
     state.view = UI_VIEW_ALL;
-    record.passed = false;
-    UiCompose(&frame, &record, state, 1, ONE_FAILED, 1);
+    line.result = REPORT_FAIL;
+    UiCompose(&frame, &run, state, &record);
     const uint32_t shouting = CountRed(&frame);
-    record.passed = true;
-    UiCompose(&frame, &record, state, 1, ONE_FAILED, 1);
+    line.result = REPORT_PASS;
+    UiCompose(&frame, &run, state, &record);
     const uint32_t quiet = CountRed(&frame);
     CHECK_TRUE(SUITE, "a failed case shouts its verdict on the heading and a passing one does not",
                CHECK_NONE, shouting > 100u && quiet == 0u,
                "%u pixels of it when it failed, %u when it passed", (unsigned)shouting,
                (unsigned)quiet);
-    record.passed = false;
+    line.result = REPORT_FAIL;
 
     // The key under the panels, which is the only thing on the screen that says what the red
     // in the third one means.
@@ -1136,21 +1040,10 @@ static void CheckLayout(void) {
                key_wrong == 0u, "%u of eight swatches and words were missing or wrong",
                (unsigned)key_wrong);
 
-    // And a run whose failures are not all in this list has to say so, on the screen, where
-    // the person is. Counted over the band, so moving the line does not break the case.
-    UiCompose(&frame, &record, state, 1, ONE_FAILED, 9);
-    const uint32_t said = CountLit(&frame, key_y + 20u, key_y + 36u);
-    UiCompose(&frame, &record, state, 1, ONE_FAILED, 1);
-    const uint32_t silent = CountLit(&frame, key_y + 20u, key_y + 36u);
-    CHECK_TRUE(SUITE, "a run with failures that are not here says so and otherwise does not",
-               CHECK_NONE, said > 50u && silent == 0u,
-               "%u lit pixels when some are missing, %u when none are", (unsigned)said,
-               (unsigned)silent);
-
     // Three panels rather than one, and read at the pixel where what was drawn and what was
     // expected differ, so a layout that drew one picture twice fails here.
     record.format = PICTURE_BITS;
-    UiCompose(&frame, &record, state, 1, ONE_FAILED, 1);
+    UiCompose(&frame, &run, state, &record);
     const uint32_t wide = panel_scale;
     const uint32_t row = UI_PANEL_TOP + wide / 2u;
     const uint8_t *const drawn = UiPixel(&frame, 32u + wide + wide / 2u, row);
@@ -1198,8 +1091,9 @@ void RunSupport(void) {
     CheckAPixelNobodyLookedAt();
     CheckBitsAndCollisions();
     CheckReportLine();
-    CheckNavigation();
+    CheckLaunchAndMode();
     CheckLayout();
+    RunSupportScreens();
 
     CHECK_TRUE(SUITE, "this suite takes its own files away again", CHECK_NONE, SweepUp(),
                "something this suite wrote is still on the memory card");

@@ -222,6 +222,8 @@ static void CheckRehearsal(void) {
     const size_t passed = ReportPassed();
     const size_t failed = ReportFailed();
     const size_t skipped = ReportSkipped();
+    size_t records = 0;
+    (void)ReportRecords(&records);
     static const uint8_t pixels[4 * 4 * 4];
     ReportRehearse(SUITE);
     (void)PictureBegin(4, 4, PICTURE_COLOUR, pixels);
@@ -230,8 +232,11 @@ static void CheckRehearsal(void) {
     ReportSkip(SUITE, "a rehearsed case that could not ask", "rehearsal");
     ReportNote("a rehearsed note");
     ReportRehearse(NULL);
+    size_t records_after = 0;
+    (void)ReportRecords(&records_after);
+    // Nor anything for the detailed mode's screens to show.
     const bool counts_kept = ReportPassed() == passed && ReportFailed() == failed &&
-                             ReportSkipped() == skipped;
+                             ReportSkipped() == skipped && records_after == records;
 
     // The picture the rehearsed case opened is closed, so nothing is left for the next line to
     // write under its own name.
@@ -239,8 +244,8 @@ static void CheckRehearsal(void) {
     PictureFinish(SUITE, "a rehearsed case that failed", "exact", false, "", &paths);
     CHECK_TRUE(SUITE, "a rehearsal leaves no count and no picture behind", CHECK_NONE,
                counts_kept && paths.image[0] == '\0',
-               "passed %zu to %zu, failed %zu to %zu, picture \"%s\"", passed, ReportPassed(),
-               failed, ReportFailed(), paths.image);
+               "passed %zu to %zu, failed %zu to %zu, kept %zu to %zu, picture \"%s\"", passed,
+               ReportPassed(), failed, ReportFailed(), records, records_after, paths.image);
 }
 
 static void CheckBreadcrumbs(void) {
