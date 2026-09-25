@@ -167,6 +167,14 @@ run: $(TARGET).nro
 	  { echo "make run: no summary in the report: stopped at 60 s, or died first" >&2; exit 1; }
 	@echo "report: $(SDMC)/report.jsonl"
 
+# The graphics family once under the Khronos validation layer with synchronisation validation,
+# and the table of what it said, message id by message id, with the case each came before
+# (tools/validate.py). The log lands in build/validate.log.
+validate: $(TARGET).nro
+	@[ -x "$(EMULATOR)" ] || { echo "make validate: no executable emulator at $(EMULATOR)" >&2; exit 1; }
+	python3 tools/validate.py run $(EMULATOR) $(CURDIR)/$(BUILD)/validate.log
+.PHONY: validate
+
 # The cover from its source, 256 by 256 baseline JPEG as the loader wants it. Only when the
 # picture changes: the JPEG is committed so a build needs neither tool.
 icon: static/icon.svg
