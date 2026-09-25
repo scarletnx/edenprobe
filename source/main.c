@@ -106,6 +106,7 @@ int main(int argc, char **argv) {
         RunTimed("index", RunIndex, timing);
         RunTimed("instance", RunInstance, timing);
         RunTimed("bindless", RunBindless, timing);
+        RunTimed("astc", RunAstc, timing);
     }
     if ((families & MODE_FAMILY_NET) != 0u) {
         RunNet();

@@ -9,10 +9,10 @@ HOSTOUT  := build-host/edenprobe-host
 HOSTSRC  := source/report.c source/check.c source/mode.c source/picture.c source/ui.c \
             source/raster.c source/intref.c source/blendref.c source/texref.c \
             source/fmathref.c source/coherref.c source/formatref.c source/netref.c source/cpuref.c source/perf.c \
-            source/rawref.c \
+            source/rawref.c source/astcref.c source/astcblocks.c \
             source/tests/t_selfcheck.c source/tests/t_support.c source/tests/t_screens.c \
             source/tests/t_perf.c source/tests/t_reference.c source/tests/t_netref.c \
-            source/tests/t_cpuref.c source/tests/t_rawref.c \
+            source/tests/t_cpuref.c source/tests/t_rawref.c source/tests/t_astcref.c \
             source/host_main.c
 
 # One object per source, so the -MMD below has somewhere to put its dependency files. Without

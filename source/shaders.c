@@ -38,6 +38,7 @@ static const ShaderBlob BLOBS[SHADER_COUNT] = {
     [SHADER_VALUE_SSBO_FRAG] = { value_ssbo_frag_dksh, (uint32_t)value_ssbo_frag_dksh_size },
     [SHADER_STORE_SSBO_FRAG] = { store_ssbo_frag_dksh, (uint32_t)store_ssbo_frag_dksh_size },
     [SHADER_BINDLESS_FRAG] = { bindless_frag_dksh, (uint32_t)bindless_frag_dksh_size },
+    [SHADER_FETCH_FRAG] = { fetch_frag_dksh, (uint32_t)fetch_frag_dksh_size },
 };
 
 const void *ShaderData(ShaderId id) {
