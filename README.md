@@ -350,6 +350,16 @@ below.
   (`texture_cache/format_lookup_table.cpp`, `surface.h`) and at whether it decodes EAC for such a
   host.
 
+- **swizzle**, fourteen cases. Block linear textures the processor writes texel by texel at the
+  addresses the block linear rule gives (`source/coherref.c`, `CohBlockLinearOffset`) and samples
+  back one texel per pixel: 1, 2, 4, 8 and 16 bytes per texel, blocks 1 to 32 gobs tall, and a
+  37 by 23 texture that ends inside a gob. The texels are unsigned integers folded into one word
+  by `swizzle.frag.glsl` with shifts and ors, so every bit is compared exactly; each case first
+  checks the library laid the texture out in the bytes the rule says. The last case writes a
+  1024 by 1024 texture, 4 MiB, and its time is the whole upload an emulator makes on first use.
+  In an emulator a failure points at the unswizzle, on the processor (`textures/decoders.cpp`) or
+  in a compute pass (`host_shaders/block_linear_unswizzle_2d.comp`, `vk_compute_pass.cpp`).
+
 The net family asks the services a program reaches the network through, the way a game asks them,
 and judges each answer against its protocol or against what `sdmc:/edenprobe/net` says the backend
 publishes (see "The net family" below). Every line says what was expected and what came back. A case
@@ -446,6 +456,7 @@ its dependencies put it, not at the end.
 | bindless | exact | a texture reached through a handle at a dynamic index: the host descriptor array the translator builds for it, its size and how it is filled (`shader_recompiler/ir_opt/texture_pass.cpp`). |
 | astc | exact, either of two bytes | the emulator's ASTC decoder: weight and endpoint unquantization, the integer sequence, the partition hash, infill, dual plane, and the error colour for HDR modes and illegal blocks (`host_shaders/astc_decoder.comp`, `textures/astc.cpp`). |
 | eac | exact, either of two bytes | the EAC formats: their mapping to a host format and the decode on a host that has none (`texture_cache/format_lookup_table.cpp`, `surface.h`, `maxwell_to_vk.cpp`). |
+| swizzle | exact | the block linear unswizzle an emulator runs when a texture is first used, by texel size and block height (`textures/decoders.cpp`, `host_shaders/block_linear_unswizzle_2d.comp`). |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
