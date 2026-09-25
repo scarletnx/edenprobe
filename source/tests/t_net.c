@@ -1281,6 +1281,7 @@ static void RunSsl(const char *sockets_why) {
     static const char *const DEFAULT_VERIFY = "a new connection verifies the peer and its name "
                                               "by default";
     static const char *const HOST_NAME = "the name set on a connection reads back";
+    static const char *const OPTION = "an option set on a connection reads back";
     static const char *const SOCKET = "a connection takes a socket and is set to block";
     static const char *const HANDBACK = "a connection hands a descriptor back unless told not to "
                                         "close the socket";
@@ -1296,11 +1297,11 @@ static void RunSsl(const char *sockets_why) {
                                      "its own descriptor";
     static const char *const READ = "the server answers 200 with a status document that says "
                                     "nothing is wrong";
-    const char *const all[] = { CONTEXT, DEFAULT_VERIFY, HOST_NAME,   SOCKET,    HANDBACK,
-                                IO_MODE, REFUSE,         TRUSTED,     CERTIFICATE, HANDSHAKE,
-                                WRITE,   READ,           KEEPS };
+    const char *const all[] = { CONTEXT, DEFAULT_VERIFY, HOST_NAME, OPTION,      SOCKET,
+                                HANDBACK, IO_MODE,       REFUSE,    TRUSTED,     CERTIFICATE,
+                                HANDSHAKE, WRITE,        READ,      KEEPS };
     // The ones from here on need the game server.
-    const size_t first_server_case = 6;
+    const size_t first_server_case = 7;
 
     char why[200] = "";
     if (sockets_why != NULL) {
@@ -1366,6 +1367,24 @@ static void RunSsl(const char *sockets_why) {
              "expected \"%s\" back after SetHostName; SetHostName %s, GetHostName %s, \"%.60s\" "
              "(%u bytes)",
              NAME, ResultText(set), ResultText(get), Visible(got, 60), (unsigned)got_size);
+
+        // The console's service lays raw input out by alignment, so SetOption carries the flag
+        // before the option (libnx sends it so); a service that reads them the other way round
+        // stores the flag under another option.
+        bool held = false;
+        Result option_set = created;
+        Result option_get = created;
+        if (R_SUCCEEDED(created)) {
+            option_set = sslConnectionSetOption(&connection, SslOptionType_DoNotCloseSocket, true);
+            option_get = R_SUCCEEDED(option_set)
+                             ? sslConnectionGetOption(&connection, SslOptionType_DoNotCloseSocket,
+                                                      &held)
+                             : option_set;
+        }
+        Case(S, OPTION, CHECK_EXACT, R_SUCCEEDED(option_get) && held,
+             "expected DoNotCloseSocket to read back set after SetOption; SetOption %s, "
+             "GetOption %s, %s",
+             ResultText(option_set), ResultText(option_get), held ? "set" : "not set");
         if (R_SUCCEEDED(created)) {
             sslConnectionClose(&connection);
         }
