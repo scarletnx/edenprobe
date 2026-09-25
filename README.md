@@ -1051,6 +1051,18 @@ the previous report is deleted before the run, so nothing from an earlier run ca
 one's. `NET_CONFIG_DELAY=6` makes the backend hold `/api/v1/config` for six seconds, which is how
 the sign-in wait is tested.
 
+## Credits
+
+- **switch-examples**, https://github.com/switchbrew/switch-examples: `source/viewer.c` reads the
+  pad the way `hid/read-controls` does (`padConfigureInput`, `padInitializeDefault`, `padUpdate`,
+  `padGetButtonsDown`, `padGetButtons`) and drives a linear, double buffered framebuffer the way
+  `graphics/simplegfx` does. Its README marks the examples with the Creative Commons Public Domain
+  Mark 1.0; the repository has no licence file of its own.
+- **libnx**, https://github.com/switchbrew/libnx: the library every call to the console's
+  services goes through. ISC licence, in its `LICENSE.md` (copyright 2017-2018 libnx Authors).
+- **deko3d**, https://github.com/devkitPro/deko3d: the graphics library the drawing suites use.
+  zlib licence, in its `LICENSE` (copyright 2018-2020 fincs).
+
 ## Licence
 
 GPL-3.0-or-later; the full text is in `LICENSE`. That lets code from other GPL-3 projects come

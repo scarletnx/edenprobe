@@ -13,6 +13,12 @@
 #include "ui.h"
 #include "viewer.h"
 
+// The pad and the framebuffer are driven the way switchbrew's switch-examples drive them:
+// hid/read-controls for padConfigureInput, padInitializeDefault, padUpdate, padGetButtonsDown
+// and padGetButtons, graphics/simplegfx for a linear double buffered framebuffer and the loop
+// around it. https://github.com/switchbrew/switch-examples, marked public domain (Creative
+// Commons Public Domain Mark 1.0, in its README). The library calls are libnx's, ISC licence.
+
 // The only place in this suite where anything reaches a screen. The render targets stay
 // offscreen; what is drawn here is a picture of one of them, after the fact.
 #define SCREEN_WIDTH 1280u
