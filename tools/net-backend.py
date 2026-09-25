@@ -26,6 +26,9 @@ def main() -> None:
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--client-id", required=True)
     parser.add_argument("--client-secret", required=True)
+    parser.add_argument("--game-server-cert",
+                        help="the game server's certificate, published as game_server when the "
+                        "backend knows the field")
     parser.add_argument("--config-delay", type=float, default=0.0,
                         help="seconds to hold every /api/v1/config answer, to test a slow sign-in")
     args = parser.parse_args()
@@ -47,6 +50,12 @@ def main() -> None:
         "avatar_url": f"http://127.0.0.1:{args.port}/avatar/{{size}}.png",
     }
     backend.BLOCKED[:] = ["bb00000100000009", "bb0000010000000a"]
+    # What a connection to the rewritten name must present. A reden older than game_server has no
+    # table for it, and its connections there go unverified as they always did.
+    if args.game_server_cert and hasattr(backend, "GAME_SERVER"):
+        with open(args.game_server_cert, encoding="ascii") as pem:
+            backend.GAME_SERVER.clear()
+            backend.GAME_SERVER["certificate"] = pem.read()
 
     if args.config_delay > 0:
         answer = backend.Handler.do_GET

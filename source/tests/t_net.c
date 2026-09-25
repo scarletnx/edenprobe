@@ -1150,11 +1150,12 @@ typedef struct {
 } Link;
 
 /// Connects to the game server within its budget, hands the socket to a new connection, presents
-/// the name, and puts the connection in non-blocking mode so every step after this one runs
+/// @p name_in (the net file's name when it is NULL), and puts the connection in non-blocking mode
+/// so every step after this one runs
 /// against a deadline of this program's. With @p close_own the program's own descriptor is
 /// closed straight after the hand over.
-static bool LinkOpen(SslContext *context, Link *link, bool close_own, char *said,
-                     size_t said_size) {
+static bool LinkOpen(SslContext *context, Link *link, bool close_own, const char *name_in,
+                     char *said, size_t said_size) {
     link->own = -1;
     link->handed = -1;
     struct sockaddr_in server;
@@ -1194,7 +1195,9 @@ static bool LinkOpen(SslContext *context, Link *link, bool close_own, char *said
         link->handed = -1;
         link->own = -1;
     }
-    const char *const name = config.server_name[0] != '\0' ? config.server_name : NULL;
+    const char *const name = name_in != NULL                   ? name_in
+                             : config.server_name[0] != '\0' ? config.server_name
+                                                             : NULL;
     rc = name != NULL ? sslConnectionSetHostName(&link->connection, name, (u32)strlen(name) + 1u)
                       : 0;
     if (R_SUCCEEDED(rc)) {
@@ -1295,11 +1298,15 @@ static void RunSsl(const char *sockets_why) {
     static const char *const WRITE = "a request written over it goes out whole";
     static const char *const KEEPS = "a connection keeps its socket after the program closes "
                                      "its own descriptor";
+    static const char *const STAND_IN = "a verifying handshake under a name the online service "
+                                        "rewrites trusts the certificate its backend publishes";
+    static const char *const STAND_IN_ADDRESS = "so does one under the address it sends a game to";
     static const char *const READ = "the server answers 200 with a status document that says "
                                     "nothing is wrong";
     const char *const all[] = { CONTEXT, DEFAULT_VERIFY, HOST_NAME, OPTION,      SOCKET,
                                 HANDBACK, IO_MODE,       REFUSE,    TRUSTED,     CERTIFICATE,
-                                HANDSHAKE, WRITE,        READ,      KEEPS };
+                                HANDSHAKE, WRITE,        READ,      KEEPS,       STAND_IN,
+                                STAND_IN_ADDRESS };
     // The ones from here on need the game server.
     const size_t first_server_case = 7;
 
@@ -1541,7 +1548,7 @@ static void RunSsl(const char *sockets_why) {
     } else {
         Link link;
         char said[160] = "";
-        if (!LinkOpen(&context, &link, false, said, sizeof(said))) {
+        if (!LinkOpen(&context, &link, false, NULL, said, sizeof(said))) {
             Case(S, REFUSE, CHECK_EXACT, false,
                  "expected a connection to the server to hand to a handshake; %s", said);
         } else {
@@ -1578,7 +1585,7 @@ static void RunSsl(const char *sockets_why) {
         char said[160] = "not tried";
         bool connected = false;
         if (R_SUCCEEDED(rc)) {
-            connected = LinkOpen(&trusting, &link, false, said, sizeof(said));
+            connected = LinkOpen(&trusting, &link, false, NULL, said, sizeof(said));
             if (connected) {
                 snprintf(said, sizeof(said), "connected");
                 memset(certs, 0, sizeof(certs));
@@ -1621,7 +1628,7 @@ static void RunSsl(const char *sockets_why) {
     // This connection carries the request, so the exchange is measured whatever the imports do.
     Link link;
     char said[160] = "";
-    const bool connected = LinkOpen(&context, &link, false, said, sizeof(said));
+    const bool connected = LinkOpen(&context, &link, false, NULL, said, sizeof(said));
     const Result handshake = connected ? UnverifiedHandshake(&link.connection)
                                        : MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
     const bool shaken = connected && R_SUCCEEDED(handshake);
@@ -1704,7 +1711,7 @@ static void RunSsl(const char *sockets_why) {
     {
         Link kept;
         char kept_said[160] = "";
-        const bool kept_connected = LinkOpen(&context, &kept, true, kept_said, sizeof(kept_said));
+        const bool kept_connected = LinkOpen(&context, &kept, true, NULL, kept_said, sizeof(kept_said));
         const Result rc = kept_connected ? UnverifiedHandshake(&kept.connection) : 0;
         Case(S, KEEPS, CHECK_EXACT, kept_connected && R_SUCCEEDED(rc),
              "expected DoHandshake without verification to succeed after the program closed its "
@@ -1713,6 +1720,59 @@ static void RunSsl(const char *sockets_why) {
              kept_connected ? HandshakeText(rc) : "not reached");
         if (kept_connected) {
             LinkClose(&kept);
+        }
+    }
+
+    // The online service stands in for a game's servers under the names its backend rewrites,
+    // names no certificate of that server carries, so the backend publishes the certificate
+    // those connections must present (reden docs/OnlineService.md, game_server). Verification
+    // stays as a new connection has it and nothing is imported.
+    if (!config.has_session || config.rewrite_count == 0u) {
+        Skip(S, STAND_IN, "%s", !config.has_session ? NO_SESSION : "the net file names no rewrite");
+    } else {
+        Link standing;
+        char standing_said[160] = "";
+        const bool standing_connected =
+            LinkOpen(&context, &standing, false, config.rewrites[0].source, standing_said,
+                     sizeof(standing_said));
+        const Result rc = standing_connected ? HandshakeWithin(&standing.connection,
+                                                               HANDSHAKE_BUDGET_MS, NULL, 0,
+                                                               NULL, NULL)
+                                             : 0;
+        Case(S, STAND_IN, CHECK_EXACT, standing_connected && R_SUCCEEDED(rc),
+             "expected DoHandshake to succeed with PeerCa | HostName and nothing imported under "
+             "\"%.60s\", which the backend rewrites; %s, DoHandshake %s",
+             config.rewrites[0].source, standing_connected ? "connected" : standing_said,
+             standing_connected ? HandshakeText(rc) : "not reached");
+        if (standing_connected) {
+            LinkClose(&standing);
+        }
+    }
+
+    // A game told its server's address, as a station url tells it, connects under the address.
+    // The fixture's backend and game server share one, which is the address the service sends
+    // a game to.
+    if (!config.has_session) {
+        Skip(S, STAND_IN_ADDRESS, "%s", NO_SESSION);
+    } else {
+        char address[16];
+        snprintf(address, sizeof(address), "%u.%u.%u.%u", config.server_ip[0], config.server_ip[1],
+                 config.server_ip[2], config.server_ip[3]);
+        Link standing;
+        char standing_said[160] = "";
+        const bool standing_connected =
+            LinkOpen(&context, &standing, false, address, standing_said, sizeof(standing_said));
+        const Result rc = standing_connected ? HandshakeWithin(&standing.connection,
+                                                               HANDSHAKE_BUDGET_MS, NULL, 0,
+                                                               NULL, NULL)
+                                             : 0;
+        Case(S, STAND_IN_ADDRESS, CHECK_EXACT, standing_connected && R_SUCCEEDED(rc),
+             "expected DoHandshake to succeed with PeerCa | HostName and nothing imported under "
+             "\"%s\"; %s, DoHandshake %s",
+             address, standing_connected ? "connected" : standing_said,
+             standing_connected ? HandshakeText(rc) : "not reached");
+        if (standing_connected) {
+            LinkClose(&standing);
         }
     }
     sslContextClose(&context);

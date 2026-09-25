@@ -382,7 +382,7 @@ a failed case with the reason, never the run.
   the case and does not hang the run). With a server: a stream connects to it, and a connect that
   does not block completes, polls writable and reports no pending error, which is what a game
   does.
-  - **ssl**, fourteen cases. A context; a new connection's default verification (the peer and the
+  - **ssl**, sixteen cases. A context; a new connection's default verification (the peer and the
   name, as libnx documents); the name set on a connection reading back; an option set on it
   reading back (SetOption carries the flag before the option, as the console lays raw input out
   by alignment); a connection taking a socket and blocking mode, and saying so; a descriptor
@@ -392,7 +392,11 @@ a failed case with the reason, never the run.
   issuer, succeeds once that certificate is imported, and hands back exactly its bytes; a
   handshake that does not verify succeeds, carries a request out whole and reads back a 200 with a
   status document that says nothing is wrong; and the connection keeps its socket after the
-  program closes its own descriptor, since the service works on a duplicate.
+  program closes its own descriptor, since the service works on a duplicate. With a session: a
+  verifying handshake under the name the backend rewrites, and under the address the service
+  sends a game to, succeeds with nothing imported, because the backend publishes the certificate
+  that server presents (reden's `docs/OnlineService.md`, `game_server`; the fixture publishes
+  its own).
   - **acc**, six cases. acc:u0 and a user, the network account manager, and with a session: the
   account id is the one the backend publishes, the id token refresh completes, succeeds and leaves
   a token in the cache, the token is a bearer token (RFC 6750's alphabet) terminated inside its
