@@ -11,7 +11,8 @@
 #include "../shaders.h"
 #include "tests.h"
 
-// One list of draws, each covering one pixel with the first word of a uniform buffer of its own.
+// One list of draws, each covering one pixel with a word from a uniform buffer of its own, read
+// at an index the shader computes, so the whole buffer has to reach it (value_ubo_all.frag.glsl).
 // Every buffer is different memory the processor filled before the list, so an emulator uploads
 // each one: 4096 of 4 KiB (16 MiB) and 1024 of 64 KiB (64 MiB). Pixel k must hold buffer k's
 // word, and the time of each case is what those uploads cost.
@@ -65,11 +66,10 @@ static void Case(GpuContext *gpu, const DkShader *vs, const DkShader *fs, const 
         const float quad[6][4] = { { x0, y0, 0, 1 }, { x1, y0, 0, 1 }, { x1, y1, 0, 1 },
                                    { x0, y0, 0, 1 }, { x1, y1, 0, 1 }, { x0, y1, 0, 1 } };
         memcpy(vertices + k * 24u, quad, sizeof(quad));
+        // Every 16 byte entry holds the buffer's word: the shader may read any of them.
         uint32_t *const words = (uint32_t *)(buffers + (size_t)k * buffer_size);
-        words[0] = Word(k, salt);
-        // The rest differs per buffer too, so no two uploads could be served by one copy.
-        for (uint32_t w = 1; w < buffer_size / 4u; w += 61u) {
-            words[w] = words[0] ^ w;
+        for (uint32_t w = 0; w < buffer_size / 4u; w += 4u) {
+            words[w] = Word(k, salt);
         }
     }
 
@@ -87,6 +87,17 @@ static void Case(GpuContext *gpu, const DkShader *vs, const DkShader *fs, const 
     dkCmdBufBindVtxAttribState(gpu->cmdbuf, &attribute, 1);
     dkCmdBufBindVtxBufferState(gpu->cmdbuf, &buffer_state, 1);
     dkCmdBufBindVtxBuffer(gpu->cmdbuf, 0, vertices_address, MAX_DRAWS * 6u * 16u);
+    DkGpuAddr count_address = 0;
+    uint32_t *const count = (uint32_t *)GpuAllocData(gpu, DK_UNIFORM_BUF_ALIGNMENT,
+                                                     DK_UNIFORM_BUF_ALIGNMENT, &count_address);
+    if (count == NULL) {
+        ReportCase(SUITE, name, CHECK_NONE, false, "no scratch left for the entry count");
+        return;
+    }
+    memset(count, 0, DK_UNIFORM_BUF_ALIGNMENT);
+    count[0] = buffer_size / 16u;
+    dkCmdBufBindUniformBuffer(gpu->cmdbuf, DkStage_Fragment, 1, count_address,
+                              DK_UNIFORM_BUF_ALIGNMENT);
     for (uint32_t k = 0; k < draws; ++k) {
         dkCmdBufBindUniformBuffer(gpu->cmdbuf, DkStage_Fragment, 0,
                                   buffers_address + (DkGpuAddr)k * buffer_size, buffer_size);
@@ -154,8 +165,8 @@ void RunStream(void) {
     DkShader fs;
     const bool loaded = GpuLoadShader(&gpu, &vs, ShaderData(SHADER_POSITION_VERT),
                                       ShaderSize(SHADER_POSITION_VERT)) &&
-                        GpuLoadShader(&gpu, &fs, ShaderData(SHADER_VALUE_UBO_FRAG),
-                                      ShaderSize(SHADER_VALUE_UBO_FRAG));
+                        GpuLoadShader(&gpu, &fs, ShaderData(SHADER_VALUE_UBO_ALL_FRAG),
+                                      ShaderSize(SHADER_VALUE_UBO_ALL_FRAG));
     CHECK_TRUE(SUITE, "the drawing shaders load", CHECK_NONE, loaded, "%s", gpu.failure);
     if (!loaded) {
         GpuClose(&gpu);
