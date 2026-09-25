@@ -202,6 +202,12 @@ static const char *PlaceImage(GpuContext *gpu, DkImage *image, DkImageLayout *la
     return PlaceImageAt(gpu, image, layout, format, width, height, flags, 0, block, used, NULL);
 }
 
+/// The command memory the spec asked for, or the default.
+static uint32_t CommandSize(const GpuContext *gpu) {
+    return RoundUpTo(gpu->spec.command_size != 0u ? gpu->spec.command_size : COMMAND_MEMORY_SIZE,
+                     DK_MEMBLOCK_ALIGNMENT);
+}
+
 /// Creates one memory block of @p size bytes with @p flags, or returns the sentence to report.
 static const char *MakeBlock(GpuContext *gpu, DkMemBlock *out, uint32_t size, uint32_t flags,
                              const char *what) {
@@ -225,12 +231,13 @@ static const char *BringUp(GpuContext *gpu) {
         return "dkDeviceCreate produced no device";
     }
 
-    // Graphics only. Nothing here dispatches compute, and asking for a compute channel would
-    // have the driver reserve scratch memory for shaders that do not exist. The other default
-    // flags (medium priority, zcull on) are left alone.
+    // Graphics only unless the spec asks for compute: a compute channel makes the driver
+    // reserve scratch memory for shaders the drawing suites never run. The other default flags
+    // (medium priority, zcull on) are left alone.
     DkQueueMaker queue_maker;
     dkQueueMakerDefaults(&queue_maker, gpu->device);
-    queue_maker.flags = DkQueueFlags_Graphics;
+    queue_maker.flags =
+        DkQueueFlags_Graphics | (gpu->spec.compute ? (uint32_t)DkQueueFlags_Compute : 0u);
     gpu->queue = dkQueueCreate(&queue_maker);
     if (gpu->queue == NULL) {
         return "dkQueueCreate produced no queue";
@@ -239,7 +246,7 @@ static const char *BringUp(GpuContext *gpu) {
     // Command memory has to be uncached to the processor and cached to the graphics unit; the
     // driver rejects any other combination. That is also the maker's default, spelled out here
     // because the image blocks below deliberately depart from it.
-    const char *problem = MakeBlock(gpu, &gpu->cmd_memory, COMMAND_MEMORY_SIZE,
+    const char *problem = MakeBlock(gpu, &gpu->cmd_memory, CommandSize(gpu),
                                     DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached,
                                     "no memory for the command list");
     if (problem != NULL) {
@@ -255,7 +262,7 @@ static const char *BringUp(GpuContext *gpu) {
     if (gpu->cmdbuf == NULL) {
         return "dkCmdBufCreate produced no command buffer";
     }
-    dkCmdBufAddMemory(gpu->cmdbuf, gpu->cmd_memory, 0, COMMAND_MEMORY_SIZE);
+    dkCmdBufAddMemory(gpu->cmdbuf, gpu->cmd_memory, 0, CommandSize(gpu));
 
     // Block linear, the default and the layout real rendering uses, so a case whose pixels
     // differ by position can catch a readback that walks the blocks wrongly. Not CPU visible,
@@ -600,12 +607,29 @@ static void BindSharedState(GpuContext *gpu) {
     dkCmdBufSetDepthBounds(gpu->cmdbuf, false, 0.0f, 1.0f);
 }
 
+// The control lists GpuRawMethods hands the library: one header naming one command entry, the
+// entry, and a return, which is the shape deko3d's own lists take (source/dk_ctrlcmd.h,
+// CtrlCmdHeader and CtrlCmdGpfifoEntry, deko3d 350f2b0). The queue walks them when the list is
+// submitted, so they only have to outlive the submit; a new list starts them over.
+#define RAW_LISTS 64u
+typedef struct {
+    uint64_t header;      // type 3 (GpfifoList) in bits 0-7, one entry in bits 32-63
+    uint64_t entry_iova;  // CtrlCmdGpfifoEntry: where the words are
+    uint32_t entry_words; // how many
+    uint32_t entry_flags; // none: prefetch allowed, no kick
+    uint64_t end;         // type 0 (Return)
+} RawCtrlList;
+_Static_assert(sizeof(RawCtrlList) == 32, "a raw control list is four 64-bit words");
+static RawCtrlList raw_lists[RAW_LISTS];
+static uint32_t raw_lists_used;
+
 void GpuBeginPass(GpuContext *gpu) {
     if (gpu == NULL || !gpu->ready) {
         return;
     }
 
     dkCmdBufClear(gpu->cmdbuf);
+    raw_lists_used = 0;
 
     // Only the caches that hold copies of memory somebody else wrote. The level two cache is
     // deliberately left out: it holds the render target the previous pass wrote, and dropping
@@ -623,6 +647,7 @@ void GpuBeginList(GpuContext *gpu) {
         return;
     }
     dkCmdBufClear(gpu->cmdbuf);
+    raw_lists_used = 0;
     BindTarget(gpu, NULL, 0, 0);
     BindSharedState(gpu);
 }
@@ -1009,8 +1034,18 @@ bool GpuUploadTexture(GpuContext *gpu, const DkImage *image, DkImageFormat forma
 bool GpuDrawTriangles(GpuContext *gpu, const DkShader *vertex_shader,
                       const DkShader *fragment_shader, const GpuVertex *vertices,
                       uint32_t vertex_count) {
-    if (gpu == NULL || !gpu->ready || vertices == NULL || vertex_count == 0u ||
-        vertex_count % 3u != 0u) {
+    if (vertex_count % 3u != 0u ||
+        !GpuBindTriangleState(gpu, vertex_shader, fragment_shader, vertices, vertex_count)) {
+        return false;
+    }
+    dkCmdBufDraw(gpu->cmdbuf, DkPrimitive_Triangles, vertex_count, 1, 0, 0);
+    return true;
+}
+
+bool GpuBindTriangleState(GpuContext *gpu, const DkShader *vertex_shader,
+                          const DkShader *fragment_shader, const GpuVertex *vertices,
+                          uint32_t vertex_count) {
+    if (gpu == NULL || !gpu->ready || vertices == NULL || vertex_count == 0u) {
         return false;
     }
 
@@ -1052,7 +1087,29 @@ bool GpuDrawTriangles(GpuContext *gpu, const DkShader *vertex_shader,
                                sizeof(attributes) / sizeof(attributes[0]));
     dkCmdBufBindVtxBufferState(gpu->cmdbuf, &buffer_state, 1);
     dkCmdBufBindVtxBuffer(gpu->cmdbuf, 0, address, bytes);
+    return true;
+}
 
-    dkCmdBufDraw(gpu->cmdbuf, DkPrimitive_Triangles, vertex_count, 1, 0, 0);
+bool GpuRawMethods(GpuContext *gpu, const uint32_t *words, uint32_t count) {
+    if (gpu == NULL || !gpu->ready || words == NULL || count == 0u) {
+        return false;
+    }
+    if (raw_lists_used == RAW_LISTS) {
+        return Complain(gpu, "a list asked for more raw command blocks than gpu.c keeps");
+    }
+    DkGpuAddr address = 0;
+    void *const destination = GpuAllocData(gpu, count * 4u, 4u, &address);
+    if (destination == NULL) {
+        return Complain(gpu, "the scratch block ran out of room for raw command words");
+    }
+    memcpy(destination, words, count * 4u);
+
+    RawCtrlList *const list = &raw_lists[raw_lists_used++];
+    list->header = 3u | ((uint64_t)1u << 32);
+    list->entry_iova = address;
+    list->entry_words = count;
+    list->entry_flags = 0u;
+    list->end = 0u;
+    dkCmdBufCallList(gpu->cmdbuf, (DkCmdList)(uintptr_t)list);
     return true;
 }

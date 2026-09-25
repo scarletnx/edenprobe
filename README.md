@@ -284,6 +284,37 @@ below.
   of nought included, since a tolerance of nought is still a tolerance; the one Exact case is the
   guard, which copies a float through a uniform buffer and computes nothing.
 
+- **order**, twelve cases, on the graphics unit with a compute queue. A dispatch writes a buffer,
+  a wait for idle follows (`DkBarrier_Primitives`, the library's "completes the processing of all
+  previous primitives and compute jobs", emitted as the 3D engine's WaitForIdle, the pattern
+  deko3d's own compute example uses between generating vertices and drawing them), and the next
+  command reads the buffer: as vertices, as indices, as indirect draw arguments, as a uniform
+  buffer, as a storage buffer in the fragments, as the grid of an indirect dispatch, and as the
+  input of another dispatch; and the reverse, words the fragments stored read by the next
+  dispatch. Every reader must see the written words. The race is made as wide as a dispatch
+  allows: every invocation spins first and only the last ones copy, and what the buffer held
+  before is chosen so a reader that ran early draws nothing or launches nothing, which the
+  failing case counts. Two more cases time 128 dispatch and draw pairs with and without the wait
+  in between; their difference is what a wait for idle costs on the machine under test. Exact
+  tier. In an emulator a failure points at the host side of the guest's wait for idle
+  (`renderer_vulkan/vk_rasterizer.cpp`, `WaitForIdle`).
+- **index**, eight cases. Indexed draws whose index limit register holds the last byte of the
+  indices, the way a driver that bounds its draws exactly programs it (the register is a limit,
+  the last valid byte; nouveau writes the address plus the size minus one). The library never
+  writes that register after start-up, so each case writes it with raw methods before the draw
+  and restores the library's value after. The draw's last index closes the second of two
+  triangles over the target, so reading the limit as one past the end loses half the target.
+  8, 16 and 32 bit indices, a long draw, and one that starts four indices in; one control with
+  the library's open limit. In an emulator a failure points at the size the index buffer is bound
+  with (`buffer_cache/buffer_cache.h`, `UpdateIndexBuffer`).
+- **instance**, five cases. The 3D class's instanced vertex array draws, VERTEX_ARRAY_INSTANCE_FIRST
+  and _SUBSEQUENT, sent as raw methods between the library's own commands. FIRST draws instance
+  nought when it arrives, with the state it arrived under: a uniform value pushed after it must
+  not reach it, and the library draw that follows must add no instances of its own. Each
+  SUBSEQUENT draws the same range as the next instance, and the vertex shader moves each instance
+  one region along, so the target says which instances ran. In an emulator a failure points at
+  `engines/draw_manager.cpp`, `DrawArrayInstanced`, `DrawDeferred`.
+
 The net family asks the services a program reaches the network through, the way a game asks them,
 and judges each answer against its protocol or against what `sdmc:/edenprobe/net` says the backend
 publishes (see "The net family" below). Every line says what was expected and what came back. A case
@@ -374,6 +405,9 @@ its dependencies put it, not at the end.
 | texture | exact | the texture and sampler descriptors: the wrap mode and filter fields, and the block linear layout a sampled image is stored in. |
 | coherence | exact | a cache between two uses of the same memory. In an emulator: the texture cache not marking an image the graphics unit wrote as modified, or missing a processor write to one (`texture_cache/texture_cache.h`, `MarkModification`, `WriteMemory`); the buffer cache serving a uniform buffer the processor rewrote, or dropping an update pushed inside the list (`buffer_cache/buffer_cache.h`, `Maxwell3D::ProcessCBData`); the copy engine's writes not reaching the images it overlaps (`engines/maxwell_dma.cpp`), or a render target not flushed before the copy engine reads it; or two formats over one memory joined as a conversion rather than a view (`texture_cache/texture_cache.h`, `JoinImages`). The region two pixels that still hold region one's contents say which. |
 | fmath | units in the last place | the float side of the shader translator, and the transcendental unit behind it; for the edge cases, the minimum and maximum's NaN rule, denormal handling and the rounding modes. The only suite where two correct machines are allowed to differ, which is why it is last among the graphics suites. |
+| order | exact | the host side of the guest's wait for idle: a compute write not ordered before the vertex, index, indirect, uniform or storage read after it (`renderer_vulkan/vk_rasterizer.cpp`, `WaitForIdle`), or indirect arguments read from memory before the dispatch that wrote them finished. |
+| index | exact | the size an index buffer is bound with: a limit register read as one past the end drops the last index (`buffer_cache/buffer_cache.h`, `UpdateIndexBuffer`). |
+| instance | exact | when an instanced array draw happens and as which instance (`engines/draw_manager.cpp`): deferred past a state change, extra instances added to the next draw, or SUBSEQUENT not counted as the next instance. |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
@@ -951,6 +985,14 @@ sign-in wait is tested.
   goes through. ISC licence, in its `LICENSE.md` (copyright 2017-2018 libnx Authors).
 - **deko3d**, https://github.com/devkitPro/deko3d: the graphics library the drawing suites use. zlib
   licence, in its `LICENSE` (copyright 2018-2020 fincs).
+
+- **deko3d's internals and its compute example**: `source/gpu.c` `GpuRawMethods` builds a one-entry
+  control list in the shape of deko3d's `source/dk_ctrlcmd.h` (`CtrlCmdHeader`,
+  `CtrlCmdGpfifoEntry`), and `source/rawref.c` encodes method headers the way its
+  `source/maxwell/command.h` does, with the method numbers of `source/maxwell/engine_3d.def`
+  (deko3d 350f2b0, zlib licence). The order suite's pattern, a dispatch, a primitives barrier and
+  a draw of what it wrote, is switch-examples' `deko_examples/source/Example09_SimpleCompute.cpp`
+  and `sinewave.glsl`, which `order_copy.comp.glsl` follows in shape.
 
 ## Licence
 

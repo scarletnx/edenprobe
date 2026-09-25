@@ -102,6 +102,9 @@ int main(int argc, char **argv) {
         RunTimed("texture", RunTexture, timing);
         RunTimed("coherence", RunCoherence, timing);
         RunTimed("fmath", RunFmath, timing);
+        RunTimed("order", RunOrder, timing);
+        RunTimed("index", RunIndex, timing);
+        RunTimed("instance", RunInstance, timing);
     }
     if ((families & MODE_FAMILY_NET) != 0u) {
         RunNet();

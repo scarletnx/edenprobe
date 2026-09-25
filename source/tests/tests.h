@@ -35,6 +35,10 @@ void RunReference(void);
 /// The cpu suite's expected answers, pinned against numbers written by hand: part of the
 /// reference suite, so both builds run it.
 void RunReferenceCpu(void);
+
+/// The raw method words the index and instance suites send, pinned against words worked out by
+/// hand: part of the reference suite.
+void RunReferenceRaw(void);
 #ifdef __SWITCH__
 /// The processor's vector instructions, compared bit for bit with the reference. Console only,
 /// because its cases are AArch64 instructions; no device, so it runs in every mode.
@@ -75,6 +79,18 @@ void RunCoherence(void);
 /// Float arithmetic in a shader, judged in units in the last place. Last, because it is the only
 /// suite where two correct machines are allowed to disagree.
 void RunFmath(void);
+
+/// Compute before a wait for idle, then a reader: vertices, indices, indirect arguments,
+/// uniform and storage buffers, another dispatch. Each reader must see the written words.
+void RunOrder(void);
+
+/// Indexed draws whose index limit register holds the last byte of the indices, written with raw
+/// methods: the last index must still be used.
+void RunIndex(void);
+
+/// The 3D class's instanced vertex array draws, sent as raw methods: each draws when it arrives,
+/// with the state it arrived under, as the instance it is.
+void RunInstance(void);
 
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not

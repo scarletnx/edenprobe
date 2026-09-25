@@ -80,6 +80,10 @@ $(BUILD)/shaders/%.frag.dksh: $(SHADER_DIR)/%.frag.glsl
 	@mkdir -p $(dir $@)
 	$(TOOLS)/uam -s frag -o $@ $<
 
+$(BUILD)/shaders/%.comp.dksh: $(SHADER_DIR)/%.comp.glsl
+	@mkdir -p $(dir $@)
+	$(TOOLS)/uam -s comp -o $@ $<
+
 # One grouped target, because one run of bin2s produces both files: with a rule each, deleting
 # only the header leaves make with no recipe that makes it alone. Grouped targets need GNU make
 # 4.3 or newer. The alignment is what the graphics library's paired load of a program header
