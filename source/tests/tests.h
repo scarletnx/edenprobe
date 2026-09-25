@@ -126,6 +126,10 @@ void RunStream(void);
 /// Turns on the stream suite's 256 MiB case, which the mode word `stress` asks for.
 void StreamSetStress(bool on);
 
+/// Fill rate for time: 128 quads over a 512 by 512 target, with and without a depth buffer
+/// tested and written by each, the pixels and the depth judged too.
+void RunFill(void);
+
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not
 /// name, or a service this program cannot open, is skipped with the reason and counted apart.
