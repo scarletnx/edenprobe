@@ -780,17 +780,36 @@ static void Pattern(uint8_t *out, size_t length, uint8_t seed) {
     }
 }
 
-/// What the rescue thread needs: where to send, and when.
+/// What the rescue thread needs: where to send, when, the socket to shut if a datagram does not
+/// end the wait, and whether the receive has come back (set by the receiving thread).
 typedef struct {
     struct sockaddr_in to;
     uint32_t after_ms;
+    int fd;
+    bool returned;
+    int fired; // 0 nothing, 1 the datagram, 2 the shutdown
 } Rescue;
 
-/// Sends one datagram to a socket blocked in a receive after @p after_ms, so a machine that
-/// ignores the receive timeout ends the wait anyway, and says so, rather than hanging the run.
+/// Waits up to @p ms for the receive to come back, in short steps, so a machine that honours
+/// the timeout is not held up by the rescue.
+static bool RescueWait(Rescue *rescue, uint32_t ms) {
+    for (uint32_t waited = 0; waited < ms; waited += 50) {
+        if (__atomic_load_n(&rescue->returned, __ATOMIC_ACQUIRE)) {
+            return true;
+        }
+        SleepMs(50);
+    }
+    return __atomic_load_n(&rescue->returned, __ATOMIC_ACQUIRE);
+}
+
+/// Ends a receive that outlives its timeout: a datagram after @p after_ms, and 3 s later a
+/// shutdown of the socket, for a machine whose blocking receive does not wake for arriving data
+/// either. Either one firing is itself the finding; neither can hang the run.
 static void RescueThread(void *argument) {
-    const Rescue *rescue = argument;
-    SleepMs(rescue->after_ms);
+    Rescue *rescue = argument;
+    if (RescueWait(rescue, rescue->after_ms)) {
+        return;
+    }
     const int fd = OpenSocket(SOCK_DGRAM);
     if (fd >= 0) {
         static const char NOTE[] = "rescue";
@@ -798,6 +817,19 @@ static void RescueThread(void *argument) {
                sizeof(rescue->to));
         close(fd);
     }
+    rescue->fired = 1;
+    if (RescueWait(rescue, 3000)) {
+        return;
+    }
+    rescue->fired = 2;
+    shutdown(rescue->fd, SHUT_RDWR);
+}
+
+/// A core of the application's (0 to 2) other than this thread's. A machine can hold the
+/// blocked thread's core for the whole of its service call, and a rescue queued on that core
+/// never runs: Ryujinx 1.3.351 hung the run that way.
+static int OtherCore(void) {
+    return svcGetCurrentProcessorNumber() == 0 ? 1 : 0;
 }
 
 /// SO_RCVTIMEO of 300 ms on an empty datagram socket, then a blocking receive: POSIX says it
@@ -836,8 +868,14 @@ static void CheckReceiveTimeout(const char *suite, const char *name) {
         return;
     }
     rescue.after_ms = 2000;
+    rescue.fd = fd;
+    rescue.returned = false;
+    rescue.fired = 0;
     Thread thread;
-    const Result made = threadCreate(&thread, RescueThread, &rescue, NULL, 0x4000, 0x2C, -2);
+    Result made = threadCreate(&thread, RescueThread, &rescue, NULL, 0x4000, 0x2C, OtherCore());
+    if (R_FAILED(made)) {
+        made = threadCreate(&thread, RescueThread, &rescue, NULL, 0x4000, 0x2C, -2);
+    }
     const bool started = R_SUCCEEDED(made) && R_SUCCEEDED(threadStart(&thread));
     if (!started) {
         Skip(suite, name, "no thread to bound the receive with (threadCreate %s), and without "
@@ -855,6 +893,7 @@ static void CheckReceiveTimeout(const char *suite, const char *name) {
     const ssize_t got = recv(fd, buffer, sizeof(buffer), 0);
     const int error = errno;
     const unsigned long long ms = (NowNs() - begun) / 1000000ull;
+    __atomic_store_n(&rescue.returned, true, __ATOMIC_RELEASE);
     threadWaitForExit(&thread);
     threadClose(&thread);
     close(fd);
@@ -863,8 +902,10 @@ static void CheckReceiveTimeout(const char *suite, const char *name) {
          "expected -1 with EAGAIN (%d) between 250 and 1500 ms after setsockopt(SO_RCVTIMEO, "
          "300 ms) succeeded; got %d, errno %d, after %llu ms%s",
          EAGAIN, (int)got, error, ms,
-         got > 0 ? " (the rescue datagram ended the wait: the timeout was accepted and ignored)"
-                 : "");
+         rescue.fired == 2 ? " (a shutdown of the socket 5 s in ended the wait: the receive "
+                             "ignored its timeout and the datagram sent to it)"
+         : got > 0 ? " (the rescue datagram ended the wait: the timeout was accepted and ignored)"
+                   : "");
 }
 
 static void RunBsd(const char *sockets_why) {
