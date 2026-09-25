@@ -2364,4 +2364,5 @@ void RunReference(void) {
     RunReferenceCpu();
     RunReferenceRaw();
     RunReferenceAstc();
+    RunReferenceEac();
 }

@@ -43,6 +43,9 @@ void RunReferenceRaw(void);
 /// The ASTC reference decoder held to ARM's decoder block by block, and its weight table to
 /// values worked out by hand: part of the reference suite.
 void RunReferenceAstc(void);
+
+/// The EAC reference decoder against values worked out by hand: part of the reference suite.
+void RunReferenceEac(void);
 #ifdef __SWITCH__
 /// The processor's vector instructions, compared bit for bit with the reference. Console only,
 /// because its cases are AArch64 instructions; no device, so it runs in every mode.
@@ -103,6 +106,9 @@ void RunBindless(void);
 /// ASTC blocks, one per feature of the format, sampled texel by texel against the reference
 /// decoder's answer.
 void RunAstc(void);
+
+/// One- and two-channel EAC blocks sampled texel by texel.
+void RunEac(void);
 
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not

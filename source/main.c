@@ -107,6 +107,7 @@ int main(int argc, char **argv) {
         RunTimed("instance", RunInstance, timing);
         RunTimed("bindless", RunBindless, timing);
         RunTimed("astc", RunAstc, timing);
+        RunTimed("eac", RunEac, timing);
     }
     if ((families & MODE_FAMILY_NET) != 0u) {
         RunNet();
