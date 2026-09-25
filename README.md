@@ -325,6 +325,21 @@ below.
   (`shader_recompiler/ir_opt/texture_pass.cpp`, `DESCRIPTOR_MAX_COUNT`,
   `DynamicDescriptorCount`).
 
+- **astc**, eighteen cases. ASTC textures of one block each, the block written by the processor
+  into image memory and every texel fetched onto its own pixel: a void extent, 4-bit weights 0 to
+  15 and every 5-bit weight between endpoints 0 and 255 (built by hand, `tools/astc-blocks.py`),
+  trit and quint weights, trit and quint endpoints, two, three and four partitions, a dual plane,
+  weight infill on 8x8 and 12x12 blocks, an HDR partition before an LDR one, and an illegal block.
+  What each texel must be is `source/astcref.c`, an LDR profile decoder written from the Khronos
+  Data Format Specification's ASTC chapter, which the reference suite holds block by block to ARM's
+  reference decoder (astcenc 9fbec680) and which agreed with it on 458,752 random blocks over
+  every 2D footprint when it was written. A texel may be either byte its 16-bit value gives,
+  divided by 65535 and rounded or its top byte, since the texture unit may decode to eight bits;
+  nothing else. HDR endpoint modes are the error colour, opaque magenta, on their own partition's
+  texels in this profile, as astcenc has it. In an emulator a failure points at the ASTC decoder
+  it uses (`video_core/host_shaders/astc_decoder.comp`, `video_core/textures/astc.cpp`): the 4-bit
+  and 5-bit cases at the weight unquantization, the partition cases at the partition hash.
+
 The net family asks the services a program reaches the network through, the way a game asks them,
 and judges each answer against its protocol or against what `sdmc:/edenprobe/net` says the backend
 publishes (see "The net family" below). Every line says what was expected and what came back. A case
@@ -419,6 +434,7 @@ its dependencies put it, not at the end.
 | index | exact | the size an index buffer is bound with: a limit register read as one past the end drops the last index (`buffer_cache/buffer_cache.h`, `UpdateIndexBuffer`). |
 | instance | exact | when an instanced array draw happens and as which instance (`engines/draw_manager.cpp`): deferred past a state change, extra instances added to the next draw, or SUBSEQUENT not counted as the next instance. |
 | bindless | exact | a texture reached through a handle at a dynamic index: the host descriptor array the translator builds for it, its size and how it is filled (`shader_recompiler/ir_opt/texture_pass.cpp`). |
+| astc | exact, either of two bytes | the emulator's ASTC decoder: weight and endpoint unquantization, the integer sequence, the partition hash, infill, dual plane, and the error colour for HDR modes and illegal blocks (`host_shaders/astc_decoder.comp`, `textures/astc.cpp`). |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
@@ -1004,6 +1020,13 @@ sign-in wait is tested.
   (deko3d 350f2b0, zlib licence). The order suite's pattern, a dispatch, a primitives barrier and
   a draw of what it wrote, is switch-examples' `deko_examples/source/Example09_SimpleCompute.cpp`
   and `sinewave.glsl`, which `order_copy.comp.glsl` follows in shape.
+
+- **astcenc**, https://github.com/ARM-software/astc-encoder (Apache 2.0): ARM's reference ASTC
+  codec. None of its code is in this repository; `source/astcblocks.c` carries hashes of what its
+  decoder (commit 9fbec680) makes of each block the astc suite samples, and `source/astcref.c`
+  follows its reading of two points the specification leaves to the decoder: bits past the end of
+  an integer sequence read as nought, and an HDR endpoint mode in the LDR profile is the error
+  colour on its own partition only.
 
 ## Licence
 

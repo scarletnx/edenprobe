@@ -39,6 +39,10 @@ void RunReferenceCpu(void);
 /// The raw method words the index and instance suites send, pinned against words worked out by
 /// hand: part of the reference suite.
 void RunReferenceRaw(void);
+
+/// The ASTC reference decoder held to ARM's decoder block by block, and its weight table to
+/// values worked out by hand: part of the reference suite.
+void RunReferenceAstc(void);
 #ifdef __SWITCH__
 /// The processor's vector instructions, compared bit for bit with the reference. Console only,
 /// because its cases are AArch64 instructions; no device, so it runs in every mode.
@@ -95,6 +99,10 @@ void RunInstance(void);
 /// 256 textures reached through a uniform array of handles at a dynamic index: every index must
 /// sample its own texture.
 void RunBindless(void);
+
+/// ASTC blocks, one per feature of the format, sampled texel by texel against the reference
+/// decoder's answer.
+void RunAstc(void);
 
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not
