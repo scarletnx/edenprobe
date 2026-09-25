@@ -482,6 +482,40 @@ static void PairsCase(OrderContext *o, bool ordered) {
     }
 }
 
+// The same question without compute: draws into one target with and without a wait for idle
+// after each. An emulator that ends its render pass at every wait (a real cost on tiled
+// graphics units) shows it here, and one that ignores the wait shows nothing.
+#define DRAWS 256u
+
+static void DrawsCase(OrderContext *o, bool ordered) {
+    const char *const name =
+        ordered ? "256 draws into one target, each followed by a wait for idle, all land"
+                : "256 draws into one target with no wait for idle between them are recorded";
+    Scratch vertices, uniform;
+    Begin(o);
+    if (!Alloc(o, &vertices, 96, 256) ||
+        !Alloc(o, &uniform, UNIFORM_SIZE, DK_UNIFORM_BUF_ALIGNMENT)) {
+        ReportCase(SUITE, name, CHECK_NONE, false, "no scratch left for the buffers");
+        return;
+    }
+    FullScreenTriangles(vertices.cpu);
+    uniform.cpu[0] = MARKER;
+    BindPositions(o, &o->value_ubo, vertices.gpu, 96);
+    dkCmdBufBindUniformBuffer(o->gpu.cmdbuf, DkStage_Fragment, 0, uniform.gpu, UNIFORM_SIZE);
+    for (uint32_t i = 0; i < DRAWS; ++i) {
+        dkCmdBufDraw(o->gpu.cmdbuf, DkPrimitive_Triangles, 6, 1, 0, 0);
+        if (ordered) {
+            WaitForIdle(o);
+        }
+    }
+    GpuSubmit(&o->gpu);
+    if (ordered) {
+        JudgeTarget(o, name, MARKER, true);
+    } else {
+        CHECK_TRUE(SUITE, name, CHECK_NONE, o->gpu.ready, "%s", o->gpu.failure);
+    }
+}
+
 void RunOrder(void) {
     GpuSpec spec;
     GpuSpecDefaults(&spec, TARGET_WIDTH, TARGET_HEIGHT);
@@ -530,6 +564,8 @@ void RunOrder(void) {
     CaseFragmentToCompute(&o);
     PairsCase(&o, true);
     PairsCase(&o, false);
+    DrawsCase(&o, true);
+    DrawsCase(&o, false);
 
     GpuClose(&o.gpu);
 }

@@ -284,7 +284,7 @@ below.
   of nought included, since a tolerance of nought is still a tolerance; the one Exact case is the
   guard, which copies a float through a uniform buffer and computes nothing.
 
-- **order**, twelve cases, on the graphics unit with a compute queue. A dispatch writes a buffer,
+- **order**, fourteen cases, on the graphics unit with a compute queue. A dispatch writes a buffer,
   a wait for idle follows (`DkBarrier_Primitives`, the library's "completes the processing of all
   previous primitives and compute jobs", emitted as the 3D engine's WaitForIdle, the pattern
   deko3d's own compute example uses between generating vertices and drawing them), and the next
@@ -294,8 +294,9 @@ below.
   dispatch. Every reader must see the written words. The race is made as wide as a dispatch
   allows: every invocation spins first and only the last ones copy, and what the buffer held
   before is chosen so a reader that ran early draws nothing or launches nothing, which the
-  failing case counts. Two more cases time 128 dispatch and draw pairs with and without the wait
-  in between; their difference is what a wait for idle costs on the machine under test. Exact
+  failing case counts. Four more cases are for time: 128 dispatch and draw pairs, and 256 draws
+  into one target, each with and without a wait after every one; the differences are what a wait
+  for idle costs on the machine under test, with and without compute around it. Exact
   tier. In an emulator a failure points at the host side of the guest's wait for idle
   (`renderer_vulkan/vk_rasterizer.cpp`, `WaitForIdle`).
 - **index**, eight cases. Indexed draws whose index limit register holds the last byte of the
