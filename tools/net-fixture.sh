@@ -102,7 +102,8 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 
 say "online backend on 127.0.0.1:$BACKEND_PORT, log $WORK/backend.log"
 python3 -u "$PROBE/tools/net-backend.py" --backend "$REDEN/docs/examples/online_backend.py" \
     --port "$BACKEND_PORT" --client-id "$CLIENT_ID" --client-secret "$CLIENT_SECRET" \
-    --config-delay "${NET_CONFIG_DELAY:-0}" >"$WORK/backend.log" 2>&1 &
+    --config-delay "${NET_CONFIG_DELAY:-0}" --game-server-cert "$WORK/tls/cert.pem" \
+    >"$WORK/backend.log" 2>&1 &
 BACKEND_PID=$!
 PIDS+=("$BACKEND_PID")
 
