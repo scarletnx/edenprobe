@@ -2362,4 +2362,5 @@ void RunReference(void) {
     CheckFormats();
     RunReferenceNet();
     RunReferenceCpu();
+    RunReferenceRaw();
 }

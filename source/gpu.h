@@ -41,6 +41,12 @@ typedef struct {
     /// The widest pixel the suite will read back from an image of its own at the main target's
     /// size, when that is wider than the main target's. Zero means only the main target's.
     uint32_t readback_bytes_per_pixel;
+    /// The queue also runs compute work. Off by default: a compute queue makes the driver
+    /// reserve scratch for shaders the drawing suites never run.
+    bool compute;
+    /// Bytes of command memory. Zero keeps the default, which fits every drawing suite; a suite
+    /// recording thousands of draws in one list asks for more.
+    uint32_t command_size;
 } GpuSpec;
 
 /// Everything a test needs to draw into an offscreen target and read the result back.
@@ -234,6 +240,23 @@ bool GpuUploadTexture(GpuContext *gpu, const DkImage *image, DkImageFormat forma
 bool GpuDrawTriangles(GpuContext *gpu, const DkShader *vertex_shader,
                       const DkShader *fragment_shader, const GpuVertex *vertices,
                       uint32_t vertex_count);
+
+/// Everything GpuDrawTriangles records except the draw: the two shaders, the GpuVertex
+/// attribute layout and @p vertices copied into scratch as vertex buffer 0. For the cases that
+/// then draw some other way (indexed, instanced, indirect, or by raw methods).
+bool GpuBindTriangleState(GpuContext *gpu, const DkShader *vertex_shader,
+                          const DkShader *fragment_shader, const GpuVertex *vertices,
+                          uint32_t vertex_count);
+
+/// Records @p count raw command words into the open list, in order with what the library
+/// recorded before and after them.
+///
+/// For the registers the library never writes (the index buffer limit) and the methods it never
+/// sends (the instanced vertex array draw). The words are copied into scratch and reached with a
+/// call into a one-entry control list built the way the library builds its own (deko3d
+/// source/dk_ctrlcmd.h), so the list must be submitted before the next GpuBeginPass or
+/// GpuBeginList, which reuse that storage. False with a sentence in `failure` when out of room.
+bool GpuRawMethods(GpuContext *gpu, const uint32_t *words, uint32_t count);
 
 /// The four bytes of the pixel at @p x, @p y in the buffer a readback returned.
 static inline const uint8_t *GpuPixel(const uint8_t *pixels, uint32_t width, uint32_t x,

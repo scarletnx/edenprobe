@@ -30,6 +30,13 @@ static const ShaderBlob BLOBS[SHADER_COUNT] = {
     [SHADER_INTDIV_FRAG] = { intdiv_frag_dksh, (uint32_t)intdiv_frag_dksh_size },
     [SHADER_INTREM_FRAG] = { intrem_frag_dksh, (uint32_t)intrem_frag_dksh_size },
     [SHADER_INTBITS_FRAG] = { intbits_frag_dksh, (uint32_t)intbits_frag_dksh_size },
+    [SHADER_ORDER_COPY_COMP] = { order_copy_comp_dksh, (uint32_t)order_copy_comp_dksh_size },
+    [SHADER_ORDER_MARK_COMP] = { order_mark_comp_dksh, (uint32_t)order_mark_comp_dksh_size },
+    [SHADER_POSITION_VERT] = { position_vert_dksh, (uint32_t)position_vert_dksh_size },
+    [SHADER_INSTANCE_VERT] = { instance_vert_dksh, (uint32_t)instance_vert_dksh_size },
+    [SHADER_VALUE_UBO_FRAG] = { value_ubo_frag_dksh, (uint32_t)value_ubo_frag_dksh_size },
+    [SHADER_VALUE_SSBO_FRAG] = { value_ssbo_frag_dksh, (uint32_t)value_ssbo_frag_dksh_size },
+    [SHADER_STORE_SSBO_FRAG] = { store_ssbo_frag_dksh, (uint32_t)store_ssbo_frag_dksh_size },
 };
 
 const void *ShaderData(ShaderId id) {
