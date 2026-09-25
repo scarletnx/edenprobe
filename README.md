@@ -382,10 +382,12 @@ a failed case with the reason, never the run.
   the case and does not hang the run). With a server: a stream connects to it, and a connect that
   does not block completes, polls writable and reports no pending error, which is what a game
   does.
-  - **ssl**, thirteen cases. A context; a new connection's default verification (the peer and the
-  name, as libnx documents); the name set on a connection reading back; a connection taking a
-  socket and blocking mode, and saying so; a descriptor handed back by default and none with
-  `DoNotCloseSocket` (libnx's `ssl.h` on `sslConnectionSetSocketDescriptor`). With a server whose
+  - **ssl**, fourteen cases. A context; a new connection's default verification (the peer and the
+  name, as libnx documents); the name set on a connection reading back; an option set on it
+  reading back (SetOption carries the flag before the option, as the console lays raw input out
+  by alignment); a connection taking a socket and blocking mode, and saying so; a descriptor
+  handed back by default and none with `DoNotCloseSocket` (libnx's `ssl.h` on
+  `sslConnectionSetSocketDescriptor`). With a server whose
   certificate the file names: a verifying handshake refuses a certificate that names itself as
   issuer, succeeds once that certificate is imported, and hands back exactly its bytes; a
   handshake that does not verify succeeds, carries a request out whole and reads back a 200 with a
