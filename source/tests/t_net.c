@@ -1140,9 +1140,9 @@ static const char *const STATUS_PATH_NOTE = "GET /service_status_hac.json";
 #define HANDSHAKE_BUDGET_MS 5000u
 #define EXCHANGE_BUDGET_MS 3000u
 
-/// A connection to the game server and the descriptors that go with it: the program's own, and
-/// the one SetSocketDescriptor handed back, if any, which libnx says to close before the
-/// connection is.
+/// A connection to the game server and the program's descriptor for its socket: the one
+/// SetSocketDescriptor handed back, which switchbrew says is the one the program passed in and
+/// libnx says to close before the connection is, or, when none came back, the program's own.
 typedef struct {
     SslConnection connection;
     int own;
@@ -1187,9 +1187,11 @@ static bool LinkOpen(SslContext *context, Link *link, bool close_own, char *said
         close(fd);
         return false;
     }
-    link->own = fd;
+    // Handed back means the program's own, so only one of the two is ever closed.
+    link->own = link->handed >= 0 ? -1 : fd;
     if (close_own) {
-        close(link->own);
+        close(link->handed >= 0 ? link->handed : link->own);
+        link->handed = -1;
         link->own = -1;
     }
     const char *const name = config.server_name[0] != '\0' ? config.server_name : NULL;
@@ -1419,10 +1421,15 @@ static void RunSsl(const char *sockets_why) {
         // libnx, ssl.h, sslConnectionSetSocketDescriptor: the descriptor handed back "must be
         // closed if it's not negative (it will be -1 if SslOptionType_DoNotCloseSocket is set)".
         // So by default one comes back, and with DoNotCloseSocket none does, which libnx's socket
-        // wrapper reports as ENOENT. Unverified on a console.
+        // wrapper reports as ENOENT. switchbrew says the one that comes back is the one passed
+        // in, so closing it above closed this program's socket, and the second connection gets
+        // a socket of its own. Unverified on a console.
+        int client_2 = -1;
+        int served_2 = -1;
+        const bool paired_2 = paired && LoopbackStream(&client_2, &served_2, said, sizeof(said));
         SslConnection with_option;
-        const Result created_2 = paired ? sslContextCreateConnection(&context, &with_option)
-                                        : MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
+        const Result created_2 = paired_2 ? sslContextCreateConnection(&context, &with_option)
+                                          : MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
         Result option = created_2;
         int handed_2 = -1;
         int error_2 = 0;
@@ -1430,13 +1437,13 @@ static void RunSsl(const char *sockets_why) {
             option = sslConnectionSetOption(&with_option, SslOptionType_DoNotCloseSocket, true);
             errno = 0;
             handed_2 = R_SUCCEEDED(option)
-                           ? socketSslConnectionSetSocketDescriptor(&with_option, client)
+                           ? socketSslConnectionSetSocketDescriptor(&with_option, client_2)
                            : -1;
             error_2 = errno;
         }
         const bool by_default = R_SUCCEEDED(created) && handed >= 0;
         const bool with_none = R_SUCCEEDED(option) && handed_2 < 0 && error_2 == ENOENT;
-        Case(S, HANDBACK, CHECK_EXACT, paired && by_default && with_none,
+        Case(S, HANDBACK, CHECK_EXACT, paired_2 && by_default && with_none,
              "expected a descriptor back by default and none (ENOENT) with DoNotCloseSocket; "
              "default %d errno %d, DoNotCloseSocket %d errno %d (SetOption %s)%s",
              handed, error, handed_2, error_2, ResultText(option),
@@ -1451,11 +1458,18 @@ static void RunSsl(const char *sockets_why) {
         if (R_SUCCEEDED(created_2)) {
             sslConnectionClose(&with_option);
         }
-        if (client >= 0) {
+        // A descriptor handed back was this program's own and is closed already.
+        if (client >= 0 && handed < 0) {
             close(client);
         }
         if (served >= 0) {
             close(served);
+        }
+        if (client_2 >= 0) {
+            close(client_2);
+        }
+        if (served_2 >= 0) {
+            close(served_2);
         }
     }
 

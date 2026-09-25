@@ -410,8 +410,9 @@ contract says only that it comes back invalid; the id is the fork's `profile_que
 ssl connection keeps its socket when the program closes its own descriptor (POSIX `dup`
 semantics); that a submitted nifm request is accepted by itself within three seconds (the three
 seconds are this program's); the descriptor `sslConnectionSetSocketDescriptor` hands back (libnx's
-reading of it); and nsd expanding the placeholder with no session (the contract's statement about
-the real service). Each case's detail says the same.
+reading of it, which switchbrew shares: the one passed in); and nsd expanding the placeholder
+with no session (the contract's statement about the real service). Each case's detail says the
+same.
 
 Nothing is ever put on a screen. The target is offscreen and the program reads it back itself,
 which keeps the compositor, the swapchain and vertical sync out of a test that is about none of
