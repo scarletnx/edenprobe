@@ -92,6 +92,10 @@ void RunIndex(void);
 /// with the state it arrived under, as the instance it is.
 void RunInstance(void);
 
+/// 256 textures reached through a uniform array of handles at a dynamic index: every index must
+/// sample its own texture.
+void RunBindless(void);
+
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not
 /// name, or a service this program cannot open, is skipped with the reason and counted apart.

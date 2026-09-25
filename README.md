@@ -316,6 +316,15 @@ below.
   one region along, so the target says which instances ran. In an emulator a failure points at
   `engines/draw_manager.cpp`, `DrawArrayInstanced`, `DrawDeferred`.
 
+- **bindless**, five cases. A fragment shader picks one of 256 one-texel textures through a handle
+  read from a uniform array at a dynamic index (ARB_bindless_texture, which uam compiles to the
+  console's bindless fetch), so column i of the target must show texture i. Split at 128 so a
+  host array cut short at 128 descriptors says so on its own line. The same shader with a
+  constant index is how the setup was checked: the handles and the index reach the shader. In an
+  emulator a failure points at the dynamic descriptor arrays the shader translator builds
+  (`shader_recompiler/ir_opt/texture_pass.cpp`, `DESCRIPTOR_MAX_COUNT`,
+  `DynamicDescriptorCount`).
+
 The net family asks the services a program reaches the network through, the way a game asks them,
 and judges each answer against its protocol or against what `sdmc:/edenprobe/net` says the backend
 publishes (see "The net family" below). Every line says what was expected and what came back. A case
@@ -409,6 +418,7 @@ its dependencies put it, not at the end.
 | order | exact | the host side of the guest's wait for idle: a compute write not ordered before the vertex, index, indirect, uniform or storage read after it (`renderer_vulkan/vk_rasterizer.cpp`, `WaitForIdle`), or indirect arguments read from memory before the dispatch that wrote them finished. |
 | index | exact | the size an index buffer is bound with: a limit register read as one past the end drops the last index (`buffer_cache/buffer_cache.h`, `UpdateIndexBuffer`). |
 | instance | exact | when an instanced array draw happens and as which instance (`engines/draw_manager.cpp`): deferred past a state change, extra instances added to the next draw, or SUBSEQUENT not counted as the next instance. |
+| bindless | exact | a texture reached through a handle at a dynamic index: the host descriptor array the translator builds for it, its size and how it is filled (`shader_recompiler/ir_opt/texture_pass.cpp`). |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
