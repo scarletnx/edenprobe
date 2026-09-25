@@ -11,6 +11,9 @@
 // change to any of them can be proven wrong in a second with no emulator in the loop.
 int main(void) {
     ReportOpen("edenprobe-host-report.jsonl");
+    // Kept as a detailed run keeps them, so the support suite can check the store the screens
+    // read against the cases this very run reported.
+    ReportRetain(true);
     ReportNote("edenprobe host build");
 
     RunSelfcheck();

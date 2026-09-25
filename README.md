@@ -38,8 +38,8 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 ## What it checks today
 
 Nineteen suites, in the order they run, because each leans on the ones before it: the judge,
-then the processor, then the graphics family, then the net family. A run is 487 cases, 437 of
-them the judge, the processor and the graphics family and 50 the net family.
+then the processor, then the graphics family, then the net family. A run is 504 cases, 451 of
+them the judge, the processor and the graphics family and 53 the net family.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one
   unit apart, that a zero budget rejects them, that an absolute budget is the same on both sides
@@ -47,18 +47,21 @@ them the judge, the processor and the graphics family and 50 the net family.
   a budget of every value there is, and that a budget of three units in the last place reaches
   six representable values below a power of two and three above it. If one of these fails,
   nothing else the suite says can be believed.
-- **support**, seventy two cases, no hardware and nothing of the hardware's looked at. The two
+- **support**, eighty six cases, no hardware and nothing of the hardware's looked at. The two
   things this program does around a verdict rather than to reach one: the picture it leaves
-  beside a failing case, and the screen the detailed mode shows that picture on. It checks that
-  a case name becomes the file name its own line says it does, that a written picture parses
-  back as the image its header claims to be, that the bytes kept beside a picture of an integer
+  beside a failing case, and the screens the detailed mode shows the run on. It checks that a
+  case name becomes the file name its own line says it does, that a written picture parses back
+  as the image its header claims to be, that the bytes kept beside a picture of an integer
   target are every byte that target held, that two case names which spell one file name still
-  get a file each, that the suite takes its own fixtures away again, that the navigation and
-  the layout are what the screen is made of, and that the mode file reads as the section on the
-  console says: each word alone and together, a missing file, words it does not know, a family
-  this build lacks, and the ten seconds an unattended screen waits; that a case which could
-  not ask its question is a result of its own, `skip`, counted apart; and that the time a case
-  reports is the one its samples give (see "Time per case"). One of them carries the
+  get a file each, that the suite takes its own fixtures away again, that the store the screens
+  read holds every case the run reported as a reader of its line gets it back, that the screens
+  gather the cases into their groups under their families, that the walk from the overview to a
+  group, a case and back lands where it should at every step, that each screen marks each result
+  in its own colour and leaves the countdown its rows, and that the mode file reads as the
+  section on the console says: each word alone and together, a missing file, words it does not
+  know, a family this build lacks, and the ten seconds an unattended screen waits; that a case
+  which could not ask its question is a result of its own, `skip`, counted apart; and that the
+  time a case reports is the one its samples give (see "Time per case"). One of them carries the
   whole idea: the diff picture is built from what the judge decided pixel by pixel and not from
   comparing the two images, so a pixel that differs and was allowed to is not painted as a
   difference. Every line is the none tier, because none of it is a claim about a machine.
@@ -794,26 +797,44 @@ One binary, two ways to run it, and a file on the memory card that chooses.
 
 **Detailed** is the default, because the person who starts this on a console is standing in
 front of the screen: every suite runs, both report channels get every line, the summary is
-counted and the report is closed, and then the cases go on the screen one at a time: the three
-pictures above, side by side and labelled `drawn`, `expected` and `judged`, each 64 by 64 target
-scaled up with nearest neighbour so it is legible, with the suite, the case, the tier, the
-verdict and the detail as text around them, and a key naming each of the four colours `judged`
-is made of. It is for the question a verdict cannot answer, which is whether a failure looks
-like a rendering fault or like the judge being wrong.
+counted and the report is closed, and then the run goes on the screen a group at a time. A group
+is a suite as the report names it, and the groups are gathered under their family: the judge
+(selfcheck, support, reference), cpu, graphics (clear to fmath) and net (nifm to friend). There
+are three screens, one inside the other:
+
+- **The overview** comes first, on the first group that failed. Its heading carries the run's
+  counts and names the groups that failed, as many as its line holds. Below that is every group
+  under its family, with its passes, failures and skips in columns and a bar of the three in
+  proportion; a group that failed has its name in red. Under the list, the selected group's
+  failures by name, or its skips when nothing failed.
+- **A group** lists its cases, each marked with its result in that result's colour, `PASS`,
+  `FAIL` or `SKIP`, and `pic` at the end of the row when the case kept pictures. It opens on its
+  first failure. Under the list is the selected case's whole name and as much of its detail as
+  fits: the detail its report line carries, wrapped, and what opening it will show.
+- **A case** that compared pixels opens on its pictures as the detailed mode has always shown
+  them: the three pictures above, side by side and labelled `drawn`, `expected` and `judged`,
+  each 64 by 64 target scaled up with nearest neighbour so it is legible, a key naming each of
+  the four colours `judged` is made of, and the detail under them. Any other case, and a drawing
+  case that failed before it read anything back, opens on a page with its whole name and its
+  whole detail.
+
+The pictures are for the question a verdict cannot answer, which is whether a failure looks like
+a rendering fault or like the judge being wrong. The rest is for finding the case that failed in
+a run of five hundred without a computer beside the console.
 
 **Quick** is what a script wants: every suite, both channels, and the program exits, about six
 to seven seconds under eden-cli (6.4 to 7.3 in most runs at a load of 4 to 9, emulator start
 included) and up to several times that when the machine is busy. It is the
 same run up to the report closing, and then it stops.
 
-What the screen holds is every case that compared pixels, pass or fail, which on a full run is
-198 of the 479 and is the number the heading counts in. The other 281 compared nothing the
-graphics unit produced and have no picture to show. A case that failed before it read a target
-back has no picture either, so it is not in the list; when that happens the screen says how
-many of the run's failures are missing from it rather than letting the count quietly disagree.
-It holds them in memory rather than reading back what it wrote, so a green run and a run that
-wrote nothing are both worth looking at, and the `images` word changes what is on the memory
-card and not what is on the screen.
+What the screens hold is every case the report recorded, kept in memory as its line went out:
+the suite, the name, the tier, the result and the detail, each exactly as a reader of the line
+gets it back, and for a case that compared pixels the pictures the judge looked at. Nothing is read
+back from the memory card, so a green run and a run that wrote nothing are both worth looking at,
+and the `images` word changes what is on the card and not what is on the screen. A quick run
+keeps nothing and allocates nothing for any of it. The store holds 4096 cases, eight times a full
+run; a run past that, or one that ran out of memory while keeping them, says on the overview how
+many of the report's cases the screens hold rather than letting the counts quietly disagree.
 
 The order is the safeguard and it is not a detail of the implementation. Every suite runs, every
 line is emitted, the summary is counted and the report is closed, and only then does anything
@@ -831,7 +852,7 @@ report closed leaves by itself, and appends one line after the summary saying so
 
 That is for a script that forgot the mode file, which must not leave an emulator running until
 something kills it. Ten seconds rather than fewer because on a console the person is reading the
-first case when the count starts, and must not lose it. It is a press and not a connected
+overview when the count starts, and must not lose it. It is a press and not a connected
 controller that counts, because an emulator presents a controller as connected whether or not
 anyone is holding it. The screen counts the seconds down on its bottom line, and any button at all
 stops the count for the rest of the run. The first eight frames of the screen are not a press, for
@@ -875,10 +896,26 @@ controller already attached is a frame or two, and the wait is twelve frames at 
 The report is opened before any of this, so a machine that cannot read the file or reach the pad
 still leaves a report saying how far it got.
 
-On the screen: **A** or right for the next case, **B** or left for the previous one, **down**
-and **up** for the next and previous failure, **X** to cycle between the three side by side and
-each one on its own, and **plus** to quit. The frame is composed on the processor and only when
-something moved or the countdown ticked, so a still screen costs an emulated machine nothing.
+On the screens, each of which names its buttons on its bottom line:
+
+| button | overview | group | case |
+|---|---|---|---|
+| up, down | the group before or after | the case before or after | the case before or after |
+| left, right | the first group of the family before or after | the group before or after, on its first failure | the case before or after |
+| A | opens the group | opens the case | |
+| B | | back to the overview | back to the group |
+| R or ZR, L or ZL | the next or previous group that failed | the next or previous failure in the group | the next or previous failure in the group |
+| X | | | the pictures: all three, then each alone |
+| plus or minus | quit | quit | quit |
+
+Every list comes round at either end. A direction held down acts again after twenty frames and
+then every four, so the reference suite's hundred and eighteen cases do not take a press each.
+What repeats is the direction that was pressed, whatever else the pad reports held, and only a
+press counted after the first eight frames starts it, for the same reason those frames are not
+navigation. Going back lands on the group or the case that was open, and the view chosen
+with X stays chosen from one drawing case to the next. The frame is composed on the processor
+and only when something moved or the countdown ticked, so a still screen costs an emulated
+machine nothing.
 
 ## Versions
 
@@ -917,10 +954,22 @@ It covers the suite's judgement of itself: that two neighbouring floats measure 
 that a zero budget rejects them, that a NaN is never equal to anything including itself. If those
 fail, nothing else the suite says can be believed, and you find out in a second instead of after
 a boot. It also covers what is written and drawn around a verdict, which has no console in it
-either: the picture writer against a fixture it then parses back, the detailed mode's layout
-and navigation against a frame composed in ordinary memory, the words of the mode file, and the
-time a case reports. Last it runs the tests of `tools/perf.py`, which needs Python 3 and nothing
-else.
+either: the picture writer against a fixture it then parses back, the detailed mode's screens and
+the navigation between them against frames composed in ordinary memory from a fixture shaped
+like a real run, the store those screens read against the cases the host run itself reported,
+the words of the mode file, and the time a case reports. Last it runs the tests of
+`tools/perf.py`, which needs Python 3 and nothing else.
+
+To look at the screens without a console, name an existing directory in `EDENPROBE_FRAMES`:
+
+```sh
+EDENPROBE_FRAMES=/tmp/frames make -f host.mk host-run
+```
+
+The screen cases then also write each frame of their walk there as a PAM file, the overview, a
+failing graphics group, one of its cases on its pictures and alone on `judged`, the group again,
+a net case's detail page and a net group; `magick 1-overview.pam 1-overview.png` makes a PNG of
+one. The frames are written beside the verdicts and never read, so they change none of them.
 
 Commit messages have a convention too: `edenprobe: what changed`, one to three lines of intent,
 one Signed-off-by that is also the author and the committer, ASCII, no merges. `git config

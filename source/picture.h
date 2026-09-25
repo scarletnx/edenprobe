@@ -53,9 +53,8 @@ typedef enum {
 /// size gets no picture rather than a partial one.
 #define PICTURE_MAX_DIMENSION 128u
 
-/// The most finished cases the detailed mode can hold. The array behind it is allocated the
-/// first time a case is retained, so an automatic run pays nothing for it; the viewer's own
-/// side array is sized off this same constant rather than off a number that could drift.
+/// The most finished cases the detailed mode can hold pictures of. The array behind it is
+/// allocated the first time a case is retained, so an automatic run pays nothing for it.
 #define PICTURE_MAX_RECORDS 256
 
 /// One case's picture while the judge is still filling it in.

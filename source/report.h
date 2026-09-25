@@ -143,6 +143,49 @@ size_t ReportPassed(void);
 size_t ReportFailed(void);
 size_t ReportSkipped(void);
 
+typedef enum {
+    REPORT_PASS,
+    REPORT_FAIL,
+    REPORT_SKIP,
+} ReportResult;
+
+/// How much of a case's suite, name and detail its line carries, escaped; a kept case holds the
+/// same, unescaped.
+#define REPORT_KEPT_SUITE 64
+#define REPORT_KEPT_NAME 128
+#define REPORT_KEPT_DETAIL 512
+
+/// One case as its line went out, kept for the detailed mode's screens. Copied where the line is
+/// emitted and from the same values, so a screen shows what the run recorded and nothing else:
+/// each text field is what a reader of the line gets back once it undoes the escaping.
+typedef struct {
+    char suite[REPORT_KEPT_SUITE];
+    char name[REPORT_KEPT_NAME];
+    char tier[12];
+    char detail[REPORT_KEPT_DETAIL];
+    ReportResult result;
+    /// Its picture's index for PictureAt, or -1 when none was kept.
+    int32_t picture;
+} ReportRecord;
+
+/// Fills @p record the way the store keeps a case, which is what the host build checks.
+void ReportRecordFill(ReportRecord *record, const char *suite, const char *name,
+                      const char *tier, ReportResult result, const char *detail,
+                      int32_t picture);
+
+/// The most cases kept. A full run is under five hundred; past this the screens say how many
+/// they are missing, and the report itself says nothing about it.
+#define REPORT_MAX_RECORDS 4096
+
+/// Whether every emitted case is also kept for the screens. Off by default, so the automatic run
+/// allocates nothing; the store grows as cases arrive and stops, silently, when it cannot.
+void ReportRetain(bool on);
+bool ReportIsRetaining(void);
+
+/// The cases kept so far, in the order they were reported, as one array, or NULL with a count of
+/// nought. The array moves when a case is added, so it is read once the report is closed.
+const ReportRecord *ReportRecords(size_t *count);
+
 #ifdef __cplusplus
 }
 #endif

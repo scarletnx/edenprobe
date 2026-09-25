@@ -16,12 +16,29 @@
 // clear, which is what keeps 8 by 8 text readable when it is scaled up by nearest neighbour.
 #define CELL 8u
 
+// Text is drawn at twice the cell. A line of it takes a list row, with more room on a page of
+// detail, which is read rather than scanned.
+#define BIG 2u
+#define GLYPH (CELL * BIG)
+#define LINE UI_ROW_HEIGHT
+#define PAGE_LINE 24u
+
+// The bottom of the frame belongs to the countdown and the button line, and nothing else is
+// drawn below this far from the edge.
+#define FOOT 32u
+
+// Lines under the overview's list for the selected group, and under a group's for its case.
+#define PREVIEW_LINES 6u
+#define DETAIL_LINES 7u
+
 static const uint8_t BACKGROUND[4] = { 0x10, 0x12, 0x18, 0xFF };
 static const uint8_t TEXT[4] = { 0xE0, 0xE4, 0xEC, 0xFF };
 static const uint8_t DIM[4] = { 0x88, 0x90, 0xA0, 0xFF };
 static const uint8_t PASSED[4] = { 0x40, 0xD0, 0x60, 0xFF };
 static const uint8_t FAILED[4] = { 0xF0, 0x50, 0x50, 0xFF };
+static const uint8_t SKIPPED[4] = { 0xE8, 0xB0, 0x40, 0xFF };
 static const uint8_t BORDER[4] = { 0x50, 0x58, 0x68, 0xFF };
+static const uint8_t SELECTED[4] = { 0x28, 0x2E, 0x3C, 0xFF };
 
 const uint8_t *UiPixel(const UiFrame *frame, uint32_t x, uint32_t y) {
     if (frame == NULL || frame->pixels == NULL || x >= frame->width || y >= frame->height) {
@@ -73,11 +90,26 @@ static void UiText(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t scale,
     }
 }
 
-/// Draws @p text broken into lines of @p columns, at most @p max_lines of them, and hands back
-/// how many it used. Breaks on a space where there is one, because a detail is a sentence.
+/// Big text, handing back where the next word along the line would start.
+static uint32_t Say(const UiFrame *frame, uint32_t x, uint32_t y, const uint8_t colour[4],
+                    const char *text) {
+    UiText(frame, x, y, BIG, colour, text);
+    return x + (uint32_t)strlen(text) * GLYPH;
+}
+
+/// Draws @p text broken into lines of @p columns, @p step rows apart, at most @p max_lines of
+/// them, and hands back how many it used. Breaks on a space where there is one, because a detail
+/// is a sentence. With no frame it draws nothing and only counts.
 static uint32_t TextWrapped(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t scale,
-                            const uint8_t colour[4], const char *text, uint32_t columns,
-                            uint32_t max_lines) {
+                            uint32_t step, const uint8_t colour[4], const char *text,
+                            uint32_t columns, uint32_t max_lines) {
+    if (text == NULL) {
+        return 0;
+    }
+    // A line of no columns would take nothing and loop for ever.
+    if (columns == 0u) {
+        columns = 1u;
+    }
     const size_t length = strlen(text);
     size_t start = 0;
     uint32_t line = 0;
@@ -96,7 +128,7 @@ static uint32_t TextWrapped(const UiFrame *frame, uint32_t x, uint32_t y, uint32
         const size_t room = take + 1u < sizeof(buffer) ? take : sizeof(buffer) - 1u;
         memcpy(buffer, text + start, room);
         buffer[room] = '\0';
-        UiText(frame, x, y + line * (CELL + 1u) * scale, scale, colour, buffer);
+        UiText(frame, x, y + line * step, scale, colour, buffer);
         start += take;
         while (start < length && text[start] == ' ') {
             ++start;
@@ -104,6 +136,10 @@ static uint32_t TextWrapped(const UiFrame *frame, uint32_t x, uint32_t y, uint32
         ++line;
     }
     return line;
+}
+
+uint32_t UiWrappedLines(const char *text, uint32_t columns) {
+    return TextWrapped(NULL, 0, 0, 1, 0, TEXT, text, columns, UINT32_MAX);
 }
 
 /// One panel: the picture at @p scale times its own size, nearest neighbour, in a frame.
@@ -171,6 +207,20 @@ static void Fit(char *out, size_t out_size, const char *text, uint32_t columns) 
     }
 }
 
+/// How many big characters fit across the frame inside the margins.
+static uint32_t Columns(const UiFrame *frame) {
+    return frame->width > 2u * MARGIN + GLYPH ? (frame->width - 2u * MARGIN) / GLYPH : 1u;
+}
+
+/// Big text cut to what is left of the line from @p x, so nothing runs off the frame's edge.
+static uint32_t SayFitted(const UiFrame *frame, uint32_t x, uint32_t y, const uint8_t colour[4],
+                          const char *text) {
+    const uint32_t right = frame->width > MARGIN ? frame->width - MARGIN : 0u;
+    char fitted[200];
+    Fit(fitted, sizeof(fitted), text, x < right ? (right - x) / GLYPH : 0u);
+    return Say(frame, x, y, colour, fitted);
+}
+
 /// The three colours the diff is made of, named on the screen. The person holding the pad is
 /// not holding the README, and red is the most important thing on this display.
 static void DrawKey(const UiFrame *frame, uint32_t x, uint32_t y) {
@@ -193,6 +243,11 @@ static void DrawKey(const UiFrame *frame, uint32_t x, uint32_t y) {
     }
 }
 
+/// What the buttons do on this screen, on the frame's last line.
+static void DrawButtons(const UiFrame *frame, const char *text) {
+    UiText(frame, MARGIN, frame->height > 14u ? frame->height - 14u : 0u, 1, DIM, text);
+}
+
 static const char *ViewLabel(UiView view) {
     switch (view) {
     case UI_VIEW_GOT:
@@ -207,62 +262,760 @@ static const char *ViewLabel(UiView view) {
     return "all three";
 }
 
-void UiCompose(const UiFrame *frame, const PictureRecord *record, UiState state, uint32_t count,
-               const uint8_t *failed, uint32_t run_failures) {
-    if (frame == NULL || frame->pixels == NULL) {
-        return;
-    }
-    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
-    if (record == NULL) {
-        UiText(frame, MARGIN, MARGIN, 2, TEXT, "no case kept a picture");
-        return;
-    }
+// Which family each suite belongs to, by the name its lines carry. The judge first, because
+// nothing after it can be believed without it.
+static const struct {
+    const char *suite;
+    UiFamily family;
+} FAMILIES[] = {
+    { "selfcheck", UI_FAMILY_JUDGE }, { "support", UI_FAMILY_JUDGE },
+    { "reference", UI_FAMILY_JUDGE }, { "cpu", UI_FAMILY_CPU },
+    { "clear", UI_FAMILY_GRAPHICS },  { "format", UI_FAMILY_GRAPHICS },
+    { "raster", UI_FAMILY_GRAPHICS }, { "intmath", UI_FAMILY_GRAPHICS },
+    { "blend", UI_FAMILY_GRAPHICS },  { "depth", UI_FAMILY_GRAPHICS },
+    { "texture", UI_FAMILY_GRAPHICS }, { "coherence", UI_FAMILY_GRAPHICS },
+    { "fmath", UI_FAMILY_GRAPHICS },  { "nifm", UI_FAMILY_NET },
+    { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
+    { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },
+    { "friend", UI_FAMILY_NET },
+};
 
-    // Only the cases that drew something are in this list, which is why the number is smaller
-    // than the run's, and the header says so rather than leaving a reader to work it out.
-    uint32_t failures = 0;
-    uint32_t rank = 0;
-    for (uint32_t i = 0; i < count; ++i) {
-        if (failed != NULL && failed[i] != 0u) {
-            ++failures;
-            if (i <= state.index) {
-                ++rank;
+UiFamily UiFamilyOf(const char *suite) {
+    for (size_t i = 0; suite != NULL && i < sizeof(FAMILIES) / sizeof(FAMILIES[0]); ++i) {
+        if (strcmp(FAMILIES[i].suite, suite) == 0) {
+            return FAMILIES[i].family;
+        }
+    }
+    return UI_FAMILY_OTHER;
+}
+
+const char *UiFamilyName(UiFamily family) {
+    switch (family) {
+    case UI_FAMILY_JUDGE:
+        return "judge";
+    case UI_FAMILY_CPU:
+        return "cpu";
+    case UI_FAMILY_GRAPHICS:
+        return "graphics";
+    case UI_FAMILY_NET:
+        return "net";
+    case UI_FAMILY_OTHER:
+    case UI_FAMILY_COUNT:
+        break;
+    }
+    return "other";
+}
+
+void UiRunIndex(UiRun *run, const ReportRecord *records, uint32_t count, uint32_t reported) {
+    if (run == NULL) {
+        return;
+    }
+    memset(run, 0, sizeof(*run));
+    if (records == NULL) {
+        count = 0u;
+    }
+    run->records = records;
+    run->count = count;
+    run->reported = reported > count ? reported : count;
+
+    // Groups are made in the order the run first reached them; 0xFF marks a case that found no
+    // room, which is counted rather than shown under somebody else's suite.
+    uint8_t group_of[UI_MAX_CASES];
+    const uint32_t indexed = count < UI_MAX_CASES ? count : UI_MAX_CASES;
+    run->unplaced = count - indexed;
+    for (uint32_t i = 0; i < indexed; ++i) {
+        const ReportRecord *const record = &records[i];
+        uint32_t g = 0;
+        while (g < run->group_count && strcmp(run->groups[g].suite, record->suite) != 0) {
+            ++g;
+        }
+        if (g == run->group_count) {
+            if (run->group_count == UI_MAX_GROUPS) {
+                group_of[i] = 0xFF;
+                ++run->unplaced;
+                continue;
             }
+            run->groups[g].suite = record->suite;
+            run->groups[g].family = UiFamilyOf(record->suite);
+            ++run->group_count;
+        }
+        group_of[i] = (uint8_t)g;
+        UiGroup *const group = &run->groups[g];
+        ++group->count;
+        if (record->result == REPORT_FAIL) {
+            ++group->failed;
+            ++run->failed;
+        } else if (record->result == REPORT_SKIP) {
+            ++group->skipped;
+            ++run->skipped;
+        } else {
+            ++group->passed;
+            ++run->passed;
         }
     }
 
-    char header[160];
-    if (!record->passed && failures > 0u) {
-        snprintf(header, sizeof(header),
-                 "drawing case %u of %u   failure %u of %u   %s   tier %s",
-                 (unsigned)(state.index + 1u), (unsigned)count, (unsigned)rank,
-                 (unsigned)failures, record->suite, record->tier);
-    } else {
-        snprintf(header, sizeof(header), "drawing case %u of %u   %u failed   %s   tier %s",
-                 (unsigned)(state.index + 1u), (unsigned)count, (unsigned)failures,
-                 record->suite, record->tier);
+    // Stable, so a family's groups keep the order the run reached them in.
+    UiGroup sorted[UI_MAX_GROUPS];
+    uint8_t position[UI_MAX_GROUPS];
+    uint32_t placed = 0;
+    for (uint32_t family = 0; family < UI_FAMILY_COUNT; ++family) {
+        for (uint32_t g = 0; g < run->group_count; ++g) {
+            if (run->groups[g].family == (UiFamily)family) {
+                position[g] = (uint8_t)placed;
+                sorted[placed++] = run->groups[g];
+            }
+        }
     }
-    const uint32_t columns_for_name =
-        frame->width > 2u * MARGIN ? (frame->width - 2u * MARGIN) / (CELL * 2u) : 1u;
+    uint32_t cursor[UI_MAX_GROUPS];
+    uint32_t first = 0;
+    for (uint32_t g = 0; g < run->group_count; ++g) {
+        run->groups[g] = sorted[g];
+        run->groups[g].first = first;
+        cursor[g] = first;
+        first += sorted[g].count;
+    }
+    for (uint32_t i = 0; i < indexed; ++i) {
+        if (group_of[i] != 0xFF) {
+            run->order[cursor[position[group_of[i]]]++] = (uint16_t)i;
+        }
+    }
+}
 
-    // The verdict first, and at the margin, because it is the one thing on this screen that
-    // must be there however narrow the frame is or however long the rest of the line runs.
-    UiText(frame, MARGIN, 8, 2, record->passed ? PASSED : FAILED,
-           record->passed ? "PASS" : "FAIL");
-    char fitted[200];
-    Fit(fitted, sizeof(fitted), header, columns_for_name > 6u ? columns_for_name - 6u : 1u);
-    UiText(frame, MARGIN + 6u * CELL * 2u, 8, 2, DIM, fitted);
+const ReportRecord *UiCaseAt(const UiRun *run, uint32_t group, uint32_t index) {
+    if (run == NULL || group >= run->group_count || index >= run->groups[group].count) {
+        return NULL;
+    }
+    return &run->records[run->order[run->groups[group].first + index]];
+}
 
+const ReportRecord *UiSelected(const UiRun *run, UiState state) {
+    return state.level == UI_LEVEL_OVERVIEW ? NULL : UiCaseAt(run, state.group, state.index);
+}
+
+int32_t UiOpenPicture(const UiRun *run, UiState state) {
+    const ReportRecord *const selected = UiSelected(run, state);
+    return state.level == UI_LEVEL_CASE && selected != NULL ? selected->picture : -1;
+}
+
+/// One step along a list of @p count, coming round at either end.
+static uint32_t Around(uint32_t at, int step, uint32_t count) {
+    return step > 0 ? (at + 1u) % count : (at + count - 1u) % count;
+}
+
+static bool CaseFailed(const UiRun *run, uint32_t group, uint32_t index) {
+    const ReportRecord *const record = UiCaseAt(run, group, index);
+    return record != NULL && record->result == REPORT_FAIL;
+}
+
+/// Where a group is entered: its first failure, or its first case.
+static uint32_t FirstFailureIn(const UiRun *run, uint32_t group) {
+    for (uint32_t i = 0; i < run->groups[group].count; ++i) {
+        if (CaseFailed(run, group, i)) {
+            return i;
+        }
+    }
+    return 0u;
+}
+
+/// The next failing case of @p group in @p step's direction, coming round once, or @p from when
+/// there is none. Coming round rather than stopping, because a group with two failures out of a
+/// hundred is exactly the group this is for.
+static uint32_t SeekFailingCase(const UiRun *run, uint32_t group, uint32_t from, int step) {
+    const uint32_t count = run->groups[group].count;
+    uint32_t at = from;
+    for (uint32_t tried = 0; tried < count; ++tried) {
+        at = Around(at, step, count);
+        if (CaseFailed(run, group, at)) {
+            return at;
+        }
+    }
+    return from;
+}
+
+static uint32_t SeekFailingGroup(const UiRun *run, uint32_t from, int step) {
+    uint32_t at = from;
+    for (uint32_t tried = 0; tried < run->group_count; ++tried) {
+        at = Around(at, step, run->group_count);
+        if (run->groups[at].failed > 0u) {
+            return at;
+        }
+    }
+    return from;
+}
+
+/// The first group of the family before or after the one @p from is in, coming round.
+static uint32_t SeekFamily(const UiRun *run, uint32_t from, int step) {
+    const UiGroup *const groups = run->groups;
+    uint32_t start = from;
+    while (start > 0u && groups[start - 1u].family == groups[from].family) {
+        --start;
+    }
+    uint32_t at = start;
+    if (step > 0) {
+        do {
+            at = Around(at, 1, run->group_count);
+        } while (at != start && groups[at].family == groups[from].family);
+    } else {
+        at = Around(start, -1, run->group_count);
+        while (at > 0u && groups[at - 1u].family == groups[at].family) {
+            --at;
+        }
+    }
+    return at;
+}
+
+UiState UiStart(const UiRun *run) {
+    UiState state;
+    memset(&state, 0, sizeof(state));
+    state.level = UI_LEVEL_OVERVIEW;
+    state.view = UI_VIEW_ALL;
+    state.changed = true;
+    for (uint32_t g = 0; run != NULL && g < run->group_count; ++g) {
+        if (run->groups[g].failed > 0u) {
+            state.group = g;
+            break;
+        }
+    }
+    return state;
+}
+
+void UiFrameDrawn(UiState *state) {
+    if (state != NULL) {
+        state->changed = false;
+    }
+}
+
+static void StepOverview(UiState *next, UiInput input, const UiRun *run) {
+    switch (input) {
+    case UI_INPUT_UP:
+        next->group = Around(next->group, -1, run->group_count);
+        break;
+    case UI_INPUT_DOWN:
+        next->group = Around(next->group, 1, run->group_count);
+        break;
+    case UI_INPUT_LEFT:
+        next->group = SeekFamily(run, next->group, -1);
+        break;
+    case UI_INPUT_RIGHT:
+        next->group = SeekFamily(run, next->group, 1);
+        break;
+    case UI_INPUT_NEXT_FAILURE:
+        next->group = SeekFailingGroup(run, next->group, 1);
+        break;
+    case UI_INPUT_PREVIOUS_FAILURE:
+        next->group = SeekFailingGroup(run, next->group, -1);
+        break;
+    case UI_INPUT_OPEN:
+        next->level = UI_LEVEL_GROUP;
+        next->index = FirstFailureIn(run, next->group);
+        break;
+    default:
+        break;
+    }
+}
+
+static void StepGroup(UiState *next, UiInput input, const UiRun *run) {
+    const uint32_t count = run->groups[next->group].count;
+    switch (input) {
+    case UI_INPUT_UP:
+        next->index = Around(next->index, -1, count);
+        break;
+    case UI_INPUT_DOWN:
+        next->index = Around(next->index, 1, count);
+        break;
+    case UI_INPUT_LEFT:
+    case UI_INPUT_RIGHT:
+        next->group = Around(next->group, input == UI_INPUT_RIGHT ? 1 : -1, run->group_count);
+        next->index = FirstFailureIn(run, next->group);
+        break;
+    case UI_INPUT_NEXT_FAILURE:
+        next->index = SeekFailingCase(run, next->group, next->index, 1);
+        break;
+    case UI_INPUT_PREVIOUS_FAILURE:
+        next->index = SeekFailingCase(run, next->group, next->index, -1);
+        break;
+    case UI_INPUT_OPEN:
+        next->level = UI_LEVEL_CASE;
+        break;
+    case UI_INPUT_BACK:
+        next->level = UI_LEVEL_OVERVIEW;
+        break;
+    default:
+        break;
+    }
+}
+
+static void StepCase(UiState *next, UiInput input, const UiRun *run) {
+    const uint32_t count = run->groups[next->group].count;
+    switch (input) {
+    case UI_INPUT_UP:
+    case UI_INPUT_LEFT:
+        next->index = Around(next->index, -1, count);
+        break;
+    case UI_INPUT_DOWN:
+    case UI_INPUT_RIGHT:
+        next->index = Around(next->index, 1, count);
+        break;
+    case UI_INPUT_NEXT_FAILURE:
+        next->index = SeekFailingCase(run, next->group, next->index, 1);
+        break;
+    case UI_INPUT_PREVIOUS_FAILURE:
+        next->index = SeekFailingCase(run, next->group, next->index, -1);
+        break;
+    case UI_INPUT_CYCLE_VIEW: {
+        // Only where there is something to cycle: on a case with no pictures the press would
+        // change a view nobody can see, and the one it opened next would not be the one chosen.
+        const ReportRecord *const record = UiCaseAt(run, next->group, next->index);
+        if (record != NULL && record->picture >= 0) {
+            next->view = (UiView)((next->view + 1) % 4);
+        }
+        break;
+    }
+    case UI_INPUT_BACK:
+        next->level = UI_LEVEL_GROUP;
+        break;
+    default:
+        break;
+    }
+}
+
+UiState UiStep(UiState state, UiInput input, const UiRun *run) {
+    UiState next = state;
+    if (input == UI_INPUT_QUIT) {
+        next.quit = true;
+    } else if (run != NULL && run->group_count > 0u) {
+        if (next.group >= run->group_count) {
+            next.group = run->group_count - 1u;
+        }
+        if (next.index >= run->groups[next.group].count) {
+            next.index = run->groups[next.group].count - 1u;
+        }
+        switch (next.level) {
+        case UI_LEVEL_OVERVIEW:
+            StepOverview(&next, input, run);
+            break;
+        case UI_LEVEL_GROUP:
+            StepGroup(&next, input, run);
+            break;
+        case UI_LEVEL_CASE:
+            StepCase(&next, input, run);
+            break;
+        }
+    }
+    next.changed = next.changed || next.level != state.level || next.group != state.group ||
+                   next.index != state.index || next.view != state.view ||
+                   next.quit != state.quit;
+    return next;
+}
+
+UiInput UiInputFromButtons(uint32_t buttons, uint32_t frame_index) {
+    if (frame_index < UI_SETTLING_FRAMES) {
+        return UI_INPUT_NONE;
+    }
+    // Leaving first, then going back, so that a mask with everything in it leaves, and one with
+    // back and a direction in it does not carry the person somewhere they were leaving.
+    static const struct {
+        uint32_t button;
+        UiInput input;
+    } ORDER[] = {
+        { UI_BUTTON_QUIT, UI_INPUT_QUIT },
+        { UI_BUTTON_BACK, UI_INPUT_BACK },
+        { UI_BUTTON_OPEN, UI_INPUT_OPEN },
+        { UI_BUTTON_CYCLE_VIEW, UI_INPUT_CYCLE_VIEW },
+        { UI_BUTTON_NEXT_FAILURE, UI_INPUT_NEXT_FAILURE },
+        { UI_BUTTON_PREVIOUS_FAILURE, UI_INPUT_PREVIOUS_FAILURE },
+        { UI_BUTTON_UP, UI_INPUT_UP },
+        { UI_BUTTON_DOWN, UI_INPUT_DOWN },
+        { UI_BUTTON_LEFT, UI_INPUT_LEFT },
+        { UI_BUTTON_RIGHT, UI_INPUT_RIGHT },
+    };
+    for (size_t i = 0; i < sizeof(ORDER) / sizeof(ORDER[0]); ++i) {
+        if ((buttons & ORDER[i].button) != 0u) {
+            return ORDER[i].input;
+        }
+    }
+    return UI_INPUT_NONE;
+}
+
+uint32_t UiRepeatButtons(UiRepeat *repeat, uint32_t held, uint32_t down, uint32_t frame_index) {
+    const uint32_t directions = held & UI_BUTTONS_REPEATING;
+    if (repeat == NULL) {
+        return down;
+    }
+    if (frame_index < UI_SETTLING_FRAMES) {
+        repeat->held = 0u;
+        repeat->frames = 0u;
+        return down;
+    }
+    // Only what this frame pressed: a direction held from before, or since before the pad
+    // settled, is not what the person just asked for.
+    if ((down & UI_BUTTONS_REPEATING) != 0u) {
+        repeat->held = down & UI_BUTTONS_REPEATING;
+        repeat->frames = 0u;
+        return down;
+    }
+    if (repeat->held == 0u || (directions & repeat->held) != repeat->held) {
+        repeat->held = 0u;
+        repeat->frames = 0u;
+        return down;
+    }
+    ++repeat->frames;
+    if (repeat->frames >= UI_REPEAT_DELAY_FRAMES &&
+        (repeat->frames - UI_REPEAT_DELAY_FRAMES) % UI_REPEAT_EVERY_FRAMES == 0u) {
+        return down | repeat->held;
+    }
+    return down;
+}
+
+uint32_t UiListRows(UiLevel level, uint32_t height) {
+    const uint32_t lines = level == UI_LEVEL_OVERVIEW ? PREVIEW_LINES : DETAIL_LINES;
+    // The foot, the lines under the list, and a gap with a rule in it.
+    const uint32_t under = FOOT + lines * LINE + 16u;
+    if (height < UI_LIST_TOP + under + UI_ROW_HEIGHT) {
+        return 1u;
+    }
+    return (height - UI_LIST_TOP - under) / UI_ROW_HEIGHT;
+}
+
+uint32_t UiListFirst(uint32_t selected, uint32_t total, uint32_t rows) {
+    if (rows == 0u || total <= rows) {
+        return 0u;
+    }
+    const uint32_t half = rows / 2u;
+    const uint32_t first = selected > half ? selected - half : 0u;
+    return first > total - rows ? total - rows : first;
+}
+
+uint32_t UiOverviewRow(const UiRun *run, uint32_t group) {
+    uint32_t row = 0;
+    for (uint32_t g = 0; run != NULL && g <= group && g < run->group_count; ++g) {
+        if (g == 0u || run->groups[g].family != run->groups[g - 1u].family) {
+            ++row;
+        }
+        if (g < group) {
+            ++row;
+        }
+    }
+    return row;
+}
+
+static const uint8_t *ResultColour(ReportResult result) {
+    return result == REPORT_FAIL ? FAILED : result == REPORT_SKIP ? SKIPPED : PASSED;
+}
+
+/// What to say where a case's line carried no detail, which is only unremarkable for a pass.
+static const char *NoDetail(ReportResult result) {
+    return result == REPORT_FAIL   ? "no detail: the line says only that it failed"
+           : result == REPORT_SKIP ? "no detail: the line gives no reason"
+                                   : "no detail: the case passed";
+}
+
+static const char *ResultWord(ReportResult result) {
+    return result == REPORT_FAIL ? "FAIL" : result == REPORT_SKIP ? "SKIP" : "PASS";
+}
+
+/// A group's verdict in one word: failed if anything did, passed if anything did, and skipped
+/// only when nothing was asked at all.
+static ReportResult GroupResult(uint32_t passed, uint32_t failed) {
+    return failed > 0u ? REPORT_FAIL : passed > 0u ? REPORT_PASS : REPORT_SKIP;
+}
+
+/// The three counts along a line, each in its own colour and dim when it is nought.
+static uint32_t SayCounts(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t passed,
+                          uint32_t failed, uint32_t skipped) {
+    char text[32];
+    snprintf(text, sizeof(text), "%u passed", (unsigned)passed);
+    x = Say(frame, x, y, passed > 0u ? PASSED : DIM, text) + 2u * GLYPH;
+    snprintf(text, sizeof(text), "%u failed", (unsigned)failed);
+    x = Say(frame, x, y, failed > 0u ? FAILED : DIM, text) + 2u * GLYPH;
+    snprintf(text, sizeof(text), "%u skipped", (unsigned)skipped);
+    return Say(frame, x, y, skipped > 0u ? SKIPPED : DIM, text);
+}
+
+/// The proportions of a group at a glance: failures first and never thinner than two pixels,
+/// so one failure among a hundred passes still shows.
+static void DrawBar(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t width,
+                    const UiGroup *group) {
+    const uint32_t total = group->passed + group->failed + group->skipped;
+    if (total == 0u || width < 8u) {
+        return;
+    }
+    uint32_t failed = group->failed > 0u ? group->failed * width / total : 0u;
+    uint32_t skipped = group->skipped > 0u ? group->skipped * width / total : 0u;
+    if (group->failed > 0u && failed < 2u) {
+        failed = 2u;
+    }
+    if (group->skipped > 0u && skipped < 2u) {
+        skipped = 2u;
+    }
+    // The two pixel floors can add up to more than the bar; the larger share gives way.
+    while (failed + skipped > width) {
+        if (failed >= skipped) {
+            --failed;
+        } else {
+            --skipped;
+        }
+    }
+    if (group->passed == 0u) {
+        // Nothing passed: the other two fill the bar between them.
+        if (group->skipped > 0u) {
+            skipped = width - failed;
+        } else {
+            failed = width;
+        }
+    }
+    const uint32_t passed = width - failed - skipped;
+    FillRect(frame, x, y, failed, 8u, FAILED);
+    FillRect(frame, x + failed, y, skipped, 8u, SKIPPED);
+    FillRect(frame, x + failed + skipped, y, passed, 8u, PASSED);
+}
+
+static void DrawGroupRow(const UiFrame *frame, const UiGroup *group, uint32_t y, bool selected) {
+    if (selected) {
+        FillRect(frame, MARGIN / 2u, y, frame->width - MARGIN, UI_ROW_HEIGHT, SELECTED);
+        Say(frame, MARGIN, y + 2u, TEXT, ">");
+    }
+    char text[32];
+    Fit(text, sizeof(text), group->suite, 12u);
+    Say(frame, MARGIN + 2u * GLYPH, y + 2u, group->failed > 0u ? FAILED : TEXT, text);
+    // In columns, so a failure count is found by looking straight down.
+    uint32_t x = MARGIN + 16u * GLYPH;
+    snprintf(text, sizeof(text), "%4u passed", (unsigned)group->passed);
+    Say(frame, x, y + 2u, group->passed > 0u ? PASSED : DIM, text);
+    x += 12u * GLYPH;
+    snprintf(text, sizeof(text), "%3u failed", (unsigned)group->failed);
+    Say(frame, x, y + 2u, group->failed > 0u ? FAILED : DIM, text);
+    x += 11u * GLYPH;
+    snprintf(text, sizeof(text), "%3u skipped", (unsigned)group->skipped);
+    Say(frame, x, y + 2u, group->skipped > 0u ? SKIPPED : DIM, text);
+    const uint32_t bar = MARGIN + 52u * GLYPH;
+    if (frame->width > bar + MARGIN) {
+        DrawBar(frame, bar, y + 6u, frame->width - MARGIN - bar, group);
+    }
+}
+
+/// The result, in its colour, and the case's name after it.
+static void DrawCaseLine(const UiFrame *frame, uint32_t x, uint32_t y, const ReportRecord *record,
+                         uint32_t name_columns) {
+    Say(frame, x, y, ResultColour(record->result), ResultWord(record->result));
     char name[200];
-    Fit(name, sizeof(name), record->name, columns_for_name);
-    UiText(frame, MARGIN, 30, 2, TEXT, name);
+    Fit(name, sizeof(name), record->name, name_columns);
+    Say(frame, x + 5u * GLYPH, y, TEXT, name);
+}
 
+/// Under the overview's list: what the selected group holds, its failures first.
+static void ComposePreview(const UiFrame *frame, const UiRun *run, uint32_t index, uint32_t y) {
+    const UiGroup *const group = &run->groups[index];
+    char text[96];
+    uint32_t x = Say(frame, MARGIN, y, TEXT, group->suite);
+    snprintf(text, sizeof(text), " in %s: ", UiFamilyName(group->family));
+    x = Say(frame, x, y, DIM, text);
+    if (group->failed > 0u) {
+        snprintf(text, sizeof(text), "%u of %u failed", (unsigned)group->failed,
+                 (unsigned)group->count);
+        SayFitted(frame, x, y, FAILED, text);
+    } else if (group->skipped > 0u) {
+        snprintf(text, sizeof(text), "nothing failed, %u of %u skipped",
+                 (unsigned)group->skipped, (unsigned)group->count);
+        SayFitted(frame, x, y, SKIPPED, text);
+    } else {
+        snprintf(text, sizeof(text), "all %u passed", (unsigned)group->count);
+        SayFitted(frame, x, y, PASSED, text);
+        Say(frame, MARGIN, y + LINE, DIM, "A opens the list of its cases");
+        return;
+    }
+
+    const ReportResult shown = group->failed > 0u ? REPORT_FAIL : REPORT_SKIP;
+    const uint32_t wanted = group->failed > 0u ? group->failed : group->skipped;
+    const uint32_t room = PREVIEW_LINES - 1u;
+    const uint32_t columns = Columns(frame) > 5u ? Columns(frame) - 5u : 1u;
+    uint32_t listed = 0;
+    for (uint32_t i = 0; i < group->count && listed < room; ++i) {
+        const ReportRecord *const record = UiCaseAt(run, index, i);
+        if (record == NULL || record->result != shown) {
+            continue;
+        }
+        if (listed + 1u == room && wanted > room) {
+            snprintf(text, sizeof(text), "and %u more: A opens the list",
+                     (unsigned)(wanted - listed));
+            Say(frame, MARGIN, y + (listed + 1u) * LINE, DIM, text);
+            break;
+        }
+        DrawCaseLine(frame, MARGIN, y + (listed + 1u) * LINE, record, columns);
+        ++listed;
+    }
+}
+
+/// The suites that failed, or skipped, as one line: which is what the overview says first.
+static void ListGroups(char *out, size_t out_size, const UiRun *run, bool failed) {
+    size_t used = strlen(out);
+    const char *separator = "";
+    for (uint32_t g = 0; g < run->group_count && used + 1u < out_size; ++g) {
+        const uint32_t count = failed ? run->groups[g].failed : run->groups[g].skipped;
+        if (count == 0u) {
+            continue;
+        }
+        snprintf(out + used, out_size - used, "%s%s", separator, run->groups[g].suite);
+        used = strlen(out);
+        separator = ", ";
+    }
+}
+
+static void ComposeOverview(const UiFrame *frame, const UiRun *run, UiState state) {
+    const ReportResult verdict = GroupResult(run->passed, run->failed);
+    Say(frame, MARGIN, 8, ResultColour(verdict), ResultWord(verdict));
+    char text[256];
+    snprintf(text, sizeof(text), "%u cases", (unsigned)(run->passed + run->failed + run->skipped));
+    const uint32_t x = Say(frame, MARGIN + 6u * GLYPH, 8, TEXT, text) + 2u * GLYPH;
+    SayCounts(frame, x, 8, run->passed, run->failed, run->skipped);
+
+    if (run->failed > 0u) {
+        snprintf(text, sizeof(text), "failed in: ");
+        ListGroups(text, sizeof(text), run, true);
+        SayFitted(frame, MARGIN, 30, FAILED, text);
+    } else {
+        const uint32_t after = Say(frame, MARGIN, 30, PASSED, "nothing failed");
+        if (run->skipped > 0u) {
+            snprintf(text, sizeof(text), "   skipped in: ");
+            ListGroups(text, sizeof(text), run, false);
+            SayFitted(frame, after, 30, DIM, text);
+        }
+    }
+    // A run whose cases did not all reach the screens says so where the person is, rather than
+    // leaving the counts above to disagree with the report's summary in silence.
+    const uint32_t shown = run->passed + run->failed + run->skipped;
+    if (run->reported > shown) {
+        char memory[48] = "";
+        char suites[48] = "";
+        if (run->reported > run->count) {
+            snprintf(memory, sizeof(memory), " %u did not fit in memory",
+                     (unsigned)(run->reported - run->count));
+        }
+        if (run->unplaced > 0u) {
+            snprintf(suites, sizeof(suites), "%s %u are in suites past the first %u",
+                     memory[0] != '\0' ? ";" : "", (unsigned)run->unplaced,
+                     (unsigned)UI_MAX_GROUPS);
+        }
+        snprintf(text, sizeof(text), "the screens hold %u of the run's %u cases:%s%s",
+                 (unsigned)shown, (unsigned)run->reported, memory, suites);
+        UiText(frame, MARGIN, 52, 1, SKIPPED, text);
+    }
+
+    // Every family heading and every group as one list, scrolled to keep the cursor in view.
+    const uint32_t rows = UiListRows(UI_LEVEL_OVERVIEW, frame->height);
+    const uint32_t selected = UiOverviewRow(run, state.group);
+    const uint32_t total = UiOverviewRow(run, run->group_count - 1u) + 1u;
+    const uint32_t first = UiListFirst(selected, total, rows);
+    uint32_t row = 0;
+    for (uint32_t g = 0; g < run->group_count; ++g) {
+        if (g == 0u || run->groups[g].family != run->groups[g - 1u].family) {
+            if (row >= first && row < first + rows) {
+                const uint32_t y = UI_LIST_TOP + (row - first) * UI_ROW_HEIGHT;
+                const uint32_t end =
+                    Say(frame, MARGIN, y + 2u, DIM, UiFamilyName(run->groups[g].family));
+                if (frame->width > end + GLYPH + MARGIN) {
+                    FillRect(frame, end + GLYPH, y + 10u, frame->width - MARGIN - end - GLYPH,
+                             1u, BORDER);
+                }
+            }
+            ++row;
+        }
+        if (row >= first && row < first + rows) {
+            DrawGroupRow(frame, &run->groups[g], UI_LIST_TOP + (row - first) * UI_ROW_HEIGHT,
+                         g == state.group);
+        }
+        ++row;
+    }
+    if (first > 0u) {
+        UiText(frame, frame->width - MARGIN - 80u, UI_LIST_TOP - 10u, 1, DIM, "more above");
+    }
+    if (first + rows < total) {
+        UiText(frame, frame->width - MARGIN - 80u, UI_LIST_TOP + rows * UI_ROW_HEIGHT + 2u, 1,
+               DIM, "more below");
+    }
+
+    const uint32_t below = frame->height - FOOT - PREVIEW_LINES * LINE;
+    FillRect(frame, MARGIN, below - 8u, frame->width - 2u * MARGIN, 1u, BORDER);
+    ComposePreview(frame, run, state.group, below);
+    DrawButtons(frame, "up/down group   left/right family   A open   R or ZR next group that "
+                       "failed   L or ZL previous one   plus quit");
+}
+
+static void ComposeGroup(const UiFrame *frame, const UiRun *run, UiState state) {
+    const UiGroup *const group = &run->groups[state.group];
+    const ReportResult verdict = GroupResult(group->passed, group->failed);
+    Say(frame, MARGIN, 8, ResultColour(verdict), ResultWord(verdict));
+    const uint32_t x = Say(frame, MARGIN + 6u * GLYPH, 8, TEXT, group->suite) + 2u * GLYPH;
+    SayCounts(frame, x, 8, group->passed, group->failed, group->skipped);
+
+    const uint32_t rows = UiListRows(UI_LEVEL_GROUP, frame->height);
+    const uint32_t first = UiListFirst(state.index, group->count, rows);
+    const uint32_t last = first + rows < group->count ? first + rows : group->count;
+    char text[160];
+    int wrote = snprintf(text, sizeof(text), "%s family   group %u of %u   case %u of %u",
+                         UiFamilyName(group->family), (unsigned)(state.group + 1u),
+                         (unsigned)run->group_count, (unsigned)(state.index + 1u),
+                         (unsigned)group->count);
+    if (group->count > rows && wrote > 0 && (size_t)wrote < sizeof(text)) {
+        snprintf(text + wrote, sizeof(text) - (size_t)wrote, "   showing %u to %u",
+                 (unsigned)(first + 1u), (unsigned)last);
+    }
+    SayFitted(frame, MARGIN, 30, DIM, text);
+
+    // Room at the end of the row for the word that says there are pictures to open.
+    const uint32_t name_x = UI_MARK_LEFT + 5u * GLYPH;
+    const uint32_t name_right = name_x + MARGIN + 4u * GLYPH;
+    const uint32_t name_columns =
+        frame->width > name_right ? (frame->width - name_right) / GLYPH : 1u;
+    for (uint32_t i = first; i < last; ++i) {
+        const ReportRecord *const record = UiCaseAt(run, state.group, i);
+        const uint32_t y = UI_LIST_TOP + (i - first) * UI_ROW_HEIGHT;
+        if (i == state.index) {
+            FillRect(frame, MARGIN / 2u, y, frame->width - MARGIN, UI_ROW_HEIGHT, SELECTED);
+            Say(frame, MARGIN, y + 2u, TEXT, ">");
+        }
+        DrawCaseLine(frame, UI_MARK_LEFT, y + 2u, record, name_columns);
+        if (record->picture >= 0) {
+            Say(frame, frame->width - MARGIN - 3u * GLYPH, y + 2u, DIM, "pic");
+        }
+    }
+
+    // The selected case under the list: its whole name, as much of its detail as fits, and what
+    // opening it will show.
+    const ReportRecord *const record = UiCaseAt(run, state.group, state.index);
+    const uint32_t below = frame->height - FOOT - DETAIL_LINES * LINE;
+    FillRect(frame, MARGIN, below - 8u, frame->width - 2u * MARGIN, 1u, BORDER);
+    const uint32_t columns = Columns(frame);
+    const uint32_t named =
+        TextWrapped(frame, MARGIN, below, BIG, LINE, TEXT, record->name, columns, 2u);
+    const uint32_t room = DETAIL_LINES - 1u - named;
+    const uint32_t detail_y = below + named * LINE;
+    uint32_t needed = 0;
+    if (record->detail[0] == '\0') {
+        Say(frame, MARGIN, detail_y, DIM, NoDetail(record->result));
+    } else {
+        needed = UiWrappedLines(record->detail, columns);
+        TextWrapped(frame, MARGIN, detail_y, BIG, LINE, DIM, record->detail, columns, room);
+    }
+    const char *const hint = record->picture >= 0 ? "A opens its pictures"
+                             : needed > room      ? "the detail runs on: A shows all of it"
+                                                  : "A opens it on a page of its own";
+    Say(frame, MARGIN, below + (DETAIL_LINES - 1u) * LINE, DIM, hint);
+
+    DrawButtons(frame, "up/down case   left/right group   A open   B back   R or ZR next "
+                       "failure   L or ZL previous failure   plus quit");
+}
+
+/// The case's pictures, laid out as the detailed mode always has: the three side by side or
+/// one alone, the colours of a verdict named under them, and the detail under that.
+static void ComposePictures(const UiFrame *frame, const PictureRecord *record,
+                            const ReportRecord *line, UiView view) {
     const uint32_t top = UI_PANEL_TOP;
     const uint32_t columns =
         frame->width > 2u * MARGIN ? (frame->width - 2u * MARGIN) / (CELL * 2u) : 1u;
     uint32_t bottom;
 
-    if (state.view == UI_VIEW_ALL) {
+    if (view == UI_VIEW_ALL) {
         // Every division below is guarded, because a frame too small for the layout should come
         // out cramped rather than wrap around and address the whole of memory.
         const uint32_t room =
@@ -294,8 +1047,8 @@ void UiCompose(const UiFrame *frame, const PictureRecord *record, UiState state,
         }
         const uint32_t size = record->width * scale;
         const uint32_t x = frame->width > size ? (frame->width - size) / 2u : 0u;
-        UiText(frame, x, top - 20u, 2, DIM, ViewLabel(state.view));
-        DrawPanel(frame, x, top, scale, record, state.view);
+        UiText(frame, x, top - 20u, 2, DIM, ViewLabel(view));
+        DrawPanel(frame, x, top, scale, record, view);
         bottom = top + record->height * scale;
     }
 
@@ -303,29 +1056,129 @@ void UiCompose(const UiFrame *frame, const PictureRecord *record, UiState state,
     // read on the way to the other.
     DrawKey(frame, MARGIN, bottom + 12u);
 
-    // A case that failed before it read anything back has no picture, so it is not in this list
-    // at all. On the machine you would open this mode on, that is exactly the case you would
-    // most want to know about.
-    if (run_failures > failures) {
-        char missing[96];
-        snprintf(missing, sizeof(missing),
-                 "%u of the run's %u failures are here; the rest failed before they drew",
-                 (unsigned)failures, (unsigned)run_failures);
-        UiText(frame, MARGIN, bottom + 34u, 1, DIM, missing);
-    }
-
     const uint32_t detail_y = bottom + 48u;
     const uint32_t room_for_lines =
-        frame->height > detail_y + 32u ? (frame->height - detail_y - 32u) / 18u : 1u;
-    if (record->detail[0] != '\0') {
-        TextWrapped(frame, MARGIN, detail_y, 2, TEXT, record->detail, columns, room_for_lines);
+        frame->height > detail_y + FOOT ? (frame->height - detail_y - FOOT) / LINE : 1u;
+    if (line->detail[0] != '\0') {
+        TextWrapped(frame, MARGIN, detail_y, 2, LINE, TEXT, line->detail, columns,
+                    room_for_lines);
     } else {
-        UiText(frame, MARGIN, detail_y, 2, DIM, "no detail: the case passed");
+        UiText(frame, MARGIN, detail_y, 2, DIM, NoDetail(line->result));
     }
 
-    UiText(frame, MARGIN, frame->height > 14u ? frame->height - 14u : 0u, 1, DIM,
-           "A or right next   B or left previous   X view   down next failure   "
-           "up previous failure   plus quit");
+    DrawButtons(frame, "left/right or up/down case   X view   R or ZR next failure   L or ZL "
+                       "previous failure   B back   plus quit");
+}
+
+/// A case with no pictures, as a page: its whole name and its whole detail.
+static void ComposeDetail(const UiFrame *frame, const UiGroup *group, const ReportRecord *line) {
+    const uint32_t columns = Columns(frame);
+    uint32_t y = 40u;
+    y += TextWrapped(frame, MARGIN, y, BIG, PAGE_LINE, TEXT, line->name, columns, 3u) *
+             PAGE_LINE +
+         12u;
+    Say(frame, MARGIN, y, DIM, line->result == REPORT_SKIP ? "why it was skipped" : "detail");
+    y += PAGE_LINE;
+    // One line kept back for the note below.
+    const uint32_t room =
+        frame->height > y + FOOT + 2u * PAGE_LINE ? (frame->height - y - FOOT) / PAGE_LINE - 1u
+                                                  : 1u;
+    if (line->detail[0] == '\0') {
+        Say(frame, MARGIN, y, DIM, NoDetail(line->result));
+        y += PAGE_LINE;
+    } else {
+        y += TextWrapped(frame, MARGIN, y, BIG, PAGE_LINE, TEXT, line->detail, columns, room) *
+             PAGE_LINE;
+    }
+    // A drawing case with no pictures stopped before it had any, which is worth saying where a
+    // person would otherwise look for them.
+    if (group->family == UI_FAMILY_GRAPHICS && line->picture < 0) {
+        Say(frame, MARGIN, y + 8u, DIM, "no pictures were kept for this case");
+    }
+    DrawButtons(frame, "left/right or up/down case   R or ZR next failure   L or ZL previous "
+                       "failure   B back   plus quit");
+}
+
+static void ComposeCase(const UiFrame *frame, const UiRun *run, UiState state,
+                        const PictureRecord *picture) {
+    const UiGroup *const group = &run->groups[state.group];
+    const ReportRecord *const line = UiCaseAt(run, state.group, state.index);
+
+    // Where this case sits among its group's failures as well as among its cases, so a person
+    // stepping through the failures knows how many are left.
+    uint32_t rank = 0;
+    for (uint32_t i = 0; i <= state.index; ++i) {
+        if (CaseFailed(run, state.group, i)) {
+            ++rank;
+        }
+    }
+    char header[160];
+    if (line->result == REPORT_FAIL) {
+        snprintf(header, sizeof(header), "%s   case %u of %u   failure %u of %u here   tier %s",
+                 group->suite, (unsigned)(state.index + 1u), (unsigned)group->count,
+                 (unsigned)rank, (unsigned)group->failed, line->tier);
+    } else {
+        snprintf(header, sizeof(header), "%s   case %u of %u   %u failed here   tier %s",
+                 group->suite, (unsigned)(state.index + 1u), (unsigned)group->count,
+                 (unsigned)group->failed, line->tier);
+    }
+    // The verdict first, and at the margin, because it is the one thing on this screen that
+    // must be there however narrow the frame is or however long the rest of the line runs.
+    Say(frame, MARGIN, 8, ResultColour(line->result), ResultWord(line->result));
+    SayFitted(frame, MARGIN + 6u * GLYPH, 8, DIM, header);
+
+    if (picture != NULL) {
+        char name[200];
+        Fit(name, sizeof(name), line->name, Columns(frame));
+        Say(frame, MARGIN, 30, TEXT, name);
+        ComposePictures(frame, picture, line, state.view);
+    } else {
+        ComposeDetail(frame, group, line);
+    }
+}
+
+void UiCompose(const UiFrame *frame, const UiRun *run, UiState state,
+               const PictureRecord *picture) {
+    if (frame == NULL || frame->pixels == NULL) {
+        return;
+    }
+    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    // Every subtraction in the layout is from a frame at least this big; a smaller one would
+    // wrap round and draw a line four thousand million pixels long.
+    if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
+        UiText(frame, 0, 0, 1, TEXT, "frame too small");
+        return;
+    }
+    if (run == NULL || run->group_count == 0u) {
+        Say(frame, MARGIN, MARGIN, TEXT, "no case was kept for the screens");
+        if (run != NULL && run->reported > 0u) {
+            char text[96];
+            snprintf(text, sizeof(text), "the run reported %u, and none of them fit in memory",
+                     (unsigned)run->reported);
+            Say(frame, MARGIN, MARGIN + LINE + 4u, DIM, text);
+        }
+        DrawButtons(frame, "plus quit");
+        return;
+    }
+    // A state from anywhere is drawn as the navigation would have left it, never read past the
+    // end of a group.
+    if (state.group >= run->group_count) {
+        state.group = run->group_count - 1u;
+    }
+    if (state.index >= run->groups[state.group].count) {
+        state.index = run->groups[state.group].count - 1u;
+    }
+    switch (state.level) {
+    case UI_LEVEL_OVERVIEW:
+        ComposeOverview(frame, run, state);
+        break;
+    case UI_LEVEL_GROUP:
+        ComposeGroup(frame, run, state);
+        break;
+    case UI_LEVEL_CASE:
+        ComposeCase(frame, run, state, picture);
+        break;
+    }
 }
 
 bool UiWaitsForPad(uint32_t frame_index, bool connected) {
@@ -348,8 +1201,8 @@ void UiComposeCountdown(const UiFrame *frame, uint32_t seconds_left) {
     if (frame == NULL || frame->pixels == NULL || frame->height < 30u) {
         return;
     }
-    // Between the last line a detail can reach, which stops 32 rows from the bottom, and the
-    // key, which starts 14 from it, so neither is ever drawn over.
+    // Between the last line anything above can reach, which stops 32 rows from the bottom, and
+    // the button line, which starts 14 from it, so neither is ever drawn over.
     const uint32_t y = frame->height - 28u;
     FillRect(frame, 0, y - 2u, frame->width, 12u, BACKGROUND);
     if (seconds_left == 0u) {
@@ -360,113 +1213,4 @@ void UiComposeCountdown(const UiFrame *frame, uint32_t seconds_left) {
              "nothing pressed yet: this screen closes by itself in %u s, any button keeps it",
              (unsigned)seconds_left);
     UiText(frame, MARGIN, y, 1, FAILED, line);
-}
-
-UiInput UiInputFromButtons(uint32_t buttons, uint32_t frame_index) {
-    if (frame_index < UI_SETTLING_FRAMES) {
-        return UI_INPUT_NONE;
-    }
-    // Quitting first, so that a mask with everything in it still leaves.
-    if ((buttons & UI_BUTTON_QUIT) != 0u) {
-        return UI_INPUT_QUIT;
-    }
-    if ((buttons & UI_BUTTON_CYCLE_VIEW) != 0u) {
-        return UI_INPUT_CYCLE_VIEW;
-    }
-    if ((buttons & UI_BUTTON_NEXT_FAILURE) != 0u) {
-        return UI_INPUT_NEXT_FAILURE;
-    }
-    if ((buttons & UI_BUTTON_PREVIOUS_FAILURE) != 0u) {
-        return UI_INPUT_PREVIOUS_FAILURE;
-    }
-    if ((buttons & UI_BUTTON_NEXT) != 0u) {
-        return UI_INPUT_NEXT;
-    }
-    if ((buttons & UI_BUTTON_PREVIOUS) != 0u) {
-        return UI_INPUT_PREVIOUS;
-    }
-    return UI_INPUT_NONE;
-}
-
-/// The first failing case, or the first case when the run had none.
-static uint32_t FirstFailure(const uint8_t *failed, uint32_t count) {
-    for (uint32_t i = 0; i < count; ++i) {
-        if (failed != NULL && failed[i] != 0u) {
-            return i;
-        }
-    }
-    return 0u;
-}
-
-UiState UiStart(const uint8_t *failed, uint32_t count) {
-    UiState state;
-    state.index = FirstFailure(failed, count);
-    state.view = UI_VIEW_ALL;
-    state.quit = false;
-    state.changed = true;
-    return state;
-}
-
-/// The next case in @p step's direction that failed, wrapping once, or @p from when there is
-/// none. Wrapping rather than stopping at the end, because a run with two failures out of a
-/// hundred and seventy is exactly the run this mode is for.
-static uint32_t SeekFailure(uint32_t from, int step, const uint8_t *failed, uint32_t count) {
-    if (failed == NULL || count == 0u) {
-        return from;
-    }
-    uint32_t at = from;
-    for (uint32_t tried = 0; tried < count; ++tried) {
-        at = step > 0 ? (at + 1u) % count : (at + count - 1u) % count;
-        if (failed[at] != 0u) {
-            return at;
-        }
-    }
-    return from;
-}
-
-void UiFrameDrawn(UiState *state) {
-    if (state != NULL) {
-        state->changed = false;
-    }
-}
-
-UiState UiStep(UiState state, UiInput input, const uint8_t *failed, uint32_t count) {
-    UiState next = state;
-    if (count == 0u) {
-        next.index = 0u;
-        next.quit = state.quit || input == UI_INPUT_QUIT;
-        next.changed = next.changed || next.quit != state.quit;
-        return next;
-    }
-    if (next.index >= count) {
-        next.index = count - 1u;
-        next.changed = true;
-    }
-
-    switch (input) {
-    case UI_INPUT_NEXT:
-        next.index = (next.index + 1u) % count;
-        break;
-    case UI_INPUT_PREVIOUS:
-        next.index = (next.index + count - 1u) % count;
-        break;
-    case UI_INPUT_NEXT_FAILURE:
-        next.index = SeekFailure(next.index, 1, failed, count);
-        break;
-    case UI_INPUT_PREVIOUS_FAILURE:
-        next.index = SeekFailure(next.index, -1, failed, count);
-        break;
-    case UI_INPUT_CYCLE_VIEW:
-        next.view = (UiView)((next.view + 1) % 4);
-        break;
-    case UI_INPUT_QUIT:
-        next.quit = true;
-        break;
-    case UI_INPUT_NONE:
-        break;
-    }
-
-    next.changed = next.changed || next.index != state.index || next.view != state.view ||
-                   next.quit != state.quit;
-    return next;
 }
