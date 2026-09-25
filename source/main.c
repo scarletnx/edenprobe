@@ -109,6 +109,7 @@ int main(int argc, char **argv) {
         RunTimed("astc", RunAstc, timing);
         RunTimed("eac", RunEac, timing);
         RunTimed("swizzle", RunSwizzle, timing);
+        RunTimed("texel", RunTexel, timing);
     }
     if ((families & MODE_FAMILY_NET) != 0u) {
         RunNet();

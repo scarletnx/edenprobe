@@ -40,6 +40,7 @@ typedef enum {
     SHADER_BINDLESS_FRAG,
     SHADER_FETCH_FRAG,
     SHADER_SWIZZLE_FRAG,
+    SHADER_TEXEL_FRAG,
     SHADER_COUNT,
 } ShaderId;
 

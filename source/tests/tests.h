@@ -114,6 +114,9 @@ void RunEac(void);
 /// sampled back texel for texel; and a 4 MiB one for the time an upload takes.
 void RunSwizzle(void);
 
+/// Buffer textures a few bytes past an aligned address: each column must fetch its own texel.
+void RunTexel(void);
+
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not
 /// name, or a service this program cannot open, is skipped with the reason and counted apart.
