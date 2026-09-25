@@ -35,23 +35,24 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Nineteen suites, in the order they run: the judge, then the processor, then the graphics family,
-then the net family. A run is 504 cases: 451 for the judge, the processor and the graphics family,
-53 for the net family. The order, and what a failure in each suite points at, is in "The roadmap"
-below.
+Twenty nine suites, in the order they run: the judge, then the processor, then the graphics
+family, then the net family. A run is 620 cases: 567 for the judge, the processor and the graphics
+family, 53 for the net family; the mode word `stress` adds one. The order, and what a failure in
+each suite points at, is in "The roadmap" below.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one unit
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, eighty six cases, no hardware involved: what the program does around a verdict rather
-  than to reach one. The pictures a failing case leaves and the names they get, the detailed mode's
-  store, screens and navigation, the mode file, the `skip` result, and the time a case reports
+- **support**, eighty seven cases, no hardware involved: what the program does around a verdict
+  rather than to reach one. The pictures a failing case leaves and the names they get, the detailed
+  mode's store, screens and navigation, the mode file and its `stress` word, the `skip` result,
+  and the time a case reports
   (nineteen cases, see "Time per case"). One case carries the whole idea: the diff picture is built
   from what the judge decided pixel by pixel, not from comparing two images, so a pixel that differs
   and was allowed to is not painted as a difference. Every line is the none tier, because none of it
   is a claim about a machine.
-- **reference**, one hundred and eighteen cases, no hardware involved either: the other half of the
+- **reference**, one hundred and forty nine cases, no hardware involved either: the other half of the
   judge, where the rules the cases judge by are pinned. Where clip space lands on the target, which
   pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -80,7 +81,14 @@ below.
     certificate forms, an HTTP response head, a status document, a friend profile at the offsets the
     guest reads, a bearer token's alphabet, a result code as the platform prints one), and what nsd,
     sfdnsres, the sign-in wait, a picture url's `{size}` and a profile slot should be;
-  - four on the cpu suite's answers, against numbers written by hand.
+  - four on the cpu suite's answers, against numbers written by hand;
+  - six on the raw 3D method words the index and instance suites send, against words worked out
+    by hand from deko3d's command header layout;
+  - twenty one on the astc suite's answers: the ASTC reference decoder, `source/astcref.c`, held
+    block by block to hashes of what ARM's decoder (astcenc) makes of the same sixteen blocks, and
+    its weight table to values worked out by hand from the bit replication rule;
+  - four on the eac suite's answers, against values worked out by hand from the specification's
+    formula.
 - **cpu**, three cases, on the processor and in every mode, since it needs no device: count leading
   zeros over the sixteen 8-bit, eight 16-bit and four 32-bit lanes of one vector register, loaded
   from memory so a translator cannot fold the answer away, and compared exactly with the reference.
@@ -377,6 +385,16 @@ below.
   it. In an emulator a failure points at the staging ring (`renderer_vulkan/vk_staging_buffer_pool.cpp`,
   `GetStreamBuffer`) and the uniform buffer upload path (`buffer_cache/buffer_cache.h`).
 
+- **fill**, five cases. 128 quads over a 512 by 512 target in one list, first with colour alone
+  and then with a 32-bit float depth buffer tested and written by every quad, each nearer than the
+  last. The last quad's colour and depth must cover the target, so a time is never the time of a
+  wrong answer; the difference between the two times is what depth costs the machine, which is
+  where an emulator that loses depth compression (a depth image created with usage it cannot
+  compress, `renderer_vulkan/vk_texture_cache.cpp`) pays. A single depth tested quad goes first
+  and takes the target's first use in each pass: without it, whichever case came first measured
+  about 11 ms against 2 on RADV, in either order. There, colour alone takes about 2.0 ms and depth
+  2.7.
+
 The net family asks the services a program reaches the network through, the way a game asks them,
 and judges each answer against its protocol or against what `sdmc:/edenprobe/net` says the backend
 publishes (see "The net family" below). Every line says what was expected and what came back. A case
@@ -476,6 +494,7 @@ its dependencies put it, not at the end.
 | swizzle | exact | the block linear unswizzle an emulator runs when a texture is first used, by texel size and block height (`textures/decoders.cpp`, `host_shaders/block_linear_unswizzle_2d.comp`). |
 | texel | exact | the offset a buffer texture's host view starts at, when the host's texel buffer alignment is coarser than the guest's (`vk_buffer_cache.cpp`, `Buffer::View`). |
 | stream | exact | uploads staged through a ring inside one list: a later draw's bytes handed to an earlier one when the ring wraps (`vk_staging_buffer_pool.cpp`, `GetStreamBuffer`), or an upload path that asks the host for far more memory than the guest data it moves. |
+| fill | exact | fill rate with and without depth; the time, not the verdict, is the point: a depth buffer the host cannot compress shows as the second case slowing against the first. |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
@@ -829,7 +848,7 @@ not a letter between them.
 | `images` | a picture for every drawing case, passing ones too, on either mode |
 | `notime` | no timing passes: each drawing suite runs once, and no line carries a time; see "Time per case" |
 | `stress` | the heavy variants too, today the stream suite's 256 MiB list; off by default, since an emulator that runs out of memory on one takes the rest of the run with it |
-| `graphics` | the graphics family: the nine drawing suites, clear to fmath; selfcheck, support and reference always run, whatever family is named |
+| `graphics` | the graphics family: the nineteen drawing suites, clear to fill; selfcheck, support and reference always run, whatever family is named |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
 
 Families choose what runs beyond the judge, which always runs because nothing a family reports can
@@ -966,6 +985,24 @@ everything it checks about the commands it is given is checked for real: a shade
 load, a copy it will not make or a rectangle it will not clear ends the program rather than failing
 a case. A headless run that reaches its summary has shown none of that happened, which is most of
 what can go wrong before a pixel is involved.
+
+## Running it on Android
+
+The same `.nro` runs under the Android build of an emulator; the report is the same file under
+the app's own memory card. For Eden, whose package is `dev.eden.eden_emulator` (a suffix such as
+`.relWithDebInfo` on other build types; `adb shell pm list packages | grep eden` names it), one
+run is:
+
+```sh
+adb install -r Eden.apk && adb push edenprobe.nro /sdcard/edenprobe.nro && \
+adb shell 'd=/sdcard/Android/data/dev.eden.eden_emulator/files/sdmc/edenprobe; mkdir -p $d && rm -f $d/report.jsonl && echo quick > $d/mode'
+# open /sdcard/edenprobe.nro from the app, wait for it to leave by itself, then:
+adb pull /sdcard/Android/data/dev.eden.eden_emulator/files/sdmc/edenprobe/report.jsonl report-android.jsonl
+```
+
+Two builds of one package share that directory, so run them one after the other and pull the
+report in between. The device and driver are in the report's first lines only as far as the
+emulator logs them; say which phone and which driver next to the file.
 
 ## The validation layer's view
 
