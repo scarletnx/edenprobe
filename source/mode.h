@@ -22,6 +22,9 @@ extern "C" {
 ///   detailed  the screen even when `quick` is there too, the same as holding X at launch.
 ///   images    a picture for every drawing case, passing ones included.
 ///   notime    no timing passes: each drawing suite runs once, and no line carries a time.
+///   stress    the heavy variants too: cases that ask a machine for far more than a game in
+///             one list, off by default because an emulator can die of one and take the rest
+///             of the run with it.
 ///   graphics  a suite family; see below.
 ///   net       another: the online services, nifm to friend, against the backend the file
 ///             sdmc:/edenprobe/net names (see netref.h).
@@ -75,6 +78,8 @@ typedef struct {
     /// The word `notime`: each drawing suite runs once, with no warm-up and no rehearsals, so
     /// the run is the single pass it was before cases were timed.
     bool no_timing;
+    /// The word `stress`: the heavy variants of the cases that have one.
+    bool stress;
     /// The family words in the file, whether or not this build has them.
     uint32_t families_named;
     /// How many words were not understood, and the first of them, space separated.

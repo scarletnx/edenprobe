@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -116,6 +118,13 @@ void RunSwizzle(void);
 
 /// Buffer textures a few bytes past an aligned address: each column must fetch its own texel.
 void RunTexel(void);
+
+/// 4096 draws in one list, each reading a uniform buffer of its own: 16 MiB, then 256 MiB of
+/// uploads; every draw must see its own buffer.
+void RunStream(void);
+
+/// Turns on the stream suite's 256 MiB case, which the mode word `stress` asks for.
+void StreamSetStress(bool on);
 
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not

@@ -367,6 +367,16 @@ below.
   somewhere other than the texels a shader reads; in an emulator a failure points at how a
   buffer view is made (`renderer_vulkan/vk_buffer_cache.cpp`, `Buffer::View`).
 
+- **stream**, four cases, five with `stress`. One list of draws, each covering one pixel with the
+  first word of a uniform buffer of its own, every buffer different memory the processor filled
+  before the list: 4096 of 4 KiB (16 MiB) and 1024 of 64 KiB (64 MiB). Pixel k must hold buffer
+  k's word; the time is what the uploads cost. With the mode word `stress`, 4096 of 64 KiB,
+  256 MiB in one list, more than the ring an emulator stages uploads through, which then has to
+  wrap inside the list without handing a later draw's bytes to an earlier one. It is off by
+  default because an emulator that runs out of memory on it takes the rest of the run down with
+  it. In an emulator a failure points at the staging ring (`renderer_vulkan/vk_staging_buffer_pool.cpp`,
+  `GetStreamBuffer`) and the uniform buffer upload path (`buffer_cache/buffer_cache.h`).
+
 The net family asks the services a program reaches the network through, the way a game asks them,
 and judges each answer against its protocol or against what `sdmc:/edenprobe/net` says the backend
 publishes (see "The net family" below). Every line says what was expected and what came back. A case
@@ -465,6 +475,7 @@ its dependencies put it, not at the end.
 | eac | exact, either of two bytes | the EAC formats: their mapping to a host format and the decode on a host that has none (`texture_cache/format_lookup_table.cpp`, `surface.h`, `maxwell_to_vk.cpp`). |
 | swizzle | exact | the block linear unswizzle an emulator runs when a texture is first used, by texel size and block height (`textures/decoders.cpp`, `host_shaders/block_linear_unswizzle_2d.comp`). |
 | texel | exact | the offset a buffer texture's host view starts at, when the host's texel buffer alignment is coarser than the guest's (`vk_buffer_cache.cpp`, `Buffer::View`). |
+| stream | exact | uploads staged through a ring inside one list: a later draw's bytes handed to an earlier one when the ring wraps (`vk_staging_buffer_pool.cpp`, `GetStreamBuffer`), or an upload path that asks the host for far more memory than the guest data it moves. |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
@@ -817,6 +828,7 @@ not a letter between them.
 | `detailed` | detailed even beside `quick`, the same as holding X |
 | `images` | a picture for every drawing case, passing ones too, on either mode |
 | `notime` | no timing passes: each drawing suite runs once, and no line carries a time; see "Time per case" |
+| `stress` | the heavy variants too, today the stream suite's 256 MiB list; off by default, since an emulator that runs out of memory on one takes the rest of the run with it |
 | `graphics` | the graphics family: the nine drawing suites, clear to fmath; selfcheck, support and reference always run, whatever family is named |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
 

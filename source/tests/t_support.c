@@ -759,6 +759,22 @@ static void CheckLaunchAndMode(void) {
                    !ModeAsksPad(&held_none),
                "the readings with the button held did not come out as they should");
 
+    // The stress word turns the heavy variants on, and only it; the mode line says so last.
+    {
+        const RunMode plain = ModeFromText("quick");
+        const RunMode heavy = ModeFromText("quick STRESS graphics");
+        char said[REPORT_NOTE_MAX + 1] = "";
+        ModeDescribe(said, sizeof(said), &heavy, MODE_FAMILY_GRAPHICS);
+        const size_t length = strlen(said);
+        const char *const tail = "; stress cases";
+        CHECK_TRUE(SUITE, "the word stress, and nothing else, asks for the stress cases",
+                   CHECK_NONE,
+                   !plain.stress && heavy.stress && heavy.unknown_count == 0u &&
+                       length > strlen(tail) && strcmp(said + length - strlen(tail), tail) == 0,
+                   "plain %d, heavy %d, unknown %u, said \"%.200s\"", (int)plain.stress,
+                   (int)heavy.stress, (unsigned)heavy.unknown_count, said);
+    }
+
     // Every word, alone and together, any case, in a file that is missing, empty, or has words
     // nobody knows. What the run does is the first two columns; the rest is what it reports.
     static const struct {
