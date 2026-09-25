@@ -90,6 +90,7 @@ int main(int argc, char **argv) {
     // runs them.
     RunCpu();
 
+    StreamSetStress(mode.stress);
     const uint32_t families = ModeFamiliesToRun(&mode, MODE_FAMILIES_PRESENT);
     const bool timing = !mode.no_timing;
     if ((families & MODE_FAMILY_GRAPHICS) != 0u) {
@@ -110,6 +111,7 @@ int main(int argc, char **argv) {
         RunTimed("eac", RunEac, timing);
         RunTimed("swizzle", RunSwizzle, timing);
         RunTimed("texel", RunTexel, timing);
+        RunTimed("stream", RunStream, timing);
     }
     if ((families & MODE_FAMILY_NET) != 0u) {
         RunNet();
