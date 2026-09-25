@@ -110,6 +110,10 @@ void RunAstc(void);
 /// One- and two-channel EAC blocks sampled texel by texel.
 void RunEac(void);
 
+/// Block linear textures of every texel size and block height, written by the processor and
+/// sampled back texel for texel; and a 4 MiB one for the time an upload takes.
+void RunSwizzle(void);
+
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not
 /// name, or a service this program cannot open, is skipped with the reason and counted apart.
