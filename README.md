@@ -1116,8 +1116,9 @@ It runs the three judge suites, so a broken comparator shows in a second instead
 along with what is written and drawn around a verdict: the picture writer against a fixture it
 parses back, the screens and the navigation between them against frames composed in ordinary memory
 from a fixture shaped like a real run, the store the screens read, the mode file's words, and the
-time a case reports. Last it runs the tests of `tools/perf.py`, which need Python 3 and nothing
-else.
+time a case reports. Last it runs the tests of the tools, `tools/perf.py`, `tools/run.py` (with a
+script standing in for the emulator, crashing, hanging and finishing as each test asks) and
+`tools/validate.py`, which need Python 3 and nothing else.
 
 To look at the screens without a console, name an existing directory in `EDENPROBE_FRAMES`:
 
@@ -1154,16 +1155,41 @@ settings and may rewrite them, while one pointed here starts from the emulator's
 time, which also makes two runs comparable. An emulator with a different layout puts the same names
 under whatever it calls its memory card.
 
-The target first deletes the previous report, its pictures and the support suite's scratch
-directory, so a run that never started cannot leave an old report looking like its own, and a green
-run cannot sit beside the pictures of an earlier failing one. A missing or non-executable emulator,
-or a run that leaves no report or one with no summary line (the emulator is stopped at 60 seconds
-and killed ten after that), stops the target with a line saying which and a non-zero exit.
+The target runs `tools/run.py`, which first deletes the previous report, its pictures and the
+support suite's scratch directory, so a run that never started cannot leave an old report looking
+like its own, and a green run cannot sit beside the pictures of an earlier failing one. The journal
+stays: the program reads it, starts a new run because the report is gone, and lists a case the last
+launch of an earlier run ended inside.
+
+**It starts the emulator again after a crash.** A launch that ends with no summary in the report,
+crashed or stopped at its time limit (`TIMEOUT`, 60 seconds, then killed ten after that), is
+followed by another, which goes on with the run after the case the last one ended inside (see
+"When the program ends in the middle"), up to `RELAUNCHES` more (16). Each launch gets a line:
+
+```
+make run: launch 1 ended by signal 6 (SIGABRT) inside bcn case "every layer of a six-layer BC4 array keeps its own 2x2 and 1x1 levels" (the warm-up); launching again (2 of at most 17)
+```
+
+A launch that leaves the journal as it was, or adds nothing to it but its own start, ends the
+relaunching, since the next would do the same; so does a run with no journal (`nojournal`). At the
+end the target prints the counts, then, on a line of its own, the cases skipped as crashed and the
+ones this run ended inside, and the number of launches. A missing or non-executable emulator, or a
+run that never gets its summary, stops the target with a line saying which and a non-zero exit;
+stopping it by hand stops the emulator and writes `stopped` into the journal, so the case under
+way is not taken for a crash.
+
+**The crash list is kept per emulator binary**, under `build/xdg/crash-lists/`, and put on the card
+before the first launch and taken back after the last, so a case one build crashes on is not
+skipped on another's run. A rebuild, a binary of another size or time, starts a list of its own.
+To try one case again under `make run`, delete its line in the list kept there, named after the
+binary: the card's copy is replaced from it before the first launch.
 
 Before the emulator starts, the target writes `quick` into the mode file and says so, because the
 detailed screen is for a person. `MODE` is a variable too: `make run MODE="quick images"` keeps
-every picture, and `make run MODE=` writes no file, so the screen comes up, counts down ten seconds
-and leaves by itself, which is the way to see it from here.
+every picture, `make run MODE="quick fatal"` runs the cases that may crash, and `make run MODE=`
+writes no file, so the start screen and the results come up, each counting down ten seconds, and
+the program leaves by itself, which is the way to see them from here. `XDG` moves the whole tree:
+`make run XDG=/elsewhere` starts from an empty card there.
 
 The run needs a real rendering backend. On a null or headless backend the selfcheck cases still
 report and the device still opens, then every drawing case fails with every pixel reading zero,
@@ -1197,6 +1223,7 @@ emulator logs them; say which phone and which driver next to the file.
 ## The validation layer's view
 
 `make validate EMULATOR=...` runs the graphics family once under the Khronos validation layer,
+through `tools/run.py` like `make run` (a launch that crashes is followed by one that goes on),
 synchronisation validation on (`VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation`,
 `VK_KHRONOS_VALIDATION_VALIDATE_SYNC=true`), with the same XDG override as `make run`, and prints
 one row per message id: the VUID or the SYNC-HAZARD, how many times, and the case it came
@@ -1287,7 +1314,8 @@ rewrite, a profile and two blocked ids to publish, and asks it over its own prot
 token per scope, the three reads) what it publishes, writing the answers into the net file: an
 expectation is only ever what the backend said. It puts the three `reden_online_*` settings in the
 scratch `XDG_CONFIG_HOME` that `make run` uses (eden-cli's `eden/sdl2-config.ini`, group
-`[Services]`), runs `make run MODE="net quick"`, prints passes, failures and skips per suite, and
+`[Services]`), runs `make run MODE="net quick"` (which starts the emulator again after a crash),
+prints passes, failures and skips per suite, and
 stops both servers. The settings file is copied aside first and put back however the run ends, and
 the net file and the certificate come off the scratch memory card, so a later plain `make run` skips
 rather than fails against servers that are gone. redenex keeps its database on port 45432 (under

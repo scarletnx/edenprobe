@@ -66,6 +66,8 @@ typedef struct {
 ///   crashed <suite> <pass> <case>         the case the launch before ended inside
 ///   done <step>                           after a step
 ///   finished <p> <f> <s> <c>              after the summary
+///   stopped                               by a runner that stopped the program on purpose: the
+///                                         case under way did not end it
 ///
 /// A step is what main runs as one: a suite, or the whole net family. A case name runs to the
 /// end of its line; every other field is one word.
@@ -81,6 +83,7 @@ typedef enum {
     JOURNAL_CRASH,
     JOURNAL_DONE,
     JOURNAL_FINISHED,
+    JOURNAL_STOPPED,
 } JournalKind;
 
 typedef struct {

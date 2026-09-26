@@ -83,12 +83,16 @@ size_t JournalFormat(char *out, size_t out_size, const JournalRecord *r) {
         wrote = snprintf(out, out_size, "finished %u %u %u %u\n", (unsigned)c->counts[0],
                          (unsigned)c->counts[1], (unsigned)c->counts[2], (unsigned)c->counts[3]);
         break;
+    case JOURNAL_STOPPED:
+        wrote = snprintf(out, out_size, "stopped\n");
+        break;
     case JOURNAL_NONE:
         break;
     }
     // A name or a word with nothing in it would leave two fields where the reader wants three.
     const bool empty_field = (r->kind != JOURNAL_LAUNCH && r->kind != JOURNAL_FINISHED &&
-                              r->kind != JOURNAL_CHOSEN && suite[0] == '\0') ||
+                              r->kind != JOURNAL_CHOSEN && r->kind != JOURNAL_STOPPED &&
+                              suite[0] == '\0') ||
                              (r->kind == JOURNAL_CHOSEN && mode[0] == '\0') ||
                              ((r->kind == JOURNAL_START || r->kind == JOURNAL_END ||
                                r->kind == JOURNAL_CRASH || r->kind == JOURNAL_RUN) &&
@@ -239,6 +243,9 @@ bool JournalParse(const char *line, JournalRecord *out) {
     } else if (strcmp(kind, "finished") == 0) {
         out->kind = JOURNAL_FINISHED;
         ok = Counts(&cursor, &out->counts) && *cursor == '\0';
+    } else if (strcmp(kind, "stopped") == 0) {
+        out->kind = JOURNAL_STOPPED;
+        ok = *cursor == '\0';
     }
     if (!ok) {
         memset(out, 0, sizeof(*out));
@@ -350,6 +357,10 @@ void JournalFeed(JournalState *state, const char *line, bool complete) {
         state->finished = true;
         state->in_step = false;
         state->counts = r.counts;
+        break;
+    case JOURNAL_STOPPED:
+        // Nothing more: the case the last start named is no longer the one the program ended
+        // inside, since something outside it did the ending.
         break;
     case JOURNAL_NONE:
         break;
