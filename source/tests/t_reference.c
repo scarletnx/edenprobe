@@ -2365,4 +2365,6 @@ void RunReference(void) {
     RunReferenceRaw();
     RunReferenceAstc();
     RunReferenceEac();
+    RunReferenceEtc2();
+    RunReferenceBcn();
 }

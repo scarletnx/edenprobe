@@ -35,8 +35,8 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Thirty four suites, in the order they run: the judge, then the processor, then the graphics
-family, then the net family. A run is 700 cases: 647 for the judge, the processor and the graphics
+Thirty seven suites, in the order they run: the judge, then the processor, then the graphics
+family, then the net family. A run is 748 cases: 695 for the judge, the processor and the graphics
 family, 53 for the net family; the mode word `stress` adds one, and `fatal` runs the cases the
 may-crash table names, which are otherwise skipped. The order, and what a failure in each suite
 points at, is in "The roadmap" below. A case that ends the program costs that case and not the rest
@@ -55,7 +55,7 @@ of the run: see "When the program ends in the middle".
   built from what the judge decided pixel by pixel, not from comparing two images, so a pixel that
   differs and was allowed to is not painted as a difference. Every line is the none tier, because
   none of it is a claim about a machine.
-- **reference**, one hundred and fifty five cases, no hardware involved either: the other half of
+- **reference**, one hundred and seventy five cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -94,7 +94,13 @@ of the run: see "When the program ends in the middle".
     block by block to hashes of what ARM's decoder (astcenc) makes of the same sixteen blocks, and
     its weight table to values worked out by hand from the bit replication rule;
   - four on the eac suite's answers, against values worked out by hand from the specification's
-    formula.
+    formula;
+  - sixteen on the etc2 suite's answers: the block builders held to the bytes the suite samples,
+    the ETC2 reference decoder, `source/etc2ref.c`, held block by block to hashes of what Mesa's
+    decoder (26.1.6) makes of the same ten blocks, and five texels worked out by hand;
+  - four on the bcn suite's layout, `source/bcnref.c`: where deko3d puts each level and layer of
+    a block linear array, against offsets worked out by hand from its layout rules, and the solid
+    BC4 block.
 - **cpu**, nine cases, on the processor and in every mode, since it needs no device. Three count
   leading zeros over the sixteen 8-bit, eight 16-bit and four 32-bit lanes of one vector register,
   loaded from memory so a translator cannot fold the answer away, and compared exactly with the
@@ -311,7 +317,7 @@ of the run: see "When the program ends in the middle".
   of nought included, since a tolerance of nought is still a tolerance; the one Exact case is the
   guard, which copies a float through a uniform buffer and computes nothing.
 
-- **order**, fourteen cases, on the graphics unit with a compute queue. A dispatch writes a buffer,
+- **order**, nineteen cases, on the graphics unit with a compute queue. A dispatch writes a buffer,
   a wait for idle follows (`DkBarrier_Primitives`, the library's "completes the processing of all
   previous primitives and compute jobs", emitted as the 3D engine's WaitForIdle, the pattern
   deko3d's own compute example uses between generating vertices and drawing them), and the next
@@ -326,6 +332,17 @@ of the run: see "When the program ends in the middle".
   for idle costs on the machine under test, with and without compute around it. Exact
   tier. In an emulator a failure points at the host side of the guest's wait for idle
   (`renderer_vulkan/vk_rasterizer.cpp`, `WaitForIdle`).
+
+  Five cases ask the same question of the library's other barriers. Vertices, indirect draw
+  arguments and a storage buffer a dispatch wrote are read after `DkBarrier_Full` ("completes the
+  processing of all previous commands"), which the library emits as the channel's SetReference and
+  nothing in the 3D class; in an emulator a failure points at what that method records
+  (`engines/puller.cpp`, `RefCnt`). And a draw whose fragments store a word each, late, is read
+  back pixel by pixel by the next draw's fragments after `DkBarrier_Fragments` ("similar to Vulkan
+  renderpasses") and after `DkBarrier_Tiles` ("similar to Vulkan subpasses"), each pixel reading
+  only its own word, with the shader cache invalidation and no image cache one; in an emulator a
+  failure points at `FragmentBarrier` and `TiledCacheBarrier` (`renderer_vulkan/vk_rasterizer.cpp`).
+  The tiles case holds the library to its documentation and has not been run on a console yet.
 - **index**, eight cases. Indexed draws whose index limit register holds the last byte of the
   indices, the way a driver that bounds its draws exactly programs it (the register is a limit,
   the last valid byte; nouveau writes the address plus the size minus one). The library never
@@ -388,6 +405,38 @@ of the run: see "When the program ends in the middle".
   to decode them itself; in an emulator a failure points at the EAC format mapping
   (`texture_cache/format_lookup_table.cpp`, `surface.h`) and at whether it decodes EAC for such a
   host.
+
+- **etc2**, twelve cases. The ETC2 colour formats (the library's RGB_ETC2, RGB_PTA_ETC2 and
+  RGBA_ETC2), one 4x4 block each written by the processor and fetched texel by texel: an
+  individual, a flipped differential, a T mode, two H mode blocks (the first base the larger and
+  the smaller, which sets the distance index's last bit), a planar block, three punch-through
+  blocks (index 2 transparent in differential and T mode, and planar always opaque), and an RGBA
+  block whose 8-bit alpha reaches both clamps. Every block is built from its fields by
+  `source/etc2ref.c`, whose decoder says what each texel must be; the reference suite holds it to
+  Mesa's. ETC2 decodes to exact bytes, so the tier is exact. A host without ETC2 textures has to
+  decode them itself; in an emulator a failure points at whether it does
+  (`renderer_vulkan/maxwell_to_vk.cpp`, `vk_texture_cache.cpp`, `texture_cache/util.cpp`,
+  `ConvertImage`): an upload of the raw blocks shows bytes of block data.
+
+- **bcn**, five cases. BC4 arrays whose levels or layers do not end on a block boundary: six
+  layers with levels down to 1x1, the shape of every mipmapped cube map; two layers six texels
+  tall; and a 4x16 texture whose second level is two texels wide and two blocks tall. Every block
+  is one value unique to its layer, level and position, written by the processor where
+  `source/bcnref.c` says the library put it, and every texel of every level and layer is fetched.
+  Exact tier. A host with BCn textures samples the blocks as they are and passes; one without
+  decodes them on upload, and in an emulator a failure points at that decode's walk over the
+  layers of a level (`texture_cache/decode_bc.cpp`, `DecompressBlocks`). The three array cases are
+  in the may-crash table: the array fetching shader compiles to a PRET, which ends Eden, and the
+  fork before ECFE-2026-1163, inside the pipeline cache.
+
+- **zeta**, six cases. Depth textures the processor writes, sampled texel by texel: Z16 and ZF32
+  as controls, then Z24S8 twice, once with a word that reads the same whichever way its depth and
+  stencil are split and once with depth 0x00ff00 over stencil 0x5a, whose low 24 bits would give
+  254 where the depth gives 1. Exact tier: each depth is a whole number of 255ths or a quarter
+  away from a half. In an emulator a failure points at the upload of a depth texture: a host
+  without D24_UNORM_S8_UINT that copies the words into a 32-bit float depth image, or a copy that
+  takes the depth from the low 24 bits (`renderer_vulkan/vk_texture_cache.cpp`,
+  `TransformBufferImageCopies`).
 
 - **swizzle**, fourteen cases. Block linear textures the processor writes texel by texel at the
   addresses the block linear rule gives (`source/coherref.c`, `CohBlockLinearOffset`) and samples
@@ -563,13 +612,16 @@ its dependencies put it, not at the end.
 | texture | exact | the texture and sampler descriptors: the wrap mode and filter fields, and the block linear layout a sampled image is stored in. |
 | coherence | exact | a cache between two uses of the same memory. In an emulator: the texture cache not marking an image the graphics unit wrote as modified, or missing a processor write to one (`texture_cache/texture_cache.h`, `MarkModification`, `WriteMemory`); the buffer cache serving a uniform buffer the processor rewrote, or dropping an update pushed inside the list (`buffer_cache/buffer_cache.h`, `Maxwell3D::ProcessCBData`); the copy engine's writes not reaching the images it overlaps (`engines/maxwell_dma.cpp`), or a render target not flushed before the copy engine reads it; or two formats over one memory joined as a conversion rather than a view (`texture_cache/texture_cache.h`, `JoinImages`). The region two pixels that still hold region one's contents say which. |
 | fmath | units in the last place | the float side of the shader translator, and the transcendental unit behind it; for the edge cases, the minimum and maximum's NaN rule, denormal handling and the rounding modes. The only suite where two correct machines are allowed to differ, which is why it is last among the graphics suites. |
-| order | exact | the host side of the guest's wait for idle: a compute write not ordered before the vertex, index, indirect, uniform or storage read after it (`renderer_vulkan/vk_rasterizer.cpp`, `WaitForIdle`), or indirect arguments read from memory before the dispatch that wrote them finished. |
+| order | exact | the host side of the guest's wait for idle: a compute write not ordered before the vertex, index, indirect, uniform or storage read after it (`renderer_vulkan/vk_rasterizer.cpp`, `WaitForIdle`), or indirect arguments read from memory before the dispatch that wrote them finished; and the same after the full, fragments and tiles barriers (`engines/puller.cpp`, `RefCnt`; `FragmentBarrier`, `TiledCacheBarrier`). |
 | index | exact | the size an index buffer is bound with: a limit register read as one past the end drops the last index (`buffer_cache/buffer_cache.h`, `UpdateIndexBuffer`). |
 | instance | exact | when an instanced array draw happens and as which instance (`engines/draw_manager.cpp`): deferred past a state change, extra instances added to the next draw, or SUBSEQUENT not counted as the next instance. |
 | geometry | exact | the geometry and tessellation stages: points expanded or dropped, a patch's coverage and the levels reaching the evaluation stage; on a host without those stages, whatever the emulator does instead. |
 | bindless | exact | a texture reached through a handle at a dynamic index: the host descriptor array the translator builds for it, its size and how it is filled (`shader_recompiler/ir_opt/texture_pass.cpp`). |
 | astc | exact, either of two bytes | the emulator's ASTC decoder: weight and endpoint unquantization, the integer sequence, the partition hash, infill, dual plane, and the error colour for HDR modes and illegal blocks (`host_shaders/astc_decoder.comp`, `textures/astc.cpp`). |
 | eac | exact, either of two bytes | the EAC formats: their mapping to a host format and the decode on a host that has none (`texture_cache/format_lookup_table.cpp`, `surface.h`, `maxwell_to_vk.cpp`). |
+| etc2 | exact | the ETC2 colour formats: the decode on a host without ETC2 textures, mode by mode, and the punch-through rules (`maxwell_to_vk.cpp`, `texture_cache/util.cpp`, `ConvertImage`). |
+| bcn | exact | the BCn decode on a host without BCn textures, across the layers and the small levels of an array (`texture_cache/decode_bc.cpp`). |
+| zeta | exact | a depth texture's upload: 24-bit depth converted for a host without it and taken from the right bits (`vk_texture_cache.cpp`, `TransformBufferImageCopies`). |
 | swizzle | exact | the block linear unswizzle an emulator runs when a texture is first used, by texel size and block height (`textures/decoders.cpp`, `host_shaders/block_linear_unswizzle_2d.comp`). |
 | texel | exact | the offset a buffer texture's host view starts at, when the host's texel buffer alignment is coarser than the guest's (`vk_buffer_cache.cpp`, `Buffer::View`). |
 | stream | exact | uploads staged through a ring inside one list: a later draw's bytes handed to an earlier one when the ring wraps (`vk_staging_buffer_pool.cpp`, `GetStreamBuffer`), or an upload path that asks the host for far more memory than the guest data it moves. |
@@ -641,7 +693,7 @@ since a machine that was never asked has agreed with nothing:
 | reason | why the case did not ask |
 |---|---|
 | `crashed` | the program ended inside it on this machine: in this run, which the journal says, or in an earlier one, which the crash list says |
-| `may crash` | it is in the may-crash table, and neither the word `fatal` nor the start screen asked for it: today the SM4 case and the two geometry shader cases |
+| `may crash` | it is in the may-crash table, and neither the word `fatal` nor the start screen asked for it: today the SM4 case, the two geometry shader cases and the three bcn array cases |
 | `not configured` | the net file does not name what it needs: a session, a server, a rewrite, an account, a certificate |
 | `unavailable` | a service or a resource this program cannot have here |
 | `depends` | a case before it did not leave what it needs: it did not run, failed, or gave nothing to ask about |
@@ -960,7 +1012,7 @@ not a letter between them.
 | `retry` | the cases on the crash list run again; one that runs to its end leaves the list (see "When the program ends in the middle") |
 | `nojournal` | nothing is written between cases: no journal, so a crash costs the rest of the run as it did before the journal; for measuring what the journal costs |
 | `cpu` | the processor family: the cpu suite runs in every mode, so naming it alone keeps the graphics and net families out, a run of a few seconds with nothing drawn |
-| `graphics` | the graphics family: the twenty four drawing suites, clear to query; selfcheck, support, reference and cpu always run, whatever family is named |
+| `graphics` | the graphics family: the twenty seven drawing suites, clear to query; selfcheck, support, reference and cpu always run, whatever family is named |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
 
 Families choose what runs beyond the judge, which always runs because nothing a family reports can
