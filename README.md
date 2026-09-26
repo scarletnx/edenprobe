@@ -36,20 +36,22 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 ## What it checks today
 
 Thirty two suites, in the order they run: the judge, then the processor, then the graphics
-family, then the net family. A run is 648 cases: 595 for the judge, the processor and the graphics
+family, then the net family. A run is 664 cases: 611 for the judge, the processor and the graphics
 family, 53 for the net family; the mode word `stress` adds one, and `fatal` runs one that is
 otherwise skipped. The order, and what a failure in each suite points at, is in "The roadmap"
-below.
+below. A case that ends the program costs that case and not the rest of the run: see "When the
+program ends in the middle".
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one unit
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, eighty eight cases, no hardware involved: what the program does around a verdict
-  rather than to reach one. The pictures a failing case leaves and the names they get, the detailed
-  mode's store, screens and navigation, the mode file and its `stress` word, the `skip` result,
-  and the time a case reports
-  (nineteen cases, see "Time per case"). One case carries the whole idea: the diff picture is built
+- **support**, one hundred and four cases, no hardware involved: what the program does around a
+  verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
+  detailed mode's store, screens and navigation, the mode file and its `stress` word, the `skip`
+  result, the time a case reports (nineteen cases, see "Time per case"), and the journal, the
+  crash list and what a launch decides from them (sixteen cases, see "When the program ends in
+  the middle"). One case carries the whole idea: the diff picture is built
   from what the judge decided pixel by pixel, not from comparing two images, so a pixel that differs
   and was allowed to is not painted as a difference. Every line is the none tier, because none of it
   is a claim about a machine.
@@ -596,15 +598,26 @@ graphics unit), and any drawing case stopped before it could compare anything, w
 reason in its detail. Calling any of those `exact` would read, in a diff, as a passing claim about a
 machine that was never asked anything.
 
-A case that could not ask its question at all, because the backend it needs is not named or the
-service it needs cannot be opened, says so with the result `skip`, the none tier and the reason, and
-is counted apart from passes and failures, since a machine that was never asked has agreed with
-nothing:
+A case that could not ask its question at all says so with the result `skip`, the none tier, a
+`reason` of one word and a sentence in `detail`, and is counted apart from passes and failures,
+since a machine that was never asked has agreed with nothing:
 
 ```json
-{"type":"case","suite":"acc","name":"the id token refresh completes and succeeds","tier":"none","result":"skip","detail":"needs an online session: ..."}
-{"type":"summary","passed":424,"failed":9,"skipped":27}
+{"type":"case","suite":"acc","name":"the id token refresh completes and succeeds","tier":"none","result":"skip","reason":"not configured","detail":"needs an online session: ..."}
+{"type":"summary","passed":424,"failed":9,"skipped":27,"crashed":2}
 ```
+
+| reason | why the case did not ask |
+|---|---|
+| `crashed` | the program ended inside it on this machine: in this run, which the journal says, or in an earlier one, which the crash list says |
+| `may crash` | it is known to end a machine's program and was not asked for: today the SM4 case, without the word `fatal` |
+| `not configured` | the net file does not name what it needs: a session, a server, a rewrite, an account, a certificate |
+| `unavailable` | a service or a resource this program cannot have here |
+| `depends` | a case before it did not leave what it needs: it did not run, failed, or gave nothing to ask about |
+
+The summary counts crashes on their own: `skipped` is every skip but the ones whose reason is
+`crashed`, which `crashed` counts, so the four numbers add up to the case lines. The runner's
+`EDENPROBE DONE` line on the debug channel carries the same four.
 
 A run that dies halfway still leaves everything up to its last finished case, and the summary
 carries the counts so a runner does not have to parse the rest. The summary is the last line of
@@ -646,8 +659,8 @@ so a rehearsal leaves the verdict pass nothing but the emulator's shader cache, 
 skips included, in six quick runs and a `notime` run, and the failures' pictures identical. The one
 allowance is the net family's `detail`, which carries the ports and buffers a run was given.
 
-**When a rehearsal hangs**, the run says where twice. The report has one note before each drawing
-suite's rehearsals, and a report that ends on it stopped while that suite was being timed:
+**When a rehearsal hangs**, the run says where three times. The report has one note before each
+drawing suite's rehearsals, and a report that ends on it stopped while that suite was being timed:
 
 ```json
 {"type":"note","text":"timing depth: 1 warm-up and 8 rehearsals before the verdict pass"}
@@ -664,8 +677,9 @@ Passes count from one, the warm-up first. The warm-up has no earlier pass to lea
 its lines number the case, `pass 1 case number 3 after a depth clear writes the value it was given`,
 meaning the case after the one named; one past the suite's last case is closing the device. The log
 line counts only when the report ends on the timing note: a hang in the verdict pass leaves the
-report ending on the case line before it, and a stale timing line in the log. On a console with no
-debugger the note is all there is.
+report ending on the case line before it, and a stale timing line in the log. The third is the
+journal on the card, whose last line names the case and the pass by name, the warm-up's included;
+on a console with no debugger it is the one that says which case.
 
 `notime` in the mode file (`make run MODE="quick notime"`) skips the warm-up and the rehearsals:
 every drawing suite runs once, no line carries `us`, no perf line or timing note is written, and the
@@ -899,8 +913,10 @@ not a letter between them.
 | `notime` | no timing passes: each drawing suite runs once, and no line carries a time; see "Time per case" |
 | `stress` | the heavy variants too, today the stream suite's 256 MiB list; off by default, since an emulator that runs out of memory on one takes the rest of the run with it |
 | `fatal` | the cases that end the run on a machine that fails them: today SM4EKEY and SM4E, which the console's processor lacks; off by default, and never on the console |
+| `retry` | the cases on the crash list run again; one that runs to its end leaves the list (see "When the program ends in the middle") |
+| `nojournal` | nothing is written between cases: no journal, so a crash costs the rest of the run as it did before the journal; for measuring what the journal costs |
 | `cpu` | the processor family: the cpu suite runs in every mode, so naming it alone keeps the graphics and net families out, a run of a few seconds with nothing drawn |
-| `graphics` | the graphics family: the nineteen drawing suites, clear to fill; selfcheck, support, reference and cpu always run, whatever family is named |
+| `graphics` | the graphics family: the twenty two drawing suites, clear to drawtex; selfcheck, support, reference and cpu always run, whatever family is named |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
 
 Families choose what runs beyond the judge, which always runs because nothing a family reports can
@@ -942,6 +958,99 @@ repeats is the direction pressed, whatever else is held, and only after a press 
 first eight frames. Going back lands on the group or case that was open, and the view chosen with X
 stays from one drawing case to the next. A frame is composed on the processor only when something
 moved or the countdown ticked, so a still screen costs an emulated machine nothing.
+
+## When the program ends in the middle
+
+A case can end the program that runs it: a shader an emulator cannot translate, an instruction its
+processor lacks, a list asking for more memory than it has, a service it has not written. Once,
+such a case cost the rest of the run. Now it costs the case: the run goes on over as many launches
+as it takes, and one report covers it all.
+
+**The journal.** `sdmc:/edenprobe/journal` says what the run has done, a line at a time, each on
+the card before the program goes on: before a case starts, its name and the pass; after it ends,
+its result. A launch that finds a run whose last line is a case starting knows the program ended
+inside that case, and goes on with the run instead of starting another. It skips the steps the
+journal says are done, cuts the report back to where the step under way began, reports the case as
+a skip whose reason is `crashed`, puts it on the crash list, and runs the step again without it;
+everything after it runs as it would have. The launch says so in a note where the report goes on,
+and the note before the summary says how many launches the run took, how many cases it skipped as
+crashed, how many of those only because the crash list named them, and which cases the program
+ended inside in this run:
+
+```json
+{"type":"note","text":"journal: launch 2 resumes the run; the program ended inside index case \"an indexed draw with the library's open limit uses every index\" in a timed pass: that case is skipped as crashed and goes on the crash list, and step index runs again from its start"}
+{"type":"case","suite":"index","name":"an indexed draw with the library's open limit uses every index","tier":"none","result":"skip","reason":"crashed","detail":"the program ended inside it earlier in this run, in a timed pass; ..."}
+{"type":"note","text":"journal: this run took 2 launches; 1 case skipped as crashed; the program ended inside index \"an indexed draw with the library's open limit uses every index\""}
+```
+
+And in the next run, which skips it from the crash list without ending:
+
+```json
+{"type":"note","text":"journal: this run took 1 launch; 1 case skipped as crashed, 1 of them from the crash list"}
+```
+
+A step is what main runs as one: a suite, or the whole net family. A launch goes on with a run only
+when the journal is this build's, was begun with the same mode words (quick and detailed aside,
+since they change nothing a report holds), and the report it describes is still there and at
+least as long as the journal says it was; otherwise it starts the run again, and says why in a
+note. A case the journal shows the program ended inside goes on the crash list whichever way the
+launch goes. To start over rather than go on, delete the journal or the report.
+
+| journal line | written |
+|---|---|
+| `run <version> <build> <mode words>` | first, when a run begins |
+| `launch <n>` | each time the program starts on the run, 1 the first |
+| `step <step> <offset> <passed> <failed> <skipped> <crashed>` | before a step: the report's length then, and its counts |
+| `pass <step> <n>` | before each pass of a drawing suite, 1 the warm-up and 10 the verdict pass |
+| `start <suite> <pass> <case>` | before a case's work; pass 0 outside the drawing suites |
+| `end <suite> <pass> <result> <case>` | after its line: `pass`, `fail`, `skip`, `crashed`, or `muted` in a rehearsal |
+| `crashed <suite> <pass> <case>` | by the launch after, for the case the program ended inside |
+| `done <step>` | after a step |
+| `finished <passed> <failed> <skipped> <crashed>` | after the summary |
+
+A last line with no newline is a write the program did not live to finish, and is never read as a
+record; nor is a line that is not a whole one.
+
+**The crash list.** `sdmc:/edenprobe/crashes` names the cases that ended this machine's program,
+`<suite> <case>` a line under a comment that says what it is. They are skipped in every later run
+as `crashed`, until the mode word `retry` runs them again; one that then runs to its end, through
+every pass, leaves the list, and a note says so. A case that ended the program in this very run is
+skipped even under `retry`, since running it is what ended the launch before. The file can be
+edited by hand, one line deleted to try one case again; the program writes it whole when it
+changes, so a comment typed into it does not stay.
+
+**Where a crash can be pinned.** Every case of the cpu, graphics and net families says it starts
+before any of its work, which is what lets a launch skip it: the start and the skip come before the
+first instruction, list or service call the case makes. A case judged from another's work (two
+halves of one readback, a request asked about again, a token read twice) is skipped as `depends`
+when that one does not run. The judge's cases ask the machine nothing but ordinary arithmetic and
+are journaled only as they end. What runs between two cases belongs to none: a suite reopening its
+device after a fault, blend's two probe notes, the net family opening a service or waiting for
+the sign-in. A crash there costs the rest of that step, which keeps what it reported and is not
+run again, and the launch says so in a note. A case that reports a verdict without having said it
+started, where it had to, is a bug in this program, and a `bookkeeping:` note says which.
+
+**What it costs.** Two lines for each case in each pass, and a drawing suite runs ten passes: a run
+of 670 cases writes 7228 lines, 474 kilobytes, none of them inside a timed interval, which is only
+the submits and the waits after them. Under Eden, three runs a side, that run took 7.00 s against
+6.81 s with `nojournal` (3 percent, some 27 microseconds a line), and `tools/perf.py` moved no
+timed case past its threshold; the machine was not idle, so the two times are indicative.
+`nojournal` in the mode file writes nothing between cases, and a crash then costs the rest of the
+run.
+
+**On an emulator that buffers.** Eden writes the card through the host's C library and seeks before
+every write, so a file's last write sits in a buffer until the next one comes, and dies with the
+process. Each line is therefore written, and then its last byte written again where it already is:
+the second write puts the first on the host's disk, and what it holds back is a byte the file
+already has. While the journal is on, the report is written the same way, which makes true on Eden
+what a killed run always promised, everything up to its last completed case.
+
+**Under Ryujinx**, which a person starts by hand: open `edenprobe.nro`, and when Ryujinx stops or
+closes, open it again, and again, until the report ends on its summary; each launch goes on with
+the run. Its card is Ryujinx's own, `~/.config/Ryujinx/sdcard/edenprobe/` on Linux (or
+`$XDG_CONFIG_HOME/Ryujinx/...`, or `portable/sdcard/` beside a portable build): the report, the
+journal and the crash list are there. A console is the same: start the program again from the
+menu after it ends.
 
 ## Versions
 
@@ -1053,7 +1162,9 @@ adb pull /sdcard/Android/data/dev.eden.eden_emulator/files/sdmc/edenprobe/report
 ```
 
 Two builds of one package share that directory, so run them one after the other and pull the
-report in between. The device and driver are in the report's first lines only as far as the
+report in between. When the app stops in the middle of a run, open the program again: it goes on
+with the run (see "When the program ends in the middle"), and the report is whole once it ends on
+its summary. The device and driver are in the report's first lines only as far as the
 emulator logs them; say which phone and which driver next to the file.
 
 ## The validation layer's view

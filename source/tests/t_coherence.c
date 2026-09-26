@@ -228,6 +228,11 @@ static void ClearMain(Suite *s) {
 static void RenderThenSample(Suite *s, const char *name, const DkImage *target, uint32_t slot,
                              const DkShader *shader, CohMove how, uint32_t seed, uint32_t mask,
                              CohImage *texture) {
+    // A case that does not run leaves the texture and its model as they were, so the cases after
+    // it still expect what the texture holds.
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     scratch = *texture;
     CohPaintCells(&scratch, seed, mask);
 
@@ -284,6 +289,9 @@ static void SampleThenProcessorWrites(Suite *s, const char *name, uint8_t *bytes
                                       TexelOffset where, bool cached, uint32_t slot,
                                       CohImage *texture, uint32_t seed, uint32_t first_row,
                                       uint32_t rows) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     CohImage *const written = &scratch;
     CohImageInit(written, TEX, TEX);
     CohFillPattern(written, seed);
@@ -351,6 +359,9 @@ static void UniformBetweenSubmits(Suite *s) {
         "a uniform buffer the processor rewrites between submits reaches the next draw";
     static const uint8_t ONE[4] = { 0x21, 0x43, 0x65, 0x87 };
     static const uint8_t TWO[4] = { 0xA9, 0xCB, 0xED, 0x0F };
+    if (!ReportStart(SUITE, NAME)) {
+        return;
+    }
     DkGpuAddr buffer = 0;
     float *const colour =
         (float *)GpuAllocData(&s->gpu, UNIFORM_SIZE, DK_UNIFORM_BUF_ALIGNMENT, &buffer);
@@ -392,6 +403,9 @@ static void UniformOneWordFourSubmits(Suite *s) {
     static const CohRect QUADRANTS[4] = {
         { 0, 0, 32, 32 }, { 32, 0, 32, 32 }, { 0, 32, 32, 32 }, { 32, 32, 32, 32 }
     };
+    if (!ReportStart(SUITE, NAME)) {
+        return;
+    }
     DkGpuAddr buffer = 0;
     float *const colour =
         (float *)GpuAllocData(&s->gpu, UNIFORM_SIZE, DK_UNIFORM_BUF_ALIGNMENT, &buffer);
@@ -439,6 +453,9 @@ static void UniformPushedBetweenDraws(Suite *s) {
         "a uniform buffer pushed between two draws of one list reaches the second only";
     static const uint8_t ONE[4] = { 0x3C, 0x5A, 0x78, 0x96 };
     static const uint8_t TWO[4] = { 0xC3, 0xA5, 0x87, 0x69 };
+    if (!ReportStart(SUITE, NAME)) {
+        return;
+    }
     DkGpuAddr buffer = 0;
     if (GpuAllocData(&s->gpu, UNIFORM_SIZE, DK_UNIFORM_BUF_ALIGNMENT, &buffer) == NULL) {
         ReportCase(SUITE, NAME, CHECK_NONE, false, "no scratch left for the uniform buffer");
@@ -471,6 +488,9 @@ static void CopyThenSample(Suite *s, const char *name, const DkImage *image, Coh
                            const DkCopyBuf *staged, const DkImage *source_image,
                            const CohImage *source, const DkImageRect *from,
                            const DkImageRect *to) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     scratch = *texture;
     CohMoveRect(&scratch, to->x, to->y, source, from->x, from->y, to->width, to->height,
                 COH_MOVE_BYTES);
@@ -513,6 +533,9 @@ static void CopyThenSample(Suite *s, const char *name, const DkImage *image, Coh
 static void RenderCopyReadBack(Suite *s, const char *name, const DkImage *rendered,
                                const DkImage *copy, uint32_t seed, const DkImageRect *from,
                                const DkImageRect *to, CohImage *held, CohImage *drawn) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     CohImageInit(&scratch, TARGET_SIZE, TARGET_SIZE);
     CohPaintCells(&scratch, seed, ALL_CELLS);
     expected = *held;
@@ -553,10 +576,16 @@ static bool Open(Suite *s) {
     spec.image_size = 512u * 1024u;
     spec.cpu_image_size = 64u * 1024u;
     spec.cpu_cached_size = 64u * 1024u;
+    if (!ReportStart(SUITE, "graphics device opens with room for the images")) {
+        return false;
+    }
     const bool opened = GpuOpenSpec(&s->gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with room for the images", CHECK_NONE, opened, "%s",
                s->gpu.failure);
     if (!opened) {
+        return false;
+    }
+    if (!ReportStart(SUITE, "the shaders load")) {
         return false;
     }
     const bool loaded =
@@ -600,6 +629,10 @@ void RunCoherence(void) {
     uint8_t *block_bytes = NULL;
     uint8_t *cached_bytes = NULL;
     uint32_t cached_stride = 0;
+    if (!ReportStart(SUITE, "the images have somewhere to live")) {
+        GpuClose(gpu);
+        return;
+    }
     const bool created =
         GpuCreateImage(gpu, &rendered, &layout, DkImageFormat_RGBA8_Unorm, TEX, TEX,
                        DkImageFlags_UsageRender, 0, NULL) &&
@@ -627,9 +660,11 @@ void RunCoherence(void) {
     }
     // Eight gobs exactly is what BlockOffset assumes; any padding and the rule names wrong bytes.
     const uint64_t block_size = dkImageLayoutGetSize(&block_layout);
-    CHECK_TRUE(SUITE, "the block linear texture is eight gobs of one gob blocks", CHECK_NONE,
-               block_size == 8u * 512u, "the layout is %u bytes, not 4096",
-               (unsigned)block_size);
+    if (ReportStart(SUITE, "the block linear texture is eight gobs of one gob blocks")) {
+        CHECK_TRUE(SUITE, "the block linear texture is eight gobs of one gob blocks",
+                   CHECK_NONE, block_size == 8u * 512u, "the layout is %u bytes, not 4096",
+                   (unsigned)block_size);
+    }
 
     DkImageDescriptor *const images = (DkImageDescriptor *)GpuAllocData(
         gpu, SLOT_COUNT * (uint32_t)sizeof(DkImageDescriptor), DK_IMAGE_DESCRIPTOR_ALIGNMENT,
@@ -638,8 +673,11 @@ void RunCoherence(void) {
         gpu, (uint32_t)sizeof(DkSamplerDescriptor), DK_SAMPLER_DESCRIPTOR_ALIGNMENT,
         &s->sampler_set);
     if (images == NULL || sampler == NULL) {
-        ReportCase(SUITE, "the descriptor sets have somewhere to live", CHECK_NONE, false,
-                   "the scratch block had no room for the descriptor sets");
+        // A line only when they have not: the bookkeeping of a case whose work was done above.
+        if (ReportStart(SUITE, "the descriptor sets have somewhere to live")) {
+            ReportCase(SUITE, "the descriptor sets have somewhere to live", CHECK_NONE, false,
+                       "the scratch block had no room for the descriptor sets");
+        }
         GpuClose(gpu);
         return;
     }
@@ -678,6 +716,10 @@ void RunCoherence(void) {
         CohImageInit(starting[i], TEX, TEX);
         CohFillPattern(starting[i], starting_seeds[i]);
     }
+    if (!ReportStart(SUITE, "the starting texels reach the textures")) {
+        GpuClose(gpu);
+        return;
+    }
     CpuWrite(pitch_bytes, PitchOffset, &pitch_texels, 0, TEX);
     CpuWrite(cached_bytes, PitchOffset, &cached_texels, 0, TEX);
     GpuFlushCachedImage(gpu, cached_bytes, TEX * TEX * 4u);
@@ -699,7 +741,8 @@ void RunCoherence(void) {
 
     // The processor reading what the copy engine wrote, after the wait: the first half of every
     // processor case below, and the proof that the block linear rule names the right bytes.
-    {
+    if (ReportStart(SUITE, "the processor finds the copy engine's texels where the block linear "
+                           "rule puts them")) {
         static uint8_t seen[TEX * TEX][4];
         for (uint32_t y = 0; y < TEX; ++y) {
             for (uint32_t x = 0; x < TEX; ++x) {
@@ -745,29 +788,39 @@ void RunCoherence(void) {
     {
         static const char *const NAME =
             "a render target sampled as R32_Uint gives the little endian word of its bytes";
+        static const char *const REDRAWN =
+            "redrawing a render target reaches its R32_Uint alias in one list";
         static CohImage alias_texels;
-        CohImageInit(&alias_texels, TEX, TEX);
-        CohPaintCells(&alias_texels, COH_SEED_ALIAS_WHOLE, ALL_CELLS);
-        ClearMain(s);
-        GpuBeginList(gpu);
-        GpuSetTarget(gpu, &alias_colour, TEX, TEX);
-        bool recorded = PaintCells(s, COH_SEED_ALIAS_WHOLE, ALL_CELLS, TEX);
-        // Rendered through one format, sampled through the other: the fragments have to land,
-        // and nothing about the second view may come from a cache filled through the first.
-        dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Fragments, DkInvalidateFlags_Image);
-        GpuSetTarget(gpu, NULL, 0, 0);
-        recorded = recorded && SampleRegion(s, &FIRST, SLOT_ALIAS, &s->alias);
-        GpuSubmit(gpu);
-        if (Recorded(s, NAME, recorded)) {
-            CohImageInit(&expected, TARGET_SIZE, TARGET_SIZE);
-            CohFill(&expected, COH_SENTINEL);
-            CohSampleRegion(&expected, &FIRST, &alias_texels, COH_MOVE_ALIASED);
-            Judge(NAME, GpuReadBack(gpu), &expected, NULL);
+        // The alias holds nothing known until this case draws it, so the redraw after it has
+        // nothing to expect without it.
+        if (ReportStart(SUITE, NAME)) {
+            CohImageInit(&alias_texels, TEX, TEX);
+            CohPaintCells(&alias_texels, COH_SEED_ALIAS_WHOLE, ALL_CELLS);
+            ClearMain(s);
+            GpuBeginList(gpu);
+            GpuSetTarget(gpu, &alias_colour, TEX, TEX);
+            bool recorded = PaintCells(s, COH_SEED_ALIAS_WHOLE, ALL_CELLS, TEX);
+            // Rendered through one format, sampled through the other: the fragments have to
+            // land, and nothing about the second view may come from a cache filled through the
+            // first.
+            dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Fragments, DkInvalidateFlags_Image);
+            GpuSetTarget(gpu, NULL, 0, 0);
+            recorded = recorded && SampleRegion(s, &FIRST, SLOT_ALIAS, &s->alias);
+            GpuSubmit(gpu);
+            if (Recorded(s, NAME, recorded)) {
+                CohImageInit(&expected, TARGET_SIZE, TARGET_SIZE);
+                CohFill(&expected, COH_SENTINEL);
+                CohSampleRegion(&expected, &FIRST, &alias_texels, COH_MOVE_ALIASED);
+                Judge(NAME, GpuReadBack(gpu), &expected, NULL);
+            }
+            // The same trap as the plain render case, through the other format.
+            RenderThenSample(s, REDRAWN, &alias_colour, SLOT_ALIAS, &s->alias, COH_MOVE_ALIASED,
+                             COH_SEED_ALIAS_PART, MIDDLE_CELLS, &alias_texels);
+        } else {
+            ReportSkip(SUITE, REDRAWN, REPORT_REASON_DEPENDS,
+                       "the case before it did not run, and only it gives the alias contents to "
+                       "expect");
         }
-        // The same trap as the plain render case, through the other format.
-        RenderThenSample(s, "redrawing a render target reaches its R32_Uint alias in one list",
-                         &alias_colour, SLOT_ALIAS, &s->alias, COH_MOVE_ALIASED,
-                         COH_SEED_ALIAS_PART, MIDDLE_CELLS, &alias_texels);
     }
 
     {
@@ -781,7 +834,7 @@ void RunCoherence(void) {
         if (GpuStagePixels(gpu, TEX, TEX, staged_texels.texels, &staged)) {
             CopyThenSample(s, WHOLE_NAME, &copied, &copied_texels, &staged, NULL,
                            &staged_texels, &whole, &whole);
-        } else {
+        } else if (ReportStart(SUITE, WHOLE_NAME)) {
             ReportCase(SUITE, WHOLE_NAME, CHECK_NONE, false, gpu->failure);
         }
         // Off the texel grid of both images, so a copy that ignored either offset shows.
@@ -806,23 +859,36 @@ void RunCoherence(void) {
         // flushed shows as that pattern rather than as bytes nobody can name.
         CohImageInit(&drawn, TARGET_SIZE, TARGET_SIZE);
         CohFillPattern(&drawn, COH_SEED_RENDERED_BIG_START);
+        static const char *const PRIMED = "an image read back before the copies holds what was "
+                                          "uploaded";
+        static const char *const COPIED_WHOLE =
+            "a render target copied to an image reads back as drawn";
+        static const char *const COPIED_PART =
+            "part of a render target copied to an image reads back as drawn";
+        // The two copy cases expect the images to start as uploaded here: without it there is
+        // nothing known to expect around what they copy.
+        if (!ReportStart(SUITE, PRIMED)) {
+            static const char *const WHY = "the case that uploads what it copies over did not "
+                                           "run";
+            ReportSkip(SUITE, COPIED_WHOLE, REPORT_REASON_DEPENDS, WHY);
+            ReportSkip(SUITE, COPIED_PART, REPORT_REASON_DEPENDS, WHY);
+            GpuClose(gpu);
+            return;
+        }
         const bool primed = GpuUploadTexture(gpu, &big_rendered, DkImageFormat_RGBA8_Unorm,
                                              TARGET_SIZE, TARGET_SIZE, drawn.texels) &&
                             GpuUploadTexture(gpu, &big_copy, DkImageFormat_RGBA8_Unorm,
                                              TARGET_SIZE, TARGET_SIZE, held.texels);
-        Judge("an image read back before the copies holds what was uploaded",
-              primed ? GpuReadBackImage(gpu, &big_copy, TARGET_SIZE, TARGET_SIZE) : NULL, &held,
-              NULL);
+        Judge(PRIMED, primed ? GpuReadBackImage(gpu, &big_copy, TARGET_SIZE, TARGET_SIZE) : NULL,
+              &held, NULL);
 
         const DkImageRect whole = { 0, 0, 0, TARGET_SIZE, TARGET_SIZE, 1 };
-        RenderCopyReadBack(s, "a render target copied to an image reads back as drawn",
-                           &big_rendered, &big_copy, COH_SEED_READBACK_WHOLE, &whole, &whole,
-                           &held, &drawn);
+        RenderCopyReadBack(s, COPIED_WHOLE, &big_rendered, &big_copy, COH_SEED_READBACK_WHOLE,
+                           &whole, &whole, &held, &drawn);
         const DkImageRect from = { 8, 40, 0, 24, 16, 1 };
         const DkImageRect to = { 36, 4, 0, 24, 16, 1 };
-        RenderCopyReadBack(s, "part of a render target copied to an image reads back as drawn",
-                           &big_rendered, &big_copy, COH_SEED_READBACK_PART, &from, &to, &held,
-                           &drawn);
+        RenderCopyReadBack(s, COPIED_PART, &big_rendered, &big_copy, COH_SEED_READBACK_PART,
+                           &from, &to, &held, &drawn);
     }
 
     GpuClose(gpu);

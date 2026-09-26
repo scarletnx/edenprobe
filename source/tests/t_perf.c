@@ -229,7 +229,7 @@ static void CheckRehearsal(void) {
     (void)PictureBegin(4, 4, PICTURE_COLOUR, pixels);
     ReportCase(SUITE, "a rehearsed case that failed", CHECK_EXACT, false, "rehearsal");
     ReportCase(SUITE, "a rehearsed case that passed", CHECK_EXACT, true, NULL);
-    ReportSkip(SUITE, "a rehearsed case that could not ask", "rehearsal");
+    ReportSkip(SUITE, "a rehearsed case that could not ask", REPORT_REASON_DEPENDS, "rehearsal");
     ReportNote("a rehearsed note");
     ReportRehearse(NULL);
     size_t records_after = 0;

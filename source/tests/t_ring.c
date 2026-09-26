@@ -44,11 +44,18 @@ void RunRing(void) {
     spec.image_size = 64u * 1024u;
     spec.command_size = 2u * 1024u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens with room for 4096 uniform buffers")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with room for 4096 uniform buffers", CHECK_NONE,
                opened, "%s", gpu.failure);
     if (!opened) {
+        return;
+    }
+    if (!ReportStart(SUITE, "the shaders that read 32 textures each load")) {
+        GpuClose(&gpu);
         return;
     }
     DkShader vs;
@@ -63,6 +70,11 @@ void RunRing(void) {
         return;
     }
 
+    if (!ReportStart(SUITE,
+                     "the texture, the vertices, the indices and the buffers are in place")) {
+        GpuClose(&gpu);
+        return;
+    }
     // One texture of one texel, nought, behind all 64 bindings: the shaders add what they read.
     DkImage texture;
     DkImageLayout layout;
@@ -124,6 +136,10 @@ void RunRing(void) {
     }
 
     static const char *const NAME = "4096 indexed draws that each take new descriptors all land";
+    if (!ReportStart(SUITE, NAME)) {
+        GpuClose(&gpu);
+        return;
+    }
     GpuClear(&gpu, 0.0f, 0.0f, 0.0f, 0.0f);
     GpuBeginPass(&gpu);
     dkCmdBufBindImageDescriptorSet(gpu.cmdbuf, image_set, 1);

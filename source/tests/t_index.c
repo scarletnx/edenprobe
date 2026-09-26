@@ -97,6 +97,9 @@ static void JudgeFull(IndexContext *x, const char *name, bool drawn) {
 /// @p tight, and the library's own limit otherwise.
 static void IndexedCase(IndexContext *x, const char *name, DkIdxFormat format,
                         uint32_t padding, uint32_t first, bool tight) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     const uint32_t bytes = IndexBytes(format);
     const uint32_t count = padding * 3u + 6u;
     GpuClear(&x->gpu, 0.0f, 0.0f, 0.0f, 0.0f);
@@ -157,11 +160,18 @@ void RunIndex(void) {
     spec.code_size = 32u * 1024u;
     spec.data_size = 256u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens with room for index buffers")) {
+        return;
+    }
     IndexContext x;
     const bool opened = GpuOpenSpec(&x.gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with room for index buffers", CHECK_NONE, opened,
                "%s", x.gpu.failure);
     if (!opened) {
+        return;
+    }
+    if (!ReportStart(SUITE, "the drawing shaders load")) {
+        GpuClose(&x.gpu);
         return;
     }
     const bool loaded = GpuLoadShader(&x.gpu, &x.position, ShaderData(SHADER_POSITION_VERT),
@@ -177,8 +187,10 @@ void RunIndex(void) {
     uint32_t *const uniform =
         (uint32_t *)GpuAllocData(&x.gpu, UNIFORM_SIZE, DK_UNIFORM_BUF_ALIGNMENT, &x.uniform);
     if (vertices == NULL || uniform == NULL) {
-        ReportCase(SUITE, "the vertices and the colour have somewhere to live", CHECK_NONE,
-                   false, "no scratch left");
+        if (ReportStart(SUITE, "the vertices and the colour have somewhere to live")) {
+            ReportCase(SUITE, "the vertices and the colour have somewhere to live", CHECK_NONE,
+                       false, "no scratch left");
+        }
         GpuClose(&x.gpu);
         return;
     }

@@ -67,6 +67,14 @@ static void Take(RunMode *mode, const char *word, bool cut) {
             mode->fatal = true;
             return;
         }
+        if (strcmp(word, "retry") == 0) {
+            mode->retry = true;
+            return;
+        }
+        if (strcmp(word, "nojournal") == 0) {
+            mode->no_journal = true;
+            return;
+        }
         for (size_t i = 0; i < sizeof(FAMILIES) / sizeof(FAMILIES[0]); ++i) {
             if (strcmp(word, FAMILIES[i].word) == 0) {
                 mode->families_named |= FAMILIES[i].family;
@@ -211,6 +219,14 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; fatal cases");
     }
+    if (mode->retry) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; the crash list's cases again");
+    }
+    if (mode->no_journal) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; no journal");
+    }
     const uint32_t missing = mode->families_named & ~present;
     if (missing != 0u) {
         size_t used = strlen(out);
@@ -227,6 +243,37 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
         snprintf(out + used, out_size - used, "; %u unknown word%s ignored: %s",
                  (unsigned)mode->unknown_count, mode->unknown_count == 1u ? "" : "s",
                  mode->unknown);
+    }
+    return strlen(out);
+}
+
+size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (mode == NULL) {
+        return 0;
+    }
+    const struct {
+        bool on;
+        const char *word;
+    } WORDS[] = {
+        { (mode->families_named & MODE_FAMILY_CPU) != 0u, "cpu" },
+        { mode->fatal, "fatal" },
+        { (mode->families_named & MODE_FAMILY_GRAPHICS) != 0u, "graphics" },
+        { mode->every_case, "images" },
+        { (mode->families_named & MODE_FAMILY_NET) != 0u, "net" },
+        { mode->no_timing, "notime" },
+        { mode->retry, "retry" },
+        { mode->stress, "stress" },
+    };
+    for (size_t i = 0; i < sizeof(WORDS) / sizeof(WORDS[0]); ++i) {
+        if (!WORDS[i].on) {
+            continue;
+        }
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "%s%s", used > 0u ? " " : "", WORDS[i].word);
     }
     return strlen(out);
 }

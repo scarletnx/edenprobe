@@ -159,6 +159,11 @@ bool PictureReserveName(char *stem, size_t stem_size, const char *suite_stem, co
 /// digits kept, everything else a dash, no run of dashes and none at either end.
 void PictureStem(char *out, size_t out_size, const char *name);
 
+/// Takes away the pictures a suite left under the root, and its directory: for a step that runs
+/// again after a crash, whose pictures from before would otherwise sit beside the new ones with
+/// no line naming them. False when something there could not be removed.
+bool PictureRemoveSuite(const char *suite);
+
 /// The colours a diff is drawn in, by verdict. One table, so the picture on the memory card
 /// and the one on a screen cannot come to mean different things.
 void PictureDiffColour(uint8_t verdict, uint8_t out[3]);

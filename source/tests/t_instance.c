@@ -147,10 +147,17 @@ void RunInstance(void) {
     spec.code_size = 32u * 1024u;
     spec.data_size = 64u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens")) {
+        return;
+    }
     InstanceContext c;
     const bool opened = GpuOpenSpec(&c.gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens", CHECK_NONE, opened, "%s", c.gpu.failure);
     if (!opened) {
+        return;
+    }
+    if (!ReportStart(SUITE, "the drawing shaders load")) {
+        GpuClose(&c.gpu);
         return;
     }
     const bool loaded = GpuLoadShader(&c.gpu, &c.instance, ShaderData(SHADER_INSTANCE_VERT),
@@ -166,8 +173,10 @@ void RunInstance(void) {
     uint32_t *const uniform =
         (uint32_t *)GpuAllocData(&c.gpu, UNIFORM_SIZE, DK_UNIFORM_BUF_ALIGNMENT, &c.uniform);
     if (vertices == NULL || uniform == NULL) {
-        ReportCase(SUITE, "the vertices and the uniform buffer have somewhere to live",
-                   CHECK_NONE, false, "no scratch left");
+        if (ReportStart(SUITE, "the vertices and the uniform buffer have somewhere to live")) {
+            ReportCase(SUITE, "the vertices and the uniform buffer have somewhere to live",
+                       CHECK_NONE, false, "no scratch left");
+        }
         GpuClose(&c.gpu);
         return;
     }
@@ -182,7 +191,7 @@ void RunInstance(void) {
         memcpy(vertices + q * 18u, quad, sizeof(quad));
     }
 
-    {
+    if (ReportStart(SUITE, "an instanced array draw uses the uniform value set before it")) {
         const bool ok = RecordFirstThenDraw(&c);
         const RegionWant want[REGIONS] = {
             { true, VALUE_BEFORE }, { false, 0 }, { true, VALUE_AFTER }, { false, 0 }
@@ -190,7 +199,7 @@ void RunInstance(void) {
         JudgeRegions(&c, "an instanced array draw uses the uniform value set before it", want,
                      1u << 0, ok);
     }
-    {
+    if (ReportStart(SUITE, "a draw after an instanced array draw adds no instances of its own")) {
         const bool ok = RecordFirstThenDraw(&c);
         const RegionWant want[REGIONS] = {
             { true, VALUE_BEFORE }, { false, 0 }, { true, VALUE_AFTER }, { false, 0 }
@@ -198,7 +207,7 @@ void RunInstance(void) {
         JudgeRegions(&c, "a draw after an instanced array draw adds no instances of its own",
                      want, (1u << 1) | (1u << 2) | (1u << 3), ok);
     }
-    {
+    if (ReportStart(SUITE, "each subsequent instanced array draw lands as the next instance")) {
         GpuClear(&c.gpu, 0.0f, 0.0f, 0.0f, 0.0f);
         GpuBeginList(&c.gpu);
         Bind(&c);

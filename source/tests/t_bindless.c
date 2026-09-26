@@ -83,11 +83,18 @@ void RunBindless(void) {
     spec.data_size = 64u * 1024u;
     spec.cpu_image_size = TEXTURES * 4096u;
 
+    if (!ReportStart(SUITE, "graphics device opens with room for 256 textures")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with room for 256 textures", CHECK_NONE, opened,
                "%s", gpu.failure);
     if (!opened) {
+        return;
+    }
+    if (!ReportStart(SUITE, "the bindless sampling shader loads")) {
+        GpuClose(&gpu);
         return;
     }
     DkShader vertex_shader;
@@ -103,6 +110,10 @@ void RunBindless(void) {
         return;
     }
 
+    if (!ReportStart(SUITE, "256 one-texel textures, their descriptors and handles are in place")) {
+        GpuClose(&gpu);
+        return;
+    }
     DkGpuAddr image_set = 0;
     DkGpuAddr sampler_set = 0;
     DkGpuAddr handles_address = 0;
@@ -149,6 +160,16 @@ void RunBindless(void) {
         dkSamplerDescriptorInitialize(&samplers[0], &sampler);
     }
 
+    // One draw for both halves: it is the first case's work, and the second is judged from the
+    // same readback, so it has nothing to judge when the first did not run.
+    static const char *const BELOW = "a handle index below 128 samples its own texture";
+    static const char *const ABOVE = "a handle index from 128 to 255 samples its own texture";
+    if (!ReportStart(SUITE, BELOW)) {
+        ReportSkip(SUITE, ABOVE, REPORT_REASON_DEPENDS,
+                   "judged from the draw of the case before it, which did not run");
+        GpuClose(&gpu);
+        return;
+    }
     GpuClear(&gpu, 0.0f, 0.0f, 0.0f, 0.0f);
     static const GpuVertex quad[6] = {
         { -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
@@ -168,14 +189,16 @@ void RunBindless(void) {
     if (pixels == NULL) {
         const char *const why =
             gpu.failure[0] != '\0' ? gpu.failure : "the draw or the readback did not happen";
-        ReportCase(SUITE, "a handle index below 128 samples its own texture", CHECK_NONE, false,
-                   why);
-        ReportCase(SUITE, "a handle index from 128 to 255 samples its own texture", CHECK_NONE,
-                   false, why);
+        ReportCase(SUITE, BELOW, CHECK_NONE, false, why);
+        if (ReportStart(SUITE, ABOVE)) {
+            ReportCase(SUITE, ABOVE, CHECK_NONE, false, why);
+        }
         GpuClose(&gpu);
         return;
     }
-    Judge(&gpu, pixels, "a handle index below 128 samples its own texture", 0, 127);
-    Judge(&gpu, pixels, "a handle index from 128 to 255 samples its own texture", 128, 255);
+    Judge(&gpu, pixels, BELOW, 0, 127);
+    if (ReportStart(SUITE, ABOVE)) {
+        Judge(&gpu, pixels, ABOVE, 128, 255);
+    }
     GpuClose(&gpu);
 }

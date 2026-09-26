@@ -24,7 +24,7 @@ int main(void) {
     ReportSummary();
     ReportClose();
 
-    printf("passed=%zu failed=%zu skipped=%zu\n", ReportPassed(), ReportFailed(),
-           ReportSkipped());
+    printf("passed=%zu failed=%zu skipped=%zu crashed=%zu\n", ReportPassed(), ReportFailed(),
+           ReportSkipped(), ReportCrashed());
     return ReportFailed() == 0 ? 0 : 1;
 }

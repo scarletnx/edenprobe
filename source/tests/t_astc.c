@@ -154,11 +154,18 @@ void RunAstc(void) {
     spec.data_size = 64u * 1024u;
     spec.cpu_image_size = ASTC_TEST_BLOCKS * 4096u;
 
+    if (!ReportStart(SUITE, "graphics device opens with room for the blocks")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with room for the blocks", CHECK_NONE, opened, "%s",
                gpu.failure);
     if (!opened) {
+        return;
+    }
+    if (!ReportStart(SUITE, "the fetching shader loads")) {
+        GpuClose(&gpu);
         return;
     }
     DkShader vertex_shader;
@@ -173,6 +180,9 @@ void RunAstc(void) {
         return;
     }
     for (uint32_t i = 0; i < ASTC_TEST_BLOCKS; ++i) {
+        if (!ReportStart(SUITE, ASTC_TEST_BLOCK[i].sentence)) {
+            continue;
+        }
         // Fresh descriptors and a fresh size per block, never rewritten while a list reads them.
         DkGpuAddr image_set = 0;
         DkGpuAddr sampler_set = 0;

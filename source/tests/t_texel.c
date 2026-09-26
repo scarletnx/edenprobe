@@ -33,6 +33,9 @@ static void Case(GpuContext *gpu, const DkShader *vs, const DkShader *fs, uint32
     snprintf(name, sizeof(name), "a buffer texture %u bytes into an aligned region fetches its "
                                  "own texels",
              (unsigned)skew);
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     DkGpuAddr region_address = 0;
     uint8_t *const region = (uint8_t *)GpuAllocData(gpu, 1024, 256, &region_address);
     DkGpuAddr image_set = 0;
@@ -129,10 +132,17 @@ void RunTexel(void) {
     spec.code_size = 32u * 1024u;
     spec.data_size = 64u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens", CHECK_NONE, opened, "%s", gpu.failure);
     if (!opened) {
+        return;
+    }
+    if (!ReportStart(SUITE, "the buffer texture shader loads")) {
+        GpuClose(&gpu);
         return;
     }
     DkShader vs;

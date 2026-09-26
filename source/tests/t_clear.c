@@ -128,6 +128,9 @@ static void ReadBackAndCheck(GpuContext *gpu, const char *name, uint32_t rect_x,
 static void ClearAndCheck(GpuContext *gpu, const char *name, float red, float green, float blue,
                           float alpha, uint8_t red_byte, uint8_t green_byte, uint8_t blue_byte,
                           uint8_t alpha_byte) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     const uint8_t expected[4] = { red_byte, green_byte, blue_byte, alpha_byte };
 
     GpuClear(gpu, red, green, blue, alpha);
@@ -137,6 +140,9 @@ static void ClearAndCheck(GpuContext *gpu, const char *name, float red, float gr
 }
 
 void RunClear(void) {
+    if (!ReportStart(SUITE, "graphics device opens")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpen(&gpu, TARGET_WIDTH, TARGET_HEIGHT);
     CHECK_TRUE(SUITE, "graphics device opens", CHECK_NONE, opened, "%s", gpu.failure);
@@ -166,10 +172,12 @@ void RunClear(void) {
     // to hide, and both colours differ in all four channels from what the case before left.
     const uint8_t outside[4] = { 0x00, 0xFF, 0xFF, 0x00 };
     const uint8_t inside[4] = { 0xFF, 0x00, 0x00, 0xFF };
-    GpuClear(&gpu, 0.0f, 1.0f, 1.0f, 0.0f);
-    GpuClearRect(&gpu, RECT_X, RECT_Y, RECT_WIDTH, RECT_HEIGHT, 1.0f, 0.0f, 0.0f, 1.0f);
-    ReadBackAndCheck(&gpu, "clear bounded by a rectangle", RECT_X, RECT_Y, RECT_WIDTH,
-                     RECT_HEIGHT, inside, outside);
+    if (ReportStart(SUITE, "clear bounded by a rectangle")) {
+        GpuClear(&gpu, 0.0f, 1.0f, 1.0f, 0.0f);
+        GpuClearRect(&gpu, RECT_X, RECT_Y, RECT_WIDTH, RECT_HEIGHT, 1.0f, 0.0f, 0.0f, 1.0f);
+        ReadBackAndCheck(&gpu, "clear bounded by a rectangle", RECT_X, RECT_Y, RECT_WIDTH,
+                         RECT_HEIGHT, inside, outside);
+    }
 
     GpuClose(&gpu);
 }

@@ -35,7 +35,7 @@ static void ReadPad(PadState *pad) {
     padUpdate(pad);
 }
 
-RunMode ViewerModeAtLaunch(const char *mode_path) {
+RunMode ViewerModeFromFile(const char *mode_path) {
     // One byte past the limit, which is how a longer file is told apart from one exactly as
     // long, and which says whether the last word read runs on. Static, because it is four
     // kilobytes and read once.
@@ -55,7 +55,10 @@ RunMode ViewerModeAtLaunch(const char *mode_path) {
     }
     text[read] = '\0';
     const bool longer = read > MODE_FILE_MAX;
-    const RunMode from_file = ModeFromFile(source, text, longer ? MODE_FILE_MAX : read, longer);
+    return ModeFromFile(source, text, longer ? MODE_FILE_MAX : read, longer);
+}
+
+RunMode ViewerModeWithPad(RunMode from_file) {
     if (!ModeAsksPad(&from_file)) {
         // Already detailed, and the button could only have asked for that again.
         return from_file;
@@ -115,7 +118,7 @@ ViewerEnd ViewerRun(void) {
     size_t count = 0;
     const ReportRecord *const records = ReportRecords(&count);
     UiRunIndex(&run, records, (uint32_t)count,
-               (uint32_t)(ReportPassed() + ReportFailed() + ReportSkipped()));
+               (uint32_t)(ReportPassed() + ReportFailed() + ReportSkipped() + ReportCrashed()));
 
     Framebuffer fb;
     if (R_FAILED(framebufferCreate(&fb, nwindowGetDefault(), SCREEN_WIDTH, SCREEN_HEIGHT,
