@@ -5,3 +5,5 @@
 /edenprobe.nacp
 /edenprobe-host-report.jsonl
 /tools/__pycache__/
+/tools/vklayer/libVkLayer_edenprobe_masquerade.so
+/tools/vklayer/check_masquerade

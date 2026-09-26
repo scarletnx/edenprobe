@@ -1,0 +1,11 @@
+{
+    "file_format_version": "1.2.0",
+    "layer": {
+        "name": "VK_LAYER_EDENPROBE_masquerade",
+        "type": "GLOBAL",
+        "library_path": "./libVkLayer_edenprobe_masquerade.so",
+        "api_version": "1.4.0",
+        "implementation_version": "1",
+        "description": "Reports an older Vulkan driver to the application: EDENPROBE_MASQUERADE_API=1.1, EDENPROBE_MASQUERADE_NO_HOST_QUERY_RESET=1"
+    }
+}

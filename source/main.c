@@ -114,6 +114,9 @@ int main(int argc, char **argv) {
         RunTimed("texel", RunTexel, timing);
         RunTimed("stream", RunStream, timing);
         RunTimed("fill", RunFill, timing);
+        RunTimed("ring", RunRing, timing);
+        RunTimed("occlusion", RunOcclusion, timing);
+        RunTimed("drawtex", RunDrawtex, timing);
     }
     if ((families & MODE_FAMILY_NET) != 0u) {
         RunNet();

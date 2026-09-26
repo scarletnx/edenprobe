@@ -28,6 +28,26 @@ size_t RawIndexLimit(uint32_t out[3], uint64_t limit) {
     return 3;
 }
 
+size_t RawDrawTexture(uint32_t out[13], uint32_t texture, uint32_t sampler, uint32_t dst_x,
+                      uint32_t dst_y, uint32_t width, uint32_t height, uint32_t src_x,
+                      uint32_t src_y) {
+    out[0] = RawIncreasingHeader(RAW_SUBCHANNEL_3D, RAW_3D_DRAW_TEXTURE, 12);
+    out[1] = dst_x << 12;
+    out[2] = dst_y << 12;
+    out[3] = width << 12;
+    out[4] = height << 12;
+    // One texel per pixel on each axis: 1.0 in 32.32 is a low word of nought and a high of one.
+    out[5] = 0u;
+    out[6] = 1u;
+    out[7] = 0u;
+    out[8] = 1u;
+    out[9] = sampler;
+    out[10] = texture;
+    out[11] = src_x << 12;
+    out[12] = src_y << 12;
+    return 13;
+}
+
 uint32_t RawInstanceArrayWord(uint32_t topology, uint32_t first, uint32_t count) {
     return Field(first, 0, 16) | Field(count, 16, 12) | Field(topology, 28, 4);
 }

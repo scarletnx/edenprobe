@@ -134,6 +134,18 @@ void StreamSetStress(bool on);
 /// tested and written by each, the pixels and the depth judged too.
 void RunFill(void);
 
+/// 4096 indexed draws in one list, each with 65 descriptors and a uniform buffer of its own, so
+/// an emulator's descriptor ring runs out several times in the list: every draw must land.
+void RunRing(void);
+
+/// The samples counter reported after each of 320 quads and each of 320 cleared cells: every
+/// count must be the quad's pixels, and every quad and cell must be there.
+void RunOcclusion(void);
+
+/// DRAW_TEXTURE, sent as raw words between two draws: the draw after it must use its own
+/// pipeline, viewport and scissor.
+void RunDrawtex(void);
+
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not
 /// name, or a service this program cannot open, is skipped with the reason and counted apart.
