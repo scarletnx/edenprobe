@@ -775,6 +775,23 @@ static void CheckLaunchAndMode(void) {
                    (int)heavy.stress, (unsigned)heavy.unknown_count, said);
     }
 
+    // The fatal word turns on the cases a failing machine does not survive, and only it; with
+    // the cpu family alone the line names no other family.
+    {
+        const RunMode plain = ModeFromText("quick cpu");
+        const RunMode fatal = ModeFromText("quick cpu FATAL");
+        char said[REPORT_NOTE_MAX + 1] = "";
+        ModeDescribe(said, sizeof(said), &fatal, MODE_FAMILIES_PRESENT);
+        CHECK_TRUE(SUITE, "the word fatal, and nothing else, asks for the fatal cases",
+                   CHECK_NONE,
+                   !plain.fatal && fatal.fatal && fatal.unknown_count == 0u &&
+                       !ModeFromText("quick stress").fatal && !ModeFromText("fatal").stress &&
+                       strcmp(said, "mode: quick, from the mode file; pictures of failures "
+                                    "only; families cpu; fatal cases") == 0,
+                   "plain %d, fatal %d, unknown %u, said \"%.200s\"", (int)plain.fatal,
+                   (int)fatal.fatal, (unsigned)fatal.unknown_count, said);
+    }
+
     // Every word, alone and together, any case, in a file that is missing, empty, or has words
     // nobody knows. What the run does is the first two columns; the rest is what it reports.
     static const struct {
@@ -806,6 +823,11 @@ static void CheckLaunchAndMode(void) {
         { "nets", true, false, 0, 1, MODE_FAMILIES_PRESENT },
         { "grpahics fast quick", false, false, 0, 2, MODE_FAMILIES_PRESENT },
         { "quick2images", false, true, 0, 0, MODE_FAMILIES_PRESENT },
+        { "quick cpu", false, false, MODE_FAMILY_CPU, 0, MODE_FAMILY_CPU },
+        { "CPU net", true, false, MODE_FAMILY_CPU | MODE_FAMILY_NET, 0,
+          MODE_FAMILY_CPU | MODE_FAMILY_NET },
+        { "cpus", true, false, 0, 1, MODE_FAMILIES_PRESENT },
+        { "quick fatal", false, false, 0, 0, MODE_FAMILIES_PRESENT },
     };
     uint32_t wrong = 0;
     size_t first_wrong = 0;
@@ -849,13 +871,13 @@ static void CheckLaunchAndMode(void) {
     ModeDescribe(folder_said, sizeof(folder_said), &folder, MODE_FAMILY_GRAPHICS);
     const bool folder_right =
         folder.detailed && strstr(folder_said, "mode is a directory, read as no file") != NULL;
-    // This build has both families, so a file naming one runs that one and names nothing
+    // This build has every family, so a file naming one runs that one and names nothing
     // missing.
     const RunMode net_only = ModeFromText("quick net");
     char net_said[REPORT_NOTE_MAX + 1];
     ModeDescribe(net_said, sizeof(net_said), &net_only, MODE_FAMILIES_PRESENT);
     const bool net_said_right =
-        MODE_FAMILIES_PRESENT == (MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET) &&
+        MODE_FAMILIES_PRESENT == (MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET) &&
         strcmp(net_said,
                "mode: quick, from the mode file; pictures of failures only; families net") == 0;
     const RunMode flood = ModeFromText(

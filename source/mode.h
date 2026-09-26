@@ -25,24 +25,29 @@ extern "C" {
 ///   stress    the heavy variants too: cases that ask a machine for far more than a game in
 ///             one list, off by default because an emulator can die of one and take the rest
 ///             of the run with it.
-///   graphics  a suite family; see below.
+///   fatal     the cases that end the run on a machine that fails them, the console included
+///             where its processor lacks the instruction: off by default, and never on the console.
+///   cpu       a suite family: the processor's instructions, which run in every mode anyway, so
+///             naming it alone is a run with no drawing and no network.
+///   graphics  another; see below.
 ///   net       another: the online services, nifm to friend, against the backend the file
 ///             sdmc:/edenprobe/net names (see netref.h).
 ///
 /// Families choose which suites beyond the judge run. None named means every family this build
 /// has. The judge itself (selfcheck, support, reference) always runs, because no verdict below
-/// it can be believed without it. Any other word is reported and ignored, never fatal: a file
+/// it can be believed without it, and so does cpu, which needs no device. Any other word is reported and ignored, never fatal: a file
 /// with a typo in it still gets a run, and a line in the report saying what was not understood.
 
 /// The suite families, one bit each.
 enum {
     MODE_FAMILY_GRAPHICS = 1u << 0,
     MODE_FAMILY_NET = 1u << 1,
+    MODE_FAMILY_CPU = 1u << 2,
 };
 
 /// The families this build carries. A family named in the file and missing here is reported,
 /// not run.
-#define MODE_FAMILIES_PRESENT ((uint32_t)(MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET))
+#define MODE_FAMILIES_PRESENT ((uint32_t)(MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET))
 
 /// How much of the mode file is read: every word there is fits many times over. A longer file is
 /// read to here and the report says so; a word the limit cuts in two is dropped, never quoted as
@@ -80,6 +85,8 @@ typedef struct {
     bool no_timing;
     /// The word `stress`: the heavy variants of the cases that have one.
     bool stress;
+    /// The word `fatal`: the cases a machine that fails them does not survive.
+    bool fatal;
     /// The family words in the file, whether or not this build has them.
     uint32_t families_named;
     /// How many words were not understood, and the first of them, space separated.
