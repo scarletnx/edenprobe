@@ -35,8 +35,8 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Thirty seven suites, in the order they run: the judge, then the processor, then the graphics
-family, then the net family. A run is 748 cases: 695 for the judge, the processor and the graphics
+Thirty eight suites, in the order they run: the judge, then the processor, then the graphics
+family, then the net family. A run is 753 cases: 700 for the judge, the processor and the graphics
 family, 53 for the net family; the mode word `stress` adds one, and `fatal` runs the cases the
 may-crash table names, which are otherwise skipped. The order, and what a failure in each suite
 points at, is in "The roadmap" below. A case that ends the program costs that case and not the rest
@@ -520,6 +520,12 @@ of the run: see "When the program ends in the middle".
   `vk_query_cache.cpp`, which renders unconditionally on some drivers and accuracies. CONDITIONAL,
   which reads one address, gets three notes rather than cases (the value one, the value two to the
   32, a report of 9600), since which of its bytes decide is not settled: a console run is what says.
+- **dma**, five cases. The copy engine copies a 64 KiB buffer 32 times in one list, first from
+  words the processor wrote and then from words a dispatch wrote just before; every copy is
+  judged word by word. The difference between the two times is what copying data the graphics
+  unit wrote costs: an emulator that stops the processor until the graphics unit is idle on each
+  such copy (Eden's buffer cache, `DMACopy`, with a fence setting that asks for it) pays it 32
+  times in the second case. A single judged copy goes first and takes the first use.
 
 The net family asks the services a program reaches the network through, the way a game asks them,
 and judges each answer against its protocol or against what `sdmc:/edenprobe/net` says the backend
@@ -630,6 +636,7 @@ its dependencies put it, not at the end.
 | occlusion | exact | a query bank reset inside a draw or clear's render pass: the pass ends and the draw or clear lands outside it (`renderer_vulkan/vk_query_cache.cpp`, `SamplesQueryBank::Reset`); or counts that are not the pixels drawn. |
 | drawtex | exact | the state DRAW_TEXTURE leaves bound: the next draw keeps the blit's pipeline or its viewport and scissor (`renderer_vulkan/blit_image.cpp`, `BlitColor`, and `vk_rasterizer.cpp`, `DrawTexture`). |
 | query | exact | the samples counter (a count scaled with the render target, `vk_query_cache.cpp`) and the render enable over values and reports (`query_cache.h`, `AccelerateHostConditionalRendering`; `maxwell_3d.cpp`, `ProcessQueryCondition`), draws and clears alike. |
+| dma | exact | copies of a buffer by the copy engine, and what copying data the graphics unit wrote costs (`buffer_cache/buffer_cache.h`, `DMACopy`). |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
@@ -1018,7 +1025,7 @@ not a letter between them.
 | `retry` | the cases on the crash list run again; one that runs to its end leaves the list (see "When the program ends in the middle"). A case the hang table names stays skipped until `hang` asks too |
 | `nojournal` | nothing is written between cases: no journal, so a crash costs the rest of the run as it did before the journal; for measuring what the journal costs |
 | `cpu` | the processor family: the cpu suite runs in every mode, so naming it alone keeps the graphics and net families out, a run of a few seconds with nothing drawn |
-| `graphics` | the graphics family: the twenty seven drawing suites, clear to query; selfcheck, support, reference and cpu always run, whatever family is named |
+| `graphics` | the graphics family: the twenty eight drawing suites, clear to dma; selfcheck, support, reference and cpu always run, whatever family is named |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
 
 Families choose what runs beyond the judge, which always runs because nothing a family reports can
