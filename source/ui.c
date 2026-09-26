@@ -306,6 +306,11 @@ const char *UiFamilyName(UiFamily family) {
     return "other";
 }
 
+/// A case that asked nothing: skipped for any reason, crashed included.
+static bool Skipped(ReportResult result) {
+    return result == REPORT_SKIP || result == REPORT_CRASHED;
+}
+
 void UiRunIndex(UiRun *run, const ReportRecord *records, uint32_t count, uint32_t reported) {
     if (run == NULL) {
         return;
@@ -345,7 +350,7 @@ void UiRunIndex(UiRun *run, const ReportRecord *records, uint32_t count, uint32_
         if (record->result == REPORT_FAIL) {
             ++group->failed;
             ++run->failed;
-        } else if (record->result == REPORT_SKIP) {
+        } else if (Skipped(record->result)) {
             ++group->skipped;
             ++run->skipped;
         } else {
@@ -700,18 +705,18 @@ uint32_t UiOverviewRow(const UiRun *run, uint32_t group) {
 }
 
 static const uint8_t *ResultColour(ReportResult result) {
-    return result == REPORT_FAIL ? FAILED : result == REPORT_SKIP ? SKIPPED : PASSED;
+    return result == REPORT_FAIL ? FAILED : Skipped(result) ? SKIPPED : PASSED;
 }
 
 /// What to say where a case's line carried no detail, which is only unremarkable for a pass.
 static const char *NoDetail(ReportResult result) {
     return result == REPORT_FAIL   ? "no detail: the line says only that it failed"
-           : result == REPORT_SKIP ? "no detail: the line gives no reason"
+           : Skipped(result)       ? "no detail: the line gives no reason"
                                    : "no detail: the case passed";
 }
 
 static const char *ResultWord(ReportResult result) {
-    return result == REPORT_FAIL ? "FAIL" : result == REPORT_SKIP ? "SKIP" : "PASS";
+    return result == REPORT_FAIL ? "FAIL" : Skipped(result) ? "SKIP" : "PASS";
 }
 
 /// A group's verdict in one word: failed if anything did, passed if anything did, and skipped
@@ -832,7 +837,8 @@ static void ComposePreview(const UiFrame *frame, const UiRun *run, uint32_t inde
     uint32_t listed = 0;
     for (uint32_t i = 0; i < group->count && listed < room; ++i) {
         const ReportRecord *const record = UiCaseAt(run, index, i);
-        if (record == NULL || record->result != shown) {
+        if (record == NULL ||
+            (shown == REPORT_SKIP ? !Skipped(record->result) : record->result != shown)) {
             continue;
         }
         if (listed + 1u == room && wanted > room) {
@@ -1077,7 +1083,7 @@ static void ComposeDetail(const UiFrame *frame, const UiGroup *group, const Repo
     y += TextWrapped(frame, MARGIN, y, BIG, PAGE_LINE, TEXT, line->name, columns, 3u) *
              PAGE_LINE +
          12u;
-    Say(frame, MARGIN, y, DIM, line->result == REPORT_SKIP ? "why it was skipped" : "detail");
+    Say(frame, MARGIN, y, DIM, Skipped(line->result) ? "why it was skipped" : "detail");
     y += PAGE_LINE;
     // One line kept back for the note below.
     const uint32_t room =

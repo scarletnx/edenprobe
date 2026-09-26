@@ -51,6 +51,9 @@ static float Depth(uint32_t k) {
 
 static void Case(GpuContext *gpu, const DkShader *vs, const DkShader *fs, bool depth,
                  uint32_t quads, const char *name) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     GpuClear(gpu, 0.0f, 0.0f, 0.0f, 0.0f);
     GpuClearDepth(gpu, 1.0f);
     GpuBeginPass(gpu);
@@ -112,11 +115,18 @@ void RunFill(void) {
     spec.code_size = 32u * 1024u;
     spec.data_size = 256u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens with a 512 by 512 depth target")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with a 512 by 512 depth target", CHECK_NONE, opened,
                "%s", gpu.failure);
     if (!opened) {
+        return;
+    }
+    if (!ReportStart(SUITE, "the flat shaders load")) {
+        GpuClose(&gpu);
         return;
     }
     DkShader vs;

@@ -151,24 +151,39 @@ static bool Anywhere(uint32_t x, uint32_t y) {
     return true;
 }
 
+/// One list, judged as @p rect_name when there is one and then as @p name. The list is the
+/// first case's work; a second is judged from the same readback, so it has nothing to judge when
+/// the first did not run.
 static void ListCase(DrawtexContext *c, bool uniform_after, const char *rect_name,
                      const char *name) {
+    const char *const first = rect_name != NULL ? rect_name : name;
+    if (!ReportStart(SUITE, first)) {
+        if (rect_name != NULL) {
+            ReportSkip(SUITE, name, REPORT_REASON_DEPENDS,
+                       "judged from the list of the case before it, which did not run");
+        }
+        return;
+    }
     const uint8_t *const last = uniform_after ? COLOUR_D : COLOUR_C;
     const bool ran = RunList(c, uniform_after);
     const uint8_t *const pixels = ran ? GpuReadBack(&c->gpu) : NULL;
     if (pixels == NULL) {
         const char *const why =
             c->gpu.failure[0] != '\0' ? c->gpu.failure : "the list or the readback did not happen";
-        if (rect_name != NULL) {
-            ReportCase(SUITE, rect_name, CHECK_NONE, false, why);
+        ReportCase(SUITE, first, CHECK_NONE, false, why);
+        if (rect_name != NULL && ReportStart(SUITE, name)) {
+            ReportCase(SUITE, name, CHECK_NONE, false, why);
         }
-        ReportCase(SUITE, name, CHECK_NONE, false, why);
         return;
     }
-    if (rect_name != NULL) {
-        Judge(pixels, rect_name, last, InRect);
+    if (rect_name == NULL) {
+        Judge(pixels, name, last, Anywhere);
+        return;
     }
-    Judge(pixels, name, last, Anywhere);
+    Judge(pixels, rect_name, last, InRect);
+    if (ReportStart(SUITE, name)) {
+        Judge(pixels, name, last, Anywhere);
+    }
 }
 
 void RunDrawtex(void) {
@@ -178,11 +193,18 @@ void RunDrawtex(void) {
     spec.data_size = 64u * 1024u;
     spec.image_size = 64u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens with room for a texture")) {
+        return;
+    }
     DrawtexContext c;
     const bool opened = GpuOpenSpec(&c.gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with room for a texture", CHECK_NONE, opened, "%s",
                c.gpu.failure);
     if (!opened) {
+        return;
+    }
+    if (!ReportStart(SUITE, "the drawing shaders load")) {
+        GpuClose(&c.gpu);
         return;
     }
     const bool loaded = GpuLoadShader(&c.gpu, &c.vertex, ShaderData(SHADER_COMMON_VERT),
@@ -197,6 +219,10 @@ void RunDrawtex(void) {
         return;
     }
 
+    if (!ReportStart(SUITE, "the texture, its descriptors and the uniform colour are in place")) {
+        GpuClose(&c.gpu);
+        return;
+    }
     DkImage texture;
     DkImageLayout layout;
     uint8_t texels[TEXTURE_SIZE * TEXTURE_SIZE][4];

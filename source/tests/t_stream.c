@@ -46,6 +46,9 @@ static uint32_t Word(uint32_t draw, uint32_t salt) {
 
 static void Case(GpuContext *gpu, const DkShader *vs, const DkShader *fs, const char *name,
                  uint32_t draws, uint32_t buffer_size, uint32_t salt) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     DkGpuAddr vertices_address = 0;
     float *const vertices =
         (float *)GpuAllocData(gpu, MAX_DRAWS * 6u * 16u, 256, &vertices_address);
@@ -154,11 +157,18 @@ void RunStream(void) {
     spec.data_size = (stress_cases ? 344u : 88u) * 1024u * 1024u;
     spec.command_size = 1024u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens with room for the uniform buffers")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with room for the uniform buffers", CHECK_NONE,
                opened, "%s", gpu.failure);
     if (!opened) {
+        return;
+    }
+    if (!ReportStart(SUITE, "the drawing shaders load")) {
+        GpuClose(&gpu);
         return;
     }
     DkShader vs;

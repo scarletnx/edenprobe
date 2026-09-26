@@ -241,6 +241,9 @@ static bool EveryDepthIs(const uint8_t *pixels, float expected, Picture *picture
 static void CompareCase(GpuContext *gpu, const DkShader *vertex_shader,
                         const DkShader *fragment_shader, const char *name, float z,
                         DkCompareOp compare, const uint8_t expected[4]) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     if (!Prepare(gpu, vertex_shader, fragment_shader) ||
         !DepthPass(gpu, vertex_shader, fragment_shader, z, SECOND_COLOR, compare, true)) {
         ReportCase(SUITE, name, CHECK_NONE, false,
@@ -271,6 +274,9 @@ static void CompareCase(GpuContext *gpu, const DkShader *vertex_shader,
 static void WriteCase(GpuContext *gpu, const DkShader *vertex_shader,
                       const DkShader *fragment_shader, const char *name, bool write_depth,
                       float expected_depth) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     if (!Prepare(gpu, vertex_shader, fragment_shader) ||
         !DepthPass(gpu, vertex_shader, fragment_shader, NEAR_DEPTH, SECOND_COLOR,
                    DkCompareOp_Less, write_depth)) {
@@ -298,6 +304,9 @@ static void WriteCase(GpuContext *gpu, const DkShader *vertex_shader,
 static void ColorCase(GpuContext *gpu, const DkShader *vertex_shader,
                       const DkShader *fragment_shader) {
     static const char *const NAME = "closing the depth write does not stop the colour";
+    if (!ReportStart(SUITE, NAME)) {
+        return;
+    }
     if (!Prepare(gpu, vertex_shader, fragment_shader) ||
         !DepthPass(gpu, vertex_shader, fragment_shader, NEAR_DEPTH, SECOND_COLOR,
                    DkCompareOp_Less, false)) {
@@ -330,6 +339,9 @@ void RunDepth(void) {
     spec.code_size = 16u * 1024u;
     spec.data_size = 64u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens with a depth target")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with a depth target", CHECK_NONE, opened, "%s",
@@ -338,6 +350,10 @@ void RunDepth(void) {
         return;
     }
 
+    if (!ReportStart(SUITE, "the shaders load")) {
+        GpuClose(&gpu);
+        return;
+    }
     DkShader vertex_shader;
     DkShader fragment_shader;
     const bool loaded = GpuLoadShader(&gpu, &vertex_shader, ShaderData(SHADER_COMMON_VERT),
@@ -356,6 +372,8 @@ void RunDepth(void) {
     // The argument for the number of cases below, checked rather than asserted: at these three
     // depths the eight operations give eight different patterns, so each is told apart from
     // every other.
+    const bool told_apart_starts =
+        ReportStart(SUITE, "these three depths tell all eight comparisons apart");
     uint32_t indistinguishable = 0;
     const char *first_pair = "";
     const char *second_pair = "";
@@ -378,13 +396,16 @@ void RunDepth(void) {
             }
         }
     }
-    CHECK_TRUE(SUITE, "these three depths tell all eight comparisons apart", CHECK_NONE,
-               indistinguishable == 0, "%u pairs agree everywhere, first was \"%s\" and \"%s\"",
-               (unsigned)indistinguishable, first_pair, second_pair);
+    if (told_apart_starts) {
+        CHECK_TRUE(SUITE, "these three depths tell all eight comparisons apart", CHECK_NONE,
+                   indistinguishable == 0,
+                   "%u pairs agree everywhere, first was \"%s\" and \"%s\"",
+                   (unsigned)indistinguishable, first_pair, second_pair);
+    }
 
     // A depth buffer that holds what it was told to hold, before any test is asked about it.
-    GpuClearDepth(&gpu, CLEARED_DEPTH);
-    {
+    if (ReportStart(SUITE, "a depth clear writes the value it was given")) {
+        GpuClearDepth(&gpu, CLEARED_DEPTH);
         const uint8_t *const depths = GpuReadBackDepth(&gpu);
         if (depths == NULL) {
             ReportCase(SUITE, "a depth clear writes the value it was given", CHECK_NONE, false,

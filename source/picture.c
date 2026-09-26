@@ -1,10 +1,15 @@
 // SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: MIT
 
+// opendir and rmdir, which the host build's C11 does not declare without asking.
+#define _POSIX_C_SOURCE 200809L
+
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "picture.h"
 
@@ -399,4 +404,31 @@ size_t PictureCount(void) {
 
 const PictureRecord *PictureAt(size_t index) {
     return index < record_count ? &records[index] : NULL;
+}
+
+bool PictureRemoveSuite(const char *suite) {
+    char suite_stem[32];
+    PictureStem(suite_stem, sizeof(suite_stem), suite != NULL ? suite : "");
+    char directory[PICTURE_PATH_MAX + 64];
+    const int wrote = snprintf(directory, sizeof(directory), "%s/images/%s", root, suite_stem);
+    if (root[0] == '\0' || suite_stem[0] == '\0' || wrote < 0 ||
+        (size_t)wrote >= sizeof(directory)) {
+        return false;
+    }
+    DIR *listing = opendir(directory);
+    if (listing == NULL) {
+        return true;
+    }
+    bool removed = true;
+    const struct dirent *entry;
+    while ((entry = readdir(listing)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        char path[sizeof(directory) + 256];
+        snprintf(path, sizeof(path), "%s/%s", directory, entry->d_name);
+        removed = remove(path) == 0 && removed;
+    }
+    closedir(listing);
+    return rmdir(directory) == 0 && removed;
 }

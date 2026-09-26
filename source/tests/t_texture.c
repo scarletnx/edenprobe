@@ -188,6 +188,9 @@ static void SampleCase(GpuContext *gpu, const DkShader *vertex_shader,
                        uint32_t image_count, DkGpuAddr sampler_set, uint32_t sampler_count,
                        uint32_t image_index, uint32_t sampler_index,
                        const TextureExpectation *want) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     // Cleared to something no texel holds, so a pixel the quad missed is not mistaken for a
     // texel that happened to match.
     GpuClear(gpu, 1.0f, 0.0f, 1.0f, 0.0f);
@@ -249,6 +252,9 @@ void RunTexture(void) {
     // the number here is nothing like four by four by four bytes.
     spec.image_size = 64u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens with room for textures")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with room for textures", CHECK_NONE, opened, "%s",
@@ -257,6 +263,10 @@ void RunTexture(void) {
         return;
     }
 
+    if (!ReportStart(SUITE, "the sampling shader loads")) {
+        GpuClose(&gpu);
+        return;
+    }
     DkShader vertex_shader;
     DkShader fragment_shader;
     const bool loaded = GpuLoadShader(&gpu, &vertex_shader, ShaderData(SHADER_COMMON_VERT),
@@ -305,15 +315,24 @@ void RunTexture(void) {
             }
         }
     }
-    CHECK_TRUE(SUITE, "every neighbouring pair of texels averages to a whole byte", CHECK_NONE,
-               odd_sums == 0, "%u of the 16 neighbouring channel pairs add to an odd number",
-               (unsigned)odd_sums);
-    CHECK_TRUE(SUITE, "no pair of texels is far enough apart for a filter weight to matter",
-               CHECK_NONE, too_far == 0,
-               "the widest neighbouring pair differs by %u, which a weight off by one in 256 "
-               "would move by %u parts in 256 of a byte; half a byte changes the answer",
-               (unsigned)widest, (unsigned)widest);
+    if (ReportStart(SUITE, "every neighbouring pair of texels averages to a whole byte")) {
+        CHECK_TRUE(SUITE, "every neighbouring pair of texels averages to a whole byte",
+                   CHECK_NONE, odd_sums == 0,
+                   "%u of the 16 neighbouring channel pairs add to an odd number",
+                   (unsigned)odd_sums);
+    }
+    if (ReportStart(SUITE, "no pair of texels is far enough apart for a filter weight to matter")) {
+        CHECK_TRUE(SUITE, "no pair of texels is far enough apart for a filter weight to matter",
+                   CHECK_NONE, too_far == 0,
+                   "the widest neighbouring pair differs by %u, which a weight off by one in 256 "
+                   "would move by %u parts in 256 of a byte; half a byte changes the answer",
+                   (unsigned)widest, (unsigned)widest);
+    }
 
+    if (!ReportStart(SUITE, "the textures have somewhere to live")) {
+        GpuClose(&gpu);
+        return;
+    }
     DkImage nearest_image;
     DkImageLayout nearest_layout;
     DkImage linear_image;
@@ -330,6 +349,10 @@ void RunTexture(void) {
         return;
     }
 
+    if (!ReportStart(SUITE, "the texels reach the textures")) {
+        GpuClose(&gpu);
+        return;
+    }
     const bool uploaded =
         GpuUploadTexture(&gpu, &nearest_image, DkImageFormat_RGBA8_Unorm, TEXTURE_SIZE,
                          TEXTURE_SIZE, NEAREST_TEXELS) &&
@@ -346,6 +369,10 @@ void RunTexture(void) {
     // Arrays the hardware indexes into with the handle a draw carries, so they are allocated
     // once and bound unchanged by every case. The barrier at the top of every pass is what
     // drops the caches that might still hold their previous contents.
+    if (!ReportStart(SUITE, "the descriptor sets have somewhere to live")) {
+        GpuClose(&gpu);
+        return;
+    }
     DkGpuAddr image_set = 0;
     DkGpuAddr sampler_set = 0;
     DkImageDescriptor *const images = (DkImageDescriptor *)GpuAllocData(

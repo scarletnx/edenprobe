@@ -61,16 +61,20 @@ static void Case(const char *suite, const char *name, CheckTier tier, bool passe
     ReportCase(suite, name, tier, passed, detail);
 }
 
-static void Skip(const char *suite, const char *name, const char *fmt, ...)
-    __attribute__((format(printf, 3, 4)));
-static void Skip(const char *suite, const char *name, const char *fmt, ...) {
-    char reason[480];
+/// A case that could not ask, with the reason in one word and why in a sentence.
+static void Skip(const char *suite, const char *name, ReportReason reason, const char *fmt, ...)
+    __attribute__((format(printf, 4, 5)));
+static void Skip(const char *suite, const char *name, ReportReason reason, const char *fmt, ...) {
+    char detail[480];
     va_list args;
     va_start(args, fmt);
-    vsnprintf(reason, sizeof(reason), fmt, args);
+    vsnprintf(detail, sizeof(detail), fmt, args);
     va_end(args);
-    ReportSkip(suite, name, reason);
+    ReportSkip(suite, name, reason, detail);
 }
+
+/// Why the cases after one that did not run cannot ask either, as their lines say it.
+static const char *const DID_NOT_RUN = "the case above that this one needs did not run";
 
 static const char *ResultText(Result rc) {
     static char text[4][48];
@@ -166,24 +170,32 @@ static NifmRequestState AwaitRequest(NifmRequest *request, bool ask_result, uint
 
 static void RunNifm(void) {
     static const char *const S = "nifm";
-    const Result opened = nifmInitialize(NifmServiceType_User);
+    static const char *const OPENS = "nifm:u opens";
+    Result opened = MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
     char why[200] = "";
-    if (R_FAILED(opened)) {
-        snprintf(why, sizeof(why),
-                 "nifmInitialize(NifmServiceType_User) returned %s: nifm:u cannot be opened "
-                 "from this program",
-                 ResultText(opened));
-        Skip(S, "nifm:u opens", "%s", why);
+    ReportReason why_reason = REPORT_REASON_UNAVAILABLE;
+    if (ReportStart(S, OPENS)) {
+        opened = nifmInitialize(NifmServiceType_User);
+        if (R_FAILED(opened)) {
+            snprintf(why, sizeof(why),
+                     "nifmInitialize(NifmServiceType_User) returned %s: nifm:u cannot be opened "
+                     "from this program",
+                     ResultText(opened));
+            Skip(S, OPENS, REPORT_REASON_UNAVAILABLE, "%s", why);
+        } else {
+            Case(S, OPENS, CHECK_NONE, true,
+                 "expected nifmInitialize(NifmServiceType_User) to succeed; it did");
+        }
     } else {
-        Case(S, "nifm:u opens", CHECK_NONE, true,
-             "expected nifmInitialize(NifmServiceType_User) to succeed; it did");
+        snprintf(why, sizeof(why), "%s", DID_NOT_RUN);
+        why_reason = REPORT_REASON_DEPENDS;
     }
 
     // A request nobody submitted is in the state libnx calls Unknown1: not yet submitted.
     static const char *const FRESH = "a request nobody submitted says it was not submitted";
     if (why[0] != '\0') {
-        Skip(S, FRESH, "%s", why);
-    } else {
+        Skip(S, FRESH, why_reason, "%s", why);
+    } else if (ReportStart(S, FRESH)) {
         NifmRequest request;
         const Result created = nifmCreateRequest(&request, true);
         NifmRequestState state = NifmRequestState_Invalid;
@@ -199,11 +211,13 @@ static void RunNifm(void) {
     const char *const online_why = why[0] != '\0'                       ? why
                                    : !NetConfigDeclaresOnline(&config) ? NO_ONLINE
                                                                        : NULL;
+    const ReportReason online_reason =
+        why[0] != '\0' ? why_reason : REPORT_REASON_NOT_CONFIGURED;
 
     static const char *const STATUS = "a machine with a backend reports its connection connected";
     if (online_why != NULL) {
-        Skip(S, STATUS, "%s", online_why);
-    } else {
+        Skip(S, STATUS, online_reason, "%s", online_why);
+    } else if (ReportStart(S, STATUS)) {
         NifmInternetConnectionType type = 0;
         u32 strength = 0;
         NifmInternetConnectionStatus status = 0;
@@ -220,8 +234,8 @@ static void RunNifm(void) {
 
     static const char *const ADDRESS = "a machine with a backend has an address of its own";
     if (online_why != NULL) {
-        Skip(S, ADDRESS, "%s", online_why);
-    } else {
+        Skip(S, ADDRESS, online_reason, "%s", online_why);
+    } else if (ReportStart(S, ADDRESS)) {
         u32 address = 0;
         const Result rc = nifmGetCurrentIpAddress(&address);
         uint8_t bytes[4];
@@ -236,8 +250,8 @@ static void RunNifm(void) {
     static const char *const UNASKED = "a submitted request is accepted without being asked for "
                                        "its result";
     if (online_why != NULL) {
-        Skip(S, UNASKED, "%s", online_why);
-    } else {
+        Skip(S, UNASKED, online_reason, "%s", online_why);
+    } else if (ReportStart(S, UNASKED)) {
         NifmRequest request;
         Result rc = nifmCreateRequest(&request, true);
         NifmRequestState state = NifmRequestState_Invalid;
@@ -263,8 +277,10 @@ static void RunNifm(void) {
     static const char *const ASKED = "a submitted request asked for its result is accepted";
     static const char *const ANY = "while a request is accepted, an internet request is accepted";
     if (online_why != NULL) {
-        Skip(S, ASKED, "%s", online_why);
-        Skip(S, ANY, "%s", online_why);
+        Skip(S, ASKED, online_reason, "%s", online_why);
+        Skip(S, ANY, online_reason, "%s", online_why);
+    } else if (!ReportStart(S, ASKED)) {
+        Skip(S, ANY, REPORT_REASON_DEPENDS, "%s: nothing is standing to ask about", DID_NOT_RUN);
     } else {
         NifmRequest request;
         Result rc = nifmCreateRequest(&request, true);
@@ -284,8 +300,9 @@ static void RunNifm(void) {
              "GetResult %s",
              NifmRequestState_Available, ResultText(rc), (int)state, ResultText(result));
         if (!accepted) {
-            Skip(S, ANY, "the request above was not accepted, so nothing is standing to ask about");
-        } else {
+            Skip(S, ANY, REPORT_REASON_DEPENDS,
+                 "the request above was not accepted, so nothing is standing to ask about");
+        } else if (ReportStart(S, ANY)) {
             const bool any = nifmIsAnyInternetRequestAccepted(nifmGetClientId());
             Case(S, ANY, CHECK_EXACT, any,
                  "expected IsAnyInternetRequestAccepted to say yes; it said %s",
@@ -387,31 +404,38 @@ static void RunDns(const char *sockets_why) {
     static const char *const DOTTED_ADDRINFO = "a dotted address resolves to itself, as addrinfo";
     static const char *const INVALID = "a name under .invalid does not resolve";
     if (sockets_why != NULL) {
-        Skip(S, DOTTED_HOSTENT, "%s", sockets_why);
-        Skip(S, DOTTED_ADDRINFO, "%s", sockets_why);
-        Skip(S, INVALID, "%s", sockets_why);
+        Skip(S, DOTTED_HOSTENT, REPORT_REASON_UNAVAILABLE, "%s", sockets_why);
+        Skip(S, DOTTED_ADDRINFO, REPORT_REASON_UNAVAILABLE, "%s", sockets_why);
+        Skip(S, INVALID, REPORT_REASON_UNAVAILABLE, "%s", sockets_why);
     } else {
         uint8_t dotted[4] = { 0 };
         NetExpectAddress(&config, "127.0.0.1", NULL, dotted);
-        NetHostEnt host;
-        const bool got = HostByName("127.0.0.1", &host, said, sizeof(said));
-        Case(S, DOTTED_HOSTENT, CHECK_EXACT, got && memcmp(host.addresses[0], dotted, 4) == 0,
-             "expected %s; got %s", Dotted(dotted), said);
-        NetAddrList list;
-        const bool listed = AddrInfo("127.0.0.1", &list, said, sizeof(said));
-        Case(S, DOTTED_ADDRINFO, CHECK_EXACT,
-             listed && memcmp(list.addresses[0], dotted, 4) == 0 && list.family[0] == AF_INET,
-             "expected %s, family %d; got %s, family %u", Dotted(dotted), AF_INET, said,
-             (unsigned)list.family[0]);
+        if (ReportStart(S, DOTTED_HOSTENT)) {
+            NetHostEnt host;
+            const bool got = HostByName("127.0.0.1", &host, said, sizeof(said));
+            Case(S, DOTTED_HOSTENT, CHECK_EXACT, got && memcmp(host.addresses[0], dotted, 4) == 0,
+                 "expected %s; got %s", Dotted(dotted), said);
+        }
+        if (ReportStart(S, DOTTED_ADDRINFO)) {
+            NetAddrList list;
+            const bool listed = AddrInfo("127.0.0.1", &list, said, sizeof(said));
+            Case(S, DOTTED_ADDRINFO, CHECK_EXACT,
+                 listed && memcmp(list.addresses[0], dotted, 4) == 0 &&
+                     list.family[0] == AF_INET,
+                 "expected %s, family %d; got %s, family %u", Dotted(dotted), AF_INET, said,
+                 (unsigned)list.family[0]);
+        }
         // RFC 6761 section 6.4: no name under .invalid ever resolves, anywhere, and a machine
         // with no network fails it too, so the expectation needs no backend.
-        uint8_t address[4] = { 0 };
-        int error = 0;
-        const bool resolved = LibcAddress("nothing.edenprobe.invalid", address, &error);
-        Case(S, INVALID, CHECK_EXACT, !resolved,
-             "expected getaddrinfo to fail; it %s (error %d%s%s)",
-             resolved ? "resolved" : "failed", error, resolved ? ", to " : "",
-             resolved ? Dotted(address) : "");
+        if (ReportStart(S, INVALID)) {
+            uint8_t address[4] = { 0 };
+            int error = 0;
+            const bool resolved = LibcAddress("nothing.edenprobe.invalid", address, &error);
+            Case(S, INVALID, CHECK_EXACT, !resolved,
+                 "expected getaddrinfo to fail; it %s (error %d%s%s)",
+                 resolved ? "resolved" : "failed", error, resolved ? ", to " : "",
+                 resolved ? Dotted(address) : "");
+        }
     }
 
     Service nsd;
@@ -430,8 +454,8 @@ static void RunDns(const char *sockets_why) {
     char environment[9] = "";
     bool environment_known = false;
     if (nsd_why[0] != '\0') {
-        Skip(S, ENVIRONMENT, "%s", nsd_why);
-    } else {
+        Skip(S, ENVIRONMENT, REPORT_REASON_UNAVAILABLE, "%s", nsd_why);
+    } else if (ReportStart(S, ENVIRONMENT)) {
         char field[8];
         memset(field, 0x7F, sizeof(field));
         const Result rc = serviceDispatch(
@@ -496,10 +520,11 @@ static void RunDns(const char *sockets_why) {
     char expanded[0x100] = "";
     bool expanded_done = false;
     if (nsd_why[0] != '\0') {
-        Skip(S, EXPANDED, "%s", nsd_why);
+        Skip(S, EXPANDED, REPORT_REASON_UNAVAILABLE, "%s", nsd_why);
     } else if (!environment_known) {
-        Skip(S, EXPANDED, "the environment is unknown, so the expansion has no expected value");
-    } else {
+        Skip(S, EXPANDED, REPORT_REASON_DEPENDS,
+             "the environment is unknown, so the expansion has no expected value");
+    } else if (ReportStart(S, EXPANDED)) {
         NetExpectNsd(&config, PLACEHOLDER_NAME, environment, expanded, sizeof(expanded));
         char got[0x100];
         const Result rc = NsdResolve(&nsd, PLACEHOLDER_NAME, got);
@@ -513,8 +538,8 @@ static void RunDns(const char *sockets_why) {
     // A name with no placeholder and no rewrite is nothing nsd has to change.
     static const char *const PLAIN = "nsd leaves a plain name as it is";
     if (nsd_why[0] != '\0') {
-        Skip(S, PLAIN, "%s", nsd_why);
-    } else {
+        Skip(S, PLAIN, REPORT_REASON_UNAVAILABLE, "%s", nsd_why);
+    } else if (ReportStart(S, PLAIN)) {
         char want[0x100];
         NetExpectNsd(&config, PLAIN_NAME, environment, want, sizeof(want));
         char got[0x100];
@@ -539,8 +564,10 @@ static void RunDns(const char *sockets_why) {
         : !have_rewrite     ? "the backend publishes no rewrite (no rewrite line in the net file)"
                             : NULL;
     if (nsd_why[0] != '\0' || rewrite_why != NULL) {
-        Skip(S, NSD_REWRITE, "%s", nsd_why[0] != '\0' ? nsd_why : rewrite_why);
-    } else {
+        Skip(S, NSD_REWRITE,
+             nsd_why[0] != '\0' ? REPORT_REASON_UNAVAILABLE : REPORT_REASON_NOT_CONFIGURED, "%s",
+             nsd_why[0] != '\0' ? nsd_why : rewrite_why);
+    } else if (ReportStart(S, NSD_REWRITE)) {
         char want[0x100];
         NetExpectNsd(&config, rewrite->source, environment, want, sizeof(want));
         char got[0x100];
@@ -551,27 +578,33 @@ static void RunDns(const char *sockets_why) {
              ResultText(rc), Visible(got, 80), session_late);
     }
     const char *const resolve_why = sockets_why != NULL ? sockets_why : rewrite_why;
+    const ReportReason resolve_reason =
+        sockets_why != NULL ? REPORT_REASON_UNAVAILABLE : REPORT_REASON_NOT_CONFIGURED;
     if (resolve_why != NULL) {
-        Skip(S, HOSTENT_REWRITE, "%s", resolve_why);
-        Skip(S, ADDRINFO_REWRITE, "%s", resolve_why);
+        Skip(S, HOSTENT_REWRITE, resolve_reason, "%s", resolve_why);
+        Skip(S, ADDRINFO_REWRITE, resolve_reason, "%s", resolve_why);
     } else {
         uint8_t want[4] = { 0 };
         NetExpectAddress(&config, rewrite->source, NULL, want);
-        NetHostEnt host;
-        const bool got = HostByName(rewrite->source, &host, said, sizeof(said));
-        Case(S, HOSTENT_REWRITE, CHECK_EXACT, got && memcmp(host.addresses[0], want, 4) == 0,
-             "expected %s for \"%.80s\"; got %s%s", Dotted(want), rewrite->source, said,
-             session_late);
-        NetAddrList list;
-        const bool listed = AddrInfo(rewrite->source, &list, said_2, sizeof(said_2));
-        uint8_t libc[4] = { 0 };
-        int error = 0;
-        const bool libc_got = LibcAddress(rewrite->source, libc, &error);
-        Case(S, ADDRINFO_REWRITE, CHECK_EXACT,
-             listed && memcmp(list.addresses[0], want, 4) == 0 && libc_got &&
-                 memcmp(libc, want, 4) == 0,
-             "expected %s from both; addrinfo %s; libc %s (error %d)%s", Dotted(want), said_2,
-             libc_got ? Dotted(libc) : "failed", error, session_late);
+        if (ReportStart(S, HOSTENT_REWRITE)) {
+            NetHostEnt host;
+            const bool got = HostByName(rewrite->source, &host, said, sizeof(said));
+            Case(S, HOSTENT_REWRITE, CHECK_EXACT, got && memcmp(host.addresses[0], want, 4) == 0,
+                 "expected %s for \"%.80s\"; got %s%s", Dotted(want), rewrite->source, said,
+                 session_late);
+        }
+        if (ReportStart(S, ADDRINFO_REWRITE)) {
+            NetAddrList list;
+            const bool listed = AddrInfo(rewrite->source, &list, said_2, sizeof(said_2));
+            uint8_t libc[4] = { 0 };
+            int error = 0;
+            const bool libc_got = LibcAddress(rewrite->source, libc, &error);
+            Case(S, ADDRINFO_REWRITE, CHECK_EXACT,
+                 listed && memcmp(list.addresses[0], want, 4) == 0 && libc_got &&
+                     memcmp(libc, want, 4) == 0,
+                 "expected %s from both; addrinfo %s; libc %s (error %d)%s", Dotted(want), said_2,
+                 libc_got ? Dotted(libc) : "failed", error, session_late);
+        }
     }
 
     // Signed in, a name carrying the placeholder, and the name nsd made of it, go to loopback so
@@ -581,21 +614,26 @@ static void RunDns(const char *sockets_why) {
     static const char *const REMEMBERED = "the name nsd expanded resolves to loopback while "
                                           "signed in";
     const char *const intercept_why = sockets_why != NULL ? sockets_why : session_why;
+    const ReportReason intercept_reason =
+        sockets_why != NULL ? REPORT_REASON_UNAVAILABLE : REPORT_REASON_NOT_CONFIGURED;
     if (intercept_why != NULL) {
-        Skip(S, PLACEHOLDER, "%s", intercept_why);
-        Skip(S, REMEMBERED, "%s", intercept_why);
+        Skip(S, PLACEHOLDER, intercept_reason, "%s", intercept_why);
+        Skip(S, REMEMBERED, intercept_reason, "%s", intercept_why);
     } else {
-        uint8_t want[4] = { 0 };
-        NetExpectAddress(&config, PLACEHOLDER_NAME, NULL, want);
-        NetHostEnt host;
-        const bool got = HostByName(PLACEHOLDER_NAME, &host, said, sizeof(said));
-        Case(S, PLACEHOLDER, CHECK_EXACT, got && memcmp(host.addresses[0], want, 4) == 0,
-             "expected %s for \"%s\"; got %s%s", Dotted(want), PLACEHOLDER_NAME, said,
-             session_late);
+        if (ReportStart(S, PLACEHOLDER)) {
+            uint8_t want[4] = { 0 };
+            NetExpectAddress(&config, PLACEHOLDER_NAME, NULL, want);
+            NetHostEnt host;
+            const bool got = HostByName(PLACEHOLDER_NAME, &host, said, sizeof(said));
+            Case(S, PLACEHOLDER, CHECK_EXACT, got && memcmp(host.addresses[0], want, 4) == 0,
+                 "expected %s for \"%s\"; got %s%s", Dotted(want), PLACEHOLDER_NAME, said,
+                 session_late);
+        }
         if (!expanded_done) {
-            Skip(S, REMEMBERED, "nsd did not expand the placeholder above, so there is no name "
-                                "it handed out to ask about");
-        } else {
+            Skip(S, REMEMBERED, REPORT_REASON_DEPENDS,
+                 "nsd did not expand the placeholder above, so there is no name it handed out "
+                 "to ask about");
+        } else if (ReportStart(S, REMEMBERED)) {
             uint8_t want[4] = { 0 };
             NetExpectAddress(&config, expanded, expanded, want);
             NetHostEnt again;
@@ -836,6 +874,9 @@ static int OtherCore(void) {
 /// gives up with EAGAIN once the time has passed. Bounded here by a datagram sent from another
 /// thread 2 s in, which, if it is what ends the wait, is itself the finding.
 static void CheckReceiveTimeout(const char *suite, const char *name) {
+    if (!ReportStart(suite, name)) {
+        return;
+    }
     const int fd = OpenSocket(SOCK_DGRAM);
     struct sockaddr_in any = Loopback(0);
     static Rescue rescue;
@@ -878,8 +919,9 @@ static void CheckReceiveTimeout(const char *suite, const char *name) {
     }
     const bool started = R_SUCCEEDED(made) && R_SUCCEEDED(threadStart(&thread));
     if (!started) {
-        Skip(suite, name, "no thread to bound the receive with (threadCreate %s), and without "
-                          "one a machine that ignores the timeout would hang the run",
+        Skip(suite, name, REPORT_REASON_UNAVAILABLE,
+             "no thread to bound the receive with (threadCreate %s), and without one a machine "
+             "that ignores the timeout would hang the run",
              ResultText(made));
         if (R_SUCCEEDED(made)) {
             threadClose(&thread);
@@ -924,84 +966,96 @@ static void RunBsd(const char *sockets_why) {
         const char *const all[] = { BIND,    DATAGRAM, EMPTY,      STREAM,
                                     REFUSED, TIMEOUT,  SERVER, NONBLOCKING };
         for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); ++i) {
-            Skip(S, all[i], "%s", sockets_why);
+            Skip(S, all[i], REPORT_REASON_UNAVAILABLE, "%s", sockets_why);
         }
         return;
     }
 
     // Two datagram sockets, one the echo this suite opens itself through the same service.
-    errno = 0;
-    const int a = OpenSocket(SOCK_DGRAM);
-    const int b = OpenSocket(SOCK_DGRAM);
-    struct sockaddr_in any = Loopback(0);
+    int a = -1;
+    int b = -1;
     struct sockaddr_in a_name;
     struct sockaddr_in b_name;
-    const bool bound = a >= 0 && b >= 0 && bind(a, (struct sockaddr *)&any, sizeof(any)) == 0 &&
-                       bind(b, (struct sockaddr *)&any, sizeof(any)) == 0 && NameOf(a, &a_name) &&
-                       NameOf(b, &b_name);
-    const bool distinct = bound && a_name.sin_port != 0 && b_name.sin_port != 0 &&
-                          a_name.sin_port != b_name.sin_port &&
-                          memcmp(&a_name.sin_addr.s_addr, LOOPBACK, 4) == 0 &&
-                          memcmp(&b_name.sin_addr.s_addr, LOOPBACK, 4) == 0;
-    Case(S, BIND, CHECK_EXACT, distinct,
-         "expected 127.0.0.1 with two different non-zero ports; got %s and %s (errno %d)",
-         bound ? Endpoint(&a_name) : "-", bound ? Endpoint(&b_name) : "-", errno);
+    bool distinct = false;
+    if (ReportStart(S, BIND)) {
+        errno = 0;
+        a = OpenSocket(SOCK_DGRAM);
+        b = OpenSocket(SOCK_DGRAM);
+        struct sockaddr_in any = Loopback(0);
+        const bool bound = a >= 0 && b >= 0 &&
+                           bind(a, (struct sockaddr *)&any, sizeof(any)) == 0 &&
+                           bind(b, (struct sockaddr *)&any, sizeof(any)) == 0 &&
+                           NameOf(a, &a_name) && NameOf(b, &b_name);
+        distinct = bound && a_name.sin_port != 0 && b_name.sin_port != 0 &&
+                   a_name.sin_port != b_name.sin_port &&
+                   memcmp(&a_name.sin_addr.s_addr, LOOPBACK, 4) == 0 &&
+                   memcmp(&b_name.sin_addr.s_addr, LOOPBACK, 4) == 0;
+        Case(S, BIND, CHECK_EXACT, distinct,
+             "expected 127.0.0.1 with two different non-zero ports; got %s and %s (errno %d)",
+             bound ? Endpoint(&a_name) : "-", bound ? Endpoint(&b_name) : "-", errno);
+    }
 
     if (!distinct) {
-        Skip(S, DATAGRAM, "the two datagram sockets above did not come up");
-        Skip(S, EMPTY, "the two datagram sockets above did not come up");
+        Skip(S, DATAGRAM, REPORT_REASON_DEPENDS, "the two datagram sockets above did not come up");
+        Skip(S, EMPTY, REPORT_REASON_DEPENDS, "the two datagram sockets above did not come up");
     } else {
-        uint8_t sent[64];
         uint8_t got[128];
-        Pattern(sent, sizeof(sent), 11);
-        errno = 0;
-        memset(got, 0, sizeof(got));
-        const ssize_t wrote =
-            sendto(a, sent, sizeof(sent), 0, (struct sockaddr *)&b_name, sizeof(b_name));
-        struct sockaddr_in from;
-        socklen_t from_length = sizeof(from);
-        memset(&from, 0, sizeof(from));
-        int read_error = 0;
-        const ssize_t read = RecvWithin(b, got, sizeof(got), &from, &from_length,
-                                        RECEIVE_BUDGET_MS, &read_error);
-        // recvfrom says how long the address it wrote is; a length it left unset is not one to
-        // answer with (the echo goes to the whole sockaddr_in, and the case says what came back).
-        const bool from_named = NetAddressLengthUsable((size_t)from_length, sizeof(from));
-        const bool there = wrote == (ssize_t)sizeof(sent) && read == (ssize_t)sizeof(sent) &&
-                           from_named && memcmp(got, sent, sizeof(sent)) == 0 &&
-                           SameEndpoint(&from, &a_name);
-        // The echo: the second socket sends what it received back to where it came from.
-        uint8_t back[128];
-        memset(back, 0, sizeof(back));
-        const ssize_t echoed = read > 0 && from_named
-                                   ? sendto(b, got, (size_t)read, 0, (struct sockaddr *)&from,
-                                            sizeof(from))
-                                   : -1;
-        struct sockaddr_in replier;
-        socklen_t replier_length = sizeof(replier);
-        memset(&replier, 0, sizeof(replier));
-        int back_error = 0;
-        const ssize_t returned = echoed > 0 ? RecvWithin(a, back, sizeof(back), &replier,
-                                                         &replier_length, RECEIVE_BUDGET_MS,
-                                                         &back_error)
-                                            : -1;
-        const bool home = returned == (ssize_t)sizeof(sent) &&
-                          memcmp(back, sent, sizeof(sent)) == 0 &&
-                          SameEndpoint(&replier, &b_name);
-        Case(S, DATAGRAM, CHECK_EXACT, there && home,
-             "expected the same 64 bytes at %s from %s and back at %s from %s, each within %u "
-             "ms; out: sent %d, received %d from %s (%s, address length %u, errno %d); back: "
-             "sent %d, received %d from %s (%s, errno %d)",
-             Endpoint(&b_name), Endpoint(&a_name), Endpoint(&a_name), Endpoint(&b_name),
-             RECEIVE_BUDGET_MS, (int)wrote, (int)read, Endpoint(&from),
-             there ? "same" : "wrong", (unsigned)from_length, read_error, (int)echoed, (int)returned,
-             Endpoint(&replier), home ? "same" : "wrong", back_error);
+        if (ReportStart(S, DATAGRAM)) {
+            uint8_t sent[64];
+            Pattern(sent, sizeof(sent), 11);
+            errno = 0;
+            memset(got, 0, sizeof(got));
+            const ssize_t wrote =
+                sendto(a, sent, sizeof(sent), 0, (struct sockaddr *)&b_name, sizeof(b_name));
+            struct sockaddr_in from;
+            socklen_t from_length = sizeof(from);
+            memset(&from, 0, sizeof(from));
+            int read_error = 0;
+            const ssize_t read = RecvWithin(b, got, sizeof(got), &from, &from_length,
+                                            RECEIVE_BUDGET_MS, &read_error);
+            // recvfrom says how long the address it wrote is; a length it left unset is not one
+            // to answer with (the echo goes to the whole sockaddr_in, and the case says what came
+            // back).
+            const bool from_named = NetAddressLengthUsable((size_t)from_length, sizeof(from));
+            const bool there = wrote == (ssize_t)sizeof(sent) && read == (ssize_t)sizeof(sent) &&
+                               from_named && memcmp(got, sent, sizeof(sent)) == 0 &&
+                               SameEndpoint(&from, &a_name);
+            // The echo: the second socket sends what it received back to where it came from.
+            uint8_t back[128];
+            memset(back, 0, sizeof(back));
+            const ssize_t echoed = read > 0 && from_named
+                                       ? sendto(b, got, (size_t)read, 0, (struct sockaddr *)&from,
+                                                sizeof(from))
+                                       : -1;
+            struct sockaddr_in replier;
+            socklen_t replier_length = sizeof(replier);
+            memset(&replier, 0, sizeof(replier));
+            int back_error = 0;
+            const ssize_t returned = echoed > 0 ? RecvWithin(a, back, sizeof(back), &replier,
+                                                             &replier_length, RECEIVE_BUDGET_MS,
+                                                             &back_error)
+                                                : -1;
+            const bool home = returned == (ssize_t)sizeof(sent) &&
+                              memcmp(back, sent, sizeof(sent)) == 0 &&
+                              SameEndpoint(&replier, &b_name);
+            Case(S, DATAGRAM, CHECK_EXACT, there && home,
+                 "expected the same 64 bytes at %s from %s and back at %s from %s, each within %u "
+                 "ms; out: sent %d, received %d from %s (%s, address length %u, errno %d); back: "
+                 "sent %d, received %d from %s (%s, errno %d)",
+                 Endpoint(&b_name), Endpoint(&a_name), Endpoint(&a_name), Endpoint(&b_name),
+                 RECEIVE_BUDGET_MS, (int)wrote, (int)read, Endpoint(&from),
+                 there ? "same" : "wrong", (unsigned)from_length, read_error, (int)echoed,
+                 (int)returned,
+                 Endpoint(&replier), home ? "same" : "wrong", back_error);
+        }
 
-        errno = 0;
-        const ssize_t nothing = recvfrom(b, got, sizeof(got), MSG_DONTWAIT, NULL, NULL);
-        const int error = errno;
-        Case(S, EMPTY, CHECK_EXACT, nothing < 0 && (error == EAGAIN || error == EWOULDBLOCK),
-             "expected -1 with EAGAIN (%d); got %d, errno %d", EAGAIN, (int)nothing, error);
+        if (ReportStart(S, EMPTY)) {
+            errno = 0;
+            const ssize_t nothing = recvfrom(b, got, sizeof(got), MSG_DONTWAIT, NULL, NULL);
+            const int error = errno;
+            Case(S, EMPTY, CHECK_EXACT, nothing < 0 && (error == EAGAIN || error == EWOULDBLOCK),
+                 "expected -1 with EAGAIN (%d); got %d, errno %d", EAGAIN, (int)nothing, error);
+        }
     }
     if (a >= 0) {
         close(a);
@@ -1010,7 +1064,7 @@ static void RunBsd(const char *sockets_why) {
         close(b);
     }
 
-    {
+    if (ReportStart(S, STREAM)) {
         int client = -1;
         int served = -1;
         char said[120] = "";
@@ -1052,7 +1106,7 @@ static void RunBsd(const char *sockets_why) {
         }
     }
 
-    {
+    if (ReportStart(S, REFUSED)) {
         // A port this program just held and let go, with nothing listening on it.
         const int holder = OpenSocket(SOCK_STREAM);
         struct sockaddr_in free_port = Loopback(0);
@@ -1077,8 +1131,8 @@ static void RunBsd(const char *sockets_why) {
     CheckReceiveTimeout(S, TIMEOUT);
 
     if (!config.has_server) {
-        Skip(S, SERVER, "%s", NO_SERVER);
-        Skip(S, NONBLOCKING, "%s", NO_SERVER);
+        Skip(S, SERVER, REPORT_REASON_NOT_CONFIGURED, "%s", NO_SERVER);
+        Skip(S, NONBLOCKING, REPORT_REASON_NOT_CONFIGURED, "%s", NO_SERVER);
         return;
     }
     struct sockaddr_in server;
@@ -1086,7 +1140,7 @@ static void RunBsd(const char *sockets_why) {
     server.sin_family = AF_INET;
     server.sin_port = htons(config.server_port);
     memcpy(&server.sin_addr.s_addr, config.server_ip, 4);
-    {
+    if (ReportStart(S, SERVER)) {
         const int fd = OpenSocket(SOCK_STREAM);
         int error = 0;
         const int rc = fd >= 0 ? ConnectWithin(fd, &server, CONNECT_BUDGET_MS, &error) : -1;
@@ -1103,7 +1157,7 @@ static void RunBsd(const char *sockets_why) {
             close(fd);
         }
     }
-    {
+    if (ReportStart(S, NONBLOCKING)) {
         // What a game does: a connect that returns at once, a poll for writability, and the
         // pending error, which is the answer to whether the connect worked.
         const int fd = OpenSocket(SOCK_STREAM);
@@ -1311,6 +1365,7 @@ static void RunSsl(const char *sockets_why) {
     const size_t first_server_case = 7;
 
     char why[200] = "";
+    ReportReason why_reason = REPORT_REASON_UNAVAILABLE;
     if (sockets_why != NULL) {
         snprintf(why, sizeof(why), "%s", sockets_why);
     }
@@ -1322,19 +1377,26 @@ static void RunSsl(const char *sockets_why) {
     }
     SslContext context;
     memset(&context, 0, sizeof(context));
+    // Once the service is open the context case has its own line, whatever comes of it.
+    const bool context_reported = why[0] == '\0';
     if (why[0] == '\0') {
-        const Result rc = sslCreateContext(&context, SslVersion_Auto);
-        Case(S, CONTEXT, CHECK_NONE, R_SUCCEEDED(rc),
-             "expected CreateContext(Auto) to succeed; got %s", ResultText(rc));
-        if (R_FAILED(rc)) {
-            snprintf(why, sizeof(why), "no context: CreateContext(Auto) returned %s",
-                     ResultText(rc));
+        why_reason = REPORT_REASON_DEPENDS;
+        if (ReportStart(S, CONTEXT)) {
+            const Result rc = sslCreateContext(&context, SslVersion_Auto);
+            Case(S, CONTEXT, CHECK_NONE, R_SUCCEEDED(rc),
+                 "expected CreateContext(Auto) to succeed; got %s", ResultText(rc));
+            if (R_FAILED(rc)) {
+                snprintf(why, sizeof(why), "no context: CreateContext(Auto) returned %s",
+                         ResultText(rc));
+            }
+        } else {
+            snprintf(why, sizeof(why), "%s: there is no context", DID_NOT_RUN);
         }
     }
     if (why[0] != '\0') {
         for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); ++i) {
-            if (!(i == 0 && sockets_why == NULL && R_SUCCEEDED(opened))) {
-                Skip(S, all[i], "%s", why);
+            if (!(i == 0 && context_reported)) {
+                Skip(S, all[i], why_reason, "%s", why);
             }
         }
         if (sockets_why == NULL && R_SUCCEEDED(opened)) {
@@ -1344,95 +1406,121 @@ static void RunSsl(const char *sockets_why) {
     }
 
     // libnx, ssl.h: "The default bitmask value at the time of sslContextCreateConnection is
-    // PeerCa | HostName".
+    // PeerCa | HostName". The connection this case makes is the one the two after it ask.
     {
         SslConnection connection;
-        const Result created = sslContextCreateConnection(&context, &connection);
-        u32 option = 0;
-        const Result rc = R_SUCCEEDED(created) ? sslConnectionGetVerifyOption(&connection, &option)
-                                               : created;
-        Case(S, DEFAULT_VERIFY, CHECK_EXACT,
-             R_SUCCEEDED(rc) && option == (SslVerifyOption_PeerCa | SslVerifyOption_HostName),
-             "expected GetVerifyOption to answer %d (PeerCa | HostName); got %s, %u",
-             SslVerifyOption_PeerCa | SslVerifyOption_HostName, ResultText(rc),
-             (unsigned)option);
+        Result created = MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
+        const bool made = ReportStart(S, DEFAULT_VERIFY);
+        if (made) {
+            created = sslContextCreateConnection(&context, &connection);
+            u32 option = 0;
+            const Result rc = R_SUCCEEDED(created)
+                                  ? sslConnectionGetVerifyOption(&connection, &option)
+                                  : created;
+            Case(S, DEFAULT_VERIFY, CHECK_EXACT,
+                 R_SUCCEEDED(rc) && option == (SslVerifyOption_PeerCa | SslVerifyOption_HostName),
+                 "expected GetVerifyOption to answer %d (PeerCa | HostName); got %s, %u",
+                 SslVerifyOption_PeerCa | SslVerifyOption_HostName, ResultText(rc),
+                 (unsigned)option);
+        }
 
         static const char NAME[] = "edenprobe.invalid";
-        char got[64];
-        memset(got, 0, sizeof(got));
-        u32 got_size = 0;
-        Result set = created;
-        Result get = created;
-        if (R_SUCCEEDED(created)) {
-            set = sslConnectionSetHostName(&connection, NAME, sizeof(NAME));
-            get = R_SUCCEEDED(set)
-                      ? sslConnectionGetHostName(&connection, got, sizeof(got) - 1u, &got_size)
-                      : set;
+        if (!made) {
+            Skip(S, HOST_NAME, REPORT_REASON_DEPENDS, "%s: there is no connection to ask",
+                 DID_NOT_RUN);
+        } else if (ReportStart(S, HOST_NAME)) {
+            char got[64];
+            memset(got, 0, sizeof(got));
+            u32 got_size = 0;
+            Result set = created;
+            Result get = created;
+            if (R_SUCCEEDED(created)) {
+                set = sslConnectionSetHostName(&connection, NAME, sizeof(NAME));
+                get = R_SUCCEEDED(set) ? sslConnectionGetHostName(&connection, got,
+                                                                  sizeof(got) - 1u, &got_size)
+                                       : set;
+            }
+            Case(S, HOST_NAME, CHECK_EXACT,
+                 R_SUCCEEDED(get) && strncmp(got, NAME, sizeof(got)) == 0,
+                 "expected \"%s\" back after SetHostName; SetHostName %s, GetHostName %s, "
+                 "\"%.60s\" (%u bytes)",
+                 NAME, ResultText(set), ResultText(get), Visible(got, 60), (unsigned)got_size);
         }
-        Case(S, HOST_NAME, CHECK_EXACT,
-             R_SUCCEEDED(get) && strncmp(got, NAME, sizeof(got)) == 0,
-             "expected \"%s\" back after SetHostName; SetHostName %s, GetHostName %s, \"%.60s\" "
-             "(%u bytes)",
-             NAME, ResultText(set), ResultText(get), Visible(got, 60), (unsigned)got_size);
 
         // The console's service lays raw input out by alignment, so SetOption carries the flag
         // before the option (libnx sends it so); a service that reads them the other way round
         // stores the flag under another option.
-        bool held = false;
-        Result option_set = created;
-        Result option_get = created;
-        if (R_SUCCEEDED(created)) {
-            option_set = sslConnectionSetOption(&connection, SslOptionType_DoNotCloseSocket, true);
-            option_get = R_SUCCEEDED(option_set)
-                             ? sslConnectionGetOption(&connection, SslOptionType_DoNotCloseSocket,
-                                                      &held)
-                             : option_set;
+        if (!made) {
+            Skip(S, OPTION, REPORT_REASON_DEPENDS, "%s: there is no connection to ask",
+                 DID_NOT_RUN);
+        } else if (ReportStart(S, OPTION)) {
+            bool held = false;
+            Result option_set = created;
+            Result option_get = created;
+            if (R_SUCCEEDED(created)) {
+                option_set =
+                    sslConnectionSetOption(&connection, SslOptionType_DoNotCloseSocket, true);
+                option_get = R_SUCCEEDED(option_set)
+                                 ? sslConnectionGetOption(&connection,
+                                                          SslOptionType_DoNotCloseSocket, &held)
+                                 : option_set;
+            }
+            Case(S, OPTION, CHECK_EXACT, R_SUCCEEDED(option_get) && held,
+                 "expected DoNotCloseSocket to read back set after SetOption; SetOption %s, "
+                 "GetOption %s, %s",
+                 ResultText(option_set), ResultText(option_get), held ? "set" : "not set");
         }
-        Case(S, OPTION, CHECK_EXACT, R_SUCCEEDED(option_get) && held,
-             "expected DoNotCloseSocket to read back set after SetOption; SetOption %s, "
-             "GetOption %s, %s",
-             ResultText(option_set), ResultText(option_get), held ? "set" : "not set");
-        if (R_SUCCEEDED(created)) {
+        if (made && R_SUCCEEDED(created)) {
             sslConnectionClose(&connection);
         }
     }
 
     // A socket of this program's own, connected to a listener it also opened, so this needs no
-    // backend; and the mode the connection was told reads back.
+    // backend; and the mode the connection was told reads back. The socket case sets up what
+    // the two after it ask about.
     {
         int client = -1;
         int served = -1;
         char said[120] = "";
-        const bool paired = LoopbackStream(&client, &served, said, sizeof(said));
+        bool paired = false;
         SslConnection connection;
-        const Result created = paired ? sslContextCreateConnection(&context, &connection)
-                                      : MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
+        Result created = MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
         int handed = -1;
         int error = 0;
         Result mode_set = created;
-        if (R_SUCCEEDED(created)) {
-            errno = 0;
-            handed = socketSslConnectionSetSocketDescriptor(&connection, client);
-            error = errno;
-            mode_set = handed >= 0 || error == ENOENT
-                           ? sslConnectionSetIoMode(&connection, SslIoMode_Blocking)
-                           : MAKERESULT(Module_Libnx, LibnxError_BadInput);
+        const bool set_up = ReportStart(S, SOCKET);
+        if (set_up) {
+            paired = LoopbackStream(&client, &served, said, sizeof(said));
+            created = paired ? sslContextCreateConnection(&context, &connection)
+                             : MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
+            mode_set = created;
+            if (R_SUCCEEDED(created)) {
+                errno = 0;
+                handed = socketSslConnectionSetSocketDescriptor(&connection, client);
+                error = errno;
+                mode_set = handed >= 0 || error == ENOENT
+                               ? sslConnectionSetIoMode(&connection, SslIoMode_Blocking)
+                               : MAKERESULT(Module_Libnx, LibnxError_BadInput);
+            }
+            // Whether a descriptor comes back is the next case's question, so either answer is
+            // taken here.
+            Case(S, SOCKET, CHECK_EXACT,
+                 paired && R_SUCCEEDED(created) && (handed >= 0 || error == ENOENT) &&
+                     R_SUCCEEDED(mode_set),
+                 "expected SetSocketDescriptor to take a connected socket and SetIoMode(Blocking) "
+                 "to succeed; %s, CreateConnection %s, SetSocketDescriptor %d errno %d, "
+                 "SetIoMode %s",
+                 paired ? "pair up" : said, ResultText(created), handed, error,
+                 ResultText(mode_set));
         }
-        // Whether a descriptor comes back is the next case's question, so either answer is
-        // taken here.
-        Case(S, SOCKET, CHECK_EXACT,
-             paired && R_SUCCEEDED(created) && (handed >= 0 || error == ENOENT) &&
-                 R_SUCCEEDED(mode_set),
-             "expected SetSocketDescriptor to take a connected socket and SetIoMode(Blocking) to "
-             "succeed; %s, CreateConnection %s, SetSocketDescriptor %d errno %d, SetIoMode %s",
-             paired ? "pair up" : said, ResultText(created), handed, error, ResultText(mode_set));
-        SslIoMode mode = 0;
-        const Result mode_get = R_SUCCEEDED(mode_set)
-                                    ? sslConnectionGetIoMode(&connection, &mode)
-                                    : mode_set;
-        if (R_FAILED(mode_set)) {
-            Skip(S, IO_MODE, "the connection above was not set to block");
-        } else {
+        if (!set_up) {
+            Skip(S, IO_MODE, REPORT_REASON_DEPENDS, "%s: there is no connection to ask",
+                 DID_NOT_RUN);
+        } else if (R_FAILED(mode_set)) {
+            Skip(S, IO_MODE, REPORT_REASON_DEPENDS, "the connection above was not set to block");
+        } else if (ReportStart(S, IO_MODE)) {
+            SslIoMode mode = 0;
+            const Result mode_get = sslConnectionGetIoMode(&connection, &mode);
             Case(S, IO_MODE, CHECK_EXACT, R_SUCCEEDED(mode_get) && mode == SslIoMode_Blocking,
                  "expected GetIoMode to answer %d (Blocking); got %s, %d", SslIoMode_Blocking,
                  ResultText(mode_get), (int)mode);
@@ -1452,37 +1540,45 @@ static void RunSsl(const char *sockets_why) {
         // a socket of its own. Unverified on a console.
         int client_2 = -1;
         int served_2 = -1;
-        const bool paired_2 = paired && LoopbackStream(&client_2, &served_2, said, sizeof(said));
-        SslConnection with_option;
-        const Result created_2 = paired_2 ? sslContextCreateConnection(&context, &with_option)
-                                          : MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
-        Result option = created_2;
-        int handed_2 = -1;
-        int error_2 = 0;
-        if (R_SUCCEEDED(created_2)) {
-            option = sslConnectionSetOption(&with_option, SslOptionType_DoNotCloseSocket, true);
-            errno = 0;
-            handed_2 = R_SUCCEEDED(option)
-                           ? socketSslConnectionSetSocketDescriptor(&with_option, client_2)
-                           : -1;
-            error_2 = errno;
-        }
-        const bool by_default = R_SUCCEEDED(created) && handed >= 0;
-        const bool with_none = R_SUCCEEDED(option) && handed_2 < 0 && error_2 == ENOENT;
-        Case(S, HANDBACK, CHECK_EXACT, paired_2 && by_default && with_none,
-             "expected a descriptor back by default and none (ENOENT) with DoNotCloseSocket; "
-             "default %d errno %d, DoNotCloseSocket %d errno %d (SetOption %s)%s",
-             handed, error, handed_2, error_2, ResultText(option),
-             !by_default
-                 ? "; no descriptor by default is what an emulator answers that hands the "
-                   "duplicate back only when DoNotCloseSocket is set, the reverse of libnx's "
-                   "reading (reden hle/service/ssl/ssl.cpp, SetSocketDescriptor)"
-                 : "");
-        if (handed_2 >= 0) {
-            close(handed_2);
-        }
-        if (R_SUCCEEDED(created_2)) {
-            sslConnectionClose(&with_option);
+        if (!set_up) {
+            Skip(S, HANDBACK, REPORT_REASON_DEPENDS,
+                 "%s: it holds the default this one compares with", DID_NOT_RUN);
+        } else if (ReportStart(S, HANDBACK)) {
+            const bool paired_2 =
+                paired && LoopbackStream(&client_2, &served_2, said, sizeof(said));
+            SslConnection with_option;
+            const Result created_2 = paired_2
+                                         ? sslContextCreateConnection(&context, &with_option)
+                                         : MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
+            Result option = created_2;
+            int handed_2 = -1;
+            int error_2 = 0;
+            if (R_SUCCEEDED(created_2)) {
+                option =
+                    sslConnectionSetOption(&with_option, SslOptionType_DoNotCloseSocket, true);
+                errno = 0;
+                handed_2 = R_SUCCEEDED(option)
+                               ? socketSslConnectionSetSocketDescriptor(&with_option, client_2)
+                               : -1;
+                error_2 = errno;
+            }
+            const bool by_default = R_SUCCEEDED(created) && handed >= 0;
+            const bool with_none = R_SUCCEEDED(option) && handed_2 < 0 && error_2 == ENOENT;
+            Case(S, HANDBACK, CHECK_EXACT, paired_2 && by_default && with_none,
+                 "expected a descriptor back by default and none (ENOENT) with DoNotCloseSocket; "
+                 "default %d errno %d, DoNotCloseSocket %d errno %d (SetOption %s)%s",
+                 handed, error, handed_2, error_2, ResultText(option),
+                 !by_default
+                     ? "; no descriptor by default is what an emulator answers that hands the "
+                       "duplicate back only when DoNotCloseSocket is set, the reverse of libnx's "
+                       "reading (reden hle/service/ssl/ssl.cpp, SetSocketDescriptor)"
+                     : "");
+            if (handed_2 >= 0) {
+                close(handed_2);
+            }
+            if (R_SUCCEEDED(created_2)) {
+                sslConnectionClose(&with_option);
+            }
         }
         // A descriptor handed back was this program's own and is closed already.
         if (client >= 0 && handed < 0) {
@@ -1501,7 +1597,7 @@ static void RunSsl(const char *sockets_why) {
 
     if (!config.has_server) {
         for (size_t i = first_server_case; i < sizeof(all) / sizeof(all[0]); ++i) {
-            Skip(S, all[i], "%s", NO_SERVER);
+            Skip(S, all[i], REPORT_REASON_NOT_CONFIGURED, "%s", NO_SERVER);
         }
         sslContextClose(&context);
         sslExit();
@@ -1541,11 +1637,12 @@ static void RunSsl(const char *sockets_why) {
     // With the defaults left alone and nothing imported, a certificate that names itself as its
     // issuer chains to no authority the platform ships, so the handshake must fail.
     if (cert_why[0] != '\0') {
-        Skip(S, REFUSE, "%s", cert_why);
+        Skip(S, REFUSE, REPORT_REASON_NOT_CONFIGURED, "%s", cert_why);
     } else if (!self_issued) {
-        Skip(S, REFUSE, "the server's certificate names another issuer, so whether the "
-                        "platform's authorities vouch for it is not this program's to know");
-    } else {
+        Skip(S, REFUSE, REPORT_REASON_NOT_CONFIGURED,
+             "the server's certificate names another issuer, so whether the platform's "
+             "authorities vouch for it is not this program's to know");
+    } else if (ReportStart(S, REFUSE)) {
         Link link;
         char said[160] = "";
         if (!LinkOpen(&context, &link, false, NULL, said, sizeof(said))) {
@@ -1569,8 +1666,8 @@ static void RunSsl(const char *sockets_why) {
     u32 certs_count = 0;
     bool trusted_shaken = false;
     if (cert_why[0] != '\0') {
-        Skip(S, TRUSTED, "%s", cert_why);
-    } else {
+        Skip(S, TRUSTED, REPORT_REASON_NOT_CONFIGURED, "%s", cert_why);
+    } else if (ReportStart(S, TRUSTED)) {
         SslContext trusting;
         memset(&trusting, 0, sizeof(trusting));
         Result rc = sslCreateContext(&trusting, SslVersion_Auto);
@@ -1606,10 +1703,12 @@ static void RunSsl(const char *sockets_why) {
     }
 
     if (!trusted_shaken) {
-        Skip(S, CERTIFICATE, "%s", cert_why[0] != '\0' ? cert_why
-                                   : "the verifying handshake above did not succeed, and one that "
-                                     "does not verify is handed no certificate (libnx, ssl.h)");
-    } else {
+        Skip(S, CERTIFICATE,
+             cert_why[0] != '\0' ? REPORT_REASON_NOT_CONFIGURED : REPORT_REASON_DEPENDS, "%s",
+             cert_why[0] != '\0' ? cert_why
+                                 : "the verifying handshake above did not succeed, and one that "
+                                   "does not verify is handed no certificate (libnx, ssl.h)");
+    } else if (ReportStart(S, CERTIFICATE)) {
         const uint8_t *first = NULL;
         size_t first_length = 0;
         const bool found = certs_size <= sizeof(certs) &&
@@ -1627,79 +1726,92 @@ static void RunSsl(const char *sockets_why) {
     // fork's games do against a local server: SkipDefaultVerify, then no verification at all.
     // This connection carries the request, so the exchange is measured whatever the imports do.
     Link link;
-    char said[160] = "";
-    const bool connected = LinkOpen(&context, &link, false, NULL, said, sizeof(said));
-    const Result handshake = connected ? UnverifiedHandshake(&link.connection)
-                                       : MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
-    const bool shaken = connected && R_SUCCEEDED(handshake);
-    Case(S, HANDSHAKE, CHECK_EXACT, shaken,
-         "expected SkipDefaultVerify, SetVerifyOption(0) and DoHandshake to succeed within %u "
-         "ms, presenting \"%.60s\"; %s, %s",
-         HANDSHAKE_BUDGET_MS, config.server_name, connected ? "connected" : said,
-         HandshakeText(handshake));
+    bool connected = false;
+    bool shaken = false;
+    if (ReportStart(S, HANDSHAKE)) {
+        char said[160] = "";
+        connected = LinkOpen(&context, &link, false, NULL, said, sizeof(said));
+        const Result handshake = connected ? UnverifiedHandshake(&link.connection)
+                                           : MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
+        shaken = connected && R_SUCCEEDED(handshake);
+        Case(S, HANDSHAKE, CHECK_EXACT, shaken,
+             "expected SkipDefaultVerify, SetVerifyOption(0) and DoHandshake to succeed within %u "
+             "ms, presenting \"%.60s\"; %s, %s",
+             HANDSHAKE_BUDGET_MS, config.server_name, connected ? "connected" : said,
+             HandshakeText(handshake));
+    }
 
     if (!shaken) {
-        Skip(S, WRITE, "no handshake above");
-        Skip(S, READ, "no handshake above");
+        Skip(S, WRITE, REPORT_REASON_DEPENDS, "no handshake above");
+        Skip(S, READ, REPORT_REASON_DEPENDS, "no handshake above");
     } else {
-        char request[256];
-        const size_t request_length = NetStatusRequest(
-            request, sizeof(request),
-            config.server_name[0] != '\0' ? config.server_name : Dotted(config.server_ip));
-        u32 written = 0;
-        Result wrote = 0;
-        const uint64_t write_deadline = NowNs() + (uint64_t)EXCHANGE_BUDGET_MS * 1000000ull;
-        while (written < request_length) {
-            u32 now = 0;
-            wrote = sslConnectionWrite(&link.connection, request + written,
-                                       (u32)(request_length - written), &now);
-            if (R_SUCCEEDED(wrote)) {
-                written += now;
-            } else if (!NetSslWouldBlock(wrote) || NowNs() >= write_deadline) {
-                break;
-            } else {
-                SleepMs(10);
+        Result wrote = MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
+        const bool asked = ReportStart(S, WRITE);
+        if (asked) {
+            char request[256];
+            const size_t request_length = NetStatusRequest(
+                request, sizeof(request),
+                config.server_name[0] != '\0' ? config.server_name : Dotted(config.server_ip));
+            u32 written = 0;
+            wrote = 0;
+            const uint64_t write_deadline = NowNs() + (uint64_t)EXCHANGE_BUDGET_MS * 1000000ull;
+            while (written < request_length) {
+                u32 now = 0;
+                wrote = sslConnectionWrite(&link.connection, request + written,
+                                           (u32)(request_length - written), &now);
+                if (R_SUCCEEDED(wrote)) {
+                    written += now;
+                } else if (!NetSslWouldBlock(wrote) || NowNs() >= write_deadline) {
+                    break;
+                } else {
+                    SleepMs(10);
+                }
             }
+            Case(S, WRITE, CHECK_EXACT, R_SUCCEEDED(wrote) && written == request_length,
+                 "expected all %zu bytes of %s written within %u ms; got %s, %u", request_length,
+                 STATUS_PATH_NOTE, EXCHANGE_BUDGET_MS, ResultText(wrote), (unsigned)written);
         }
-        Case(S, WRITE, CHECK_EXACT, R_SUCCEEDED(wrote) && written == request_length,
-             "expected all %zu bytes of %s written within %u ms; got %s, %u", request_length,
-             STATUS_PATH_NOTE, EXCHANGE_BUDGET_MS, ResultText(wrote), (unsigned)written);
 
         // Read until the response is whole by its Content-Length, the server closes, or the
         // budget runs out: redenex answers this path with two empty lists (its status.go),
         // which is what a service status document says when nothing is wrong.
-        static char response[16384];
-        size_t have = 0;
-        NetHttpResponse parsed_response;
-        memset(&parsed_response, 0, sizeof(parsed_response));
-        Result last = 0;
-        const uint64_t deadline = NowNs() + (uint64_t)EXCHANGE_BUDGET_MS * 1000000ull;
-        while (R_SUCCEEDED(wrote) && have < sizeof(response) - 1u && NowNs() < deadline) {
-            u32 got = 0;
-            last = sslConnectionRead(&link.connection, response + have,
-                                     (u32)(sizeof(response) - 1u - have), &got);
-            if (NetSslWouldBlock(last)) {
-                SleepMs(10);
-                continue;
+        if (!asked) {
+            Skip(S, READ, REPORT_REASON_DEPENDS, "%s: no request went out to answer",
+                 DID_NOT_RUN);
+        } else if (ReportStart(S, READ)) {
+            static char response[16384];
+            size_t have = 0;
+            NetHttpResponse parsed_response;
+            memset(&parsed_response, 0, sizeof(parsed_response));
+            Result last = 0;
+            const uint64_t deadline = NowNs() + (uint64_t)EXCHANGE_BUDGET_MS * 1000000ull;
+            while (R_SUCCEEDED(wrote) && have < sizeof(response) - 1u && NowNs() < deadline) {
+                u32 got = 0;
+                last = sslConnectionRead(&link.connection, response + have,
+                                         (u32)(sizeof(response) - 1u - have), &got);
+                if (NetSslWouldBlock(last)) {
+                    SleepMs(10);
+                    continue;
+                }
+                if (R_FAILED(last) || got == 0u) {
+                    break;
+                }
+                have += got;
+                if (NetHttpParse(response, have, &parsed_response) && parsed_response.complete) {
+                    break;
+                }
             }
-            if (R_FAILED(last) || got == 0u) {
-                break;
-            }
-            have += got;
-            if (NetHttpParse(response, have, &parsed_response) && parsed_response.complete) {
-                break;
-            }
+            response[have] = '\0';
+            const bool head = NetHttpParse(response, have, &parsed_response);
+            const bool clear = head && parsed_response.status == 200 &&
+                               NetStatusAllClear(response + parsed_response.body_offset,
+                                                 parsed_response.body_length);
+            Case(S, READ, CHECK_EXACT, clear,
+                 "expected 200 and {\"maintenances\":[],\"incidents\":[]}; read %zu bytes "
+                 "(last %s), status %d, body \"%.120s\"",
+                 have, ResultText(last), head ? parsed_response.status : -1,
+                 Visible(head ? response + parsed_response.body_offset : response, 120));
         }
-        response[have] = '\0';
-        const bool head = NetHttpParse(response, have, &parsed_response);
-        const bool clear = head && parsed_response.status == 200 &&
-                           NetStatusAllClear(response + parsed_response.body_offset,
-                                             parsed_response.body_length);
-        Case(S, READ, CHECK_EXACT, clear,
-             "expected 200 and {\"maintenances\":[],\"incidents\":[]}; read %zu bytes (last %s), "
-             "status %d, body \"%.120s\"",
-             have, ResultText(last), head ? parsed_response.status : -1,
-             Visible(head ? response + parsed_response.body_offset : response, 120));
     }
     if (connected) {
         LinkClose(&link);
@@ -1708,7 +1820,7 @@ static void RunSsl(const char *sockets_why) {
     // The service works on a duplicate of the descriptor it was handed, so the program closing
     // its own afterwards, which it is free to do, leaves the connection's alone: a duplicate is
     // a descriptor of its own (POSIX dup), and closing one does not close the other.
-    {
+    if (ReportStart(S, KEEPS)) {
         Link kept;
         char kept_said[160] = "";
         const bool kept_connected = LinkOpen(&context, &kept, true, NULL, kept_said, sizeof(kept_said));
@@ -1728,8 +1840,9 @@ static void RunSsl(const char *sockets_why) {
     // those connections must present (reden docs/OnlineService.md, game_server). Verification
     // stays as a new connection has it and nothing is imported.
     if (!config.has_session || config.rewrite_count == 0u) {
-        Skip(S, STAND_IN, "%s", !config.has_session ? NO_SESSION : "the net file names no rewrite");
-    } else {
+        Skip(S, STAND_IN, REPORT_REASON_NOT_CONFIGURED, "%s",
+             !config.has_session ? NO_SESSION : "the net file names no rewrite");
+    } else if (ReportStart(S, STAND_IN)) {
         Link standing;
         char standing_said[160] = "";
         const bool standing_connected =
@@ -1753,8 +1866,8 @@ static void RunSsl(const char *sockets_why) {
     // The fixture's backend and game server share one, which is the address the service sends
     // a game to.
     if (!config.has_session) {
-        Skip(S, STAND_IN_ADDRESS, "%s", NO_SESSION);
-    } else {
+        Skip(S, STAND_IN_ADDRESS, REPORT_REASON_NOT_CONFIGURED, "%s", NO_SESSION);
+    } else if (ReportStart(S, STAND_IN_ADDRESS)) {
         char address[16];
         snprintf(address, sizeof(address), "%u.%u.%u.%u", config.server_ip[0], config.server_ip[1],
                  config.server_ip[2], config.server_ip[3]);
@@ -1866,26 +1979,36 @@ static void RunAcc(void) {
     static const char *const CACHED = "the cached id token reads back the same";
 
     char why[200] = "";
+    ReportReason why_reason = REPORT_REASON_UNAVAILABLE;
     AccountSession account_session;
+    memset(&account_session, 0, sizeof(account_session));
     AccountUid uid;
+    memset(&uid, 0, sizeof(uid));
     char said[240];
-    const Result opened = OpenAccount(&account_session, &uid, said, sizeof(said));
-    if (R_FAILED(opened)) {
-        snprintf(why, sizeof(why), "%.190s", said);
-        Skip(S, OPENS, "%s", why);
-    } else {
-        const bool have = accountUidIsValid(&uid);
-        Case(S, OPENS, CHECK_NONE, have, "expected acc:u0 and a user; %s", said);
-        if (!have) {
-            snprintf(why, sizeof(why), "no user to ask about");
+    Result opened = MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
+    if (ReportStart(S, OPENS)) {
+        opened = OpenAccount(&account_session, &uid, said, sizeof(said));
+        if (R_FAILED(opened)) {
+            snprintf(why, sizeof(why), "%.190s", said);
+            Skip(S, OPENS, REPORT_REASON_UNAVAILABLE, "%s", why);
+        } else {
+            const bool have = accountUidIsValid(&uid);
+            Case(S, OPENS, CHECK_NONE, have, "expected acc:u0 and a user; %s", said);
+            if (!have) {
+                snprintf(why, sizeof(why), "no user to ask about");
+                why_reason = REPORT_REASON_DEPENDS;
+            }
         }
+    } else {
+        snprintf(why, sizeof(why), "%s: acc:u0 is not open", DID_NOT_RUN);
+        why_reason = REPORT_REASON_DEPENDS;
     }
 
     Service manager;
     memset(&manager, 0, sizeof(manager));
     if (why[0] != '\0') {
-        Skip(S, MANAGER, "%s", why);
-    } else {
+        Skip(S, MANAGER, why_reason, "%s", why);
+    } else if (ReportStart(S, MANAGER)) {
         const Result rc = serviceDispatchIn(account_session.service, 101, uid,
                                             .out_num_objects = 1, .out_objects = &manager, );
         Case(S, MANAGER, CHECK_NONE, R_SUCCEEDED(rc),
@@ -1894,15 +2017,22 @@ static void RunAcc(void) {
         if (R_FAILED(rc)) {
             snprintf(why, sizeof(why), "GetBaasAccountManagerForApplication returned %s",
                      ResultText(rc));
+            why_reason = REPORT_REASON_DEPENDS;
         }
+    } else {
+        snprintf(why, sizeof(why), "%s: there is no account manager", DID_NOT_RUN);
+        why_reason = REPORT_REASON_DEPENDS;
     }
 
     const char *const session_why = why[0] != '\0' ? why : !config.has_session ? NO_SESSION : NULL;
+    const ReportReason session_reason =
+        why[0] != '\0' ? why_reason : REPORT_REASON_NOT_CONFIGURED;
     if (session_why != NULL) {
-        Skip(S, ACCOUNT, "%s", session_why);
+        Skip(S, ACCOUNT, session_reason, "%s", session_why);
     } else if (!config.has_account) {
-        Skip(S, ACCOUNT, "the net file names no account, so there is nothing to expect");
-    } else {
+        Skip(S, ACCOUNT, REPORT_REASON_NOT_CONFIGURED,
+             "the net file names no account, so there is nothing to expect");
+    } else if (ReportStart(S, ACCOUNT)) {
         u64 account = 0;
         const Result rc = serviceDispatchOut(&manager, 1, account);
         Case(S, ACCOUNT, CHECK_EXACT, R_SUCCEEDED(rc) && account == config.account,
@@ -1914,8 +2044,8 @@ static void RunAcc(void) {
     static uint8_t second[ID_TOKEN_BUFFER];
     bool refreshed = false;
     if (session_why != NULL) {
-        Skip(S, REFRESH, "%s", session_why);
-    } else {
+        Skip(S, REFRESH, session_reason, "%s", session_why);
+    } else if (ReportStart(S, REFRESH)) {
         Service context;
         const Result started = serviceDispatch(&manager, 2, .out_num_objects = 1,
                                                .out_objects = &context, );
@@ -1952,11 +2082,16 @@ static void RunAcc(void) {
 
     u32 size = 0;
     if (session_why != NULL) {
-        Skip(S, TOKEN, "%s", session_why);
-        Skip(S, CACHED, "%s", session_why);
+        Skip(S, TOKEN, session_reason, "%s", session_why);
+        Skip(S, CACHED, session_reason, "%s", session_why);
     } else if (!refreshed) {
-        Skip(S, TOKEN, "the refresh above did not succeed, so there is no token to expect");
-        Skip(S, CACHED, "the refresh above did not succeed, so there is no token to expect");
+        Skip(S, TOKEN, REPORT_REASON_DEPENDS,
+             "the refresh above did not succeed, so there is no token to expect");
+        Skip(S, CACHED, REPORT_REASON_DEPENDS,
+             "the refresh above did not succeed, so there is no token to expect");
+    } else if (!ReportStart(S, TOKEN)) {
+        Skip(S, CACHED, REPORT_REASON_DEPENDS, "%s: there is no first reading to compare with",
+             DID_NOT_RUN);
     } else {
         // It travels as a bearer credential, so RFC 6750 fixes its alphabet; the guest reads it
         // as a C string, so a terminator has to follow it inside the buffer.
@@ -1969,20 +2104,26 @@ static void RunAcc(void) {
              ID_TOKEN_BUFFER - 1u, ResultText(rc), (unsigned)size,
              sized && NetIsB64Token(first, size) ? "b64token" : "not b64token",
              sized ? first[size] : 0u, session_late);
-        u32 size_again = 0;
-        const Result again = LoadIdToken(&manager, second, &size_again);
-        Case(S, CACHED, CHECK_EXACT,
-             sized && R_SUCCEEDED(again) && size_again == size && memcmp(first, second, size) == 0,
-             "expected the same %u bytes again; got %s, %u bytes, %s%s", (unsigned)size,
-             ResultText(again), (unsigned)size_again,
-             size_again == size && memcmp(first, second, size) == 0 ? "the same" : "different",
-             session_late);
+        if (ReportStart(S, CACHED)) {
+            u32 size_again = 0;
+            const Result again = LoadIdToken(&manager, second, &size_again);
+            Case(S, CACHED, CHECK_EXACT,
+                 sized && R_SUCCEEDED(again) && size_again == size &&
+                     memcmp(first, second, size) == 0,
+                 "expected the same %u bytes again; got %s, %u bytes, %s%s", (unsigned)size,
+                 ResultText(again), (unsigned)size_again,
+                 size_again == size && memcmp(first, second, size) == 0 ? "the same"
+                                                                        : "different",
+                 session_late);
+        }
     }
 
     if (manager.session != 0) {
         serviceClose(&manager);
     }
-    CloseAccount(&account_session);
+    if (R_SUCCEEDED(opened)) {
+        CloseAccount(&account_session);
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1999,16 +2140,23 @@ static void RunFriend(void) {
     static const char *const PICTURE = "a picture url comes back with every {size} replaced";
 
     char why[200] = "";
-    const Result opened = friendsInitialize(FriendsServiceType_User);
-    if (R_FAILED(opened)) {
-        snprintf(why, sizeof(why),
-                 "friendsInitialize(FriendsServiceType_User) returned %s: friend:u cannot be "
-                 "opened from this program",
-                 ResultText(opened));
-        Skip(S, OPENS, "%s", why);
+    ReportReason why_reason = REPORT_REASON_UNAVAILABLE;
+    Result opened = MAKERESULT(Module_Libnx, LibnxError_NotInitialized);
+    if (ReportStart(S, OPENS)) {
+        opened = friendsInitialize(FriendsServiceType_User);
+        if (R_FAILED(opened)) {
+            snprintf(why, sizeof(why),
+                     "friendsInitialize(FriendsServiceType_User) returned %s: friend:u cannot be "
+                     "opened from this program",
+                     ResultText(opened));
+            Skip(S, OPENS, REPORT_REASON_UNAVAILABLE, "%s", why);
+        } else {
+            Case(S, OPENS, CHECK_NONE, true,
+                 "expected friendsInitialize(FriendsServiceType_User) to succeed; it did");
+        }
     } else {
-        Case(S, OPENS, CHECK_NONE, true,
-             "expected friendsInitialize(FriendsServiceType_User) to succeed; it did");
+        snprintf(why, sizeof(why), "%s: friend:u is not open", DID_NOT_RUN);
+        why_reason = REPORT_REASON_DEPENDS;
     }
 
     // The same user acc names, which is who the lists belong to.
@@ -2022,11 +2170,13 @@ static void RunFriend(void) {
         }
     }
     const char *const session_why = why[0] != '\0' ? why : !config.has_session ? NO_SESSION : NULL;
+    const ReportReason session_reason =
+        why[0] != '\0' ? why_reason : REPORT_REASON_NOT_CONFIGURED;
     Service *const service = why[0] == '\0' ? friendsGetServiceSession_IFriendsService() : NULL;
 
     if (session_why != NULL) {
-        Skip(S, BLOCKED, "%s", session_why);
-    } else {
+        Skip(S, BLOCKED, session_reason, "%s", session_why);
+    } else if (ReportStart(S, BLOCKED)) {
         struct {
             s32 offset;
             u32 pad;
@@ -2057,11 +2207,16 @@ static void RunFriend(void) {
         }
     }
     if (session_why != NULL) {
-        Skip(S, KNOWN, "%s", session_why);
-        Skip(S, UNKNOWN, "%s", session_why);
+        Skip(S, KNOWN, session_reason, "%s", session_why);
+        Skip(S, UNKNOWN, session_reason, "%s", session_why);
     } else if (known == NULL) {
-        Skip(S, KNOWN, "the net file names no profile for its account");
-        Skip(S, UNKNOWN, "the net file names no profile for its account");
+        Skip(S, KNOWN, REPORT_REASON_NOT_CONFIGURED,
+             "the net file names no profile for its account");
+        Skip(S, UNKNOWN, REPORT_REASON_NOT_CONFIGURED,
+             "the net file names no profile for its account");
+    } else if (!ReportStart(S, KNOWN)) {
+        Skip(S, UNKNOWN, REPORT_REASON_DEPENDS,
+             "%s: it is judged from the answer that case asks for", DID_NOT_RUN);
     } else {
         // One id it knows and one it cannot: one slot each, in the order asked.
         const u64 ids[2] = { config.account, NetUnknownAccount(&config) };
@@ -2083,19 +2238,22 @@ static void RunFriend(void) {
              ResultText(rc),
              (unsigned long long)first.account, (unsigned)first.valid, Visible(first.name, 32),
              Visible(first.url, 100), session_late);
-        Case(S, UNKNOWN, CHECK_EXACT, R_SUCCEEDED(rc) && NetProfileIsUnknown(ids[1], &second),
-             "expected slot two to answer for %016llx (the id asked: the fork's reading, "
-             "unverified on a console), invalid; got %s, %016llx valid %u%s",
-             (unsigned long long)ids[1], ResultText(rc), (unsigned long long)second.account,
-             (unsigned)second.valid, session_late);
+        if (ReportStart(S, UNKNOWN)) {
+            Case(S, UNKNOWN, CHECK_EXACT,
+                 R_SUCCEEDED(rc) && NetProfileIsUnknown(ids[1], &second),
+                 "expected slot two to answer for %016llx (the id asked: the fork's reading, "
+                 "unverified on a console), invalid; got %s, %016llx valid %u%s",
+                 (unsigned long long)ids[1], ResultText(rc), (unsigned long long)second.account,
+                 (unsigned)second.valid, session_late);
+        }
     }
 
     // GetProfileImageUrl (11000): a picture url in, the same url with every {size} replaced by
     // the size asked for out (the contract: avatar_url may contain {size}). Two placeholders, so
     // replacing only the first is a wrong answer.
     if (session_why != NULL) {
-        Skip(S, PICTURE, "%s", session_why);
-    } else {
+        Skip(S, PICTURE, session_reason, "%s", session_why);
+    } else if (ReportStart(S, PICTURE)) {
         static const char URL[] = "http://edenprobe.invalid/{size}/avatar-{size}.png";
         struct {
             char url[NET_PROFILE_URL_MAX];

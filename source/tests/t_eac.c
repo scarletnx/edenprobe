@@ -36,6 +36,9 @@ static void SampleCase(GpuContext *gpu, const DkShader *vertex_shader,
                        const DkShader *fragment_shader, const char *name, DkImageFormat format,
                        const uint8_t *bytes, uint32_t size, const uint16_t red[16],
                        const uint16_t *green) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     DkImage image;
     DkImageLayout layout;
     uint8_t *memory = NULL;
@@ -137,11 +140,18 @@ void RunEac(void) {
     spec.data_size = 64u * 1024u;
     spec.cpu_image_size = 4u * 4096u;
 
+    if (!ReportStart(SUITE, "graphics device opens with room for the blocks")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with room for the blocks", CHECK_NONE, opened, "%s",
                gpu.failure);
     if (!opened) {
+        return;
+    }
+    if (!ReportStart(SUITE, "the fetching shader loads")) {
+        GpuClose(&gpu);
         return;
     }
     DkShader vertex_shader;

@@ -27,6 +27,10 @@ extern "C" {
 ///             of the run with it.
 ///   fatal     the cases that end the run on a machine that fails them, the console included
 ///             where its processor lacks the instruction: off by default, and never on the console.
+///   retry     the cases on the crash list, which a machine's program ended inside before, run
+///             again; one that runs to its end leaves the list.
+///   nojournal nothing written between cases: no journal, so a crash costs the rest of the run.
+///             For measuring what the journal costs, and for a card that must not be written.
 ///   cpu       a suite family: the processor's instructions, which run in every mode anyway, so
 ///             naming it alone is a run with no drawing and no network.
 ///   graphics  another; see below.
@@ -87,6 +91,10 @@ typedef struct {
     bool stress;
     /// The word `fatal`: the cases a machine that fails them does not survive.
     bool fatal;
+    /// The word `retry`: the crash list's cases run again.
+    bool retry;
+    /// The word `nojournal`: no journal, and no run that goes on after a crash.
+    bool no_journal;
     /// The family words in the file, whether or not this build has them.
     uint32_t families_named;
     /// How many words were not understood, and the first of them, space separated.
@@ -119,6 +127,11 @@ uint32_t ModeFamiliesToRun(const RunMode *mode, uint32_t present);
 /// The one line the report carries about the mode, without the braces around it. Returns the
 /// length written; the text is always terminated.
 size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t present);
+
+/// The words that decide what a run reports, in one order, for the journal: a launch goes on
+/// with a run only when the mode file still says the same. Quick and detailed are left out,
+/// since they decide what happens after the report and not what is in it.
+size_t ModeKey(char *out, size_t out_size, const RunMode *mode);
 
 #ifdef __cplusplus
 }

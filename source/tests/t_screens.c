@@ -465,7 +465,8 @@ static void CheckRecordFill(void) {
     static ReportRecord kept;
     ReportRecordFill(&kept, "acc", name, "none", REPORT_SKIP, detail, -1);
     static char line[REPORT_LINE_MAX];
-    ReportBuildResultLine(line, sizeof(line), "acc", name, "none", "skip", detail, NULL);
+    ReportBuildResultLine(line, sizeof(line), "acc", name, "none", "skip", "not configured",
+                          detail, NULL);
     static char read_name[REPORT_KEPT_NAME];
     static char read_detail[REPORT_KEPT_DETAIL];
     char read_suite[REPORT_KEPT_SUITE];

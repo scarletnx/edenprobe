@@ -215,6 +215,9 @@ static bool CheckEveryPixel(const uint8_t *pixels, FMathMode mode, FMathBudget b
 static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
                      const DkShader *fragment_shader, DkGpuAddr uniform, FMathMode mode) {
     const char *const name = FMathName(mode);
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     const FMathBudget budget = FMathBudgetFor(mode);
 
     // Every case reports the units in the last place tier, including the twelve whose budget is
@@ -268,6 +271,9 @@ void RunFmath(void) {
     spec.code_size = 16u * 1024u;
     spec.data_size = 64u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens with a float target")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with a float target", CHECK_NONE, opened, "%s",
@@ -276,6 +282,10 @@ void RunFmath(void) {
         return;
     }
 
+    if (!ReportStart(SUITE, "the float shader loads")) {
+        GpuClose(&gpu);
+        return;
+    }
     DkShader vertex_shader;
     DkShader fragment_shader;
     const bool loaded = GpuLoadShader(&gpu, &vertex_shader, ShaderData(SHADER_COMMON_VERT),
@@ -288,6 +298,10 @@ void RunFmath(void) {
         return;
     }
 
+    if (!ReportStart(SUITE, "the uniform buffer has somewhere to live")) {
+        GpuClose(&gpu);
+        return;
+    }
     DkGpuAddr uniform = 0;
     const bool reserved =
         GpuAllocData(&gpu, UNIFORM_SIZE, DK_UNIFORM_BUF_ALIGNMENT, &uniform) != NULL;

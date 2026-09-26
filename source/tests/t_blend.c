@@ -317,6 +317,9 @@ static void NoteAlphaDestinationReach(GpuContext *gpu, const DkShader *vertex_sh
 
 static void BlendOneCase(GpuContext *gpu, const DkShader *vertex_shader,
                          const DkShader *fragment_shader, const BlendCase *test) {
+    if (!ReportStart(SUITE, test->name)) {
+        return;
+    }
     uint8_t expected[4];
     BlendReference(&test->spec, test->source, test->destination, expected);
 
@@ -342,6 +345,9 @@ void RunBlend(void) {
     spec.code_size = 16u * 1024u;
     spec.data_size = 64u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens", CHECK_NONE, opened, "%s", gpu.failure);
@@ -349,6 +355,10 @@ void RunBlend(void) {
         return;
     }
 
+    if (!ReportStart(SUITE, "the shaders load")) {
+        GpuClose(&gpu);
+        return;
+    }
     DkShader vertex_shader;
     DkShader fragment_shader;
     const bool loaded = GpuLoadShader(&gpu, &vertex_shader, ShaderData(SHADER_COMMON_VERT),

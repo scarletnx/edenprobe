@@ -184,6 +184,9 @@ static void DrawAndCheck(GpuContext *gpu, const DkShader *vertex_shader,
                          const GpuVertex *vertices, uint32_t vertex_count,
                          const DkViewport *viewport, const DkScissor *scissor,
                          const Expectation *want) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     GpuClear(gpu, CLEAR_COLOR[0], CLEAR_COLOR[1], CLEAR_COLOR[2], CLEAR_COLOR[3]);
 
     GpuBeginPass(gpu);
@@ -290,6 +293,9 @@ void RunRaster(void) {
     spec.code_size = 16u * 1024u;
     spec.data_size = 64u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens", CHECK_NONE, opened, "%s", gpu.failure);
@@ -297,6 +303,10 @@ void RunRaster(void) {
         return;
     }
 
+    if (!ReportStart(SUITE, "the shaders load")) {
+        GpuClose(&gpu);
+        return;
+    }
     DkShader vertex_shader;
     DkShader fragment_shader;
     const bool loaded =

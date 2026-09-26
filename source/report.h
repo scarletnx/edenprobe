@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "journal.h"
 #include "perf.h"
 #include "picture.h"
 
@@ -21,6 +22,48 @@ extern "C" {
 /// still leaves a readable file. The last line of a finished run is the summary.
 void ReportOpen(const char *path);
 void ReportClose(void);
+
+/// Opens the report of a run that goes on after its program ended: cut back to @p offset bytes
+/// when @p cut is set, which is where the step it runs again began, and counted from @p counts.
+/// False when the file cannot be opened for update; the run then reports on the debug channel.
+bool ReportResume(const char *path, uint64_t offset, bool cut, const JournalCounts *counts);
+
+/// The journal at @p path, begun anew for a run or opened to go on with one. Every line of the
+/// report is then on the card before the next thing starts, and so is every record. Without it
+/// (the mode word `nojournal`, and the host build) nothing is written between cases.
+bool ReportJournalOpen(const char *path, bool fresh);
+void ReportJournalClose(void);
+bool ReportJournalOn(void);
+
+/// Writes one record, for the ones main keeps: the run, each launch, step, pass and done, and
+/// the finish. Nothing when the journal is off.
+void ReportJournalWrite(const JournalRecord *record);
+
+/// The counts as the journal's step and finished records keep them.
+JournalCounts ReportCounts(void);
+
+/// How long the report is, every line so far written: where a step that runs again cuts it back
+/// to. Nought when there is no file.
+uint64_t ReportOffset(void);
+
+/// What decides whether a case runs: the crash list (a copy is kept, and written back to
+/// @p path when it changes), and whether the mode word `retry` asked for its cases again.
+void ReportSetCrashList(const CrashList *list, const char *path, bool retry);
+
+/// A case the program ended inside earlier in this run. Skipped for the rest of the run
+/// whatever retry says, since running it again is what ended the launch before.
+void ReportAddCrashed(const JournalRecord *crash);
+
+/// Puts a case on the crash list and writes the file. False when it was there already, the list
+/// is full or the file could not be written.
+bool ReportCrashListAdd(const char *suite, const char *name);
+
+/// The crash list as it stands, where it is written, and whether retry runs its cases: what a
+/// case that borrows the settings for a moment hands back as it found them.
+const CrashList *ReportCrashList(void);
+const char *ReportCrashListPath(void);
+bool ReportRetrying(void);
+bool ReportStartsRequired(void);
 
 /// Reopens a closed report to add to its end, with the counts left as they were. For the one
 /// line a run can owe after its summary, which is why the detailed mode stopped by itself.
@@ -61,11 +104,50 @@ typedef enum {
 void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed,
                 const char *detail);
 
-/// A case that could not ask its question here, with the reason. Counted apart from passes and
-/// failures, because a machine that was never asked has not agreed with anything: a run where
-/// every net case skipped is not a green net run. The line carries the result "skip" and the
-/// none tier, since it compares nothing.
-void ReportSkip(const char *suite, const char *name, const char *reason);
+/// Why a case was skipped, which its line carries as `reason`, one of a few words, beside the
+/// sentence in `detail`.
+typedef enum {
+    /// The program ended inside it on this machine: in this run, which the journal says, or in
+    /// an earlier one, which the crash list says. Counted apart from every other skip.
+    REPORT_REASON_CRASHED,
+    /// Known to end a machine's program, and not asked for.
+    REPORT_REASON_MAY_CRASH,
+    /// The net file does not name what it needs.
+    REPORT_REASON_NOT_CONFIGURED,
+    /// A service or a resource this program cannot have here.
+    REPORT_REASON_UNAVAILABLE,
+    /// A case before it did not leave what it needs.
+    REPORT_REASON_DEPENDS,
+    REPORT_REASON_COUNT,
+} ReportReason;
+
+/// The word a reason goes onto the line as.
+const char *ReportReasonWord(ReportReason reason);
+
+/// A case that could not ask its question here, with the reason and a sentence. Counted apart
+/// from passes and failures, because a machine that was never asked has not agreed with
+/// anything: a run where every net case skipped is not a green net run. The line carries the
+/// result "skip" and the none tier, since it compares nothing.
+void ReportSkip(const char *suite, const char *name, ReportReason reason, const char *detail);
+
+/// Says the case @p name is about to start, before any of its work, and whether it may.
+///
+/// False when it must not run: it ended this machine's program in this run or an earlier one.
+/// Its skip line is then already written, and the caller does none of the case's work and
+/// reports nothing more for it. True, and the journal says on the card that the case started,
+/// so a launch after the program ends inside it knows which case to skip. Every case of the
+/// cpu, graphics and net families starts this way; the judge's cases ask the machine nothing
+/// but ordinary arithmetic, and are only journaled when they end.
+bool ReportStart(const char *suite, const char *name);
+
+/// Whether a case that reports a verdict must have started. On for the families that ask the
+/// machine something, where one that did not is a case a crash could not skip, and says so in a
+/// note.
+void ReportRequireStarts(bool on);
+
+/// How many times a case started while another had not ended, or ended without starting where
+/// it had to: each is a case whose crash the journal could not pin on it, and says so in a note.
+size_t ReportBookkeepingProblems(void);
 
 /// The longest line a case can produce: the fields below plus four paths to its pictures.
 #define REPORT_LINE_MAX 2048
@@ -82,14 +164,16 @@ size_t ReportBuildCaseLine(char *out, size_t out_size, const char *suite, const 
                            const char *tier, bool passed, const char *detail,
                            const PicturePaths *paths);
 
-/// The same line with the result spelled out, which is how a skip is written.
+/// The same line with the result spelled out, which is how a skip is written, and its reason
+/// after it when @p reason is not NULL.
 size_t ReportBuildResultLine(char *out, size_t out_size, const char *suite, const char *name,
-                             const char *tier, const char *result, const char *detail,
-                             const PicturePaths *paths);
+                             const char *tier, const char *result, const char *reason,
+                             const char *detail, const PicturePaths *paths);
 
 /// The summary line for the given counts, exposed so its shape can be checked on the host.
+/// @p skipped counts the skips of every reason but crashed, which @p crashed counts.
 size_t ReportBuildSummaryLine(char *out, size_t out_size, size_t passed, size_t failed,
-                              size_t skipped);
+                              size_t skipped, size_t crashed);
 
 /// The same line with the case's time in microseconds last, as `"us":N`, when @p us is not NULL.
 /// Whole or not at all, like a picture's path: a line with no room for it goes without.
@@ -123,8 +207,8 @@ void ReportPerf(const char *suite);
 /// Both of the above at once, the one every other line builder here ends in.
 size_t ReportBuildTimedResultLine(char *out, size_t out_size, const char *suite,
                                   const char *name, const char *tier, const char *result,
-                                  const char *detail, const PicturePaths *paths,
-                                  const uint32_t *us);
+                                  const char *reason, const char *detail,
+                                  const PicturePaths *paths, const uint32_t *us);
 
 
 /// The longest note ReportNote carries whole. Stated here rather than buried in the buffer, so a
@@ -138,15 +222,19 @@ void ReportNote(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 /// The last line, carrying the counts a runner checks without parsing everything above it.
 void ReportSummary(void);
 
-/// How many cases have passed, failed and been skipped so far.
+/// How many cases have passed, failed, been skipped and been skipped as crashed so far, in
+/// this run: a launch that resumes one starts from the counts the journal kept.
 size_t ReportPassed(void);
 size_t ReportFailed(void);
 size_t ReportSkipped(void);
+size_t ReportCrashed(void);
 
 typedef enum {
     REPORT_PASS,
     REPORT_FAIL,
     REPORT_SKIP,
+    /// A skip whose reason is crashed, kept apart the way the summary counts it.
+    REPORT_CRASHED,
 } ReportResult;
 
 /// How much of a case's suite, name and detail its line carries, escaped; a kept case holds the

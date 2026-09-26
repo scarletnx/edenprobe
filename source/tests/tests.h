@@ -24,6 +24,10 @@ void RunSupport(void);
 /// Part of the support suite, which runs it.
 void RunSupportScreens(void);
 
+/// The journal, the crash list and what a launch decides from them: part of the support suite,
+/// which hands it a directory of its own to write a file into and take it away again.
+void RunSupportJournal(const char *scratch);
+
 /// The time each drawing case reports and the perf line each drawing suite ends on: the sampling,
 /// the arithmetic and the shape of both lines. Support cases, so it runs in both builds.
 void RunSupportPerf(void);

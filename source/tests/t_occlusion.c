@@ -76,6 +76,54 @@ static void JudgeCells(const uint8_t *pixels, const char *name) {
                seen[3]);
 }
 
+/// The quads' list, judged twice: every quad there (@p drawn), every report 64 (@p counted).
+static void CountQuads(GpuContext *gpu, const DkShader *vs, const DkShader *fs,
+                       const GpuVertex *quads, uint8_t *reports, DkGpuAddr reports_address,
+                       const char *drawn, const char *counted) {
+    memset(reports, 0xFF, CELLS * REPORT_SIZE);
+    GpuClear(gpu, 0.0f, 0.0f, 0.0f, 0.0f);
+    GpuBeginPass(gpu);
+    bool ok = GpuBindTriangleState(gpu, vs, fs, quads, CELLS * 6u);
+    for (uint32_t k = 0; k < CELLS && ok; ++k) {
+        dkCmdBufResetCounter(gpu->cmdbuf, DkCounter_SamplesPassed);
+        dkCmdBufDraw(gpu->cmdbuf, DkPrimitive_Triangles, 6, 1, k * 6u, 0);
+        dkCmdBufReportCounter(gpu->cmdbuf, DkCounter_SamplesPassed,
+                              reports_address + (DkGpuAddr)k * REPORT_SIZE);
+    }
+    GpuSubmit(gpu);
+    const uint8_t *const pixels = ok && gpu->ready ? GpuReadBack(gpu) : NULL;
+    if (pixels == NULL) {
+        const char *const why =
+            gpu->failure[0] != '\0' ? gpu->failure : "the list or the readback did not happen";
+        ReportCase(SUITE, drawn, CHECK_NONE, false, why);
+        if (ReportStart(SUITE, counted)) {
+            ReportCase(SUITE, counted, CHECK_NONE, false, why);
+        }
+        return;
+    }
+    JudgeCells(pixels, drawn);
+    if (!ReportStart(SUITE, counted)) {
+        return;
+    }
+    uint32_t wrong = 0;
+    int32_t first = -1;
+    uint64_t seen = 0;
+    for (uint32_t k = 0; k < CELLS; ++k) {
+        uint64_t value;
+        memcpy(&value, reports + k * REPORT_SIZE, sizeof(value));
+        if (value != CELL * CELL) {
+            if (first < 0) {
+                first = (int32_t)k;
+                seen = value;
+            }
+            ++wrong;
+        }
+    }
+    CHECK_TRUE(SUITE, counted, CHECK_EXACT, wrong == 0,
+               "%u of %u reports are not 64, the first report %d holding %llu", (unsigned)wrong,
+               (unsigned)CELLS, (int)first, (unsigned long long)seen);
+}
+
 void RunOcclusion(void) {
     GpuSpec spec;
     GpuSpecDefaults(&spec, TARGET_WIDTH, TARGET_HEIGHT);
@@ -83,11 +131,18 @@ void RunOcclusion(void) {
     spec.data_size = 256u * 1024u;
     spec.command_size = 256u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens with room for 320 reports")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with room for 320 reports", CHECK_NONE, opened,
                "%s", gpu.failure);
     if (!opened) {
+        return;
+    }
+    if (!ReportStart(SUITE, "the drawing shaders load")) {
+        GpuClose(&gpu);
         return;
     }
     DkShader vs;
@@ -98,6 +153,10 @@ void RunOcclusion(void) {
                                       ShaderSize(SHADER_FLAT_FRAG));
     CHECK_TRUE(SUITE, "the drawing shaders load", CHECK_NONE, loaded, "%s", gpu.failure);
     if (!loaded) {
+        GpuClose(&gpu);
+        return;
+    }
+    if (!ReportStart(SUITE, "the reports have somewhere to live")) {
         GpuClose(&gpu);
         return;
     }
@@ -129,49 +188,24 @@ void RunOcclusion(void) {
         }
     }
 
-    // 320 quads, the counter reset before each and reported after it.
+    // 320 quads, the counter reset before each and reported after it. One list for both cases:
+    // it is the first one's work, and the second is judged from its reports, so it has nothing
+    // to judge when the first did not run.
     static const char *const DRAWN = "320 quads counted one by one are all drawn";
     static const char *const COUNTED = "320 quads counted one by one pass 64 samples each";
-    memset(reports, 0xFF, CELLS * REPORT_SIZE);
-    GpuClear(&gpu, 0.0f, 0.0f, 0.0f, 0.0f);
-    GpuBeginPass(&gpu);
-    bool ok = GpuBindTriangleState(&gpu, &vs, &fs, quads, CELLS * 6u);
-    for (uint32_t k = 0; k < CELLS && ok; ++k) {
-        dkCmdBufResetCounter(gpu.cmdbuf, DkCounter_SamplesPassed);
-        dkCmdBufDraw(gpu.cmdbuf, DkPrimitive_Triangles, 6, 1, k * 6u, 0);
-        dkCmdBufReportCounter(gpu.cmdbuf, DkCounter_SamplesPassed,
-                              reports_address + (DkGpuAddr)k * REPORT_SIZE);
-    }
-    GpuSubmit(&gpu);
-    const uint8_t *pixels = ok && gpu.ready ? GpuReadBack(&gpu) : NULL;
-    if (pixels == NULL) {
-        const char *const why =
-            gpu.failure[0] != '\0' ? gpu.failure : "the list or the readback did not happen";
-        ReportCase(SUITE, DRAWN, CHECK_NONE, false, why);
-        ReportCase(SUITE, COUNTED, CHECK_NONE, false, why);
+    if (ReportStart(SUITE, DRAWN)) {
+        CountQuads(&gpu, &vs, &fs, quads, reports, reports_address, DRAWN, COUNTED);
     } else {
-        JudgeCells(pixels, DRAWN);
-        uint32_t wrong = 0;
-        int32_t first = -1;
-        uint64_t seen = 0;
-        for (uint32_t k = 0; k < CELLS; ++k) {
-            uint64_t value;
-            memcpy(&value, reports + k * REPORT_SIZE, sizeof(value));
-            if (value != CELL * CELL) {
-                if (first < 0) {
-                    first = (int32_t)k;
-                    seen = value;
-                }
-                ++wrong;
-            }
-        }
-        CHECK_TRUE(SUITE, COUNTED, CHECK_EXACT, wrong == 0,
-                   "%u of %u reports are not 64, the first report %d holding %llu",
-                   (unsigned)wrong, (unsigned)CELLS, (int)first, (unsigned long long)seen);
+        ReportSkip(SUITE, COUNTED, REPORT_REASON_DEPENDS,
+                   "judged from the list of the case before it, which did not run");
     }
 
     // 320 cells cleared one by one, the counter reported after each clear.
     static const char *const CLEARED = "320 cells cleared one by one between reports are cleared";
+    if (!ReportStart(SUITE, CLEARED)) {
+        GpuClose(&gpu);
+        return;
+    }
     GpuClear(&gpu, 0.0f, 0.0f, 0.0f, 0.0f);
     GpuBeginPass(&gpu);
     for (uint32_t k = 0; k < CELLS; ++k) {
@@ -185,7 +219,7 @@ void RunOcclusion(void) {
                               reports_address + (DkGpuAddr)k * REPORT_SIZE);
     }
     GpuSubmit(&gpu);
-    pixels = gpu.ready ? GpuReadBack(&gpu) : NULL;
+    const uint8_t *const pixels = gpu.ready ? GpuReadBack(&gpu) : NULL;
     if (pixels == NULL) {
         ReportCase(SUITE, CLEARED, CHECK_NONE, false,
                    gpu.failure[0] != '\0' ? gpu.failure : "the list or the readback did not happen");

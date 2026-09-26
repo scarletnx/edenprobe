@@ -162,131 +162,157 @@ static void Sm4(const uint32_t key[4], const uint32_t ck[4], const uint32_t plai
                      : "v0", "v1", "v2", "v3", "memory");
 }
 
+// Each case says it started before its instruction runs, so a translator that ends the program
+// on one costs that case alone: the launch after skips it and goes on with the next.
+static const char *const CLZ8 = "clz counts each of sixteen 8-bit lanes";
+static const char *const CLZ16 = "clz counts each of eight 16-bit lanes";
+static const char *const CLZ32 = "clz counts each of four 32-bit lanes";
+static const char *const DIV = "sdiv and udiv by zero give zero, 32 and 64 bits";
+static const char *const FRINTX = "frintx rounds to nearest even and raises inexact";
+static const char *const FRINTA = "frinta rounds halfway cases away from zero";
+static const char *const SQSHLU = "sqshlu saturates 8, 16 and 64-bit lanes and sets QC";
+static const char *const FCVTZ = "fcvtzs and fcvtzu with 64 fraction bits scale by 2^64";
+static const char *const SM4_CASE = "sm4ekey and sm4e give the SM4 standard's worked example";
+
 void RunCpu(void) {
     char seen[160];
     size_t used;
-
-    uint8_t out8[16];
-    Clz8(CPU_CLZ8_INPUT, out8);
     int wrong = 0;
-    used = 0;
-    for (int i = 0; i < 16; ++i) {
-        wrong += out8[i] != CpuRefClz8(CPU_CLZ8_INPUT[i]);
-        used += (size_t)snprintf(seen + used, sizeof(seen) - used, " %u", out8[i]);
-    }
-    CHECK_TRUE(SUITE, "clz counts each of sixteen 8-bit lanes", CHECK_EXACT, wrong == 0,
-               "%d lanes wrong, got%s", wrong, seen);
 
-    uint16_t out16[8];
-    Clz16(CPU_CLZ16_INPUT, out16);
-    wrong = 0;
-    used = 0;
-    for (int i = 0; i < 8; ++i) {
-        wrong += out16[i] != CpuRefClz16(CPU_CLZ16_INPUT[i]);
-        used += (size_t)snprintf(seen + used, sizeof(seen) - used, " 0x%04x", out16[i]);
+    if (ReportStart(SUITE, CLZ8)) {
+        uint8_t out8[16];
+        Clz8(CPU_CLZ8_INPUT, out8);
+        used = 0;
+        for (int i = 0; i < 16; ++i) {
+            wrong += out8[i] != CpuRefClz8(CPU_CLZ8_INPUT[i]);
+            used += (size_t)snprintf(seen + used, sizeof(seen) - used, " %u", out8[i]);
+        }
+        CHECK_TRUE(SUITE, CLZ8, CHECK_EXACT, wrong == 0, "%d lanes wrong, got%s", wrong, seen);
     }
-    CHECK_TRUE(SUITE, "clz counts each of eight 16-bit lanes", CHECK_EXACT, wrong == 0,
-               "%d lanes wrong, got%s", wrong, seen);
 
-    uint32_t out32[4];
-    Clz32(CPU_CLZ32_INPUT, out32);
-    wrong = 0;
-    used = 0;
-    for (int i = 0; i < 4; ++i) {
-        wrong += out32[i] != CpuRefClz32(CPU_CLZ32_INPUT[i]);
-        used += (size_t)snprintf(seen + used, sizeof(seen) - used, " %u", (unsigned)out32[i]);
+    if (ReportStart(SUITE, CLZ16)) {
+        uint16_t out16[8];
+        Clz16(CPU_CLZ16_INPUT, out16);
+        wrong = 0;
+        used = 0;
+        for (int i = 0; i < 8; ++i) {
+            wrong += out16[i] != CpuRefClz16(CPU_CLZ16_INPUT[i]);
+            used += (size_t)snprintf(seen + used, sizeof(seen) - used, " 0x%04x", out16[i]);
+        }
+        CHECK_TRUE(SUITE, CLZ16, CHECK_EXACT, wrong == 0, "%d lanes wrong, got%s", wrong, seen);
     }
-    CHECK_TRUE(SUITE, "clz counts each of four 32-bit lanes", CHECK_EXACT, wrong == 0,
-               "%d lanes wrong, got%s", wrong, seen);
+
+    if (ReportStart(SUITE, CLZ32)) {
+        uint32_t out32[4];
+        Clz32(CPU_CLZ32_INPUT, out32);
+        wrong = 0;
+        used = 0;
+        for (int i = 0; i < 4; ++i) {
+            wrong += out32[i] != CpuRefClz32(CPU_CLZ32_INPUT[i]);
+            used += (size_t)snprintf(seen + used, sizeof(seen) - used, " %u", (unsigned)out32[i]);
+        }
+        CHECK_TRUE(SUITE, CLZ32, CHECK_EXACT, wrong == 0, "%d lanes wrong, got%s", wrong, seen);
+    }
 
     // Division by zero is defined on this processor: zero, whatever the dividend.
-    uint64_t div[4];
-    Div(CPU_DIV_INPUT, div);
-    CHECK_TRUE(SUITE, "sdiv and udiv by zero give zero, 32 and 64 bits", CHECK_EXACT,
-               div[0] == 0 && div[1] == 0 && div[2] == 0 && div[3] == 0,
-               "sdiv w %016llx, udiv w %016llx, sdiv x %016llx, udiv x %016llx",
-               (unsigned long long)div[0], (unsigned long long)div[1],
-               (unsigned long long)div[2], (unsigned long long)div[3]);
+    if (ReportStart(SUITE, DIV)) {
+        uint64_t div[4];
+        Div(CPU_DIV_INPUT, div);
+        CHECK_TRUE(SUITE, DIV, CHECK_EXACT,
+                   div[0] == 0 && div[1] == 0 && div[2] == 0 && div[3] == 0,
+                   "sdiv w %016llx, udiv w %016llx, sdiv x %016llx, udiv x %016llx",
+                   (unsigned long long)div[0], (unsigned long long)div[1],
+                   (unsigned long long)div[2], (unsigned long long)div[3]);
+    }
 
     uint64_t rounded[4];
-    uint64_t fpsr = Frintx(CPU_FRINTX_INPUT, rounded);
-    wrong = 0;
-    for (int i = 0; i < 4; ++i) {
-        bool inexact;
-        wrong += rounded[i] != CpuRefRoundDouble(CPU_FRINTX_INPUT[i], false, &inexact);
+    if (ReportStart(SUITE, FRINTX)) {
+        uint64_t fpsr = Frintx(CPU_FRINTX_INPUT, rounded);
+        wrong = 0;
+        for (int i = 0; i < 4; ++i) {
+            bool inexact;
+            wrong += rounded[i] != CpuRefRoundDouble(CPU_FRINTX_INPUT[i], false, &inexact);
+        }
+        CHECK_TRUE(SUITE, FRINTX, CHECK_EXACT, wrong == 0 && (fpsr & FPSR_IXC) != 0,
+                   "%d of 4 wrong, got %016llx %016llx %016llx %016llx, inexact %s", wrong,
+                   (unsigned long long)rounded[0], (unsigned long long)rounded[1],
+                   (unsigned long long)rounded[2], (unsigned long long)rounded[3],
+                   (fpsr & FPSR_IXC) != 0 ? "raised" : "not raised");
     }
-    CHECK_TRUE(SUITE, "frintx rounds to nearest even and raises inexact", CHECK_EXACT,
-               wrong == 0 && (fpsr & FPSR_IXC) != 0,
-               "%d of 4 wrong, got %016llx %016llx %016llx %016llx, inexact %s", wrong,
-               (unsigned long long)rounded[0], (unsigned long long)rounded[1],
-               (unsigned long long)rounded[2], (unsigned long long)rounded[3],
-               (fpsr & FPSR_IXC) != 0 ? "raised" : "not raised");
 
-    Frinta(CPU_FRINTA_INPUT, rounded);
-    wrong = 0;
-    for (int i = 0; i < 4; ++i) {
-        bool inexact;
-        wrong += rounded[i] != CpuRefRoundDouble(CPU_FRINTA_INPUT[i], true, &inexact);
+    if (ReportStart(SUITE, FRINTA)) {
+        Frinta(CPU_FRINTA_INPUT, rounded);
+        wrong = 0;
+        for (int i = 0; i < 4; ++i) {
+            bool inexact;
+            wrong += rounded[i] != CpuRefRoundDouble(CPU_FRINTA_INPUT[i], true, &inexact);
+        }
+        CHECK_TRUE(SUITE, FRINTA, CHECK_EXACT, wrong == 0,
+                   "%d of 4 wrong, got %016llx %016llx %016llx %016llx", wrong,
+                   (unsigned long long)rounded[0], (unsigned long long)rounded[1],
+                   (unsigned long long)rounded[2], (unsigned long long)rounded[3]);
     }
-    CHECK_TRUE(SUITE, "frinta rounds halfway cases away from zero", CHECK_EXACT, wrong == 0,
-               "%d of 4 wrong, got %016llx %016llx %016llx %016llx", wrong,
-               (unsigned long long)rounded[0], (unsigned long long)rounded[1],
-               (unsigned long long)rounded[2], (unsigned long long)rounded[3]);
 
     // Lane sizes 8, 16, 64 and a scalar 64, each against the reference and each with its QC.
-    static const unsigned SQSHLU_ESIZE[5] = {8, 16, 64, 64, 64};
-    static const int SQSHLU_FPSR[5] = {0, 1, 2, 2, 3};
-    uint64_t shifted[5];
-    uint64_t flags[4];
-    Sqshlu(CPU_SQSHLU_INPUT, shifted, flags);
-    bool saturated[4] = {false, false, false, false};
-    wrong = 0;
-    for (int i = 0; i < 5; ++i) {
-        bool lane_saturated;
-        const uint64_t expected = CpuRefSqshlu(CPU_SQSHLU_INPUT[i], SQSHLU_ESIZE[i],
-                                               CPU_SQSHLU_SHIFT[SQSHLU_FPSR[i]], &lane_saturated);
-        saturated[SQSHLU_FPSR[i]] = saturated[SQSHLU_FPSR[i]] || lane_saturated;
-        wrong += shifted[i] != expected;
+    if (ReportStart(SUITE, SQSHLU)) {
+        static const unsigned SQSHLU_ESIZE[5] = {8, 16, 64, 64, 64};
+        static const int SQSHLU_FPSR[5] = {0, 1, 2, 2, 3};
+        uint64_t shifted[5];
+        uint64_t flags[4];
+        Sqshlu(CPU_SQSHLU_INPUT, shifted, flags);
+        bool saturated[4] = {false, false, false, false};
+        wrong = 0;
+        for (int i = 0; i < 5; ++i) {
+            bool lane_saturated;
+            const uint64_t expected =
+                CpuRefSqshlu(CPU_SQSHLU_INPUT[i], SQSHLU_ESIZE[i],
+                             CPU_SQSHLU_SHIFT[SQSHLU_FPSR[i]], &lane_saturated);
+            saturated[SQSHLU_FPSR[i]] = saturated[SQSHLU_FPSR[i]] || lane_saturated;
+            wrong += shifted[i] != expected;
+        }
+        int qc_wrong = 0;
+        for (int i = 0; i < 4; ++i) {
+            qc_wrong += ((flags[i] & FPSR_QC) != 0) != saturated[i];
+        }
+        CHECK_TRUE(SUITE, SQSHLU, CHECK_EXACT, wrong == 0 && qc_wrong == 0,
+                   "%d of 5 registers wrong, got 8b %016llx 4h %016llx 2d %016llx %016llx "
+                   "d %016llx; QC %d%d%d%d, want %d%d%d%d",
+                   wrong, (unsigned long long)shifted[0], (unsigned long long)shifted[1],
+                   (unsigned long long)shifted[2], (unsigned long long)shifted[3],
+                   (unsigned long long)shifted[4], (flags[0] & FPSR_QC) != 0,
+                   (flags[1] & FPSR_QC) != 0, (flags[2] & FPSR_QC) != 0,
+                   (flags[3] & FPSR_QC) != 0, saturated[0], saturated[1], saturated[2],
+                   saturated[3]);
     }
-    int qc_wrong = 0;
-    for (int i = 0; i < 4; ++i) {
-        qc_wrong += ((flags[i] & FPSR_QC) != 0) != saturated[i];
-    }
-    CHECK_TRUE(SUITE, "sqshlu saturates 8, 16 and 64-bit lanes and sets QC", CHECK_EXACT,
-               wrong == 0 && qc_wrong == 0,
-               "%d of 5 registers wrong, got 8b %016llx 4h %016llx 2d %016llx %016llx "
-               "d %016llx; QC %d%d%d%d, want %d%d%d%d",
-               wrong, (unsigned long long)shifted[0], (unsigned long long)shifted[1],
-               (unsigned long long)shifted[2], (unsigned long long)shifted[3],
-               (unsigned long long)shifted[4], (flags[0] & FPSR_QC) != 0,
-               (flags[1] & FPSR_QC) != 0, (flags[2] & FPSR_QC) != 0, (flags[3] & FPSR_QC) != 0,
-               saturated[0], saturated[1], saturated[2], saturated[3]);
 
     // Last of the cases every run has: a translator whose table of fraction bits stops at 63
     // calls a null pointer here, and nothing after it reports.
-    static const int FCVTZ_SOURCE[8] = {0, 1, 2, 3, 4, 5, 4, 5};
-    static const bool FCVTZ_UNSIGNED[8] = {false, false, true, true, false, false, true, true};
-    uint64_t converted[8];
-    Fcvtz(CPU_FCVTZ_INPUT, converted);
-    wrong = 0;
-    for (int i = 0; i < 8; ++i) {
-        wrong += converted[i] !=
-                 CpuRefFcvtzFixed64(CPU_FCVTZ_INPUT[FCVTZ_SOURCE[i]], FCVTZ_UNSIGNED[i]);
+    if (ReportStart(SUITE, FCVTZ)) {
+        static const int FCVTZ_SOURCE[8] = {0, 1, 2, 3, 4, 5, 4, 5};
+        static const bool FCVTZ_UNSIGNED[8] = {false, false, true, true, false, false, true, true};
+        uint64_t converted[8];
+        Fcvtz(CPU_FCVTZ_INPUT, converted);
+        wrong = 0;
+        for (int i = 0; i < 8; ++i) {
+            wrong += converted[i] !=
+                     CpuRefFcvtzFixed64(CPU_FCVTZ_INPUT[FCVTZ_SOURCE[i]], FCVTZ_UNSIGNED[i]);
+        }
+        CHECK_TRUE(SUITE, FCVTZ, CHECK_EXACT, wrong == 0,
+                   "%d of 8 lanes wrong, got %016llx %016llx, %016llx %016llx, %016llx %016llx, "
+                   "%016llx %016llx",
+                   wrong, (unsigned long long)converted[0], (unsigned long long)converted[1],
+                   (unsigned long long)converted[2], (unsigned long long)converted[3],
+                   (unsigned long long)converted[4], (unsigned long long)converted[5],
+                   (unsigned long long)converted[6], (unsigned long long)converted[7]);
     }
-    CHECK_TRUE(SUITE, "fcvtzs and fcvtzu with 64 fraction bits scale by 2^64", CHECK_EXACT,
-               wrong == 0,
-               "%d of 8 lanes wrong, got %016llx %016llx, %016llx %016llx, %016llx %016llx, "
-               "%016llx %016llx",
-               wrong, (unsigned long long)converted[0], (unsigned long long)converted[1],
-               (unsigned long long)converted[2], (unsigned long long)converted[3],
-               (unsigned long long)converted[4], (unsigned long long)converted[5],
-               (unsigned long long)converted[6], (unsigned long long)converted[7]);
 
-    static const char *const SM4_CASE = "sm4ekey and sm4e give the SM4 standard's worked example";
     if (!fatal_cases) {
-        ReportSkip(SUITE, SM4_CASE,
+        ReportSkip(SUITE, SM4_CASE, REPORT_REASON_MAY_CRASH,
                    "needs the mode word fatal: the console's processor has no SM4, and an "
                    "emulator that cannot translate it ends the run");
+        return;
+    }
+    if (!ReportStart(SUITE, SM4_CASE)) {
         return;
     }
     uint32_t rk[4];

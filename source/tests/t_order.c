@@ -233,6 +233,9 @@ static void Begin(OrderContext *o) {
 
 static void CaseVertices(OrderContext *o) {
     const char *const name = "vertices a dispatch wrote before a wait for idle reach the draw";
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     Scratch source, destination, uniform;
     Begin(o);
     if (!Alloc(o, &source, 96, 256) || !Alloc(o, &destination, 96, 256) ||
@@ -254,6 +257,9 @@ static void CaseVertices(OrderContext *o) {
 
 static void CaseIndices(OrderContext *o) {
     const char *const name = "indices a dispatch wrote before a wait for idle reach the draw";
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     Scratch vertices, source, destination, uniform;
     Begin(o);
     if (!Alloc(o, &vertices, 64, 256) || !Alloc(o, &source, 64, 256) ||
@@ -280,6 +286,9 @@ static void CaseIndices(OrderContext *o) {
 static void CaseDrawIndirect(OrderContext *o) {
     const char *const name =
         "draw arguments a dispatch wrote before a wait for idle reach the indirect draw";
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     Scratch vertices, source, destination, uniform;
     Begin(o);
     if (!Alloc(o, &vertices, 96, 256) || !Alloc(o, &source, 16, 256) ||
@@ -308,6 +317,9 @@ static void CaseDrawIndirect(OrderContext *o) {
 static void CaseUniform(OrderContext *o) {
     const char *const name =
         "a uniform buffer a dispatch wrote before a wait for idle reaches the fragments";
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     Scratch vertices, source, destination;
     Begin(o);
     if (!Alloc(o, &vertices, 96, 256) || !Alloc(o, &source, 16, 256) ||
@@ -332,6 +344,9 @@ static void CaseUniform(OrderContext *o) {
 static void CaseStorage(OrderContext *o) {
     const char *const name =
         "a storage buffer a dispatch wrote before a wait for idle reaches the fragments";
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     Scratch vertices, source, destination;
     Begin(o);
     if (!Alloc(o, &vertices, 96, 256) || !Alloc(o, &source, 16, 256) ||
@@ -355,6 +370,9 @@ static void CaseStorage(OrderContext *o) {
 static void CaseDispatchIndirect(OrderContext *o) {
     const char *const name =
         "a grid a dispatch wrote before a wait for idle sizes the indirect dispatch";
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     Scratch source, destination, params, marks;
     Begin(o);
     if (!Alloc(o, &source, 16, 256) || !Alloc(o, &destination, 16, 256) ||
@@ -392,6 +410,9 @@ static void CaseDispatchIndirect(OrderContext *o) {
 static void CaseComputeToCompute(OrderContext *o) {
     const char *const name =
         "words a dispatch wrote before a wait for idle reach the next dispatch";
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     Scratch source, middle, destination;
     Begin(o);
     if (!Alloc(o, &source, 1024, 256) || !Alloc(o, &middle, 1024, 256) ||
@@ -415,6 +436,9 @@ static void CaseComputeToCompute(OrderContext *o) {
 static void CaseFragmentToCompute(OrderContext *o) {
     const char *const name =
         "words the fragments stored before a wait for idle reach the next dispatch";
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     Scratch vertices, params, stored, copied;
     Begin(o);
     if (!Alloc(o, &vertices, 96, 256) || !Alloc(o, &params, UNIFORM_SIZE,
@@ -451,6 +475,9 @@ static void PairsCase(OrderContext *o, bool ordered) {
     const char *const name =
         ordered ? "128 dispatch and draw pairs, each ordered by a wait for idle, all draw"
                 : "128 dispatch and draw pairs with no wait for idle between them are recorded";
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     Scratch source, destination, vertices;
     Begin(o);
     if (!Alloc(o, &source, 16, 256) || !Alloc(o, &destination, PAIRS * 256u, 256) ||
@@ -491,6 +518,9 @@ static void DrawsCase(OrderContext *o, bool ordered) {
     const char *const name =
         ordered ? "256 draws into one target, each followed by a wait for idle, all land"
                 : "256 draws into one target with no wait for idle between them are recorded";
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     Scratch vertices, uniform;
     Begin(o);
     if (!Alloc(o, &vertices, 96, 256) ||
@@ -524,11 +554,18 @@ void RunOrder(void) {
     spec.data_size = 2u * 1024u * 1024u;
     spec.command_size = 256u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens with a compute queue")) {
+        return;
+    }
     OrderContext o;
     const bool opened = GpuOpenSpec(&o.gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with a compute queue", CHECK_NONE, opened, "%s",
                o.gpu.failure);
     if (!opened) {
+        return;
+    }
+    if (!ReportStart(SUITE, "the compute and drawing shaders load")) {
+        GpuClose(&o.gpu);
         return;
     }
     const bool loaded =

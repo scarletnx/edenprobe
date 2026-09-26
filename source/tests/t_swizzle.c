@@ -80,6 +80,9 @@ static uint32_t NextRandom(uint32_t *state) {
 
 static void Case(SwizzleContext *s, const char *name, const TexelFormat *f, uint32_t width,
                  uint32_t height, uint32_t tile) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     static uint8_t texels[MAX_TEXELS * 4u];
     GpuContext *const gpu = &s->gpu;
     DkImage image;
@@ -214,12 +217,19 @@ void RunSwizzle(void) {
     spec.data_size = 64u * 1024u;
     spec.cpu_image_size = 12u * 1024u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens with room for the textures")) {
+        return;
+    }
     SwizzleContext s;
     s.seed = 0x5EEDF00Du;
     const bool opened = GpuOpenSpec(&s.gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with room for the textures", CHECK_NONE, opened,
                "%s", s.gpu.failure);
     if (!opened) {
+        return;
+    }
+    if (!ReportStart(SUITE, "the folding shader loads")) {
+        GpuClose(&s.gpu);
         return;
     }
     const bool loaded =

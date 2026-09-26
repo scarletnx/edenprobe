@@ -14,9 +14,14 @@ extern "C" {
 /// Everything it draws and every decision it makes about what to draw next is in ui.c, which
 /// the host build exercises; what is left here is the two the host has no equivalent of.
 
-/// What this run was asked to do, from the file on the memory card and from the pad. The pad
-/// is asked only when the file said quick, since the button can only add the detailed mode.
-RunMode ViewerModeAtLaunch(const char *mode_path);
+/// What the mode file on the memory card asks for. Read before the report opens, since whether
+/// this launch goes on with a run or starts one depends on its words.
+RunMode ViewerModeFromFile(const char *mode_path);
+
+/// Adds what the pad says, which is asked only when the file said quick, since the button can
+/// only add the detailed mode. After the report opens: a machine that cannot reach the pad still
+/// leaves a report saying how far it got.
+RunMode ViewerModeWithPad(RunMode from_file);
 
 /// How the screen ended.
 typedef enum {

@@ -149,6 +149,9 @@ static void FormatCase(GpuContext *gpu, const DkShader *vertex_shader,
     const DkImageFormat library_format = LIBRARY_FORMATS[index].format;
     char name[96];
     snprintf(name, sizeof(name), "%s keeps a clear and a quad drawn over it", format->name);
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
     const CheckTier tier =
         format->channel[0].kind == FORMAT_FLOAT || format->channel[0].kind == FORMAT_UFLOAT
             ? CHECK_ULP
@@ -298,6 +301,9 @@ void RunFormat(void) {
     spec.image_size = IMAGE_MEMORY;
     spec.readback_bytes_per_pixel = FORMAT_MAX_BYTES;
 
+    if (!ReportStart(SUITE, "graphics device opens with room for every format")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with room for every format", CHECK_NONE, opened,
@@ -308,6 +314,10 @@ void RunFormat(void) {
 
     // The pairing between the two tables is by position, so it is checked by name before any
     // case leans on it: an entry added to one and not the other shifts every case after it.
+    if (!ReportStart(SUITE, "every reference format is paired with the library's own")) {
+        GpuClose(&gpu);
+        return;
+    }
     uint32_t mismatched = 0;
     const char *first_mismatch = "";
     for (uint32_t i = 0; i < FORMAT_COUNT; ++i) {
@@ -328,6 +338,10 @@ void RunFormat(void) {
         return;
     }
 
+    if (!ReportStart(SUITE, "the three output shaders load")) {
+        GpuClose(&gpu);
+        return;
+    }
     DkShader vertex_shader;
     DkShader fragment[3];
     const bool loaded =
@@ -346,6 +360,10 @@ void RunFormat(void) {
     }
     const DkShader *const fragment_shaders[3] = { &fragment[0], &fragment[1], &fragment[2] };
 
+    if (!ReportStart(SUITE, "the uniform buffer has somewhere to live")) {
+        GpuClose(&gpu);
+        return;
+    }
     DkGpuAddr uniform = 0;
     const bool reserved =
         GpuAllocData(&gpu, UNIFORM_SIZE, DK_UNIFORM_BUF_ALIGNMENT, &uniform) != NULL;
@@ -389,8 +407,10 @@ void RunFormat(void) {
                     char name[96];
                     snprintf(name, sizeof(name), "%s keeps a clear and a quad drawn over it",
                              FORMAT_TABLE[rest].name);
-                    CHECK_TRUE(SUITE, name, CHECK_NONE, false,
-                               "not drawn: the device did not come back after \"%s\"", why);
+                    if (ReportStart(SUITE, name)) {
+                        CHECK_TRUE(SUITE, name, CHECK_NONE, false,
+                                   "not drawn: the device did not come back after \"%s\"", why);
+                    }
                 }
                 return;
             }

@@ -170,6 +170,9 @@ static size_t FamilyOf(IntMathMode mode) {
 static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
                      const DkShader *fragment_shader, DkGpuAddr uniform, IntMathMode mode) {
     const char *const name = IntMathName(mode);
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
 
     GpuClearUint(gpu, SENTINEL, SENTINEL, SENTINEL, SENTINEL);
 
@@ -219,6 +222,9 @@ void RunIntmath(void) {
     spec.code_size = 64u * 1024u;
     spec.data_size = 64u * 1024u;
 
+    if (!ReportStart(SUITE, "graphics device opens with an integer target")) {
+        return;
+    }
     GpuContext gpu;
     const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens with an integer target", CHECK_NONE, opened, "%s",
@@ -227,6 +233,10 @@ void RunIntmath(void) {
         return;
     }
 
+    if (!ReportStart(SUITE, "the integer shaders load")) {
+        GpuClose(&gpu);
+        return;
+    }
     DkShader vertex_shader;
     DkShader fragment_shaders[FAMILY_COUNT];
     bool loaded = GpuLoadShader(&gpu, &vertex_shader, ShaderData(SHADER_COMMON_VERT),
@@ -241,6 +251,10 @@ void RunIntmath(void) {
         return;
     }
 
+    if (!ReportStart(SUITE, "the uniform buffer has somewhere to live")) {
+        GpuClose(&gpu);
+        return;
+    }
     DkGpuAddr uniform = 0;
     const bool reserved =
         GpuAllocData(&gpu, UNIFORM_SIZE, DK_UNIFORM_BUF_ALIGNMENT, &uniform) != NULL;
