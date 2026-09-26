@@ -29,6 +29,16 @@ extern "C" {
 /// range out; the layout here is the one the emulators that run it read (Eden's maxwell_3d.h
 /// DrawTexture, Ryujinx's ThreedClassState), and writing the last register draws.
 #define RAW_3D_DRAW_TEXTURE 0x420u
+/// SET_RENDER_ENABLE_A, B and C: the address high word, the low word, and the mode.
+#define RAW_3D_RENDER_ENABLE 0x554u
+
+/// The modes of SET_RENDER_ENABLE_C. IF_EQUAL and IF_NOT_EQUAL compare the 64-bit words at the
+/// address and 16 bytes past it; CONDITIONAL looks at the address alone.
+#define RAW_RENDER_FALSE 0u
+#define RAW_RENDER_TRUE 1u
+#define RAW_RENDER_CONDITIONAL 2u
+#define RAW_RENDER_IF_EQUAL 3u
+#define RAW_RENDER_IF_NOT_EQUAL 4u
 
 /// The limit the library programs once at start-up and never again: the last byte of a 40-bit
 /// address space, so a draw is never cut short by it (deko3d source/maxwell/gpu_3d_base.cpp).
@@ -43,6 +53,10 @@ uint32_t RawInlineHeader(uint32_t subchannel, uint32_t method, uint32_t value);
 /// Writes the three words that set the index buffer's limit register to @p limit, high word
 /// first as every address pair in the 3D class is. Returns 3.
 size_t RawIndexLimit(uint32_t out[3], uint64_t limit);
+
+/// Writes the four words that point the render enable at @p address with @p mode, the address
+/// high word first. Returns 4.
+size_t RawRenderEnable(uint32_t out[4], uint64_t address, uint32_t mode);
 
 /// The argument of VERTEX_ARRAY_INSTANCE_FIRST and _SUBSEQUENT: the first vertex in bits 0-15,
 /// the vertex count in bits 16-27 and the topology in bits 28-31, the layout of the 3D class's

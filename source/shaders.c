@@ -44,6 +44,9 @@ static const ShaderBlob BLOBS[SHADER_COUNT] = {
     [SHADER_VALUE_UBO_ALL_FRAG] = { value_ubo_all_frag_dksh, (uint32_t)value_ubo_all_frag_dksh_size },
     [SHADER_RING_VERT] = { ring_vert_dksh, (uint32_t)ring_vert_dksh_size },
     [SHADER_RING_FRAG] = { ring_frag_dksh, (uint32_t)ring_frag_dksh_size },
+    [SHADER_SQUARE_GEOM] = { square_geom_dksh, (uint32_t)square_geom_dksh_size },
+    [SHADER_QUAD_TESC] = { quad_tesc_dksh, (uint32_t)quad_tesc_dksh_size },
+    [SHADER_QUAD_TESE] = { quad_tese_dksh, (uint32_t)quad_tese_dksh_size },
 };
 
 const void *ShaderData(ShaderId id) {

@@ -9,9 +9,9 @@
 #include "../report.h"
 #include "tests.h"
 
-// The raw method words the index and instance suites send, against words worked out by hand from
-// deko3d's MakeCmdHeader (source/maxwell/command.h): method | subchannel << 13 | count << 16 |
-// mode << 29, with the increasing mode 1 and the inline mode 4.
+// The raw method words the index, instance and query suites send, against words worked out by
+// hand from deko3d's MakeCmdHeader (source/maxwell/command.h): method | subchannel << 13 |
+// count << 16 | mode << 29, with the increasing mode 1 and the inline mode 4.
 
 static const char *const SUITE = "reference";
 
@@ -65,6 +65,15 @@ void RunReferenceRaw(void) {
                    first < 13 ? (unsigned)draw[first] : 0u,
                    first < 13 ? (unsigned)want[first] : 0u);
     }
+    // 0x554 | 3 << 16 | 1 << 29, then the address high word first and the mode.
+    uint32_t enable[4] = { 0, 0, 0, 0 };
+    RawRenderEnable(enable, 0x12345678ABull, RAW_RENDER_IF_EQUAL);
+    CHECK_TRUE(SUITE, "a render enable is 0x20030554, the address high word first, the mode",
+               CHECK_NONE,
+               enable[0] == 0x20030554u && enable[1] == 0x12u && enable[2] == 0x345678ABu &&
+                   enable[3] == 3u,
+               "got 0x%08x 0x%08x 0x%08x 0x%08x", (unsigned)enable[0], (unsigned)enable[1],
+               (unsigned)enable[2], (unsigned)enable[3]);
     // Six 16-bit indices from byte 0x1000 end at byte 0x100B; four more in front move it to
     // 0x1013.
     CHECK_TRUE(SUITE, "the tight limit of six 16-bit indices at 0x1000 is 0x100b", CHECK_NONE,
