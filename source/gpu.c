@@ -172,12 +172,10 @@ static void LayOut(GpuContext *gpu, DkImageLayout *layout, DkImageFormat format,
 
 /// Lays out one image and gives it memory out of @p block at @p used, which it advances. The
 /// offset it landed at goes to @p placed_at when that is not NULL.
-static const char *PlaceImageAt(GpuContext *gpu, DkImage *image, DkImageLayout *layout,
-                                DkImageFormat format, uint32_t width, uint32_t height,
-                                uint32_t flags, uint32_t pitch_or_tile, DkMemBlock block,
+/// Gives an image already laid out in @p layout memory out of @p block at @p used, which it
+/// advances.
+static const char *PlaceLaidOut(DkImage *image, const DkImageLayout *layout, DkMemBlock block,
                                 uint32_t *used, uint32_t *placed_at) {
-    LayOut(gpu, layout, format, width, height, flags, pitch_or_tile);
-
     const uint64_t size = dkImageLayoutGetSize(layout);
     const uint32_t alignment = dkImageLayoutGetAlignment(layout);
     if (size == 0u || size > (uint64_t)UINT32_MAX / 2u || alignment == 0u) {
@@ -194,6 +192,14 @@ static const char *PlaceImageAt(GpuContext *gpu, DkImage *image, DkImageLayout *
         *placed_at = offset;
     }
     return NULL;
+}
+
+static const char *PlaceImageAt(GpuContext *gpu, DkImage *image, DkImageLayout *layout,
+                                DkImageFormat format, uint32_t width, uint32_t height,
+                                uint32_t flags, uint32_t pitch_or_tile, DkMemBlock block,
+                                uint32_t *used, uint32_t *placed_at) {
+    LayOut(gpu, layout, format, width, height, flags, pitch_or_tile);
+    return PlaceLaidOut(image, layout, block, used, placed_at);
 }
 
 static const char *PlaceImage(GpuContext *gpu, DkImage *image, DkImageLayout *layout,
@@ -915,6 +921,35 @@ bool GpuCreateImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImag
     if (cpu_bytes != NULL) {
         *cpu_bytes = (uint8_t *)dkMemBlockGetCpuAddr(block) + offset;
     }
+    return true;
+}
+
+bool GpuCreateArrayImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImageFormat format,
+                         uint32_t width, uint32_t height, uint32_t layers, uint32_t levels,
+                         uint8_t **cpu_bytes) {
+    if (gpu == NULL || !gpu->ready || cpu_bytes == NULL) {
+        return false;
+    }
+    if (gpu->cpu_image_memory == NULL) {
+        return Complain(gpu, "an image the processor writes, and the spec asked for no "
+                             "processor-visible image memory");
+    }
+    DkImageLayoutMaker maker;
+    dkImageLayoutMakerDefaults(&maker, gpu->device);
+    maker.type = DkImageType_2DArray;
+    maker.format = format;
+    maker.dimensions[0] = width;
+    maker.dimensions[1] = height;
+    maker.dimensions[2] = layers;
+    maker.mipLevels = levels;
+    dkImageLayoutInitialize(layout, &maker);
+    uint32_t offset = 0;
+    const char *problem =
+        PlaceLaidOut(out, layout, gpu->cpu_image_memory, &gpu->cpu_image_used, &offset);
+    if (problem != NULL) {
+        return Complain(gpu, problem);
+    }
+    *cpu_bytes = (uint8_t *)dkMemBlockGetCpuAddr(gpu->cpu_image_memory) + offset;
     return true;
 }
 

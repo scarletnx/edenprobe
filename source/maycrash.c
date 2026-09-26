@@ -13,6 +13,11 @@
     "its geometry shader has a PRET, and a shader recompiler that cannot translate PRET ends the " \
     "program (Eden, and the fork before ECFE-2026-1163)"
 
+// The same for fetch_array.frag, the bcn suite's fragment shader.
+#define BCN_PRET                                                                                   \
+    "its fragment shader has a PRET, and a shader recompiler that cannot translate PRET ends the " \
+    "program (Eden, and the fork before ECFE-2026-1163)"
+
 static const MayCrash TABLE[] = {
     { "cpu", CPU_SM4_CASE, MODE_FAMILY_CPU,
       "the console's processor has no SM4, and a translator that cannot compile it ends the "
@@ -21,6 +26,12 @@ static const MayCrash TABLE[] = {
       MODE_FAMILY_GRAPHICS, GEOMETRY_PRET },
     { "geometry", "a point the geometry shader emits nothing for draws nothing",
       MODE_FAMILY_GRAPHICS, GEOMETRY_PRET },
+    { "bcn", "every layer of a six-layer BC4 array keeps its own 2x2 and 1x1 levels",
+      MODE_FAMILY_GRAPHICS, BCN_PRET },
+    { "bcn", "both layers of a BC4 array six texels tall keep their own blocks",
+      MODE_FAMILY_GRAPHICS, BCN_PRET },
+    { "bcn", "the 2x8 second level of a 4x16 BC4 texture reads both of its blocks",
+      MODE_FAMILY_GRAPHICS, BCN_PRET },
 };
 
 size_t MayCrashCount(void) {

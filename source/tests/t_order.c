@@ -26,6 +26,13 @@
 // only the last invocations copy, so a reader not ordered after the whole dispatch sees the
 // buffer as it was. What it was is chosen so that a stale read draws nothing, launches nothing
 // or draws the wrong word, and every case counts the pixels or words that still hold it.
+//
+// Three readers are asked again after DkBarrier_Full, "completes the processing of all previous
+// commands", which the library emits as the channel's SetReference and nothing in the 3D class.
+// And draws that store words from their fragments are read by the next draw's fragments after
+// DkBarrier_Fragments ("similar to Vulkan renderpasses") and DkBarrier_Tiles ("similar to
+// Vulkan subpasses"), each pixel reading back only its own word, with the shader cache
+// invalidation and no image cache one (which an emulator may answer with a wait for idle).
 
 static const char *const SUITE = "order";
 
@@ -63,6 +70,8 @@ typedef struct {
     DkShader value_ubo;
     DkShader value_ssbo;
     DkShader store_ssbo;
+    DkShader store_late;
+    DkShader load_ssbo;
     DkShader common_vert;
 } OrderContext;
 
@@ -101,6 +110,12 @@ static bool RecordLateCopy(OrderContext *o, const Scratch *source, const Scratch
 /// The wait for idle every case puts between the writer and the reader.
 static void WaitForIdle(OrderContext *o) {
     dkCmdBufBarrier(o->gpu.cmdbuf, DkBarrier_Primitives, DkInvalidateFlags_Shader);
+}
+
+/// The barrier a case puts between the writer and the reader: the wait for idle above, or
+/// another mode with the same shader cache invalidation.
+static void Barrier(OrderContext *o, DkBarrier mode) {
+    dkCmdBufBarrier(o->gpu.cmdbuf, mode, DkInvalidateFlags_Shader);
 }
 
 /// Binds position.vert with one vec4 attribute read from @p vertices.
@@ -231,8 +246,7 @@ static void Begin(OrderContext *o) {
     GpuBeginList(&o->gpu);
 }
 
-static void CaseVertices(OrderContext *o) {
-    const char *const name = "vertices a dispatch wrote before a wait for idle reach the draw";
+static void CaseVertices(OrderContext *o, DkBarrier barrier, const char *name) {
     if (!ReportStart(SUITE, name)) {
         return;
     }
@@ -247,7 +261,7 @@ static void CaseVertices(OrderContext *o) {
     memset(destination.cpu, 0, 96);
     uniform.cpu[0] = MARKER;
     bool ok = RecordLateCopy(o, &source, &destination, 24, COPY_SPIN, COPY_GROUPS);
-    WaitForIdle(o);
+    Barrier(o, barrier);
     BindPositions(o, &o->value_ubo, destination.gpu, 96);
     dkCmdBufBindUniformBuffer(o->gpu.cmdbuf, DkStage_Fragment, 0, uniform.gpu, UNIFORM_SIZE);
     dkCmdBufDraw(o->gpu.cmdbuf, DkPrimitive_Triangles, 6, 1, 0, 0);
@@ -283,9 +297,7 @@ static void CaseIndices(OrderContext *o) {
     JudgeTarget(o, name, MARKER, ok);
 }
 
-static void CaseDrawIndirect(OrderContext *o) {
-    const char *const name =
-        "draw arguments a dispatch wrote before a wait for idle reach the indirect draw";
+static void CaseDrawIndirect(OrderContext *o, DkBarrier barrier, const char *name) {
     if (!ReportStart(SUITE, name)) {
         return;
     }
@@ -306,7 +318,7 @@ static void CaseDrawIndirect(OrderContext *o) {
     memcpy(destination.cpu, before, sizeof(before));
     uniform.cpu[0] = MARKER;
     bool ok = RecordLateCopy(o, &source, &destination, 4, COPY_SPIN, COPY_GROUPS);
-    WaitForIdle(o);
+    Barrier(o, barrier);
     BindPositions(o, &o->value_ubo, vertices.gpu, 96);
     dkCmdBufBindUniformBuffer(o->gpu.cmdbuf, DkStage_Fragment, 0, uniform.gpu, UNIFORM_SIZE);
     dkCmdBufDrawIndirect(o->gpu.cmdbuf, DkPrimitive_Triangles, destination.gpu);
@@ -341,9 +353,7 @@ static void CaseUniform(OrderContext *o) {
     JudgeTarget(o, name, MARKER, ok);
 }
 
-static void CaseStorage(OrderContext *o) {
-    const char *const name =
-        "a storage buffer a dispatch wrote before a wait for idle reaches the fragments";
+static void CaseStorage(OrderContext *o, DkBarrier barrier, const char *name) {
     if (!ReportStart(SUITE, name)) {
         return;
     }
@@ -359,7 +369,7 @@ static void CaseStorage(OrderContext *o) {
     memcpy(source.cpu, word, sizeof(word));
     memset(destination.cpu, 0, 16);
     bool ok = RecordLateCopy(o, &source, &destination, 4, COPY_SPIN, COPY_GROUPS);
-    WaitForIdle(o);
+    Barrier(o, barrier);
     BindPositions(o, &o->value_ssbo, vertices.gpu, 96);
     dkCmdBufBindStorageBuffer(o->gpu.cmdbuf, DkStage_Fragment, 0, destination.gpu, 16);
     dkCmdBufDraw(o->gpu.cmdbuf, DkPrimitive_Triangles, 6, 1, 0, 0);
@@ -465,6 +475,89 @@ static void CaseFragmentToCompute(OrderContext *o) {
     }
     JudgeWords(name, copied.cpu, want, PIXEL_COUNT, 0u, ok && o->gpu.ready,
                o->gpu.failure[0] != '\0' ? o->gpu.failure : "the list was not recorded");
+}
+
+// How long each fragment of the storing draw spins before its store.
+#define STORE_SPIN 2000u
+
+/// Every pixel i must hold the four bytes of MARKER + i. Counts the ones still holding the clear
+/// (nought), which is what a read of the buffer before the stores landed draws.
+static void JudgeIndexed(OrderContext *o, const char *name, bool drawn) {
+    if (!drawn || !o->gpu.ready) {
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   o->gpu.failure[0] != '\0' ? o->gpu.failure : "the list was not recorded");
+        return;
+    }
+    const uint8_t *const pixels = GpuReadBack(&o->gpu);
+    if (pixels == NULL) {
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   o->gpu.failure[0] != '\0' ? o->gpu.failure : "the readback handed back nothing");
+        return;
+    }
+    Picture *const picture = PictureBegin(TARGET_WIDTH, TARGET_HEIGHT, PICTURE_COLOUR, pixels);
+    uint32_t wrong = 0;
+    uint32_t cleared = 0;
+    uint32_t first = 0;
+    uint8_t seen[4] = { 0, 0, 0, 0 };
+    for (uint32_t y = 0; y < TARGET_HEIGHT; ++y) {
+        for (uint32_t x = 0; x < TARGET_WIDTH; ++x) {
+            const uint32_t word = MARKER + y * TARGET_WIDTH + x;
+            const uint8_t want[4] = { (uint8_t)word, (uint8_t)(word >> 8), (uint8_t)(word >> 16),
+                                      (uint8_t)(word >> 24) };
+            const uint8_t *const pixel = GpuPixel(pixels, TARGET_WIDTH, x, y);
+            const bool right = memcmp(pixel, want, 4) == 0;
+            PictureSet(picture, x, y, want, right ? PICTURE_MATCHED : PICTURE_WRONG);
+            if (right) {
+                continue;
+            }
+            if (wrong == 0) {
+                first = y * TARGET_WIDTH + x;
+                memcpy(seen, pixel, 4);
+            }
+            ++wrong;
+            if (pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0 && pixel[3] == 0) {
+                ++cleared;
+            }
+        }
+    }
+    const uint32_t expected = MARKER + first;
+    CHECK_TRUE(SUITE, name, CHECK_EXACT, wrong == 0,
+               "%u of %u pixels wrong (%u read nought, the buffer before the stores); pixel %u "
+               "is %02x%02x%02x%02x, expected %02x%02x%02x%02x",
+               (unsigned)wrong, (unsigned)PIXEL_COUNT, (unsigned)cleared, (unsigned)first,
+               seen[0], seen[1], seen[2], seen[3], (uint8_t)expected, (uint8_t)(expected >> 8),
+               (uint8_t)(expected >> 16), (uint8_t)(expected >> 24));
+}
+
+// Two draws over the whole target: the first stores marker plus index from each fragment, late,
+// and the second reads each pixel's word back. Only the barrier orders them.
+static void CaseFragmentToFragment(OrderContext *o, DkBarrier barrier, const char *name) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    Scratch vertices, params, stored;
+    Begin(o);
+    if (!Alloc(o, &vertices, 96, 256) ||
+        !Alloc(o, &params, UNIFORM_SIZE, DK_UNIFORM_BUF_ALIGNMENT) ||
+        !Alloc(o, &stored, PIXEL_COUNT * 4u, 256)) {
+        ReportCase(SUITE, name, CHECK_NONE, false, "no scratch left for the buffers");
+        return;
+    }
+    FullScreenTriangles(vertices.cpu);
+    memset(params.cpu, 0, UNIFORM_SIZE);
+    params.cpu[0] = MARKER;
+    params.cpu[1] = TARGET_WIDTH;
+    params.cpu[2] = STORE_SPIN;
+    memset(stored.cpu, 0, PIXEL_COUNT * 4u);
+    BindPositions(o, &o->store_late, vertices.gpu, 96);
+    dkCmdBufBindUniformBuffer(o->gpu.cmdbuf, DkStage_Fragment, 0, params.gpu, UNIFORM_SIZE);
+    dkCmdBufBindStorageBuffer(o->gpu.cmdbuf, DkStage_Fragment, 0, stored.gpu, PIXEL_COUNT * 4u);
+    dkCmdBufDraw(o->gpu.cmdbuf, DkPrimitive_Triangles, 6, 1, 0, 0);
+    Barrier(o, barrier);
+    BindPositions(o, &o->load_ssbo, vertices.gpu, 96);
+    dkCmdBufDraw(o->gpu.cmdbuf, DkPrimitive_Triangles, 6, 1, 0, 0);
+    GpuSubmit(&o->gpu);
+    JudgeIndexed(o, name, true);
 }
 
 // The cost cases: the same dispatch and draw pairs with and without a wait for idle between
@@ -580,25 +673,46 @@ void RunOrder(void) {
         GpuLoadShader(&o.gpu, &o.value_ssbo, ShaderData(SHADER_VALUE_SSBO_FRAG),
                       ShaderSize(SHADER_VALUE_SSBO_FRAG)) &&
         GpuLoadShader(&o.gpu, &o.store_ssbo, ShaderData(SHADER_STORE_SSBO_FRAG),
-                      ShaderSize(SHADER_STORE_SSBO_FRAG));
+                      ShaderSize(SHADER_STORE_SSBO_FRAG)) &&
+        GpuLoadShader(&o.gpu, &o.store_late, ShaderData(SHADER_STORE_LATE_FRAG),
+                      ShaderSize(SHADER_STORE_LATE_FRAG)) &&
+        GpuLoadShader(&o.gpu, &o.load_ssbo, ShaderData(SHADER_LOAD_SSBO_FRAG),
+                      ShaderSize(SHADER_LOAD_SSBO_FRAG));
     CHECK_TRUE(SUITE, "the compute and drawing shaders load", CHECK_NONE, loaded, "%s",
                o.gpu.failure);
     if (!loaded) {
         GpuClose(&o.gpu);
         return;
     }
-    ReportNote("order: %u groups of 64 spin %u times before the last invocations copy; "
-               "marker 0x%08x",
-               COPY_GROUPS, COPY_SPIN, MARKER);
+    ReportNote("order: %u groups of 64 spin %u times before the last invocations copy, each "
+               "storing fragment %u times; marker 0x%08x",
+               COPY_GROUPS, COPY_SPIN, STORE_SPIN, MARKER);
 
-    CaseVertices(&o);
+    CaseVertices(&o, DkBarrier_Primitives,
+                 "vertices a dispatch wrote before a wait for idle reach the draw");
     CaseIndices(&o);
-    CaseDrawIndirect(&o);
+    CaseDrawIndirect(&o, DkBarrier_Primitives,
+                     "draw arguments a dispatch wrote before a wait for idle reach the indirect "
+                     "draw");
     CaseUniform(&o);
-    CaseStorage(&o);
+    CaseStorage(&o, DkBarrier_Primitives,
+                "a storage buffer a dispatch wrote before a wait for idle reaches the fragments");
     CaseDispatchIndirect(&o);
     CaseComputeToCompute(&o);
     CaseFragmentToCompute(&o);
+    CaseVertices(&o, DkBarrier_Full,
+                 "vertices a dispatch wrote before a full barrier reach the draw");
+    CaseDrawIndirect(&o, DkBarrier_Full,
+                     "draw arguments a dispatch wrote before a full barrier reach the indirect "
+                     "draw");
+    CaseStorage(&o, DkBarrier_Full,
+                "a storage buffer a dispatch wrote before a full barrier reaches the fragments");
+    CaseFragmentToFragment(&o, DkBarrier_Fragments,
+                           "words the fragments stored before a fragments barrier reach the "
+                           "next draw's fragments");
+    CaseFragmentToFragment(&o, DkBarrier_Tiles,
+                           "words the fragments stored before a tiles barrier reach the next "
+                           "draw's fragments at the same pixel");
     PairsCase(&o, true);
     PairsCase(&o, false);
     DrawsCase(&o, true);

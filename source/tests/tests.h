@@ -52,6 +52,14 @@ void RunReferenceAstc(void);
 
 /// The EAC reference decoder against values worked out by hand: part of the reference suite.
 void RunReferenceEac(void);
+
+/// The ETC2 colour reference decoder and its block builders held to Mesa's decoder block by
+/// block, and to values worked out by hand: part of the reference suite.
+void RunReferenceEtc2(void);
+
+/// The bcn suite's array layout held to offsets worked out by hand from deko3d's layout rules,
+/// and its solid BC4 block: part of the reference suite.
+void RunReferenceBcn(void);
 #ifdef __SWITCH__
 /// The processor's own instructions, compared bit for bit with the reference. Console only,
 /// because its cases are AArch64 instructions; no device, so it runs in every mode.
@@ -120,6 +128,16 @@ void RunAstc(void);
 
 /// One- and two-channel EAC blocks sampled texel by texel.
 void RunEac(void);
+
+/// ETC2 colour blocks, one per mode and punch-through rule, sampled texel by texel.
+void RunEtc2(void);
+
+/// BC4 arrays whose layers and small levels do not end on a block boundary, every texel of
+/// every level and layer fetched.
+void RunBcn(void);
+
+/// Depth textures the processor writes, Z16, ZF32 and Z24S8, sampled texel by texel.
+void RunZeta(void);
 
 /// Block linear textures of every texel size and block height, written by the processor and
 /// sampled back texel for texel; and a 4 MiB one for the time an upload takes.

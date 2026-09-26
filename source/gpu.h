@@ -192,6 +192,13 @@ void *GpuAllocData(GpuContext *gpu, uint32_t size, uint32_t alignment, DkGpuAddr
 bool GpuCreateTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImageFormat format,
                       uint32_t width, uint32_t height);
 
+/// Carves processor-visible image memory for a block linear 2D array of @p layers layers and
+/// @p levels mip levels, laid out as the library chooses, and stores its first byte in
+/// @p cpu_bytes.
+bool GpuCreateArrayImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImageFormat format,
+                         uint32_t width, uint32_t height, uint32_t layers, uint32_t levels,
+                         uint8_t **cpu_bytes);
+
 /// Carves image memory for a 2D image with the layout @p flags ask for and initialises @p out.
 ///
 /// @p pitch_or_tile is the layout maker's union: the row pitch in bytes for a pitch linear
