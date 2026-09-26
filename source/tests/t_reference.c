@@ -2367,4 +2367,5 @@ void RunReference(void) {
     RunReferenceEac();
     RunReferenceEtc2();
     RunReferenceBcn();
+    RunReferenceAudio();
 }

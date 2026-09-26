@@ -284,7 +284,8 @@ static const struct {
     { "texel", UI_FAMILY_GRAPHICS },  { "stream", UI_FAMILY_GRAPHICS },
     { "fill", UI_FAMILY_GRAPHICS },   { "geometry", UI_FAMILY_GRAPHICS },
     { "query", UI_FAMILY_GRAPHICS },  { "dma", UI_FAMILY_GRAPHICS },
-    { "fs", UI_FAMILY_FS },           { "nifm", UI_FAMILY_NET },
+    { "fs", UI_FAMILY_FS },           { "audio", UI_FAMILY_AUDIO },
+    { "nifm", UI_FAMILY_NET },
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
     { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },
     { "friend", UI_FAMILY_NET },
@@ -309,6 +310,8 @@ const char *UiFamilyName(UiFamily family) {
         return "graphics";
     case UI_FAMILY_FS:
         return "fs";
+    case UI_FAMILY_AUDIO:
+        return "audio";
     case UI_FAMILY_NET:
         return "net";
     case UI_FAMILY_OTHER:

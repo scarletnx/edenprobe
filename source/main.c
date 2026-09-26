@@ -79,6 +79,9 @@ static const Step STEPS[] = {
     { "query", RunQuery, MODE_FAMILY_GRAPHICS, true, true },
     { "dma", RunDma, MODE_FAMILY_GRAPHICS, true, true },
     { "fs", RunFs, MODE_FAMILY_FS, true, true },
+    // Before the net family, whose cases can wait out timeouts. Untimed: its cases wait for
+    // sound to play, and a rehearsal would only play it again.
+    { "audio", RunAudio, MODE_FAMILY_AUDIO, false, true },
     { "net", RunNet, MODE_FAMILY_NET, false, true },
 };
 
@@ -322,6 +325,7 @@ int main(int argc, char **argv) {
     ReportRetain(mode.detailed);
 
     StreamSetStress(mode.stress);
+    AudioSetListen(mode.listen);
     const bool timing = !mode.no_timing;
     for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
         const Step *const step = &STEPS[i];

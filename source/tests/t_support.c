@@ -806,8 +806,28 @@ static void CheckLaunchAndMode(void) {
                    chosen);
     }
 
+    // The listen word asks for the listening sequence and brings the audio family, which no
+    // file that names no family runs; the mode line says so last.
+    {
+        const RunMode plain = ModeFromText("quick");
+        const RunMode listen = ModeFromText("quick LISTEN audio");
+        char said[REPORT_NOTE_MAX + 1] = "";
+        ModeDescribe(said, sizeof(said), &listen, MODE_FAMILIES_PRESENT);
+        CHECK_TRUE(SUITE, "the word listen asks for the listening sequence and the audio family",
+                   CHECK_NONE,
+                   !plain.listen && listen.listen && listen.unknown_count == 0u &&
+                       (ModeFamiliesToRun(&plain, MODE_FAMILIES_PRESENT) & MODE_FAMILY_AUDIO) ==
+                           0u &&
+                       ModeFamiliesToRun(&listen, MODE_FAMILIES_PRESENT) == MODE_FAMILY_AUDIO &&
+                       strcmp(said, "mode: quick, from the mode file; pictures of failures "
+                                    "only; families audio; listening sequence") == 0,
+                   "plain %d, listen %d, unknown %u, said \"%.200s\"", (int)plain.listen,
+                   (int)listen.listen, (unsigned)listen.unknown_count, said);
+    }
+
     // Every word, alone and together, any case, in a file that is missing, empty, or has words
     // nobody knows. What the run does is the first two columns; the rest is what it reports.
+    // With no family named every family runs but audio, which only a word brings.
     static const struct {
         const char *text; // NULL is no file at all
         bool detailed;
@@ -816,33 +836,40 @@ static void CheckLaunchAndMode(void) {
         uint32_t unknown;
         uint32_t run; // the families that run, in this build
     } MODES[] = {
-        { NULL, true, false, 0, 0, MODE_FAMILIES_PRESENT },
-        { "", true, false, 0, 0, MODE_FAMILIES_PRESENT },
-        { "\n\n", true, false, 0, 0, MODE_FAMILIES_PRESENT },
-        { "quick", false, false, 0, 0, MODE_FAMILIES_PRESENT },
-        { "QUICK\n", false, false, 0, 0, MODE_FAMILIES_PRESENT },
-        { "quick detailed", true, false, 0, 0, MODE_FAMILIES_PRESENT },
-        { "quick images", false, true, 0, 0, MODE_FAMILIES_PRESENT },
-        { "images", true, true, 0, 0, MODE_FAMILIES_PRESENT },
-        { "detailed\n", true, false, 0, 0, MODE_FAMILIES_PRESENT },
-        { "DETAILED images", true, true, 0, 0, MODE_FAMILIES_PRESENT },
-        { "undetailed", true, false, 0, 1, MODE_FAMILIES_PRESENT },
-        { "detailedly", true, false, 0, 1, MODE_FAMILIES_PRESENT },
-        { "quickly", true, false, 0, 1, MODE_FAMILIES_PRESENT },
+        { NULL, true, false, 0, 0, MODE_FAMILIES_DEFAULT },
+        { "", true, false, 0, 0, MODE_FAMILIES_DEFAULT },
+        { "\n\n", true, false, 0, 0, MODE_FAMILIES_DEFAULT },
+        { "quick", false, false, 0, 0, MODE_FAMILIES_DEFAULT },
+        { "QUICK\n", false, false, 0, 0, MODE_FAMILIES_DEFAULT },
+        { "quick detailed", true, false, 0, 0, MODE_FAMILIES_DEFAULT },
+        { "quick images", false, true, 0, 0, MODE_FAMILIES_DEFAULT },
+        { "images", true, true, 0, 0, MODE_FAMILIES_DEFAULT },
+        { "detailed\n", true, false, 0, 0, MODE_FAMILIES_DEFAULT },
+        { "DETAILED images", true, true, 0, 0, MODE_FAMILIES_DEFAULT },
+        { "undetailed", true, false, 0, 1, MODE_FAMILIES_DEFAULT },
+        { "detailedly", true, false, 0, 1, MODE_FAMILIES_DEFAULT },
+        { "quickly", true, false, 0, 1, MODE_FAMILIES_DEFAULT },
         { "graphics", true, false, MODE_FAMILY_GRAPHICS, 0, MODE_FAMILY_GRAPHICS },
         { "quick net", false, false, MODE_FAMILY_NET, 0, MODE_FAMILY_NET },
         { "NET", true, false, MODE_FAMILY_NET, 0, MODE_FAMILY_NET },
         { "fs", true, false, MODE_FAMILY_FS, 0, MODE_FAMILY_FS },
         { "graphics,net;quick", false, false, MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET, 0,
           MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET },
-        { "nets", true, false, 0, 1, MODE_FAMILIES_PRESENT },
-        { "grpahics fast quick", false, false, 0, 2, MODE_FAMILIES_PRESENT },
-        { "quick2images", false, true, 0, 0, MODE_FAMILIES_PRESENT },
+        { "nets", true, false, 0, 1, MODE_FAMILIES_DEFAULT },
+        { "grpahics fast quick", false, false, 0, 2, MODE_FAMILIES_DEFAULT },
+        { "quick2images", false, true, 0, 0, MODE_FAMILIES_DEFAULT },
         { "quick cpu", false, false, MODE_FAMILY_CPU, 0, MODE_FAMILY_CPU },
         { "CPU net", true, false, MODE_FAMILY_CPU | MODE_FAMILY_NET, 0,
           MODE_FAMILY_CPU | MODE_FAMILY_NET },
-        { "cpus", true, false, 0, 1, MODE_FAMILIES_PRESENT },
-        { "quick fatal", false, false, 0, 0, MODE_FAMILIES_PRESENT },
+        { "cpus", true, false, 0, 1, MODE_FAMILIES_DEFAULT },
+        { "quick fatal", false, false, 0, 0, MODE_FAMILIES_DEFAULT },
+        { "quick audio", false, false, MODE_FAMILY_AUDIO, 0, MODE_FAMILY_AUDIO },
+        { "AUDIO net", true, false, MODE_FAMILY_AUDIO | MODE_FAMILY_NET, 0,
+          MODE_FAMILY_AUDIO | MODE_FAMILY_NET },
+        { "quick listen", false, false, 0, 0, MODE_FAMILIES_DEFAULT | MODE_FAMILY_AUDIO },
+        { "quick listen audio", false, false, MODE_FAMILY_AUDIO, 0, MODE_FAMILY_AUDIO },
+        { "listen cpu", true, false, MODE_FAMILY_CPU, 0, MODE_FAMILY_CPU | MODE_FAMILY_AUDIO },
+        { "audios listens", true, false, 0, 2, MODE_FAMILIES_DEFAULT },
     };
     uint32_t wrong = 0;
     size_t first_wrong = 0;
@@ -893,7 +920,8 @@ static void CheckLaunchAndMode(void) {
     ModeDescribe(net_said, sizeof(net_said), &net_only, MODE_FAMILIES_PRESENT);
     const bool net_said_right =
         MODE_FAMILIES_PRESENT ==
-            (MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS | MODE_FAMILY_NET) &&
+            (MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS | MODE_FAMILY_AUDIO |
+             MODE_FAMILY_NET) &&
         strcmp(net_said,
                "mode: quick, from the mode file; pictures of failures only; families net") == 0;
     const RunMode flood = ModeFromText(

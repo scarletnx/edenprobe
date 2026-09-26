@@ -35,17 +35,22 @@ extern "C" {
 ///             gets them wrong. Off by default. The start screen cannot turn this on.
 ///   nojournal nothing written between cases: no journal, so a crash costs the rest of the run.
 ///             For measuring what the journal costs, and for a card that must not be written.
+///   listen    before the audio family's cases, a sequence of sounds for a person to hear, and
+///             the audio family with it.
 ///   cpu       a suite family: the processor's instructions, which run in every mode anyway, so
 ///             naming it alone is a run with no drawing and no network.
 ///   graphics  another; see below.
 ///   fs        another: reads from the memory card through the file system service, timed.
+///   audio     another: the audio renderer, recorded through its own effects and sinks. It
+///             makes sound, so it runs only when named or with `listen`.
 ///   net       another: the online services, nifm to friend, against the backend the file
 ///             sdmc:/edenprobe/net names (see netref.h).
 ///
 /// Families choose which suites beyond the judge run. None named means every family this build
-/// has. The judge itself (selfcheck, support, reference) always runs, because no verdict below
-/// it can be believed without it, and so does cpu, which needs no device. Any other word is reported and ignored, never fatal: a file
-/// with a typo in it still gets a run, and a line in the report saying what was not understood.
+/// has but audio. The judge itself (selfcheck, support, reference) always runs, because no
+/// verdict below it can be believed without it, and so does cpu, which needs no device. Any other
+/// word is reported and ignored, never fatal: a file with a typo in it still gets a run, and a
+/// line in the report saying what was not understood.
 
 /// The suite families, one bit each.
 enum {
@@ -53,12 +58,20 @@ enum {
     MODE_FAMILY_NET = 1u << 1,
     MODE_FAMILY_CPU = 1u << 2,
     MODE_FAMILY_FS = 1u << 3,
+    MODE_FAMILY_AUDIO = 1u << 4,
 };
 
 /// The families this build carries. A family named in the file and missing here is reported,
 /// not run.
 #define MODE_FAMILIES_PRESENT                                                                     \
-    ((uint32_t)(MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS | MODE_FAMILY_NET))
+    ((uint32_t)(MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS | MODE_FAMILY_AUDIO |    \
+                MODE_FAMILY_NET))
+
+/// The families that run only when a word asks for them.
+#define MODE_FAMILIES_ASKED ((uint32_t)MODE_FAMILY_AUDIO)
+
+/// What runs when the file names no family.
+#define MODE_FAMILIES_DEFAULT ((uint32_t)(MODE_FAMILIES_PRESENT & ~MODE_FAMILIES_ASKED))
 
 /// How much of the mode file is read: every word there is fits many times over. A longer file is
 /// read to here and the report says so; a word the limit cuts in two is dropped, never quoted as
@@ -107,6 +120,8 @@ typedef struct {
     bool retry_by_screen;
     /// The word `nojournal`: no journal, and no run that goes on after a crash.
     bool no_journal;
+    /// The word `listen`: the listening sequence, and the audio family with it.
+    bool listen;
     /// The family words in the file, whether or not this build has them.
     uint32_t families_named;
     /// How many words were not understood, and the first of them, space separated.

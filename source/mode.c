@@ -17,6 +17,7 @@ static const struct {
     { "cpu", MODE_FAMILY_CPU },
     { "graphics", MODE_FAMILY_GRAPHICS },
     { "fs", MODE_FAMILY_FS },
+    { "audio", MODE_FAMILY_AUDIO },
     { "net", MODE_FAMILY_NET },
 };
 
@@ -78,6 +79,10 @@ static void Take(RunMode *mode, const char *word, bool cut) {
         }
         if (strcmp(word, "nojournal") == 0) {
             mode->no_journal = true;
+            return;
+        }
+        if (strcmp(word, "listen") == 0) {
+            mode->listen = true;
             return;
         }
         for (size_t i = 0; i < sizeof(FAMILIES) / sizeof(FAMILIES[0]); ++i) {
@@ -163,10 +168,14 @@ bool ModeAsksPad(const RunMode *mode) {
 }
 
 uint32_t ModeFamiliesToRun(const RunMode *mode, uint32_t present) {
-    if (mode == NULL || mode->families_named == 0u) {
-        return present;
+    if (mode == NULL) {
+        return present & ~MODE_FAMILIES_ASKED;
     }
-    return mode->families_named & present;
+    const uint32_t listened = mode->listen ? MODE_FAMILY_AUDIO : 0u;
+    if (mode->families_named == 0u) {
+        return (present & ~MODE_FAMILIES_ASKED) | (listened & present);
+    }
+    return (mode->families_named | listened) & present;
 }
 
 /// Appends the names of the families in @p set, space separated, or "none".
@@ -238,6 +247,10 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; no journal");
     }
+    if (mode->listen) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; listening sequence");
+    }
     const uint32_t missing = mode->families_named & ~present;
     if (missing != 0u) {
         size_t used = strlen(out);
@@ -270,12 +283,14 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         bool on;
         const char *word;
     } WORDS[] = {
+        { (mode->families_named & MODE_FAMILY_AUDIO) != 0u, "audio" },
         { (mode->families_named & MODE_FAMILY_CPU) != 0u, "cpu" },
         { mode->fatal, "fatal" },
         { (mode->families_named & MODE_FAMILY_FS) != 0u, "fs" },
         { (mode->families_named & MODE_FAMILY_GRAPHICS) != 0u, "graphics" },
         { mode->hang, "hang" },
         { mode->every_case, "images" },
+        { mode->listen, "listen" },
         { (mode->families_named & MODE_FAMILY_NET) != 0u, "net" },
         { mode->no_timing, "notime" },
         { mode->retry, "retry" },
