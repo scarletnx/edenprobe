@@ -44,6 +44,27 @@ void RunReferenceRaw(void) {
                words[0] == 0x200205F4u && words[1] == 0x12u && words[2] == 0x345678ABu,
                "got 0x%08x 0x%08x 0x%08x", (unsigned)words[0], (unsigned)words[1],
                (unsigned)words[2]);
+    // 0x420 | 12 << 16 | 1 << 29, then the rectangle at (40, 24) of 16 by 16 as 40 * 4096 and so
+    // on, one texel per pixel (0x0000000100000000 twice, low word first), sampler 3, texture 5,
+    // and the source origin (2, 1).
+    {
+        uint32_t draw[13];
+        const size_t count = RawDrawTexture(draw, 5, 3, 40, 24, 16, 16, 2, 1);
+        static const uint32_t want[13] = { 0x200C0420u, 0x28000u, 0x18000u, 0x10000u, 0x10000u,
+                                           0u,          1u,       0u,       1u,       3u,
+                                           5u,          0x2000u,  0x1000u };
+        size_t first = 13;
+        for (size_t i = 0; i < 13 && first == 13; ++i) {
+            if (draw[i] != want[i]) {
+                first = i;
+            }
+        }
+        CHECK_TRUE(SUITE, "a draw texture of 16 by 16 at (40, 24) is twelve words from 0x420",
+                   CHECK_NONE, count == 13 && first == 13,
+                   "%u words; word %u is 0x%08x, wanted 0x%08x", (unsigned)count, (unsigned)first,
+                   first < 13 ? (unsigned)draw[first] : 0u,
+                   first < 13 ? (unsigned)want[first] : 0u);
+    }
     // Six 16-bit indices from byte 0x1000 end at byte 0x100B; four more in front move it to
     // 0x1013.
     CHECK_TRUE(SUITE, "the tight limit of six 16-bit indices at 0x1000 is 0x100b", CHECK_NONE,

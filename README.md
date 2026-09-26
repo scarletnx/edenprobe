@@ -35,8 +35,8 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Twenty nine suites, in the order they run: the judge, then the processor, then the graphics
-family, then the net family. A run is 631 cases: 578 for the judge, the processor and the graphics
+Thirty two suites, in the order they run: the judge, then the processor, then the graphics
+family, then the net family. A run is 648 cases: 595 for the judge, the processor and the graphics
 family, 53 for the net family; the mode word `stress` adds one, and `fatal` runs one that is
 otherwise skipped. The order, and what a failure in each suite points at, is in "The roadmap"
 below.
@@ -53,7 +53,7 @@ below.
   from what the judge decided pixel by pixel, not from comparing two images, so a pixel that differs
   and was allowed to is not painted as a difference. Every line is the none tier, because none of it
   is a claim about a machine.
-- **reference**, one hundred and fifty three cases, no hardware involved either: the other half of the
+- **reference**, one hundred and fifty four cases, no hardware involved either: the other half of the
   judge, where the rules the cases judge by are pinned. Where clip space lands on the target, which
   pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -86,8 +86,8 @@ below.
   - eight on the cpu suite's answers, against numbers written by hand: the leading zero counts,
     the two roundings, the saturating shifts, the conversions with 64 fraction bits, and the SM4
     inputs from the standard's key and constants;
-  - six on the raw 3D method words the index and instance suites send, against words worked out
-    by hand from deko3d's command header layout;
+  - seven on the raw 3D method words the index, instance and drawtex suites send, against words
+    worked out by hand from deko3d's command header layout;
   - twenty one on the astc suite's answers: the ASTC reference decoder, `source/astcref.c`, held
     block by block to hashes of what ARM's decoder (astcenc) makes of the same sixteen blocks, and
     its weight table to values worked out by hand from the bit replication rule;
@@ -411,6 +411,36 @@ below.
   about 11 ms against 2 on RADV, in either order. There, colour alone takes about 2.0 ms and depth
   2.7.
 
+- **ring**, four cases. One list of 4096 indexed draws, each covering one pixel with the word of
+  a uniform buffer of its own, as stream does, through shaders that also read 32 textures each
+  (`ring.vert.glsl`, `ring.frag.glsl`, one texel of nought behind every binding): 65 descriptors
+  a draw, more than a host pushes per draw (32 on RADV), so an emulator writes every draw's set
+  into a descriptor ring, a new one each draw since the uniform buffer moves. The ring runs out
+  every few hundred draws and waits for the GPU to take more room; an emulator that takes that
+  wait after it bound a draw's index and vertex buffers submits them with the command buffer
+  before the draw's own, and the draw is lost, its pixel left cleared. The failing case counts
+  the lost draws and names the first. In Eden the ring is on only where the device reports a
+  Vulkan version below 1.2, so on a newer driver this suite shows the defect only under the
+  masquerade layer (see "Making the driver look older").
+- **occlusion**, six cases. The samples counter, which the library leaves enabled, reported
+  after each of 320 quads (reset before each, so each must count exactly its 64 pixels) and
+  after each of 320 cleared cells, in one list each: more than 256 reports, so an emulator that
+  keeps its queries in banks of 256 takes a new bank in the middle of a list, at a draw or at a
+  clear. Every quad, every count and every cleared cell is judged. An emulator that resets a
+  new bank's queries by ending the render pass the draw or clear has just begun records that
+  draw or clear outside any render pass; in Eden only on a driver without host query reset,
+  which the masquerade layer gives on any driver.
+- **drawtex**, six cases. DRAW_TEXTURE, the call the console's graphics API names DrawTexture:
+  a texture's rectangle copied onto the target by one method, between two draws. The library
+  has no call for it, so it goes in as raw words (`rawref.h`, `RawDrawTexture`), in the layout
+  the emulators that implement it read (the public class header leaves the range out). A list
+  draws the left half with a flat pipeline, copies a 16 by 16 texture onto x 40 to 56, y 24 to
+  40, and draws the bottom quarter with the same pipeline, or with another one; the copy, the
+  draw after it with the pipeline of the draw before, and the draw after it with another
+  pipeline are each a case. An emulator that blits with a pipeline, a viewport and a scissor of
+  its own behind its cache of what is bound draws the next quad with the blit's pipeline, or
+  into the blit's rectangle. The layout is the emulators' and has not been checked on a console.
+
 The net family asks the services a program reaches the network through, the way a game asks them,
 and judges each answer against its protocol or against what `sdmc:/edenprobe/net` says the backend
 publishes (see "The net family" below). Every line says what was expected and what came back. A case
@@ -512,6 +542,9 @@ its dependencies put it, not at the end.
 | texel | exact | the offset a buffer texture's host view starts at, when the host's texel buffer alignment is coarser than the guest's (`vk_buffer_cache.cpp`, `Buffer::View`). |
 | stream | exact | uploads staged through a ring inside one list: a later draw's bytes handed to an earlier one when the ring wraps (`vk_staging_buffer_pool.cpp`, `GetStreamBuffer`), or an upload path that asks the host for far more memory than the guest data it moves. |
 | fill | exact | fill rate with and without depth; the time, not the verdict, is the point: a depth buffer the host cannot compress shows as the second case slowing against the first. |
+| ring | exact | a draw's descriptors taken from a ring after its geometry is bound: the ring's wait for the GPU submits the binds apart from the draw, which is lost (`renderer_vulkan/vk_descriptor_buffer.cpp`, the order of `vk_graphics_pipeline.cpp`, `ConfigureImpl`). |
+| occlusion | exact | a query bank reset inside a draw or clear's render pass: the pass ends and the draw or clear lands outside it (`renderer_vulkan/vk_query_cache.cpp`, `SamplesQueryBank::Reset`); or counts that are not the pixels drawn. |
+| drawtex | exact | the state DRAW_TEXTURE leaves bound: the next draw keeps the blit's pipeline or its viewport and scissor (`renderer_vulkan/blit_image.cpp`, `BlitColor`, and `vk_rasterizer.cpp`, `DrawTexture`). |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
@@ -1034,6 +1067,27 @@ before, since the layer speaks while a case works and the case reports when it i
 is the host half of what the suites check: a wrong index buffer size or an image created with
 view formats it cannot have is a VUID here long before it is a wrong pixel on a forgiving
 driver. It needs the layer installed on the host, and it is slow: several times a plain run.
+
+## Making the driver look older
+
+Some emulator paths run only on an older driver: a device that reports Vulkan 1.1 enables later
+features through their extensions, and one without host query reset resets queries in command
+buffers. `tools/vklayer` builds `VK_LAYER_EDENPROBE_masquerade`, a Vulkan layer for the host that
+runs the emulator, which makes this machine's driver look like such a one to the emulator above
+it: with `EDENPROBE_MASQUERADE_API=1.1` the physical device reports Vulkan 1.1, and with
+`EDENPROBE_MASQUERADE_NO_HOST_QUERY_RESET=1` it has no `VK_EXT_host_query_reset` and no
+`hostQueryReset` feature. Nothing else changes, and the driver underneath is the same.
+
+```sh
+make -C tools/vklayer
+VK_ADD_LAYER_PATH=$PWD/tools/vklayer VK_INSTANCE_LAYERS=VK_LAYER_EDENPROBE_masquerade \
+EDENPROBE_MASQUERADE_API=1.1 EDENPROBE_MASQUERADE_NO_HOST_QUERY_RESET=1 eden-cli -g edenprobe.nro
+```
+
+`make -C tools/vklayer check` asks the first device, through the loader, what the layer lets
+through, and submits nothing: `api 1.1 hostQueryReset 0 VK_EXT_host_query_reset 0` with both
+masks on, and the driver's own answer with neither. The ring and occlusion suites were written
+for it: on RADV, which is Vulkan 1.4 with host query reset, Eden takes neither path without it.
 
 ## The net family
 
