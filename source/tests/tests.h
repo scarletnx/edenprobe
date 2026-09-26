@@ -181,6 +181,11 @@ void RunQuery(void);
 /// then from words a dispatch wrote; every copy judged, the difference in time is the point.
 void RunDma(void);
 
+/// Reads from the memory card through FsFile, in the patterns a game reads its files: sequential
+/// in five block sizes, random, backwards, the same place again, many small files, and the edges.
+/// Every byte is checked; the times are the point.
+void RunFs(void);
+
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not
 /// name, or a service this program cannot open, is skipped with the reason and counted apart.

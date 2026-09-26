@@ -832,6 +832,7 @@ static void CheckLaunchAndMode(void) {
         { "graphics", true, false, MODE_FAMILY_GRAPHICS, 0, MODE_FAMILY_GRAPHICS },
         { "quick net", false, false, MODE_FAMILY_NET, 0, MODE_FAMILY_NET },
         { "NET", true, false, MODE_FAMILY_NET, 0, MODE_FAMILY_NET },
+        { "fs", true, false, MODE_FAMILY_FS, 0, MODE_FAMILY_FS },
         { "graphics,net;quick", false, false, MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET, 0,
           MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET },
         { "nets", true, false, 0, 1, MODE_FAMILIES_PRESENT },
@@ -891,7 +892,8 @@ static void CheckLaunchAndMode(void) {
     char net_said[REPORT_NOTE_MAX + 1];
     ModeDescribe(net_said, sizeof(net_said), &net_only, MODE_FAMILIES_PRESENT);
     const bool net_said_right =
-        MODE_FAMILIES_PRESENT == (MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET) &&
+        MODE_FAMILIES_PRESENT ==
+            (MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS | MODE_FAMILY_NET) &&
         strcmp(net_said,
                "mode: quick, from the mode file; pictures of failures only; families net") == 0;
     const RunMode flood = ModeFromText(

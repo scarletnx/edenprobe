@@ -38,6 +38,7 @@ extern "C" {
 ///   cpu       a suite family: the processor's instructions, which run in every mode anyway, so
 ///             naming it alone is a run with no drawing and no network.
 ///   graphics  another; see below.
+///   fs        another: reads from the memory card through the file system service, timed.
 ///   net       another: the online services, nifm to friend, against the backend the file
 ///             sdmc:/edenprobe/net names (see netref.h).
 ///
@@ -51,11 +52,13 @@ enum {
     MODE_FAMILY_GRAPHICS = 1u << 0,
     MODE_FAMILY_NET = 1u << 1,
     MODE_FAMILY_CPU = 1u << 2,
+    MODE_FAMILY_FS = 1u << 3,
 };
 
 /// The families this build carries. A family named in the file and missing here is reported,
 /// not run.
-#define MODE_FAMILIES_PRESENT ((uint32_t)(MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET))
+#define MODE_FAMILIES_PRESENT                                                                     \
+    ((uint32_t)(MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS | MODE_FAMILY_NET))
 
 /// How much of the mode file is read: every word there is fits many times over. A longer file is
 /// read to here and the report says so; a word the limit cuts in two is dropped, never quoted as
