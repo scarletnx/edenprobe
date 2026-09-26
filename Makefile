@@ -140,32 +140,26 @@ EMULATOR ?= $(HOME)/WorkDir/accord/bin/eden-cli-e8d142f2b6
 # from the emulator's own defaults every time, the report lands somewhere this makefile knows,
 # and nothing of the person's own emulator setup is read or rewritten.
 XDG     := $(CURDIR)/$(BUILD)/xdg
-SDMC    := $(XDG)/data/eden/sdmc/$(TARGET)
 
 # What goes into the mode file first. Quick, because the default with no file is the detailed
 # screen, which is for a person; a run from here is a script's. MODE= runs with no file at all,
 # which shows the screen and then leaves by itself ten seconds after nobody pressed anything.
 MODE ?= quick
 
-# Everything the previous run left is removed first, so what is there afterwards is this run's:
-# a report, and only the pictures that report names. -r because a mode that somebody made a
-# directory must not stop the target. The `|| true` is for the filter alone, which finds nothing
-# to print when the emulator prints nothing; whether the run happened is decided by the checks
-# either side of it.
+# How many times the emulator is started again after a launch ends with no summary, and how long
+# each launch has. Every relaunch goes on with the run after the case the last one ended inside.
+RELAUNCHES ?= 16
+TIMEOUT ?= 60
+
+# tools/run.py does the running: everything the previous run left is removed first (the journal
+# stays, for the program to read), the mode file written, the emulator started with the XDG
+# override and started again after a crash, the crash list kept per emulator binary under
+# $(XDG)/crash-lists, and the report checked for its summary. It says what happened to each
+# launch and exits non-zero when the report never got one.
 run: $(TARGET).nro
-	@[ -x "$(EMULATOR)" ] || { echo "make run: no executable emulator at $(EMULATOR)" >&2; exit 1; }
-	@mkdir -p $(XDG)/data $(XDG)/config $(XDG)/cache $(SDMC)
-	@rm -rf $(SDMC)/report.jsonl $(SDMC)/images $(SDMC)/support-check $(SDMC)/mode
-	@if [ -n "$(strip $(MODE))" ]; then printf '%s\n' "$(MODE)" > $(SDMC)/mode; \
-	  echo "mode file: $(MODE)"; else echo "mode file: none, so the detailed screen"; fi
-	XDG_DATA_HOME=$(XDG)/data XDG_CONFIG_HOME=$(XDG)/config XDG_CACHE_HOME=$(XDG)/cache \
-	DISPLAY=:0 timeout -k 10 60 $(EMULATOR) -g $(CURDIR)/$(TARGET).nro 2>&1 \
-	  | sed 's/\x1b\[[0-9;]*m//g' | { grep -aE "$(TARGET)|EDENPROBE|\"type\":" || true; }
-	@[ -f $(SDMC)/report.jsonl ] || \
-	  { echo "make run: the emulator left no report at $(SDMC)/report.jsonl" >&2; exit 1; }
-	@grep -q '"type":"summary"' $(SDMC)/report.jsonl || \
-	  { echo "make run: no summary in the report: stopped at 60 s, or died first" >&2; exit 1; }
-	@echo "report: $(SDMC)/report.jsonl"
+	@python3 tools/run.py --who "make run" --emulator "$(EMULATOR)" \
+	  --nro "$(CURDIR)/$(TARGET).nro" --xdg "$(XDG)" --mode "$(MODE)" \
+	  --relaunches $(RELAUNCHES) --timeout $(TIMEOUT)
 
 # The graphics family once under the Khronos validation layer with synchronisation validation,
 # and the table of what it said, message id by message id, with the case each came before

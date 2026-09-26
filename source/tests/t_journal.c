@@ -39,11 +39,12 @@ static bool SameRecord(const JournalRecord *a, const JournalRecord *b) {
 }
 
 static void CheckRecords(void) {
-    JournalRecord records[10];
+    JournalRecord records[11];
     records[0] = Record(JOURNAL_RUN, "0.2.0", "v0.2.0-20-g2ddafce-dirty", 0);
     snprintf(records[0].mode, sizeof(records[0].mode), "fatal graphics retry");
     records[9] = Record(JOURNAL_CHOSEN, NULL, NULL, 0);
     snprintf(records[9].mode, sizeof(records[9].mode), "fatal retry");
+    records[10] = Record(JOURNAL_STOPPED, NULL, NULL, 0);
     records[1] = Record(JOURNAL_LAUNCH, NULL, NULL, 3);
     records[2] = Record(JOURNAL_STEP, "index", NULL, 0);
     records[2].offset = 84504u;
@@ -82,7 +83,7 @@ static void CheckRecords(void) {
                wrong == 0u &&
                    strcmp(start, "start index 7 an indexed draw with the library's open limit "
                                  "uses every index\n") == 0,
-               "%u of 10 records came back different, the first \"%.120s\"; a start reads "
+               "%u of 11 records came back different, the first \"%.120s\"; a start reads "
                "\"%.120s\"",
                (unsigned)wrong, first_wrong, start);
 
@@ -122,6 +123,7 @@ static void CheckRecords(void) {
         "done",
         "done a b",
         "chosen",
+        "stopped now",
         "begin clear 1 a case",
         "pass clear 99999999999",
         "start clear 1 a\tcase",
@@ -209,6 +211,14 @@ static void CheckReading(void) {
                                 "done clear\n"
                                 "step fill 20 1 0 0 0\nstart fill 1 x\nlaunch 2\n"
                                 "crashed fill 1 x\nstep fill 20 1 0 0 0\nend fill 1 muted y\n";
+    // A launch a runner stopped on purpose: its last start is no crash, and the run goes on after
+    // the step it was in.
+    static const char STOPPED[] = "run 0.2.0 b q\nlaunch 1\nstep clear 10 0 0 0 0\n"
+                                  "start clear 1 a\nstopped\n";
+    JournalState stopped;
+    JournalStateInit(&stopped);
+    JournalReadText(&stopped, STOPPED, strlen(STOPPED));
+    const JournalPlan stopped_plan = JournalPlanStart(&stopped, "0.2.0", "b", "q", 100);
     JournalState after, between, finished, again;
     JournalStateInit(&after);
     JournalStateInit(&between);
@@ -224,7 +234,8 @@ static void CheckReading(void) {
         finished.finished && !finished.in_step && finished.counts.counts[JOURNAL_PASSED] == 5u &&
         again.launches == 2u && again.in_step && !JournalStepDone(&again, "fill") &&
         !again.in_case && again.crash_count == 1u && strcmp(again.crashes[0].name, "x") == 0 &&
-        strcmp(again.chosen, "fatal") == 0;
+        strcmp(again.chosen, "fatal") == 0 && !stopped.in_case && stopped.in_step &&
+        !stopped_plan.crashed && stopped_plan.start == JOURNAL_RESUME_STEP;
 
     // The note before the summary names the cases this run ended inside, and only those. A new
     // run reads the run before's journal, whose crashes it did not have: every case it skipped

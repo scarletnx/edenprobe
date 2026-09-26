@@ -16,16 +16,18 @@ case line in the log. This is the host side of the check. The guest cannot see a
 hazard that a forgiving driver hides shows here and not on a pixel.
 
 The run uses the Makefile's XDG override (build/xdg-validate), so nothing of the person's own
-emulator setup is read or written, and the mode `quick notime graphics`, one pass per suite.
-Standard library only.
+emulator setup is read or written, and the mode `quick notime graphics`, one pass per suite. It
+goes through tools/run.py, so a launch that crashes is followed by another that goes on after the
+case it ended inside, and the log holds every launch's output in turn. Standard library only.
 """
 
 import os
 import re
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import run as runner  # noqa: E402
 ROOT = os.path.dirname(HERE)
 ID = re.compile(r"\[ (VUID-[A-Za-z0-9_-]+|SYNC-HAZARD-[A-Z-]+|UNASSIGNED-[A-Za-z0-9_.-]+) \]")
 CASE = re.compile(r'"type":"case","suite":"([^"]+)","name":"([^"]+)"')
@@ -72,26 +74,14 @@ def diff(a, b):
 
 def run(emulator, log):
     xdg = os.path.join(ROOT, "build", "xdg-validate")
-    sdmc = os.path.join(xdg, "data", "eden", "sdmc", "edenprobe")
-    os.makedirs(sdmc, exist_ok=True)
-    for d in ("config", "cache"):
-        os.makedirs(os.path.join(xdg, d), exist_ok=True)
-    with open(os.path.join(sdmc, "mode"), "w") as f:
-        f.write("quick notime graphics\n")
-    env = dict(os.environ)
-    env.update({
-        "XDG_DATA_HOME": os.path.join(xdg, "data"),
-        "XDG_CONFIG_HOME": os.path.join(xdg, "config"),
-        "XDG_CACHE_HOME": os.path.join(xdg, "cache"),
+    os.environ.update({
         "VK_INSTANCE_LAYERS": "VK_LAYER_KHRONOS_validation",
         "VK_KHRONOS_VALIDATION_VALIDATE_SYNC": "true",
         "VK_KHRONOS_VALIDATION_DUPLICATE_MESSAGE_LIMIT": "1000",
     })
-    env.setdefault("DISPLAY", ":0")
     nro = os.path.join(ROOT, "edenprobe.nro")
-    with open(log, "wb") as out:
-        subprocess.run(["timeout", "-k", "10", "600", emulator, "-g", nro], env=env,
-                       stdout=out, stderr=subprocess.STDOUT, check=False)
+    return runner.run(emulator, nro, xdg, mode="quick notime graphics", timeout=600,
+                      log_path=log, who="validate.py", echo=False)
 
 
 def read(path):
@@ -103,9 +93,9 @@ def read(path):
 def main(argv):
     if len(argv) >= 2 and argv[0] == "run":
         log = argv[2] if len(argv) >= 3 else os.path.join(ROOT, "build", "validate.log")
-        run(argv[1], log)
+        code = run(os.path.abspath(argv[1]), os.path.abspath(log))
         sys.stdout.write(render(parse(read(log))))
-        return 0
+        return code
     if len(argv) == 2 and argv[0] == "read":
         sys.stdout.write(render(parse(read(argv[1]))))
         return 0
