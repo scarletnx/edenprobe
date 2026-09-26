@@ -48,6 +48,14 @@ size_t RawDrawTexture(uint32_t out[13], uint32_t texture, uint32_t sampler, uint
     return 13;
 }
 
+size_t RawRenderEnable(uint32_t out[4], uint64_t address, uint32_t mode) {
+    out[0] = RawIncreasingHeader(RAW_SUBCHANNEL_3D, RAW_3D_RENDER_ENABLE, 3);
+    out[1] = (uint32_t)(address >> 32);
+    out[2] = (uint32_t)address;
+    out[3] = mode;
+    return 4;
+}
+
 uint32_t RawInstanceArrayWord(uint32_t topology, uint32_t first, uint32_t count) {
     return Field(first, 0, 16) | Field(count, 16, 12) | Field(topology, 28, 4);
 }

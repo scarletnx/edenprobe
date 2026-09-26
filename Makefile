@@ -84,6 +84,18 @@ $(BUILD)/shaders/%.comp.dksh: $(SHADER_DIR)/%.comp.glsl
 	@mkdir -p $(dir $@)
 	$(TOOLS)/uam -s comp -o $@ $<
 
+$(BUILD)/shaders/%.geom.dksh: $(SHADER_DIR)/%.geom.glsl
+	@mkdir -p $(dir $@)
+	$(TOOLS)/uam -s geom -o $@ $<
+
+$(BUILD)/shaders/%.tesc.dksh: $(SHADER_DIR)/%.tesc.glsl
+	@mkdir -p $(dir $@)
+	$(TOOLS)/uam -s tess_ctrl -o $@ $<
+
+$(BUILD)/shaders/%.tese.dksh: $(SHADER_DIR)/%.tese.glsl
+	@mkdir -p $(dir $@)
+	$(TOOLS)/uam -s tess_eval -o $@ $<
+
 # One grouped target, because one run of bin2s produces both files: with a rule each, deleting
 # only the header leaves make with no recipe that makes it alone. Grouped targets need GNU make
 # 4.3 or newer. The alignment is what the graphics library's paired load of a program header

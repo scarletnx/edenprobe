@@ -106,6 +106,10 @@ void RunIndex(void);
 /// with the state it arrived under, as the instance it is.
 void RunInstance(void);
 
+/// The optional stages: a geometry shader that turns points into squares or into nothing, and a
+/// tessellated quad patch whose level reaches the evaluation stage. Every pixel exact.
+void RunGeometry(void);
+
 /// 256 textures reached through a uniform array of handles at a dynamic index: every index must
 /// sample its own texture.
 void RunBindless(void);
@@ -146,6 +150,10 @@ void RunOcclusion(void);
 /// DRAW_TEXTURE, sent as raw words between two draws: the draw after it must use its own
 /// pipeline, viewport and scissor.
 void RunDrawtex(void);
+/// The samples passed counter, exact on quads of whole pixels, and the render enable reading
+/// counters back: FALSE, TRUE, IF_EQUAL and IF_NOT_EQUAL over values from the processor and from
+/// reports in the same list, over a draw and over a clear.
+void RunQuery(void);
 
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not

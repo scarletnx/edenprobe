@@ -60,6 +60,7 @@ static const Step STEPS[] = {
     { "order", RunOrder, MODE_FAMILY_GRAPHICS, true, true },
     { "index", RunIndex, MODE_FAMILY_GRAPHICS, true, true },
     { "instance", RunInstance, MODE_FAMILY_GRAPHICS, true, true },
+    { "geometry", RunGeometry, MODE_FAMILY_GRAPHICS, true, true },
     { "bindless", RunBindless, MODE_FAMILY_GRAPHICS, true, true },
     { "astc", RunAstc, MODE_FAMILY_GRAPHICS, true, true },
     { "eac", RunEac, MODE_FAMILY_GRAPHICS, true, true },
@@ -70,6 +71,7 @@ static const Step STEPS[] = {
     { "ring", RunRing, MODE_FAMILY_GRAPHICS, true, true },
     { "occlusion", RunOcclusion, MODE_FAMILY_GRAPHICS, true, true },
     { "drawtex", RunDrawtex, MODE_FAMILY_GRAPHICS, true, true },
+    { "query", RunQuery, MODE_FAMILY_GRAPHICS, true, true },
     { "net", RunNet, MODE_FAMILY_NET, false, true },
 };
 

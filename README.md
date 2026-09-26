@@ -35,12 +35,12 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Thirty two suites, in the order they run: the judge, then the processor, then the graphics family,
-then the net family. A run is 670 cases: 617 for the judge, the processor and the graphics family,
-53 for the net family; the mode word `stress` adds one, and `fatal` runs the cases the may-crash
-table names, which are otherwise skipped. The order, and what a failure in each suite points at, is
-in "The roadmap" below. A case that ends the program costs that case and not the rest of the run:
-see "When the program ends in the middle".
+Thirty four suites, in the order they run: the judge, then the processor, then the graphics
+family, then the net family. A run is 700 cases: 647 for the judge, the processor and the graphics
+family, 53 for the net family; the mode word `stress` adds one, and `fatal` runs the cases the
+may-crash table names, which are otherwise skipped. The order, and what a failure in each suite
+points at, is in "The roadmap" below. A case that ends the program costs that case and not the rest
+of the run: see "When the program ends in the middle".
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one unit
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
@@ -55,9 +55,9 @@ see "When the program ends in the middle".
   built from what the judge decided pixel by pixel, not from comparing two images, so a pixel that
   differs and was allowed to is not painted as a difference. Every line is the none tier, because
   none of it is a claim about a machine.
-- **reference**, one hundred and fifty four cases, no hardware involved either: the other half of the
-  judge, where the rules the cases judge by are pinned. Where clip space lands on the target, which
-  pixels a triangle covers and which of two triangles owns the centres on their shared edge,
+- **reference**, one hundred and fifty five cases, no hardware involved either: the other half of
+  the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
+  which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
   geometry they draw rather than restating it. Fifteen transcendental answers as bit patterns worked
   out to fifty digits away from any C library, so a runtime that drifts moves an expected value on
@@ -88,8 +88,8 @@ see "When the program ends in the middle".
   - eight on the cpu suite's answers, against numbers written by hand: the leading zero counts,
     the two roundings, the saturating shifts, the conversions with 64 fraction bits, and the SM4
     inputs from the standard's key and constants;
-  - seven on the raw 3D method words the index, instance and drawtex suites send, against words
-    worked out by hand from deko3d's command header layout;
+  - eight on the raw 3D method words the index, instance, drawtex and query suites send, against
+    words worked out by hand from deko3d's command header layout;
   - twenty one on the astc suite's answers: the ASTC reference decoder, `source/astcref.c`, held
     block by block to hashes of what ARM's decoder (astcenc) makes of the same sixteen blocks, and
     its weight table to values worked out by hand from the bit replication rule;
@@ -343,6 +343,18 @@ see "When the program ends in the middle".
   one region along, so the target says which instances ran. In an emulator a failure points at
   `engines/draw_manager.cpp`, `DrawArrayInstanced`, `DrawDeferred`.
 
+- **geometry**, six cases. The two optional stages every other suite leaves out. A geometry shader
+  turns each of four points into an 8 by 8 square in the point's colour, or into nothing when the
+  point's alpha is nought; a tessellation control and evaluation pair spreads a four point patch
+  over its corners' rectangle at level 4 and at level 7, the level taken from the patch and
+  handed back in the alpha of every pixel, which says whether the control stage's levels reached
+  the evaluation. Every edge is a pixel edge, so every pixel is exact. A host without geometry or
+  tessellation shaders has to emulate them to pass (Ryujinx runs them as compute there); an
+  emulator that assumes them leaves it to the driver, which gets a pipeline it cannot run
+  (`vulkan_device.cpp` lists `geometryShader` as mandatory and carries on without it). The two
+  geometry shader cases are in the may-crash table: the shader compiles to a PRET, which ends
+  Eden, and the fork before ECFE-2026-1163, inside the pipeline cache.
+
 - **bindless**, five cases. A fragment shader picks one of 256 one-texel textures through a handle
   read from a uniform array at a dynamic index (ARB_bindless_texture, which uam compiles to the
   console's bindless fetch), so column i of the target must show texture i. Split at 128 so a
@@ -443,6 +455,22 @@ see "When the program ends in the middle".
   pipeline are each a case. An emulator that blits with a pipeline, a viewport and a scissor of
   its own behind its cache of what is bound draws the next quad with the blit's pipeline, or
   into the blit's rectangle. The layout is the emulators' and has not been checked on a console.
+- **query**, twenty three cases and three notes. The samples passed counter over quads of whole
+  pixels, exact: 9600 for a 32 by 300 quad, 11200 with a second quad of 1600, nought after a reset.
+  The target is 320 rows tall, past the 288 an emulator that scales render targets starts at, so a
+  run with scaling at 2x says whether a game is handed the console's count or four times it (Ryujinx
+  divides by the scale squared; a failing case names the factor). Then the render enable, which the
+  library never writes, as raw methods around one draw: FALSE and TRUE, and IF_EQUAL and
+  IF_NOT_EQUAL over two 64-bit values 16 bytes apart, written by the processor (equal with
+  timestamps that differ, apart in the low word, apart only in the high word) and reported by the
+  counter (the same count twice, a count and nought), in the same list after a wait for idle and in
+  a list that finished before, the same-list pair also over a full target clear. The processor's
+  values are plain memory to an emulator and the reports are queries it may be resolving at the wait
+  or may have left from the earlier submission, so the sets can disagree; in an emulator a failure
+  points at `query_cache/query_cache.h`, `AccelerateHostConditionalRendering`, and at
+  `vk_query_cache.cpp`, which renders unconditionally on some drivers and accuracies. CONDITIONAL,
+  which reads one address, gets three notes rather than cases (the value one, the value two to the
+  32, a report of 9600), since which of its bytes decide is not settled: a console run is what says.
 
 The net family asks the services a program reaches the network through, the way a game asks them,
 and judges each answer against its protocol or against what `sdmc:/edenprobe/net` says the backend
@@ -538,6 +566,7 @@ its dependencies put it, not at the end.
 | order | exact | the host side of the guest's wait for idle: a compute write not ordered before the vertex, index, indirect, uniform or storage read after it (`renderer_vulkan/vk_rasterizer.cpp`, `WaitForIdle`), or indirect arguments read from memory before the dispatch that wrote them finished. |
 | index | exact | the size an index buffer is bound with: a limit register read as one past the end drops the last index (`buffer_cache/buffer_cache.h`, `UpdateIndexBuffer`). |
 | instance | exact | when an instanced array draw happens and as which instance (`engines/draw_manager.cpp`): deferred past a state change, extra instances added to the next draw, or SUBSEQUENT not counted as the next instance. |
+| geometry | exact | the geometry and tessellation stages: points expanded or dropped, a patch's coverage and the levels reaching the evaluation stage; on a host without those stages, whatever the emulator does instead. |
 | bindless | exact | a texture reached through a handle at a dynamic index: the host descriptor array the translator builds for it, its size and how it is filled (`shader_recompiler/ir_opt/texture_pass.cpp`). |
 | astc | exact, either of two bytes | the emulator's ASTC decoder: weight and endpoint unquantization, the integer sequence, the partition hash, infill, dual plane, and the error colour for HDR modes and illegal blocks (`host_shaders/astc_decoder.comp`, `textures/astc.cpp`). |
 | eac | exact, either of two bytes | the EAC formats: their mapping to a host format and the decode on a host that has none (`texture_cache/format_lookup_table.cpp`, `surface.h`, `maxwell_to_vk.cpp`). |
@@ -548,6 +577,7 @@ its dependencies put it, not at the end.
 | ring | exact | a draw's descriptors taken from a ring after its geometry is bound: the ring's wait for the GPU submits the binds apart from the draw, which is lost (`renderer_vulkan/vk_descriptor_buffer.cpp`, the order of `vk_graphics_pipeline.cpp`, `ConfigureImpl`). |
 | occlusion | exact | a query bank reset inside a draw or clear's render pass: the pass ends and the draw or clear lands outside it (`renderer_vulkan/vk_query_cache.cpp`, `SamplesQueryBank::Reset`); or counts that are not the pixels drawn. |
 | drawtex | exact | the state DRAW_TEXTURE leaves bound: the next draw keeps the blit's pipeline or its viewport and scissor (`renderer_vulkan/blit_image.cpp`, `BlitColor`, and `vk_rasterizer.cpp`, `DrawTexture`). |
+| query | exact | the samples counter (a count scaled with the render target, `vk_query_cache.cpp`) and the render enable over values and reports (`query_cache.h`, `AccelerateHostConditionalRendering`; `maxwell_3d.cpp`, `ProcessQueryCondition`), draws and clears alike. |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
@@ -611,7 +641,7 @@ since a machine that was never asked has agreed with nothing:
 | reason | why the case did not ask |
 |---|---|
 | `crashed` | the program ended inside it on this machine: in this run, which the journal says, or in an earlier one, which the crash list says |
-| `may crash` | it is in the may-crash table, and neither the word `fatal` nor the start screen asked for it: today the SM4 case |
+| `may crash` | it is in the may-crash table, and neither the word `fatal` nor the start screen asked for it: today the SM4 case and the two geometry shader cases |
 | `not configured` | the net file does not name what it needs: a session, a server, a rewrite, an account, a certificate |
 | `unavailable` | a service or a resource this program cannot have here |
 | `depends` | a case before it did not leave what it needs: it did not run, failed, or gave nothing to ask about |
@@ -930,7 +960,7 @@ not a letter between them.
 | `retry` | the cases on the crash list run again; one that runs to its end leaves the list (see "When the program ends in the middle") |
 | `nojournal` | nothing is written between cases: no journal, so a crash costs the rest of the run as it did before the journal; for measuring what the journal costs |
 | `cpu` | the processor family: the cpu suite runs in every mode, so naming it alone keeps the graphics and net families out, a run of a few seconds with nothing drawn |
-| `graphics` | the graphics family: the twenty two drawing suites, clear to drawtex; selfcheck, support, reference and cpu always run, whatever family is named |
+| `graphics` | the graphics family: the twenty four drawing suites, clear to query; selfcheck, support, reference and cpu always run, whatever family is named |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
 
 Families choose what runs beyond the judge, which always runs because nothing a family reports can
