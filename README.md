@@ -35,9 +35,9 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Thirty eight suites, in the order they run: the judge, then the processor, then the graphics
-family, then the net family. A run is 753 cases: 700 for the judge, the processor and the graphics
-family, 53 for the net family; the mode word `stress` adds one, and `fatal` runs the cases the
+Thirty nine suites, in the order they run: the judge, then the processor, then the graphics
+family, then the fs family, then the net family. A run is 768 cases: 700 for the judge, the
+processor and the graphics family, 15 for the fs family, 53 for the net family; the mode word `stress` adds one, and `fatal` runs the cases the
 may-crash table names, which are otherwise skipped. The order, and what a failure in each suite
 points at, is in "The roadmap" below. A case that ends the program costs that case and not the rest
 of the run: see "When the program ends in the middle".
@@ -527,6 +527,19 @@ of the run: see "When the program ends in the middle".
   such copy (Eden's buffer cache, `DMACopy`, with a fence setting that asks for it) pays it 32
   times in the second case. A single judged copy goes first and takes the first use.
 
+The fs family reads the memory card through FsFile, as a game reads its files: one IFile::Read
+with an offset each time, which is the command an emulator serves and where it does its seek.
+
+- **fs**, fifteen cases. A 64 MiB file and 256 small ones are written on the first pass; then
+  sequential reads of 512 bytes, 4 KiB, 64 KiB, 1 MiB and 16 MiB, 4096 random 4 KiB reads at
+  aligned and at odd offsets, 64 KiB reads backwards, 4096 reads of the same 4 KiB, and the small
+  files opened, read and closed. Every byte is checked against the pattern, so a fast wrong read
+  fails; the times are the point. Seek costs show as the difference between the patterns. Three
+  cases pin the edges: a read past the end returns only what is there, one at the end returns no
+  bytes, one of no bytes returns none. The host's page cache stays warm after the first pass:
+  nothing here empties it, since that takes root. On the fork on RADV (25 September) a read costs
+  about 8.5 us whatever its place, so the service path, not the host's seek, is where time goes.
+
 The net family asks the services a program reaches the network through, the way a game asks them,
 and judges each answer against its protocol or against what `sdmc:/edenprobe/net` says the backend
 publishes (see "The net family" below). Every line says what was expected and what came back. A case
@@ -637,6 +650,7 @@ its dependencies put it, not at the end.
 | drawtex | exact | the state DRAW_TEXTURE leaves bound: the next draw keeps the blit's pipeline or its viewport and scissor (`renderer_vulkan/blit_image.cpp`, `BlitColor`, and `vk_rasterizer.cpp`, `DrawTexture`). |
 | query | exact | the samples counter (a count scaled with the render target, `vk_query_cache.cpp`) and the render enable over values and reports (`query_cache.h`, `AccelerateHostConditionalRendering`; `maxwell_3d.cpp`, `ProcessQueryCondition`), draws and clears alike. |
 | dma | exact | copies of a buffer by the copy engine, and what copying data the graphics unit wrote costs (`buffer_cache/buffer_cache.h`, `DMACopy`). |
+| fs | exact | reads through the file system service: the cost per call and per byte, seeks, small files, and the edges of a file (`hle/service/filesystem`, `file_sys/vfs/vfs_real.cpp`, `common/fs/file.cpp`). |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
@@ -1024,8 +1038,9 @@ not a letter between them.
 | `hang` | the cases the hang table names, known to never return on a machine that gets them wrong: today the bsd receive-timeout case; off by default. `retry` does not run one, and the start screen cannot turn this on |
 | `retry` | the cases on the crash list run again; one that runs to its end leaves the list (see "When the program ends in the middle"). A case the hang table names stays skipped until `hang` asks too |
 | `nojournal` | nothing is written between cases: no journal, so a crash costs the rest of the run as it did before the journal; for measuring what the journal costs |
-| `cpu` | the processor family: the cpu suite runs in every mode, so naming it alone keeps the graphics and net families out, a run of a few seconds with nothing drawn |
+| `cpu` | the processor family: the cpu suite runs in every mode, so naming it alone keeps the graphics, fs and net families out, a run of a few seconds with nothing drawn |
 | `graphics` | the graphics family: the twenty eight drawing suites, clear to dma; selfcheck, support, reference and cpu always run, whatever family is named |
+| `fs` | the fs family: reads from the memory card, timed and checked; it writes a 64 MiB file and 256 small ones under `sdmc:/edenprobe/fs` the first time |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
 
 Families choose what runs beyond the judge, which always runs because nothing a family reports can
@@ -1150,7 +1165,7 @@ launch too. Today the table has one case, the bsd receive that asks for a timeou
 screen cannot turn `hang` on. A case that ended the program in this run is still skipped as
 `crashed` before the hang table is consulted, whatever `hang` says.
 
-**Where a crash can be pinned.** Every case of the cpu, graphics and net families says it starts
+**Where a crash can be pinned.** Every case of the cpu, graphics, fs and net families says it starts
 before any of its work, which is what lets a launch skip it: the start and the skip come before the
 first instruction, list or service call the case makes. A case judged from another's work (two
 halves of one readback, a request asked about again, a token read twice) is skipped as `depends`

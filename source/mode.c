@@ -16,6 +16,7 @@ static const struct {
 } FAMILIES[] = {
     { "cpu", MODE_FAMILY_CPU },
     { "graphics", MODE_FAMILY_GRAPHICS },
+    { "fs", MODE_FAMILY_FS },
     { "net", MODE_FAMILY_NET },
 };
 
@@ -271,6 +272,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
     } WORDS[] = {
         { (mode->families_named & MODE_FAMILY_CPU) != 0u, "cpu" },
         { mode->fatal, "fatal" },
+        { (mode->families_named & MODE_FAMILY_FS) != 0u, "fs" },
         { (mode->families_named & MODE_FAMILY_GRAPHICS) != 0u, "graphics" },
         { mode->hang, "hang" },
         { mode->every_case, "images" },
