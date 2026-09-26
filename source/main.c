@@ -77,6 +77,7 @@ static const Step STEPS[] = {
     { "occlusion", RunOcclusion, MODE_FAMILY_GRAPHICS, true, true },
     { "drawtex", RunDrawtex, MODE_FAMILY_GRAPHICS, true, true },
     { "query", RunQuery, MODE_FAMILY_GRAPHICS, true, true },
+    { "dma", RunDma, MODE_FAMILY_GRAPHICS, true, true },
     { "net", RunNet, MODE_FAMILY_NET, false, true },
 };
 
