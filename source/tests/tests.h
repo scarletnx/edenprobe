@@ -186,6 +186,13 @@ void RunDma(void);
 /// Every byte is checked; the times are the point.
 void RunFs(void);
 
+/// The audio family: the audio renderer's sample rate conversion, circular buffer sink and
+/// limiter, judged by recording what it rendered through its own aux effect and sink.
+void RunAudio(void);
+
+/// Plays the listening sequence before the audio family's cases (the mode word `listen`).
+void AudioSetListen(bool on);
+
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not
 /// name, or a service this program cannot open, is skipped with the reason and counted apart.
@@ -194,6 +201,10 @@ void RunNet(void);
 
 /// The net family's parsers and expectations, with no service: part of the reference suite.
 void RunReferenceNet(void);
+
+/// The audio family's measurements and its limiter rule, against answers worked out by hand:
+/// part of the reference suite.
+void RunReferenceAudio(void);
 
 #ifdef __cplusplus
 }

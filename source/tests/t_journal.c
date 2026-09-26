@@ -891,16 +891,18 @@ static void CheckModeWords(void) {
     char key[JOURNAL_MODE_MAX];
     char same[JOURNAL_MODE_MAX];
     char bare[JOURNAL_MODE_MAX];
-    const RunMode listed = ModeFromText("stress retry net quick fatal fs graphics notime images");
+    const RunMode listed =
+        ModeFromText("stress retry net quick listen fatal fs graphics audio notime images");
     const RunMode shuffled =
-        ModeFromText("images notime detailed graphics fs fatal net retry stress");
+        ModeFromText("images audio notime detailed graphics fs fatal net retry listen stress");
     const RunMode nothing = ModeFromText("quick detailed nojournal");
     ModeKey(key, sizeof(key), &listed);
     ModeKey(same, sizeof(same), &shuffled);
     ModeKey(bare, sizeof(bare), &nothing);
     CHECK_TRUE(SUITE, "the journal keeps the words that change a report, in one order",
                CHECK_NONE,
-               strcmp(key, "fatal fs graphics images net notime retry stress") == 0 &&
+               strcmp(key, "audio fatal fs graphics images listen net notime retry stress") ==
+                       0 &&
                    strcmp(key, same) == 0 && bare[0] == '\0',
                "\"%s\" and \"%s\"; with none of them \"%s\"", key, same, bare);
 

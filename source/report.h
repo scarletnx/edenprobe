@@ -113,6 +113,9 @@ typedef enum {
     /// The right answer, possibly a pixel or two away. For rasterisation coverage, where sub
     /// pixel precision is an implementation-reported limit rather than a constant.
     CHECK_POSITION,
+    /// A level measured over a stretch of sound, within a stated fraction of the expected one.
+    /// For audio, where two correct renderers differ in rounding and in their filters' taps.
+    CHECK_LEVEL,
 } CheckTier;
 
 /// One finished case. @p detail is free text explaining a failure, and is ignored when passing.
@@ -158,8 +161,8 @@ void ReportSkip(const char *suite, const char *name, ReportReason reason, const 
 /// Its skip line is then already written, and the caller does none of the case's work and
 /// reports nothing more for it. True, and the journal says on the card that the case started,
 /// so a launch after the program ends inside it knows which case to skip. Every case of the
-/// cpu, graphics, fs and net families starts this way; the judge's cases ask the machine nothing
-/// but ordinary arithmetic, and are only journaled when they end.
+/// cpu, graphics, fs, audio and net families starts this way; the judge's cases ask the machine
+/// nothing but ordinary arithmetic, and are only journaled when they end.
 bool ReportStart(const char *suite, const char *name);
 
 /// Whether a case that reports a verdict must have started. On for the families that ask the

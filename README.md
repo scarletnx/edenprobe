@@ -23,7 +23,7 @@ positives.
 
 So the decision is made inside the program, on both machines, by the same code.
 
-## The three tiers
+## The four tiers
 
 Which tier a case uses is a claim about the hardware, and it belongs in the case.
 
@@ -32,21 +32,25 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
   numbers look on one machine.
 - **Units in the last place.** For float work, with the budget stated per case.
 - **Position.** The right answer, possibly a pixel or two away, for rasterisation coverage.
+- **Level.** A level measured over a stretch of sound, within a fraction of the expected one
+  stated per case: for the audio family, where two correct renderers differ in rounding and in
+  their filters' taps.
 
 ## What it checks today
 
-Thirty nine suites, in the order they run: the judge, then the processor, then the graphics
-family, then the fs family, then the net family. A run is 768 cases: 700 for the judge, the
-processor and the graphics family, 15 for the fs family, 53 for the net family; the mode word `stress` adds one, and `fatal` runs the cases the
-may-crash table names, which are otherwise skipped. The order, and what a failure in each suite
-points at, is in "The roadmap" below. A case that ends the program costs that case and not the rest
-of the run: see "When the program ends in the middle".
+Forty suites, in the order they run: the judge, then the processor, then the graphics family,
+then the fs family, then the audio family when a word asks for it, then the net family. A run is
+779 cases: 711 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
+the net family; the audio family adds six when named or with `listen`, the mode word `stress` adds
+one, and `fatal` runs the cases the may-crash table names, which are otherwise skipped. The order,
+and what a failure in each suite points at, is in "The roadmap" below. A case that ends the
+program costs that case and not the rest of the run: see "When the program ends in the middle".
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one unit
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and ten cases, no hardware involved: what the program does around a
+- **support**, one hundred and eleven cases, no hardware involved: what the program does around a
   verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
   detailed mode's store, screens and navigation, the start screen, the mode file and its `stress`
   word, the `skip` result, the time a case reports (nineteen cases, see "Time per case"), and the
@@ -55,7 +59,7 @@ of the run: see "When the program ends in the middle".
   built from what the judge decided pixel by pixel, not from comparing two images, so a pixel that
   differs and was allowed to is not painted as a difference. Every line is the none tier, because
   none of it is a claim about a machine.
-- **reference**, one hundred and seventy five cases, no hardware involved either: the other half of
+- **reference**, one hundred and eighty five cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -100,7 +104,11 @@ of the run: see "When the program ends in the middle".
     decoder (26.1.6) makes of the same ten blocks, and five texels worked out by hand;
   - four on the bcn suite's layout, `source/bcnref.c`: where deko3d puts each level and layer of
     a block linear array, against offsets worked out by hand from its layout rules, and the solid
-    BC4 block.
+    BC4 block;
+  - ten on the audio family's answers: a tone's level read back from a recording, exact for a tone
+    with whole periods in the run and blind to every other such tone; the frames the recordings
+    are laid out in; the limiter's rule, held by hand to a steady input and to a sine; and the
+    signals the listening sequence plays.
 - **cpu**, nine cases, on the processor and in every mode, since it needs no device. Three count
   leading zeros over the sixteen 8-bit, eight 16-bit and four 32-bit lanes of one vector register,
   loaded from memory so a translator cannot fold the answer away, and compared exactly with the
@@ -540,6 +548,18 @@ with an offset each time, which is the command an emulator serves and where it d
   nothing here empties it, since that takes root. On the fork on RADV (25 September) a read costs
   about 8.5 us whatever its place, so the service path, not the host's seek, is where time goes.
 
+The audio family asks the audio renderer, with its parameters written field by field, so it can set
+what libnx's driver leaves out: a voice's sample rate conversion quality, effects, and a circular
+buffer sink. It judges what the renderer made by recording it: an aux effect on a submix that
+reaches the speakers at a gain of nought records the resampler and the limiter, and a circular
+buffer sink records the final mix. Only a word runs it, `audio` or `listen`, since it makes sound;
+see "The audio family" below.
+
+- **audio**, six cases. An 11 kHz voice at the output rate keeps its level at high quality, and at
+  default quality; a stereo circular buffer sink comes into use and records the final mix, the left
+  channel first and the right second; a tone through the limiter switched off keeps its level, and
+  in mode 1 comes out at the level of the limiter's rule, the threshold over the detector.
+
 The net family asks the services a program reaches the network through, the way a game asks them,
 and judges each answer against its protocol or against what `sdmc:/edenprobe/net` says the backend
 publishes (see "The net family" below). Every line says what was expected and what came back. A case
@@ -651,6 +671,7 @@ its dependencies put it, not at the end.
 | query | exact | the samples counter (a count scaled with the render target, `vk_query_cache.cpp`) and the render enable over values and reports (`query_cache.h`, `AccelerateHostConditionalRendering`; `maxwell_3d.cpp`, `ProcessQueryCondition`), draws and clears alike. |
 | dma | exact | copies of a buffer by the copy engine, and what copying data the graphics unit wrote costs (`buffer_cache/buffer_cache.h`, `DMACopy`). |
 | fs | exact | reads through the file system service: the cost per call and per byte, seeks, small files, and the edges of a file (`hle/service/filesystem`, `file_sys/vfs/vfs_real.cpp`, `common/fs/file.cpp`). |
+| audio | level | the audio renderer (`audio_core/renderer/`): the table the resampler takes for a ratio (`command/resample/resample.cpp`), a circular buffer sink's parameters and in-use check (`sink/sink_info_base.h`, `sink/circular_buffer_sink_info.cpp`), and the limiter's parameters (`effect/light_limiter.h`). |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
@@ -694,10 +715,10 @@ A case line carries its tier next to the result:
 
 The tier is on the line because a pass means nothing on its own: two machines agreeing is worth
 something only if both were held to the same tolerance, and a reader diffing two reports cannot
-otherwise know which one a case used. The values are `exact`, `ulp` and `position`, and one that is
-not a tier at all, `none`: any line, in any suite, that reports no comparison of something the
-hardware produced. That covers the two suites that judge this program's own arithmetic, every case
-that reports whether a precondition held (from the device coming up to a texture reaching the
+otherwise know which one a case used. The values are `exact`, `ulp`, `position` and `level`, and one
+that is not a tier at all, `none`: any line, in any suite, that reports no comparison of something
+the hardware produced. That covers the two suites that judge this program's own arithmetic, every
+case that reports whether a precondition held (from the device coming up to a texture reaching the
 graphics unit), and any drawing case stopped before it could compare anything, which still gives the
 reason in its detail. Calling any of those `exact` would read, in a diff, as a passing claim about a
 machine that was never asked anything.
@@ -1041,10 +1062,12 @@ not a letter between them.
 | `cpu` | the processor family: the cpu suite runs in every mode, so naming it alone keeps the graphics, fs and net families out, a run of a few seconds with nothing drawn |
 | `graphics` | the graphics family: the twenty eight drawing suites, clear to dma; selfcheck, support, reference and cpu always run, whatever family is named |
 | `fs` | the fs family: reads from the memory card, timed and checked; it writes a 64 MiB file and 256 small ones under `sdmc:/edenprobe/fs` the first time |
+| `audio` | the audio family: the renderer's resampler, circular buffer sink and limiter, recorded through its own effect and sink; only when named, since it makes sound, most of it at a gain of nought |
+| `listen` | the listening sequence before the audio family's cases, and the audio family with it: about 40 seconds of sound meant to be heard; see "The audio family" |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
 
 Families choose what runs beyond the judge, which always runs because nothing a family reports can
-be believed without it, and beyond the cpu suite, which needs no device and runs in every mode. None named means every family this build has; a named family this build
+be believed without it, and beyond the cpu suite, which needs no device and runs in every mode. None named means every family this build has but audio, which makes sound; a named family this build
 lacks is listed in the mode line and skipped, so a file written for a later build is reported, not
 refused. `net` alone runs the judge and the six net suites, which is what the fixture below writes.
 Any other word is reported in the mode line, quoted and counted, and ignored: a typo costs a line in
@@ -1165,16 +1188,17 @@ launch too. Today the table has one case, the bsd receive that asks for a timeou
 screen cannot turn `hang` on. A case that ended the program in this run is still skipped as
 `crashed` before the hang table is consulted, whatever `hang` says.
 
-**Where a crash can be pinned.** Every case of the cpu, graphics, fs and net families says it starts
-before any of its work, which is what lets a launch skip it: the start and the skip come before the
-first instruction, list or service call the case makes. A case judged from another's work (two
-halves of one readback, a request asked about again, a token read twice) is skipped as `depends`
-when that one does not run. The judge's cases ask the machine nothing but ordinary arithmetic and
-are journaled only as they end. What runs between two cases belongs to none: a suite reopening its
-device after a fault, blend's two probe notes, the net family opening a service or waiting for
-the sign-in. A crash there costs the rest of that step, which keeps what it reported and is not
-run again, and the launch says so in a note. A case that reports a verdict without having said it
-started, where it had to, is a bug in this program, and a `bookkeeping:` note says which.
+**Where a crash can be pinned.** Every case of the cpu, graphics, fs, audio and net families says it
+starts before any of its work, which is what lets a launch skip it: the start and the skip come
+before the first instruction, list or service call the case makes. A case judged from another's work
+(two halves of one readback, a request asked about again, a token read twice) is skipped as
+`depends` when that one does not run. The judge's cases ask the machine nothing but ordinary
+arithmetic and are journaled only as they end. What runs between two cases belongs to none: a suite
+reopening its device after a fault, blend's two probe notes, the net family opening a service or
+waiting for the sign-in, the audio family opening the renderer or playing the listening sequence. A
+crash there costs the rest of that step, which keeps what it reported and is not run again, and the
+launch says so in a note. A case that reports a verdict without having said it started, where it had
+to, is a bug in this program, and a `bookkeeping:` note says which.
 
 **What it costs.** Two lines for each case in each pass, and a drawing suite runs ten passes: a run
 of 670 cases writes 7228 lines, 474 kilobytes, none of them inside a timed interval, which is only
@@ -1375,6 +1399,70 @@ EDENPROBE_MASQUERADE_API=1.1 EDENPROBE_MASQUERADE_NO_HOST_QUERY_RESET=1 eden-cli
 through, and submits nothing: `api 1.1 hostQueryReset 0 VK_EXT_host_query_reset 0` with both
 masks on, and the driver's own answer with neither. The ring and occlusion suites were written
 for it: on RADV, which is Vulkan 1.4 with host query reset, Eden takes neither path without it.
+
+## The audio family
+
+The renderer is opened through libnx's `audren` service at 48 kHz and at the revision libnx asks for
+(4 on any firmware from 4.0.0; the report's first audio note gives the number), and the update is
+written by `source/audio.c` rather than libnx's driver, which has no field for a voice's sample rate
+conversion quality, no effects and no circular buffer sink. The layout is fixed for the run: a
+final mix of two buffers feeding the device sink and two circular buffer sinks; a submix of four
+buffers feeding the final mix at a gain the family sets, with a limiter and then an aux effect on
+it. The aux records the submix's first two buffers into a ring the program reads, and returns into
+the other two, which go nowhere.
+
+Every tone loops over a whole second and fills each 240-sample frame with whole periods (1 kHz,
+1.6 kHz, 11 kHz), so once it has played 100 frames, every frame of a 40-frame ring holds the same
+steady wave, which can be read in any order and even while the renderer writes it. A level is one
+bin of a Fourier transform over the ring (`source/audioref.c`, pinned by the reference suite). The
+resampler and limiter cases play into the submix at a gain of nought and are silent; the circular
+buffer sink records the final mix, so its case plays at 0.005 of full scale, 46 dB down.
+
+What each case catches, with Eden's numbers (reden `d304ea4164` against its audio fix branch):
+
+- default quality at a ratio of one taking the table meant for ratios between 1 and 4/3, which
+  low-passes every voice at the output rate: 11 kHz at 0.5 came out at 0.415 (-1.63 dB), and at
+  0.498 with the tables swapped back. High quality is the control, 0.4995 on both.
+- a stereo circular buffer sink that never comes into use, because the renderer compared the
+  sink's state with a byte of the fourth channel: nothing recorded, the write offset left at 0. A
+  renderer with the check right and the channels read three bytes early would record the left
+  channel in both; the second case tells that apart.
+- the limiter's processing mode read from past its parameters, so a limiter asked for mode 1 runs
+  mode 0: 1 kHz at 0.25 came to 0.046 where the rule, threshold 0.1 over the detector, gives 0.157
+  (-10.7 dB); with the mode read from its byte, 0.159. The rates are a hundredth: at a thousandth,
+  a renderer that keeps the detector in 15 fractional bits drops the small steps near the average
+  and lands 9% above the rule, which is not what this case asks. The limiter switched off is the
+  control, and a note gives the level mode 0 reached.
+
+What rests on reasoning rather than on a console run: that the console's mode 1 follows the rule
+to 2% (Eden's mode 1 is a reciprocal estimate; Ryujinx divides), and that the console honours the
+conversion quality and runs a limiter at revision 4. A console that ignored the quality would pass
+the resampler cases all the same, since its default quality passes 11 kHz at a ratio of one.
+
+**The listening sequence** (`listen`) is about 40 seconds for a person, played before the cases
+through the final mix, so it is loud: peaks from 0.12 to 0.4 of full scale. Each part opens with
+880 Hz beeps, one, two or three; inside a part, a low beep (440 Hz) comes before one take and a high
+beep (1760 Hz) before the take it is compared with. The emulator's log carries an `EDENPROBE
+LISTEN` line as each part starts.
+
+- **a**, the resampler: four takes of noise bursts, a sweep from 4 to 16 kHz and a second of hiss,
+  low beep default quality, high beep high quality. Where default quality low-passes, its takes are
+  duller: 1.8 dB down over the noise, 3 dB over the hiss, and along the sweep from 0.2 dB at its
+  start to 3.1 dB at 16 kHz. Where it does not, the four sound the same.
+- **b**, the circular buffer sink: three low notes on the left, then three high notes on the right,
+  recorded by a stereo circular buffer sink; then the recording's left channel on the left (low
+  beep) and its right channel on the right (high beep). A sink that never comes into use leaves two
+  silences, and a log line gives the recording's peak on each side.
+- **c**, the limiter: four takes of three notes at 0.4 through the limiter at threshold 0.2, low
+  beep mode 0, high beep mode 1. Where the mode byte is read, mode 1 is about 7 dB louder; where it
+  is not, the four sound the same.
+
+The recording only holds the phrase whole when the renderer runs at the speed of the sound it
+plays. With the emulator's output engine set to null it renders as fast as it can, the ring wraps
+while the phrase plays, and part b's recording is some turn of the phrase; the cases do not depend
+on that, since they read steady tones. That same null engine is how to run the family without a
+sound: `[Audio]` `output_engine\default=false` and `output_engine=3` in the emulator's
+`sdl2-config.ini`.
 
 ## The net family
 
