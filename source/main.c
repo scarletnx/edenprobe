@@ -87,7 +87,8 @@ int main(int argc, char **argv) {
     RunSupportPerf();
     RunReference();
     // The processor's own instructions next: no device and a few microseconds, so every mode
-    // runs them.
+    // runs them, whatever family is named.
+    CpuSetFatal(mode.fatal);
     RunCpu();
 
     StreamSetStress(mode.stress);

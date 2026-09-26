@@ -14,6 +14,7 @@ static const struct {
     const char *word;
     uint32_t family;
 } FAMILIES[] = {
+    { "cpu", MODE_FAMILY_CPU },
     { "graphics", MODE_FAMILY_GRAPHICS },
     { "net", MODE_FAMILY_NET },
 };
@@ -60,6 +61,10 @@ static void Take(RunMode *mode, const char *word, bool cut) {
         }
         if (strcmp(word, "stress") == 0) {
             mode->stress = true;
+            return;
+        }
+        if (strcmp(word, "fatal") == 0) {
+            mode->fatal = true;
             return;
         }
         for (size_t i = 0; i < sizeof(FAMILIES) / sizeof(FAMILIES[0]); ++i) {
@@ -201,6 +206,10 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
     if (mode->stress) {
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; stress cases");
+    }
+    if (mode->fatal) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; fatal cases");
     }
     const uint32_t missing = mode->families_named & ~present;
     if (missing != 0u) {

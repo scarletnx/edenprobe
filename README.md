@@ -36,15 +36,16 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 ## What it checks today
 
 Twenty nine suites, in the order they run: the judge, then the processor, then the graphics
-family, then the net family. A run is 620 cases: 567 for the judge, the processor and the graphics
-family, 53 for the net family; the mode word `stress` adds one. The order, and what a failure in
-each suite points at, is in "The roadmap" below.
+family, then the net family. A run is 631 cases: 578 for the judge, the processor and the graphics
+family, 53 for the net family; the mode word `stress` adds one, and `fatal` runs one that is
+otherwise skipped. The order, and what a failure in each suite points at, is in "The roadmap"
+below.
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one unit
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, eighty seven cases, no hardware involved: what the program does around a verdict
+- **support**, eighty eight cases, no hardware involved: what the program does around a verdict
   rather than to reach one. The pictures a failing case leaves and the names they get, the detailed
   mode's store, screens and navigation, the mode file and its `stress` word, the `skip` result,
   and the time a case reports
@@ -52,7 +53,7 @@ each suite points at, is in "The roadmap" below.
   from what the judge decided pixel by pixel, not from comparing two images, so a pixel that differs
   and was allowed to is not painted as a difference. Every line is the none tier, because none of it
   is a claim about a machine.
-- **reference**, one hundred and forty nine cases, no hardware involved either: the other half of the
+- **reference**, one hundred and fifty three cases, no hardware involved either: the other half of the
   judge, where the rules the cases judge by are pinned. Where clip space lands on the target, which
   pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -68,7 +69,8 @@ each suite points at, is in "The roadmap" below.
     half, small float and sRGB conversions inverted over every code; the quad covering exactly its
     rectangle. One of these caught the emulator's processor rather than its graphics unit: under
     Eden, `rint`, a single `frintx`, rounds 1024.5 to 1025 with the rounding mode at nearest, where
-    the architecture gives 1024, so the format reference rounds its halves by hand;
+    the architecture gives 1024, so the format reference rounds its halves by hand (the cpu suite
+    now checks that instruction itself);
   - eleven on intmath: 58 answers at two pixels worked out with exact rationals away from this
     program's code, and each rule against a second algorithm over the whole sweep;
   - five on fmath: 54 answers worked out with exact rationals and sixty digit decimals, the float
@@ -81,7 +83,9 @@ each suite points at, is in "The roadmap" below.
     certificate forms, an HTTP response head, a status document, a friend profile at the offsets the
     guest reads, a bearer token's alphabet, a result code as the platform prints one), and what nsd,
     sfdnsres, the sign-in wait, a picture url's `{size}` and a profile slot should be;
-  - four on the cpu suite's answers, against numbers written by hand;
+  - eight on the cpu suite's answers, against numbers written by hand: the leading zero counts,
+    the two roundings, the saturating shifts, the conversions with 64 fraction bits, and the SM4
+    inputs from the standard's key and constants;
   - six on the raw 3D method words the index and instance suites send, against words worked out
     by hand from deko3d's command header layout;
   - twenty one on the astc suite's answers: the ASTC reference decoder, `source/astcref.c`, held
@@ -89,12 +93,24 @@ each suite points at, is in "The roadmap" below.
     its weight table to values worked out by hand from the bit replication rule;
   - four on the eac suite's answers, against values worked out by hand from the specification's
     formula.
-- **cpu**, three cases, on the processor and in every mode, since it needs no device: count leading
-  zeros over the sixteen 8-bit, eight 16-bit and four 32-bit lanes of one vector register, loaded
-  from memory so a translator cannot fold the answer away, and compared exactly with the reference.
-  The 16-bit case is there because a translator that widened the lanes to count them lost the upper
-  half on hosts with AVX-512: lanes four to seven came back as 0xfff0. Console build only, since its
-  cases are AArch64 instructions.
+- **cpu**, nine cases, on the processor and in every mode, since it needs no device. Three count
+  leading zeros over the sixteen 8-bit, eight 16-bit and four 32-bit lanes of one vector register,
+  loaded from memory so a translator cannot fold the answer away, and compared exactly with the
+  reference. The 16-bit case is there because a translator that widened the lanes to count them
+  lost the upper half on hosts with AVX-512: lanes four to seven came back as 0xfff0.
+
+  Six more are defects a fuzzer found in Eden's translator, run against Unicorn (reden's dynarmic
+  tests), each checked against what the architecture defines: SDIV and UDIV by zero give zero, on
+  32 and 64 bits; FRINTX rounds to nearest with ties to even and raises Inexact; FRINTA rounds a
+  halfway value away from zero; SQSHLU saturates 8, 16 and 64-bit lanes and sets QC, FPSR cleared
+  and read around each shift; FCVTZS and FCVTZU with 64 fraction bits scale by 2^64 and saturate;
+  and SM4EKEY and SM4E give the SM4 standard's worked example. The expected values come from
+  references in integer arithmetic, never from the processor's floating point, which is what is
+  being judged. The conversions run last of the cases every run has, because a translator that
+  cannot compile them without SSE4.1 calls a null pointer there and nothing after it reports. SM4
+  runs only with the mode word `fatal` and is reported as skipped otherwise: the console's
+  processor has no SM4, and a translator that cannot compile it ends the run. Console build only,
+  since its cases are AArch64 instructions.
 - **clear**, five cases, on the graphics unit: whether the device came up (no tier, it compares
   nothing), and four that clear a 64 by 64 RGBA8 target and copy all 4096 pixels back. Three cover
   the whole target in three colours in a row, so a stale readback cannot pass by accident. The
@@ -476,6 +492,7 @@ its dependencies put it, not at the end.
 | selfcheck | none, no hardware | the comparators themselves. Nothing below can be believed. |
 | support | none, no hardware | what is written and drawn around a verdict, never a verdict. |
 | reference | none, no hardware | the expected answers: the coverage rule, the blend arithmetic, the texel address. The judge, not the machine. |
+| cpu | exact | the emulator's translation of one processor instruction, the one the case names. In Eden: dynarmic's x64 backend (`src/dynarmic/src/dynarmic/backend/x64/`), the emitter or the soft-float fallback of that instruction. |
 | clear | exact | the render target's memory layout and the path that copies it back. Everything below draws into that same target. |
 | format | exact, ulp for floats | the render target format mapping for one format: its host format, its clear and its fragment output type. In an emulator: `video_core/surface.cpp` and `video_core/renderer_vulkan/maxwell_to_vk.cpp`, and the clear of an integer target. Inside or outside the quad tells a conversion from a coverage fault. |
 | raster | position for edges, exact for interiors | vertex fetch, the clip space to screen space transform, and the coverage rule. In an emulator: the viewport registers, the y direction, the half pixel offset, and the fill rule the host rasteriser is asked for. |
@@ -848,11 +865,13 @@ not a letter between them.
 | `images` | a picture for every drawing case, passing ones too, on either mode |
 | `notime` | no timing passes: each drawing suite runs once, and no line carries a time; see "Time per case" |
 | `stress` | the heavy variants too, today the stream suite's 256 MiB list; off by default, since an emulator that runs out of memory on one takes the rest of the run with it |
-| `graphics` | the graphics family: the nineteen drawing suites, clear to fill; selfcheck, support and reference always run, whatever family is named |
+| `fatal` | the cases that end the run on a machine that fails them: today SM4EKEY and SM4E, which the console's processor lacks; off by default, and never on the console |
+| `cpu` | the processor family: the cpu suite runs in every mode, so naming it alone keeps the graphics and net families out, a run of a few seconds with nothing drawn |
+| `graphics` | the graphics family: the nineteen drawing suites, clear to fill; selfcheck, support, reference and cpu always run, whatever family is named |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
 
 Families choose what runs beyond the judge, which always runs because nothing a family reports can
-be believed without it. None named means every family this build has; a named family this build
+be believed without it, and beyond the cpu suite, which needs no device and runs in every mode. None named means every family this build has; a named family this build
 lacks is listed in the mode line and skipped, so a file written for a later build is reported, not
 refused. `net` alone runs the judge and the six net suites, which is what the fixture below writes.
 Any other word is reported in the mode line, quoted and counted, and ignored: a typo costs a line in
