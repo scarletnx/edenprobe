@@ -60,6 +60,9 @@ extern const uint64_t CPU_FCVTZ_INPUT[6];
 /// integer, as FCVTZS and FCVTZU with 64 fraction bits give it; integer arithmetic only.
 uint64_t CpuRefFcvtzFixed64(uint64_t bits, bool is_unsigned);
 
+/// The SM4 case's name, which the may-crash table names too.
+#define CPU_SM4_CASE "sm4ekey and sm4e give the SM4 standard's worked example"
+
 /// The worked example of the SM4 standard (GB/T 32907-2016, appendix A): the key
 /// 0123456789abcdeffedcba9876543210 exclusive-or FK, the first four CK, and the same bytes as
 /// plaintext, each as four 32-bit lanes, lane 0 first; then the round keys rk0 to rk3 SM4EKEY

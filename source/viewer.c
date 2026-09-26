@@ -29,6 +29,37 @@
 // Static, because the index is eight kilobytes of case numbers and built once.
 static UiRun run;
 
+// One framebuffer for the program, made by the first screen that needs it and closed by the last:
+// under Eden, a graphics device made after a framebuffer was closed never finished its first
+// submit, so the start screen's is kept open through the run and the viewer draws into it.
+static Framebuffer screen;
+static bool screen_open;
+
+static bool OpenScreen(void) {
+    if (screen_open) {
+        return true;
+    }
+    if (R_FAILED(framebufferCreate(&screen, nwindowGetDefault(), SCREEN_WIDTH, SCREEN_HEIGHT,
+                                   PIXEL_FORMAT_RGBA_8888, 2))) {
+        return false;
+    }
+    // Linear, because every frame here is composed by the processor and this is what has the
+    // library do the swizzle on the way out rather than the program doing it by hand.
+    if (R_FAILED(framebufferMakeLinear(&screen))) {
+        framebufferClose(&screen);
+        return false;
+    }
+    screen_open = true;
+    return true;
+}
+
+static void CloseScreen(void) {
+    if (screen_open) {
+        framebufferClose(&screen);
+        screen_open = false;
+    }
+}
+
 static void ReadPad(PadState *pad) {
     padConfigureInput(1, HidNpadStyleSet_NpadStandard);
     padInitializeDefault(pad);
@@ -103,6 +134,68 @@ static uint32_t ButtonsFrom(uint64_t pressed) {
     return buttons;
 }
 
+/// The start screen's buttons: A begins, Y and X turn the two choices.
+static uint32_t StartButtonsFrom(uint64_t pressed) {
+    uint32_t buttons = 0;
+    if ((pressed & HidNpadButton_A) != 0u) {
+        buttons |= UI_START_BEGIN;
+    }
+    if ((pressed & HidNpadButton_Y) != 0u) {
+        buttons |= UI_START_TOGGLE_MAY_CRASH;
+    }
+    if ((pressed & HidNpadButton_X) != 0u) {
+        buttons |= UI_START_TOGGLE_RETRY;
+    }
+    return buttons;
+}
+
+bool ViewerStartScreen(const UiStartInfo *info, bool *may_crash, bool *retry) {
+    if (info == NULL || may_crash == NULL || retry == NULL) {
+        return false;
+    }
+    if (!OpenScreen()) {
+        return false;
+    }
+    PadState pad;
+    ReadPad(&pad);
+    UiStartState state = UiStartOpen(*may_crash, *retry);
+    const uint64_t opened = armGetSystemTick();
+    bool pressed = false;
+    uint32_t shown_left = UINT32_MAX;
+    uint32_t frames_seen = 0;
+    while (appletMainLoop() && !state.begun) {
+        padUpdate(&pad);
+        const uint64_t down = padGetButtonsDown(&pad);
+        if (frames_seen >= UI_SETTLING_FRAMES && down != 0u) {
+            pressed = true;
+        }
+        state = UiStartStep(state, StartButtonsFrom(down), frames_seen, info);
+        if (frames_seen < UI_SETTLING_FRAMES) {
+            ++frames_seen;
+        }
+        const uint64_t elapsed = armTicksToNs(armGetSystemTick() - opened);
+        if (UiStartTimesOut(elapsed, pressed)) {
+            break;
+        }
+        const uint32_t left = UiStartSecondsLeft(elapsed, pressed);
+        if (state.changed || left != shown_left) {
+            uint32_t stride = 0;
+            UiFrame frame = { (uint8_t *)framebufferBegin(&screen, &stride), SCREEN_WIDTH,
+                              SCREEN_HEIGHT, stride };
+            UiComposeStart(&frame, info, state, left);
+            framebufferEnd(&screen);
+            state.changed = false;
+            shown_left = left;
+        }
+        svcSleepThread(FRAME_NANOSECONDS);
+    }
+    // Left open through the run, for the viewer to draw the results into: the suites draw
+    // offscreen, and the window keeps the last frame shown here until then.
+    *may_crash = state.may_crash;
+    *retry = state.retry;
+    return true;
+}
+
 /// The kept picture of the case the cursor has open, or NULL, which draws the case as its detail.
 static const PictureRecord *OpenPicture(UiState state) {
     const int32_t index = UiOpenPicture(&run, state);
@@ -120,15 +213,7 @@ ViewerEnd ViewerRun(void) {
     UiRunIndex(&run, records, (uint32_t)count,
                (uint32_t)(ReportPassed() + ReportFailed() + ReportSkipped() + ReportCrashed()));
 
-    Framebuffer fb;
-    if (R_FAILED(framebufferCreate(&fb, nwindowGetDefault(), SCREEN_WIDTH, SCREEN_HEIGHT,
-                                   PIXEL_FORMAT_RGBA_8888, 2))) {
-        return VIEWER_NO_SCREEN;
-    }
-    // Linear, because every frame here is composed by the processor and this is what has the
-    // library do the swizzle on the way out rather than the program doing it by hand.
-    if (R_FAILED(framebufferMakeLinear(&fb))) {
-        framebufferClose(&fb);
+    if (!OpenScreen()) {
         return VIEWER_NO_SCREEN;
     }
 
@@ -169,19 +254,19 @@ ViewerEnd ViewerRun(void) {
         state = UiStep(state, input, &run);
         if (state.changed || left != shown_left) {
             uint32_t stride = 0;
-            UiFrame frame = { (uint8_t *)framebufferBegin(&fb, &stride), SCREEN_WIDTH,
+            UiFrame frame = { (uint8_t *)framebufferBegin(&screen, &stride), SCREEN_WIDTH,
                               SCREEN_HEIGHT, stride };
             // The whole frame every time, the countdown included: there are two buffers, and
             // the one handed over holds whatever was drawn two frames ago.
             UiCompose(&frame, &run, state, OpenPicture(state));
             UiComposeCountdown(&frame, left);
-            framebufferEnd(&fb);
+            framebufferEnd(&screen);
             UiFrameDrawn(&state);
             shown_left = left;
         }
         svcSleepThread(FRAME_NANOSECONDS);
     }
 
-    framebufferClose(&fb);
+    CloseScreen();
     return end;
 }

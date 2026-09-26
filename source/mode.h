@@ -25,8 +25,9 @@ extern "C" {
 ///   stress    the heavy variants too: cases that ask a machine for far more than a game in
 ///             one list, off by default because an emulator can die of one and take the rest
 ///             of the run with it.
-///   fatal     the cases that end the run on a machine that fails them, the console included
-///             where its processor lacks the instruction: off by default, and never on the console.
+///   fatal     the cases in the may-crash table (maycrash.h), known to end the program on a
+///             machine that gets them wrong: off by default, and never on the console, whose
+///             processor lacks SM4.
 ///   retry     the cases on the crash list, which a machine's program ended inside before, run
 ///             again; one that runs to its end leaves the list.
 ///   nojournal nothing written between cases: no journal, so a crash costs the rest of the run.
@@ -89,10 +90,13 @@ typedef struct {
     bool no_timing;
     /// The word `stress`: the heavy variants of the cases that have one.
     bool stress;
-    /// The word `fatal`: the cases a machine that fails them does not survive.
+    /// The word `fatal`: the may-crash table's cases run.
     bool fatal;
     /// The word `retry`: the crash list's cases run again.
     bool retry;
+    /// Asked for on the start screen rather than in the file, which the mode line says.
+    bool fatal_by_screen;
+    bool retry_by_screen;
     /// The word `nojournal`: no journal, and no run that goes on after a crash.
     bool no_journal;
     /// The family words in the file, whether or not this build has them.

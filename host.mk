@@ -6,7 +6,8 @@
 
 HOSTCC   ?= cc
 HOSTOUT  := build-host/edenprobe-host
-HOSTSRC  := source/report.c source/journal.c source/check.c source/mode.c source/picture.c \
+HOSTSRC  := source/report.c source/journal.c source/maycrash.c source/check.c source/mode.c \
+            source/picture.c \
             source/ui.c \
             source/raster.c source/intref.c source/blendref.c source/texref.c \
             source/fmathref.c source/coherref.c source/formatref.c source/netref.c source/cpuref.c source/perf.c \

@@ -6,7 +6,9 @@
 #include <string.h>
 
 #include "../check.h"
+#include "../cpuref.h"
 #include "../journal.h"
+#include "../maycrash.h"
 #include "../mode.h"
 #include "../report.h"
 #include "tests.h"
@@ -37,9 +39,11 @@ static bool SameRecord(const JournalRecord *a, const JournalRecord *b) {
 }
 
 static void CheckRecords(void) {
-    JournalRecord records[9];
+    JournalRecord records[10];
     records[0] = Record(JOURNAL_RUN, "0.2.0", "v0.2.0-20-g2ddafce-dirty", 0);
     snprintf(records[0].mode, sizeof(records[0].mode), "fatal graphics retry");
+    records[9] = Record(JOURNAL_CHOSEN, NULL, NULL, 0);
+    snprintf(records[9].mode, sizeof(records[9].mode), "fatal retry");
     records[1] = Record(JOURNAL_LAUNCH, NULL, NULL, 3);
     records[2] = Record(JOURNAL_STEP, "index", NULL, 0);
     records[2].offset = 84504u;
@@ -78,7 +82,7 @@ static void CheckRecords(void) {
                wrong == 0u &&
                    strcmp(start, "start index 7 an indexed draw with the library's open limit "
                                  "uses every index\n") == 0,
-               "%u of 9 records came back different, the first \"%.120s\"; a start reads "
+               "%u of 10 records came back different, the first \"%.120s\"; a start reads "
                "\"%.120s\"",
                (unsigned)wrong, first_wrong, start);
 
@@ -117,6 +121,7 @@ static void CheckRecords(void) {
         "finished 1 2 3",
         "done",
         "done a b",
+        "chosen",
         "begin clear 1 a case",
         "pass clear 99999999999",
         "start clear 1 a\tcase",
@@ -200,7 +205,8 @@ static void CheckReading(void) {
                                    "done clear\nfinished 5 0 0 0\n";
     // A step run again after a crash inside it is not done until its new done record, and the
     // case the launch before ended inside is remembered as crashed in this run.
-    static const char AGAIN[] = "run 0.2.0 b q\nlaunch 1\nstep clear 10 0 0 0 0\ndone clear\n"
+    static const char AGAIN[] = "run 0.2.0 b q\nchosen fatal\nlaunch 1\nstep clear 10 0 0 0 0\n"
+                                "done clear\n"
                                 "step fill 20 1 0 0 0\nstart fill 1 x\nlaunch 2\n"
                                 "crashed fill 1 x\nstep fill 20 1 0 0 0\nend fill 1 muted y\n";
     JournalState after, between, finished, again;
@@ -217,7 +223,8 @@ static void CheckReading(void) {
         !between.in_step && !between.in_case && JournalStepDone(&between, "clear") &&
         finished.finished && !finished.in_step && finished.counts.counts[JOURNAL_PASSED] == 5u &&
         again.launches == 2u && again.in_step && !JournalStepDone(&again, "fill") &&
-        !again.in_case && again.crash_count == 1u && strcmp(again.crashes[0].name, "x") == 0;
+        !again.in_case && again.crash_count == 1u && strcmp(again.crashes[0].name, "x") == 0 &&
+        strcmp(again.chosen, "fatal") == 0;
 
     // The note before the summary names the cases this run ended inside, and only those. A new
     // run reads the run before's journal, whose crashes it did not have: every case it skipped
@@ -513,6 +520,86 @@ static void CheckBookkeeping(void) {
                (unsigned)overlapped, (unsigned)after);
 }
 
+static void CheckMayCrashTable(void) {
+    // Every entry names one case of one suite, once, with the family its suite is in and a
+    // reason; and SM4's is the name the cpu suite gives it.
+    uint32_t malformed = 0;
+    const char *first = "";
+    for (size_t i = 0; i < MayCrashCount(); ++i) {
+        const MayCrash *const e = MayCrashAt(i);
+        const bool shaped = e->suite[0] != '\0' && strchr(e->suite, ' ') == NULL &&
+                            strlen(e->suite) < JOURNAL_SUITE_MAX && e->name[0] != '\0' &&
+                            strlen(e->name) < JOURNAL_NAME_MAX && e->why[0] != '\0' &&
+                            (e->family == MODE_FAMILY_CPU || e->family == MODE_FAMILY_GRAPHICS ||
+                             e->family == MODE_FAMILY_NET) &&
+                            MayCrashFind(e->suite, e->name) == e;
+        if (!shaped) {
+            if (malformed == 0u) {
+                first = e->name;
+            }
+            ++malformed;
+        }
+    }
+    const MayCrash *const sm4 = MayCrashFind("cpu", CPU_SM4_CASE);
+    CHECK_TRUE(SUITE, "the may-crash table names each case once, with its family and why",
+               CHECK_NONE,
+               malformed == 0u && MayCrashCount() > 0u && sm4 != NULL &&
+                   sm4->family == MODE_FAMILY_CPU && MayCrashFind("cpu", "no such case") == NULL &&
+                   MayCrashAt(MayCrashCount()) == NULL,
+               "%u of %u entries malformed, the first \"%.80s\"; SM4 %s",
+               (unsigned)malformed, (unsigned)MayCrashCount(), first,
+               sm4 != NULL ? "found" : "missing");
+}
+
+static void CheckPrecedence(void) {
+    // The three reasons a case does not run, in their order: a crash in this run, whatever
+    // retry says; the crash list, unless retry; the table, unless fatal. The run's own settings
+    // are handed back afterwards.
+    static CrashList saved;
+    saved = *ReportCrashList();
+    char saved_path[64];
+    snprintf(saved_path, sizeof(saved_path), "%s", ReportCrashListPath());
+    const bool saved_retry = ReportRetrying();
+    const bool saved_asked = ReportMayCrashAsked();
+    static CrashList listed;
+    CrashListInit(&listed);
+    CrashListAdd(&listed, "cpu", CPU_SM4_CASE);
+
+    ReportReason reason[6];
+    bool runs[6];
+    char detail[REPORT_KEPT_DETAIL];
+    ReportSetCrashList(NULL, NULL, false);
+    ReportSetMayCrash(false);
+    runs[0] = ReportWouldRun("cpu", CPU_SM4_CASE, &reason[0], detail, sizeof(detail));
+    const bool says_why = strstr(detail, "the mode word fatal") != NULL &&
+                          strstr(detail, "SM4") != NULL;
+    ReportSetMayCrash(true);
+    runs[1] = ReportWouldRun("cpu", CPU_SM4_CASE, &reason[1], NULL, 0);
+    ReportSetCrashList(&listed, NULL, false);
+    runs[2] = ReportWouldRun("cpu", CPU_SM4_CASE, &reason[2], NULL, 0);
+    ReportSetMayCrash(false);
+    ReportSetRetry(true);
+    runs[3] = ReportWouldRun("cpu", CPU_SM4_CASE, &reason[3], NULL, 0);
+    ReportSetMayCrash(true);
+    runs[4] = ReportWouldRun("cpu", CPU_SM4_CASE, &reason[4], NULL, 0);
+    runs[5] = ReportWouldRun("cpu", "clz counts each of sixteen 8-bit lanes", &reason[5], NULL, 0);
+    ReportSetCrashList(&saved, saved_path, saved_retry);
+    ReportSetMayCrash(saved_asked);
+    const bool handed_back = ReportRetrying() == saved_retry &&
+                             ReportMayCrashAsked() == saved_asked &&
+                             strcmp(ReportCrashListPath(), saved_path) == 0;
+    CHECK_TRUE(SUITE, "a case the table names is skipped as may crash until fatal asks for it",
+               CHECK_NONE,
+               !runs[0] && reason[0] == REPORT_REASON_MAY_CRASH && says_why && runs[1] &&
+                   !runs[2] && reason[2] == REPORT_REASON_CRASHED && !runs[3] &&
+                   reason[3] == REPORT_REASON_MAY_CRASH && runs[4] && runs[5] && handed_back,
+               "unasked %d (%s), fatal %d, listed with fatal %d (%s), listed with retry %d (%s), "
+               "both %d, a case in neither %d; settings %s",
+               (int)runs[0], ReportReasonWord(reason[0]), (int)runs[1], (int)runs[2],
+               ReportReasonWord(reason[2]), (int)runs[3], ReportReasonWord(reason[3]),
+               (int)runs[4], (int)runs[5], handed_back ? "handed back" : "lost");
+}
+
 static void CheckModeWords(void) {
     const RunMode plain = ModeFromText("quick");
     const RunMode both = ModeFromText("quick RETRY nojournal");
@@ -554,5 +641,7 @@ void RunSupportJournal(const char *scratch) {
     CheckDurableFile(scratch);
     CheckDecisions();
     CheckBookkeeping();
+    CheckMayCrashTable();
+    CheckPrecedence();
     CheckModeWords();
 }

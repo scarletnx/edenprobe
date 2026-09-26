@@ -777,21 +777,33 @@ static void CheckLaunchAndMode(void) {
                    (int)heavy.stress, (unsigned)heavy.unknown_count, said);
     }
 
-    // The fatal word turns on the cases a failing machine does not survive, and only it; with
-    // the cpu family alone the line names no other family.
+    // The fatal word turns on the may-crash table's cases, and only it; with the cpu family
+    // alone the line names no other family. Chosen on the start screen, the line says so.
     {
         const RunMode plain = ModeFromText("quick cpu");
         const RunMode fatal = ModeFromText("quick cpu FATAL");
         char said[REPORT_NOTE_MAX + 1] = "";
         ModeDescribe(said, sizeof(said), &fatal, MODE_FAMILIES_PRESENT);
-        CHECK_TRUE(SUITE, "the word fatal, and nothing else, asks for the fatal cases",
+        RunMode screen = plain;
+        screen.fatal = true;
+        screen.fatal_by_screen = true;
+        screen.retry = true;
+        screen.retry_by_screen = true;
+        char chosen[REPORT_NOTE_MAX + 1] = "";
+        ModeDescribe(chosen, sizeof(chosen), &screen, MODE_FAMILIES_PRESENT);
+        CHECK_TRUE(SUITE, "the word fatal, and nothing else, asks for the cases that may crash",
                    CHECK_NONE,
                    !plain.fatal && fatal.fatal && fatal.unknown_count == 0u &&
                        !ModeFromText("quick stress").fatal && !ModeFromText("fatal").stress &&
                        strcmp(said, "mode: quick, from the mode file; pictures of failures "
-                                    "only; families cpu; fatal cases") == 0,
-                   "plain %d, fatal %d, unknown %u, said \"%.200s\"", (int)plain.fatal,
-                   (int)fatal.fatal, (unsigned)fatal.unknown_count, said);
+                                    "only; families cpu; the cases that may crash") == 0 &&
+                       strcmp(chosen, "mode: quick, from the mode file; pictures of failures "
+                                      "only; families cpu; the cases that may crash, chosen on "
+                                      "the start screen; the crash list's cases again, chosen "
+                                      "on the start screen") == 0,
+                   "plain %d, fatal %d, unknown %u, said \"%.200s\"; chosen \"%.240s\"",
+                   (int)plain.fatal, (int)fatal.fatal, (unsigned)fatal.unknown_count, said,
+                   chosen);
     }
 
     // Every word, alone and together, any case, in a file that is missing, empty, or has words

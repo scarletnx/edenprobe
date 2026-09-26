@@ -37,6 +37,7 @@ static const uint8_t DIM[4] = { 0x88, 0x90, 0xA0, 0xFF };
 static const uint8_t PASSED[4] = { 0x40, 0xD0, 0x60, 0xFF };
 static const uint8_t FAILED[4] = { 0xF0, 0x50, 0x50, 0xFF };
 static const uint8_t SKIPPED[4] = { 0xE8, 0xB0, 0x40, 0xFF };
+static const uint8_t CRASHED[4] = { 0xC0, 0x78, 0xF0, 0xFF };
 static const uint8_t BORDER[4] = { 0x50, 0x58, 0x68, 0xFF };
 static const uint8_t SELECTED[4] = { 0x28, 0x2E, 0x3C, 0xFF };
 
@@ -274,7 +275,12 @@ static const struct {
     { "raster", UI_FAMILY_GRAPHICS }, { "intmath", UI_FAMILY_GRAPHICS },
     { "blend", UI_FAMILY_GRAPHICS },  { "depth", UI_FAMILY_GRAPHICS },
     { "texture", UI_FAMILY_GRAPHICS }, { "coherence", UI_FAMILY_GRAPHICS },
-    { "fmath", UI_FAMILY_GRAPHICS },  { "nifm", UI_FAMILY_NET },
+    { "fmath", UI_FAMILY_GRAPHICS },  { "order", UI_FAMILY_GRAPHICS },
+    { "index", UI_FAMILY_GRAPHICS },  { "instance", UI_FAMILY_GRAPHICS },
+    { "bindless", UI_FAMILY_GRAPHICS }, { "astc", UI_FAMILY_GRAPHICS },
+    { "eac", UI_FAMILY_GRAPHICS },    { "swizzle", UI_FAMILY_GRAPHICS },
+    { "texel", UI_FAMILY_GRAPHICS },  { "stream", UI_FAMILY_GRAPHICS },
+    { "fill", UI_FAMILY_GRAPHICS },   { "nifm", UI_FAMILY_NET },
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
     { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },
     { "friend", UI_FAMILY_NET },
@@ -350,7 +356,10 @@ void UiRunIndex(UiRun *run, const ReportRecord *records, uint32_t count, uint32_
         if (record->result == REPORT_FAIL) {
             ++group->failed;
             ++run->failed;
-        } else if (Skipped(record->result)) {
+        } else if (record->result == REPORT_CRASHED) {
+            ++group->crashed;
+            ++run->crashed;
+        } else if (record->result == REPORT_SKIP) {
             ++group->skipped;
             ++run->skipped;
         } else {
@@ -705,7 +714,10 @@ uint32_t UiOverviewRow(const UiRun *run, uint32_t group) {
 }
 
 static const uint8_t *ResultColour(ReportResult result) {
-    return result == REPORT_FAIL ? FAILED : Skipped(result) ? SKIPPED : PASSED;
+    return result == REPORT_FAIL      ? FAILED
+           : result == REPORT_CRASHED ? CRASHED
+           : result == REPORT_SKIP    ? SKIPPED
+                                      : PASSED;
 }
 
 /// What to say where a case's line carried no detail, which is only unremarkable for a pass.
@@ -725,57 +737,75 @@ static ReportResult GroupResult(uint32_t passed, uint32_t failed) {
     return failed > 0u ? REPORT_FAIL : passed > 0u ? REPORT_PASS : REPORT_SKIP;
 }
 
-/// The three counts along a line, each in its own colour and dim when it is nought.
+/// The counts along a line, each in its own colour and dim when it is nought; crashes only
+/// when there are any, apart from the skips as the summary counts them.
 static uint32_t SayCounts(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t passed,
-                          uint32_t failed, uint32_t skipped) {
+                          uint32_t failed, uint32_t skipped, uint32_t crashed) {
     char text[32];
     snprintf(text, sizeof(text), "%u passed", (unsigned)passed);
     x = Say(frame, x, y, passed > 0u ? PASSED : DIM, text) + 2u * GLYPH;
     snprintf(text, sizeof(text), "%u failed", (unsigned)failed);
     x = Say(frame, x, y, failed > 0u ? FAILED : DIM, text) + 2u * GLYPH;
     snprintf(text, sizeof(text), "%u skipped", (unsigned)skipped);
-    return Say(frame, x, y, skipped > 0u ? SKIPPED : DIM, text);
+    x = Say(frame, x, y, skipped > 0u ? SKIPPED : DIM, text);
+    if (crashed == 0u) {
+        return x;
+    }
+    snprintf(text, sizeof(text), "%u crashed", (unsigned)crashed);
+    return Say(frame, x + 2u * GLYPH, y, CRASHED, text);
 }
 
 /// The proportions of a group at a glance: failures first and never thinner than two pixels,
 /// so one failure among a hundred passes still shows.
 static void DrawBar(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t width,
                     const UiGroup *group) {
-    const uint32_t total = group->passed + group->failed + group->skipped;
+    const uint32_t total = group->passed + group->failed + group->skipped + group->crashed;
     if (total == 0u || width < 8u) {
         return;
     }
     uint32_t failed = group->failed > 0u ? group->failed * width / total : 0u;
+    uint32_t crashed = group->crashed > 0u ? group->crashed * width / total : 0u;
     uint32_t skipped = group->skipped > 0u ? group->skipped * width / total : 0u;
     if (group->failed > 0u && failed < 2u) {
         failed = 2u;
     }
+    if (group->crashed > 0u && crashed < 2u) {
+        crashed = 2u;
+    }
     if (group->skipped > 0u && skipped < 2u) {
         skipped = 2u;
     }
-    // The two pixel floors can add up to more than the bar; the larger share gives way.
-    while (failed + skipped > width) {
-        if (failed >= skipped) {
+    // The two pixel floors can add up to more than the bar; the largest share gives way.
+    while (failed + crashed + skipped > width) {
+        if (failed >= skipped && failed >= crashed) {
             --failed;
-        } else {
+        } else if (skipped >= crashed) {
             --skipped;
+        } else {
+            --crashed;
         }
     }
     if (group->passed == 0u) {
-        // Nothing passed: the other two fill the bar between them.
+        // Nothing passed: the others fill the bar between them.
         if (group->skipped > 0u) {
-            skipped = width - failed;
+            skipped = width - failed - crashed;
+        } else if (group->crashed > 0u) {
+            crashed = width - failed;
         } else {
             failed = width;
         }
     }
-    const uint32_t passed = width - failed - skipped;
+    const uint32_t passed = width - failed - crashed - skipped;
     FillRect(frame, x, y, failed, 8u, FAILED);
-    FillRect(frame, x + failed, y, skipped, 8u, SKIPPED);
-    FillRect(frame, x + failed + skipped, y, passed, 8u, PASSED);
+    FillRect(frame, x + failed, y, crashed, 8u, CRASHED);
+    FillRect(frame, x + failed + crashed, y, skipped, 8u, SKIPPED);
+    FillRect(frame, x + failed + crashed + skipped, y, passed, 8u, PASSED);
 }
 
-static void DrawGroupRow(const UiFrame *frame, const UiGroup *group, uint32_t y, bool selected) {
+/// A group's row. @p crashes_column is set when anything in the run crashed: a column of its own
+/// then, and a run with none keeps the three it always had.
+static void DrawGroupRow(const UiFrame *frame, const UiGroup *group, uint32_t y, bool selected,
+                         bool crashes_column) {
     if (selected) {
         FillRect(frame, MARGIN / 2u, y, frame->width - MARGIN, UI_ROW_HEIGHT, SELECTED);
         Say(frame, MARGIN, y + 2u, TEXT, ">");
@@ -793,7 +823,12 @@ static void DrawGroupRow(const UiFrame *frame, const UiGroup *group, uint32_t y,
     x += 11u * GLYPH;
     snprintf(text, sizeof(text), "%3u skipped", (unsigned)group->skipped);
     Say(frame, x, y + 2u, group->skipped > 0u ? SKIPPED : DIM, text);
-    const uint32_t bar = MARGIN + 52u * GLYPH;
+    if (crashes_column) {
+        x += 12u * GLYPH;
+        snprintf(text, sizeof(text), "%3u crashed", (unsigned)group->crashed);
+        Say(frame, x, y + 2u, group->crashed > 0u ? CRASHED : DIM, text);
+    }
+    const uint32_t bar = MARGIN + (crashes_column ? 64u : 52u) * GLYPH;
     if (frame->width > bar + MARGIN) {
         DrawBar(frame, bar, y + 6u, frame->width - MARGIN - bar, group);
     }
@@ -808,7 +843,8 @@ static void DrawCaseLine(const UiFrame *frame, uint32_t x, uint32_t y, const Rep
     Say(frame, x + 5u * GLYPH, y, TEXT, name);
 }
 
-/// Under the overview's list: what the selected group holds, its failures first.
+/// Under the overview's list: what the selected group holds, its failures first, then what the
+/// program ended inside, then its skips.
 static void ComposePreview(const UiFrame *frame, const UiRun *run, uint32_t index, uint32_t y) {
     const UiGroup *const group = &run->groups[index];
     char text[96];
@@ -819,6 +855,10 @@ static void ComposePreview(const UiFrame *frame, const UiRun *run, uint32_t inde
         snprintf(text, sizeof(text), "%u of %u failed", (unsigned)group->failed,
                  (unsigned)group->count);
         SayFitted(frame, x, y, FAILED, text);
+    } else if (group->crashed > 0u) {
+        snprintf(text, sizeof(text), "nothing failed, %u of %u skipped as crashed",
+                 (unsigned)group->crashed, (unsigned)group->count);
+        SayFitted(frame, x, y, CRASHED, text);
     } else if (group->skipped > 0u) {
         snprintf(text, sizeof(text), "nothing failed, %u of %u skipped",
                  (unsigned)group->skipped, (unsigned)group->count);
@@ -830,15 +870,18 @@ static void ComposePreview(const UiFrame *frame, const UiRun *run, uint32_t inde
         return;
     }
 
-    const ReportResult shown = group->failed > 0u ? REPORT_FAIL : REPORT_SKIP;
-    const uint32_t wanted = group->failed > 0u ? group->failed : group->skipped;
+    const ReportResult shown = group->failed > 0u    ? REPORT_FAIL
+                               : group->crashed > 0u ? REPORT_CRASHED
+                                                     : REPORT_SKIP;
+    const uint32_t wanted = group->failed > 0u    ? group->failed
+                            : group->crashed > 0u ? group->crashed
+                                                  : group->skipped;
     const uint32_t room = PREVIEW_LINES - 1u;
     const uint32_t columns = Columns(frame) > 5u ? Columns(frame) - 5u : 1u;
     uint32_t listed = 0;
     for (uint32_t i = 0; i < group->count && listed < room; ++i) {
         const ReportRecord *const record = UiCaseAt(run, index, i);
-        if (record == NULL ||
-            (shown == REPORT_SKIP ? !Skipped(record->result) : record->result != shown)) {
+        if (record == NULL || record->result != shown) {
             continue;
         }
         if (listed + 1u == room && wanted > room) {
@@ -852,16 +895,20 @@ static void ComposePreview(const UiFrame *frame, const UiRun *run, uint32_t inde
     }
 }
 
-/// The suites that failed, or skipped, as one line: which is what the overview says first.
-static void ListGroups(char *out, size_t out_size, const UiRun *run, bool failed) {
+/// The suites that failed, crashed or skipped, as one line: which is what the overview says
+/// first.
+static void ListGroups(char *out, size_t out_size, const UiRun *run, ReportResult which) {
     size_t used = strlen(out);
     const char *separator = "";
     for (uint32_t g = 0; g < run->group_count && used + 1u < out_size; ++g) {
-        const uint32_t count = failed ? run->groups[g].failed : run->groups[g].skipped;
+        const UiGroup *const group = &run->groups[g];
+        const uint32_t count = which == REPORT_FAIL      ? group->failed
+                               : which == REPORT_CRASHED ? group->crashed
+                                                         : group->skipped;
         if (count == 0u) {
             continue;
         }
-        snprintf(out + used, out_size - used, "%s%s", separator, run->groups[g].suite);
+        snprintf(out + used, out_size - used, "%s%s", separator, group->suite);
         used = strlen(out);
         separator = ", ";
     }
@@ -871,25 +918,29 @@ static void ComposeOverview(const UiFrame *frame, const UiRun *run, UiState stat
     const ReportResult verdict = GroupResult(run->passed, run->failed);
     Say(frame, MARGIN, 8, ResultColour(verdict), ResultWord(verdict));
     char text[256];
-    snprintf(text, sizeof(text), "%u cases", (unsigned)(run->passed + run->failed + run->skipped));
+    const uint32_t shown = run->passed + run->failed + run->skipped + run->crashed;
+    snprintf(text, sizeof(text), "%u cases", (unsigned)shown);
     const uint32_t x = Say(frame, MARGIN + 6u * GLYPH, 8, TEXT, text) + 2u * GLYPH;
-    SayCounts(frame, x, 8, run->passed, run->failed, run->skipped);
+    SayCounts(frame, x, 8, run->passed, run->failed, run->skipped, run->crashed);
 
     if (run->failed > 0u) {
         snprintf(text, sizeof(text), "failed in: ");
-        ListGroups(text, sizeof(text), run, true);
+        ListGroups(text, sizeof(text), run, REPORT_FAIL);
         SayFitted(frame, MARGIN, 30, FAILED, text);
     } else {
         const uint32_t after = Say(frame, MARGIN, 30, PASSED, "nothing failed");
-        if (run->skipped > 0u) {
+        if (run->crashed > 0u) {
+            snprintf(text, sizeof(text), "   crashed in: ");
+            ListGroups(text, sizeof(text), run, REPORT_CRASHED);
+            SayFitted(frame, after, 30, CRASHED, text);
+        } else if (run->skipped > 0u) {
             snprintf(text, sizeof(text), "   skipped in: ");
-            ListGroups(text, sizeof(text), run, false);
+            ListGroups(text, sizeof(text), run, REPORT_SKIP);
             SayFitted(frame, after, 30, DIM, text);
         }
     }
     // A run whose cases did not all reach the screens says so where the person is, rather than
     // leaving the counts above to disagree with the report's summary in silence.
-    const uint32_t shown = run->passed + run->failed + run->skipped;
     if (run->reported > shown) {
         char memory[48] = "";
         char suites[48] = "";
@@ -928,7 +979,7 @@ static void ComposeOverview(const UiFrame *frame, const UiRun *run, UiState stat
         }
         if (row >= first && row < first + rows) {
             DrawGroupRow(frame, &run->groups[g], UI_LIST_TOP + (row - first) * UI_ROW_HEIGHT,
-                         g == state.group);
+                         g == state.group, run->crashed > 0u);
         }
         ++row;
     }
@@ -952,7 +1003,7 @@ static void ComposeGroup(const UiFrame *frame, const UiRun *run, UiState state) 
     const ReportResult verdict = GroupResult(group->passed, group->failed);
     Say(frame, MARGIN, 8, ResultColour(verdict), ResultWord(verdict));
     const uint32_t x = Say(frame, MARGIN + 6u * GLYPH, 8, TEXT, group->suite) + 2u * GLYPH;
-    SayCounts(frame, x, 8, group->passed, group->failed, group->skipped);
+    SayCounts(frame, x, 8, group->passed, group->failed, group->skipped, group->crashed);
 
     const uint32_t rows = UiListRows(UI_LEVEL_GROUP, frame->height);
     const uint32_t first = UiListFirst(state.index, group->count, rows);
@@ -1219,4 +1270,157 @@ void UiComposeCountdown(const UiFrame *frame, uint32_t seconds_left) {
              "nothing pressed yet: this screen closes by itself in %u s, any button keeps it",
              (unsigned)seconds_left);
     UiText(frame, MARGIN, y, 1, FAILED, line);
+}
+
+bool UiStartShown(const UiStartInfo *info) {
+    return info != NULL && (info->may_crash_count > 0u || info->listed_count > 0u);
+}
+
+UiStartState UiStartOpen(bool may_crash, bool retry) {
+    const UiStartState state = { may_crash, retry, false, true };
+    return state;
+}
+
+UiStartState UiStartStep(UiStartState state, uint32_t pressed, uint32_t frame_index,
+                         const UiStartInfo *info) {
+    if (frame_index < UI_SETTLING_FRAMES || info == NULL) {
+        return state;
+    }
+    if ((pressed & UI_START_BEGIN) != 0u) {
+        state.begun = true;
+        state.changed = true;
+        return state;
+    }
+    if ((pressed & UI_START_TOGGLE_MAY_CRASH) != 0u && info->may_crash_count > 0u) {
+        state.may_crash = !state.may_crash;
+        state.changed = true;
+    }
+    if ((pressed & UI_START_TOGGLE_RETRY) != 0u && info->listed_count > 0u) {
+        state.retry = !state.retry;
+        state.changed = true;
+    }
+    return state;
+}
+
+bool UiStartTimesOut(uint64_t elapsed_ns, bool pressed) {
+    return !pressed && elapsed_ns >= UI_START_NANOSECONDS;
+}
+
+uint32_t UiStartSecondsLeft(uint64_t elapsed_ns, bool pressed) {
+    if (pressed || elapsed_ns >= UI_START_NANOSECONDS) {
+        return 0u;
+    }
+    return (uint32_t)((UI_START_NANOSECONDS - elapsed_ns + 999999999ull) / 1000000000ull);
+}
+
+uint32_t UiStartWarningTop(uint32_t frame_height) {
+    // Above the countdown and the button line, which take the frame's last 32 rows.
+    const uint32_t height = UI_START_WARNING_LINES * LINE + 16u;
+    return frame_height > FOOT + height + 8u ? frame_height - FOOT - height - 8u : 0u;
+}
+
+/// One choice's row: its box, the button that turns it, and what it runs.
+static void DrawChoice(const UiFrame *frame, uint32_t y, bool on, bool available,
+                       const char *button, const char *text) {
+    const uint8_t *const colour = !available ? DIM : on ? SKIPPED : TEXT;
+    uint32_t x = Say(frame, MARGIN, y, colour, on ? "[x]" : "[ ]");
+    x = Say(frame, x + GLYPH, y, colour, button);
+    SayFitted(frame, x + 2u * GLYPH, y, colour, text);
+}
+
+/// A list under its heading, in @p room lines at most: its heading, as many names as fit, and a
+/// line saying how many more there are when not all of them do.
+static uint32_t DrawStartList(const UiFrame *frame, uint32_t y, uint32_t room,
+                              const char *heading, uint32_t count, const char *const *suites,
+                              const char *const *names) {
+    if (count == 0u || room < 2u) {
+        return y;
+    }
+    Say(frame, MARGIN, y, DIM, heading);
+    y += LINE;
+    --room;
+    const uint32_t held = count < UI_START_LIST_MAX ? count : UI_START_LIST_MAX;
+    const uint32_t fits = held <= room && held == count ? held : (room > 1u ? room - 1u : 0u);
+    const uint32_t shown = fits < held ? fits : held;
+    const uint32_t columns = Columns(frame) > 13u ? Columns(frame) - 13u : 1u;
+    for (uint32_t i = 0; i < shown; ++i) {
+        char suite[16];
+        Fit(suite, sizeof(suite), suites[i], 10u);
+        Say(frame, MARGIN + 2u * GLYPH, y, DIM, suite);
+        char name[200];
+        Fit(name, sizeof(name), names[i], columns);
+        Say(frame, MARGIN + 13u * GLYPH, y, TEXT, name);
+        y += LINE;
+    }
+    if (shown < count) {
+        char more[48];
+        snprintf(more, sizeof(more), "and %u more", (unsigned)(count - shown));
+        Say(frame, MARGIN + 2u * GLYPH, y, DIM, more);
+        y += LINE;
+    }
+    return y;
+}
+
+void UiComposeStart(const UiFrame *frame, const UiStartInfo *info, UiStartState state,
+                    uint32_t seconds_left) {
+    if (frame == NULL || frame->pixels == NULL || info == NULL) {
+        return;
+    }
+    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
+        UiText(frame, 0, 0, 1, TEXT, "frame too small");
+        return;
+    }
+    SayFitted(frame, MARGIN, 8, TEXT, info->heading != NULL ? info->heading : "edenprobe");
+    SayFitted(frame, MARGIN, 30, DIM,
+              "before the run: these cases have ended an emulator's program");
+
+    char text[96];
+    snprintf(text, sizeof(text), "run the %u case%s that may crash",
+             (unsigned)info->may_crash_count, info->may_crash_count == 1u ? "" : "s");
+    DrawChoice(frame, UI_LIST_TOP, state.may_crash, info->may_crash_count > 0u, "Y", text);
+    snprintf(text, sizeof(text), "run the crash list's %u case%s again",
+             (unsigned)info->listed_count, info->listed_count == 1u ? "" : "s");
+    DrawChoice(frame, UI_LIST_TOP + UI_ROW_HEIGHT, state.retry, info->listed_count > 0u, "X",
+               text);
+
+    // The two lists in what is left above the warning's place, which is kept free whether or
+    // not the warning shows, so turning a choice on moves nothing else.
+    const uint32_t warning_top = UiStartWarningTop(frame->height);
+    uint32_t y = UI_LIST_TOP + 3u * UI_ROW_HEIGHT;
+    const uint32_t rows = warning_top > y + 8u ? (warning_top - y - 8u) / LINE : 0u;
+    const uint32_t first_room = info->listed_count > 0u ? rows / 2u : rows;
+    const uint32_t after =
+        DrawStartList(frame, y, first_room, "may crash (the mode word fatal runs them):",
+                      info->may_crash_count, info->may_crash_suite, info->may_crash_name);
+    const uint32_t used = (after - y) / LINE;
+    DrawStartList(frame, after, rows > used ? rows - used : 0u,
+                  "on the crash list (the mode word retry runs them):", info->listed_count,
+                  info->listed_suite, info->listed_name);
+
+    if (state.may_crash || state.retry) {
+        static const char *const WARNING[UI_START_WARNING_LINES] = {
+            "these cases ended an emulator's program; this one may end too",
+            "if it does, start edenprobe again: the run goes on after the case",
+            "that ended it, which is then skipped as crashed and listed",
+        };
+        const uint32_t height = UI_START_WARNING_LINES * LINE + 16u;
+        FillRect(frame, MARGIN / 2u, warning_top, frame->width - MARGIN, height, FAILED);
+        FillRect(frame, MARGIN / 2u + 2u, warning_top + 2u, frame->width - MARGIN - 4u,
+                 height - 4u, BACKGROUND);
+        for (uint32_t i = 0; i < UI_START_WARNING_LINES; ++i) {
+            SayFitted(frame, MARGIN, warning_top + 8u + i * LINE, FAILED, WARNING[i]);
+        }
+    }
+
+    const uint32_t countdown = frame->height - 28u;
+    FillRect(frame, 0, countdown - 2u, frame->width, 12u, BACKGROUND);
+    if (seconds_left > 0u) {
+        char line[96];
+        snprintf(line, sizeof(line),
+                 "nothing pressed yet: the run begins in %u s as chosen, any button keeps this",
+                 (unsigned)seconds_left);
+        UiText(frame, MARGIN, countdown, 1, FAILED, line);
+    }
+    DrawButtons(frame, "A begin the run   Y the cases that may crash   X the crash list again");
 }

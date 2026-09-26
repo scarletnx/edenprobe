@@ -35,26 +35,26 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 ## What it checks today
 
-Thirty two suites, in the order they run: the judge, then the processor, then the graphics
-family, then the net family. A run is 664 cases: 611 for the judge, the processor and the graphics
-family, 53 for the net family; the mode word `stress` adds one, and `fatal` runs one that is
-otherwise skipped. The order, and what a failure in each suite points at, is in "The roadmap"
-below. A case that ends the program costs that case and not the rest of the run: see "When the
-program ends in the middle".
+Thirty two suites, in the order they run: the judge, then the processor, then the graphics family,
+then the net family. A run is 670 cases: 617 for the judge, the processor and the graphics family,
+53 for the net family; the mode word `stress` adds one, and `fatal` runs the cases the may-crash
+table names, which are otherwise skipped. The order, and what a failure in each suite points at, is
+in "The roadmap" below. A case that ends the program costs that case and not the rest of the run:
+see "When the program ends in the middle".
 
 - **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one unit
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and four cases, no hardware involved: what the program does around a
+- **support**, one hundred and ten cases, no hardware involved: what the program does around a
   verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
-  detailed mode's store, screens and navigation, the mode file and its `stress` word, the `skip`
-  result, the time a case reports (nineteen cases, see "Time per case"), and the journal, the
-  crash list and what a launch decides from them (sixteen cases, see "When the program ends in
-  the middle"). One case carries the whole idea: the diff picture is built
-  from what the judge decided pixel by pixel, not from comparing two images, so a pixel that differs
-  and was allowed to is not painted as a difference. Every line is the none tier, because none of it
-  is a claim about a machine.
+  detailed mode's store, screens and navigation, the start screen, the mode file and its `stress`
+  word, the `skip` result, the time a case reports (nineteen cases, see "Time per case"), and the
+  journal, the crash list, the may-crash table and what a launch decides from them (eighteen cases,
+  see "When the program ends in the middle"). One case carries the whole idea: the diff picture is
+  built from what the judge decided pixel by pixel, not from comparing two images, so a pixel that
+  differs and was allowed to is not painted as a difference. Every line is the none tier, because
+  none of it is a claim about a machine.
 - **reference**, one hundred and fifty four cases, no hardware involved either: the other half of the
   judge, where the rules the cases judge by are pinned. Where clip space lands on the target, which
   pixels a triangle covers and which of two triangles owns the centres on their shared edge,
@@ -110,9 +110,10 @@ program ends in the middle".
   references in integer arithmetic, never from the processor's floating point, which is what is
   being judged. The conversions run last of the cases every run has, because a translator that
   cannot compile them without SSE4.1 calls a null pointer there and nothing after it reports. SM4
-  runs only with the mode word `fatal` and is reported as skipped otherwise: the console's
-  processor has no SM4, and a translator that cannot compile it ends the run. Console build only,
-  since its cases are AArch64 instructions.
+  is in the may-crash table: it runs only with the mode word `fatal` or when the start screen asks
+  for it, and is skipped as `may crash` otherwise, since the console's processor has no SM4 and a
+  translator that cannot compile it ends the program. Console build only, since its cases are
+  AArch64 instructions.
 - **clear**, five cases, on the graphics unit: whether the device came up (no tier, it compares
   nothing), and four that clear a 64 by 64 RGBA8 target and copy all 4096 pixels back. Three cover
   the whole target in three colours in a row, so a stale readback cannot pass by accident. The
@@ -610,7 +611,7 @@ since a machine that was never asked has agreed with nothing:
 | reason | why the case did not ask |
 |---|---|
 | `crashed` | the program ended inside it on this machine: in this run, which the journal says, or in an earlier one, which the crash list says |
-| `may crash` | it is known to end a machine's program and was not asked for: today the SM4 case, without the word `fatal` |
+| `may crash` | it is in the may-crash table, and neither the word `fatal` nor the start screen asked for it: today the SM4 case |
 | `not configured` | the net file does not name what it needs: a session, a server, a rewrite, an account, a certificate |
 | `unavailable` | a service or a resource this program cannot have here |
 | `depends` | a case before it did not leave what it needs: it did not run, failed, or gave nothing to ask about |
@@ -856,8 +857,11 @@ and net (nifm to friend). Three screens, one inside the other:
 
 - **The overview** comes first, on the first group that failed. Its heading carries the run's counts
   and names the groups that failed, as many as fit. Below it, every group under its family with its
-  passes, failures and skips in columns and a bar of the three in proportion, a failed group's name
-  in red; under the list, the selected group's failures by name, or its skips when nothing failed.
+  passes, failures and skips in columns and a bar of them in proportion, a failed group's name in
+  red; under the list, the selected group's failures by name, or its skips when nothing failed. A
+  case the program ended inside is counted apart, as the summary counts it: in violet, in a fourth
+  column that only a run with such a case has, and listed under the list when its group failed
+  nothing.
 - **A group** lists its cases, each marked `PASS`, `FAIL` or `SKIP` in that result's colour, with
   `pic` at the end of the row when the case kept pictures. It opens on its first failure. Under the
   list: the selected case's whole name, as much of its detail as fits, wrapped, and what opening it
@@ -887,6 +891,16 @@ the same verdicts and the same images, line for line. The report differs only in
 top that says which mode ran and why, and in the case below. The screen is a second opinion for a
 person, never an input to one.
 
+**The start screen.** A detailed run with something that could end it, a case the may-crash table
+names in the families it runs or a case on the crash list, first shows both lists and two choices,
+each off unless the mode file's word turned it on: Y runs the cases that may crash (the word
+`fatal`), X the crash list's again (the word `retry`). While either is on, a warning says what it
+means: the program may end, and started again it goes on after the case that ended it. A begins
+the run; nothing pressed for ten seconds begins it as the file had it, and any press keeps the
+screen. What was chosen is in the mode line (`chosen on the start screen`) and in the journal, so a
+launch that goes on with the run keeps it. The screen decides the mode, as holding X does, and reads
+no case and writes no line.
+
 **Nobody there.** A detailed run whose screen sees no button pressed for ten seconds after the
 report closed leaves by itself, and appends one line after the summary:
 
@@ -912,7 +926,7 @@ not a letter between them.
 | `images` | a picture for every drawing case, passing ones too, on either mode |
 | `notime` | no timing passes: each drawing suite runs once, and no line carries a time; see "Time per case" |
 | `stress` | the heavy variants too, today the stream suite's 256 MiB list; off by default, since an emulator that runs out of memory on one takes the rest of the run with it |
-| `fatal` | the cases that end the run on a machine that fails them: today SM4EKEY and SM4E, which the console's processor lacks; off by default, and never on the console |
+| `fatal` | the cases the may-crash table names, known to end the program on a machine that gets them wrong: today SM4EKEY and SM4E, which the console's processor lacks; off by default. On a console it costs a relaunch per case its processor lacks |
 | `retry` | the cases on the crash list run again; one that runs to its end leaves the list (see "When the program ends in the middle") |
 | `nojournal` | nothing is written between cases: no journal, so a crash costs the rest of the run as it did before the journal; for measuring what the journal costs |
 | `cpu` | the processor family: the cpu suite runs in every mode, so naming it alone keeps the graphics and net families out, a run of a few seconds with nothing drawn |
@@ -951,6 +965,9 @@ On the screens, each of which names its buttons on its bottom line:
 | R or ZR, L or ZL | the next or previous group that failed | the next or previous failure in the group | the next or previous failure in the group |
 | X | | | the pictures: all three, then each alone |
 | plus or minus | quit | quit | quit |
+
+And on the start screen: A begins the run, Y turns the cases that may crash on or off, X the crash
+list's cases again.
 
 Every list comes round at either end. A direction held down acts again after twenty frames and then
 every four, so the reference suite's hundred and eighteen cases do not take a press each; what
@@ -999,6 +1016,7 @@ launch goes. To start over rather than go on, delete the journal or the report.
 | journal line | written |
 |---|---|
 | `run <version> <build> <mode words>` | first, when a run begins |
+| `chosen <words>` | after it, when the start screen added `fatal` or `retry` |
 | `launch <n>` | each time the program starts on the run, 1 the first |
 | `step <step> <offset> <passed> <failed> <skipped> <crashed>` | before a step: the report's length then, and its counts |
 | `pass <step> <n>` | before each pass of a drawing suite, 1 the warm-up and 10 the verdict pass |
@@ -1018,6 +1036,15 @@ every pass, leaves the list, and a note says so. A case that ended the program i
 skipped even under `retry`, since running it is what ended the launch before. The file can be
 edited by hand, one line deleted to try one case again; the program writes it whole when it
 changes, so a comment typed into it does not stay.
+
+**The may-crash table.** `source/maycrash.c` names the cases known to end the program on a machine
+that gets them wrong, each with its suite, its family and why, in one table. They are skipped with
+the reason `may crash` and the table's sentence unless the mode word `fatal` or the start screen
+asks for them (see "Looking at it on the console"); a machine that then ends inside one goes on
+with the run after it like any other. A case on the crash list stays skipped as `crashed` whether
+or not `fatal` asks, until `retry` does too; a case that ended the program in this run is skipped
+whatever either says. A launch whose suites never reached a case the table names says so in a note
+before the summary, since an entry naming a case this build lacks protects nothing.
 
 **Where a crash can be pinned.** Every case of the cpu, graphics and net families says it starts
 before any of its work, which is what lets a launch skip it: the start and the skip come before the

@@ -23,6 +23,13 @@ RunMode ViewerModeFromFile(const char *mode_path);
 /// leaves a report saying how far it got.
 RunMode ViewerModeWithPad(RunMode from_file);
 
+/// Shows the start screen until the run begins: A, or nothing pressed for UI_START_NANOSECONDS.
+/// Starts from @p may_crash and @p retry as the mode file set them and hands back what was
+/// chosen. False, with both as they came, when there was no screen to open. Before the report
+/// has any case in it and while it is open, since what it decides is the mode, like holding X;
+/// it reads no case and writes no line.
+bool ViewerStartScreen(const UiStartInfo *info, bool *may_crash, bool *retry);
+
 /// How the screen ended.
 typedef enum {
     /// Quit with plus or minus, or closed by the system.
