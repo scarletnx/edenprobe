@@ -57,9 +57,6 @@ void RunReferenceEac(void);
 /// because its cases are AArch64 instructions; no device, so it runs in every mode.
 void RunCpu(void);
 
-/// Whether RunCpu also runs the cases a machine that fails them does not survive (the mode word
-/// `fatal`); without it they are reported as skipped.
-void CpuSetFatal(bool on);
 /// Needs a graphics device, so it exists only in the build that runs on the console. The host
 /// makefile names its sources one at a time and this suite is not among them, which is the same
 /// gate that keeps gpu.c out of that build.

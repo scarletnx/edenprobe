@@ -57,6 +57,7 @@ typedef struct {
 /// One line of the journal:
 ///
 ///   run <version> <build> <mode words>    the first line of a run
+///   chosen <words>                        what the start screen added to the mode words
 ///   launch <n>                            each time the program starts on it, 1 the first
 ///   step <step> <offset> <p> <f> <s> <c>  before a step: the report's length and counts then
 ///   pass <step> <n>                       before each timed pass, 1 the warm-up
@@ -71,6 +72,7 @@ typedef struct {
 typedef enum {
     JOURNAL_NONE,
     JOURNAL_RUN,
+    JOURNAL_CHOSEN,
     JOURNAL_LAUNCH,
     JOURNAL_STEP,
     JOURNAL_PASS,
@@ -87,7 +89,7 @@ typedef struct {
     char suite[JOURNAL_SUITE_MAX];
     /// The case; for a run record, its build.
     char name[JOURNAL_NAME_MAX];
-    /// A run record's mode words.
+    /// A run record's mode words, or the words a chosen record adds.
     char mode[JOURNAL_MODE_MAX];
     /// The pass, or a launch's number.
     uint32_t number;
@@ -121,6 +123,8 @@ typedef struct {
     char version[JOURNAL_SUITE_MAX];
     char build[JOURNAL_NAME_MAX];
     char mode[JOURNAL_MODE_MAX];
+    /// The words the start screen added, which a launch that goes on with the run keeps.
+    char chosen[JOURNAL_MODE_MAX];
     /// The run reached its summary.
     bool finished;
     uint32_t launches;

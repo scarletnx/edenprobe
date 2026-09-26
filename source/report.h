@@ -65,6 +65,19 @@ const char *ReportCrashListPath(void);
 bool ReportRetrying(void);
 bool ReportStartsRequired(void);
 
+/// Whether the crash list's cases run: the mode word `retry`, or the start screen.
+void ReportSetRetry(bool on);
+
+/// Whether the may-crash table's cases run: the mode word `fatal`, or the start screen. Without
+/// it they are skipped with the reason `may crash` and the table's sentence.
+void ReportSetMayCrash(bool asked);
+bool ReportMayCrashAsked(void);
+
+/// The table's cases this launch did not reach although their suite started cases, as
+/// `suite "case"` separated by commas: a name the table has and this build does not. Returns the
+/// length; the text is always terminated.
+size_t ReportMayCrashUnreached(char *out, size_t out_size);
+
 /// Reopens a closed report to add to its end, with the counts left as they were. For the one
 /// line a run can owe after its summary, which is why the detailed mode stopped by itself.
 void ReportAppend(const char *path);
@@ -110,7 +123,7 @@ typedef enum {
     /// The program ended inside it on this machine: in this run, which the journal says, or in
     /// an earlier one, which the crash list says. Counted apart from every other skip.
     REPORT_REASON_CRASHED,
-    /// Known to end a machine's program, and not asked for.
+    /// In the may-crash table, and neither the mode word `fatal` nor the start screen asked.
     REPORT_REASON_MAY_CRASH,
     /// The net file does not name what it needs.
     REPORT_REASON_NOT_CONFIGURED,
@@ -132,7 +145,8 @@ void ReportSkip(const char *suite, const char *name, ReportReason reason, const 
 
 /// Says the case @p name is about to start, before any of its work, and whether it may.
 ///
-/// False when it must not run: it ended this machine's program in this run or an earlier one.
+/// False when it must not run: it ended this machine's program in this run or an earlier one,
+/// or it is in the may-crash table and nobody asked for it.
 /// Its skip line is then already written, and the caller does none of the case's work and
 /// reports nothing more for it. True, and the journal says on the card that the case started,
 /// so a launch after the program ends inside it knows which case to skip. Every case of the
@@ -144,6 +158,13 @@ bool ReportStart(const char *suite, const char *name);
 /// machine something, where one that did not is a case a crash could not skip, and says so in a
 /// note.
 void ReportRequireStarts(bool on);
+
+/// What ReportStart decides for a case, without starting it or writing anything: whether it
+/// runs, and when it does not, the reason and the sentence its skip line carries. A crash in this
+/// run comes first, whatever retry says, then the crash list unless retry, then the may-crash
+/// table unless asked for.
+bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, char *detail,
+                    size_t detail_size);
 
 /// How many times a case started while another had not ended, or ended without starting where
 /// it had to: each is a case whose crash the journal could not pin on it, and says so in a note.

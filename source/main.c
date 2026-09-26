@@ -7,6 +7,7 @@
 #include <switch.h>
 
 #include "journal.h"
+#include "maycrash.h"
 #include "mode.h"
 #include "perf.h"
 #include "picture.h"
@@ -166,6 +167,53 @@ static void OpenRun(const JournalPlan *plan, const RunMode *mode, const char *ke
     }
 }
 
+/// The start screen, when a detailed run begins and something on it can be chosen: the
+/// may-crash table's cases in the families that run, and the crash list's. What it adds to the
+/// mode goes into the journal, so a launch that goes on with the run keeps it.
+static void StartScreen(RunMode *mode, uint32_t families) {
+    static UiStartInfo info;
+    memset(&info, 0, sizeof(info));
+    static char heading[96];
+    snprintf(heading, sizeof(heading), "edenprobe %s (%s)", EDENPROBE_VERSION, EDENPROBE_BUILD);
+    info.heading = heading;
+    for (size_t i = 0; i < MayCrashCount() && info.may_crash_count < UI_START_LIST_MAX; ++i) {
+        const MayCrash *const entry = MayCrashAt(i);
+        // The cpu suite runs in every mode, whatever family is named.
+        if (entry->family == MODE_FAMILY_CPU || (families & entry->family) != 0u) {
+            info.may_crash_suite[info.may_crash_count] = entry->suite;
+            info.may_crash_name[info.may_crash_count] = entry->name;
+            ++info.may_crash_count;
+        }
+    }
+    const CrashList *const listed = ReportCrashList();
+    for (uint32_t i = 0; i < listed->count && info.listed_count < UI_START_LIST_MAX; ++i) {
+        info.listed_suite[info.listed_count] = listed->entries[i].suite;
+        info.listed_name[info.listed_count] = listed->entries[i].name;
+        ++info.listed_count;
+    }
+    if (!UiStartShown(&info)) {
+        return;
+    }
+    bool may_crash = mode->fatal;
+    bool retry = mode->retry;
+    if (!ViewerStartScreen(&info, &may_crash, &retry)) {
+        return;
+    }
+    mode->fatal_by_screen = may_crash && !mode->fatal;
+    mode->retry_by_screen = retry && !mode->retry;
+    mode->fatal = may_crash;
+    mode->retry = retry;
+    if (mode->fatal_by_screen || mode->retry_by_screen) {
+        JournalRecord record;
+        memset(&record, 0, sizeof(record));
+        record.kind = JOURNAL_CHOSEN;
+        snprintf(record.mode, sizeof(record.mode), "%s%s%s", mode->fatal_by_screen ? "fatal" : "",
+                 mode->fatal_by_screen && mode->retry_by_screen ? " " : "",
+                 mode->retry_by_screen ? "retry" : "");
+        ReportJournalWrite(&record);
+    }
+}
+
 /// The note before the summary of a run that took more than one launch or skipped cases as
 /// crashed: how many launches, how many such cases, and which ended the program in this run.
 static void NoteCrashes(const JournalPlan *plan) {
@@ -239,8 +287,21 @@ int main(int argc, char **argv) {
     // What the mode changes is which families run, whether the finished cases and pictures are
     // kept in memory and shown once everything is over, and whether every drawing case writes
     // one. It changes no verdict, and before the summary the line below is all it adds to the
-    // report; a launch that goes on with a run said it when the run began.
+    // report; a launch that goes on with a run said it when the run began, and keeps what that
+    // launch's start screen chose.
     mode = ViewerModeWithPad(mode);
+    const uint32_t families = ModeFamiliesToRun(&mode, MODE_FAMILIES_PRESENT);
+    if (plan.start != JOURNAL_FRESH) {
+        const RunMode chosen = ModeFromText(journal.chosen);
+        mode.fatal_by_screen = chosen.fatal && !mode.fatal;
+        mode.retry_by_screen = chosen.retry && !mode.retry;
+        mode.fatal = mode.fatal || chosen.fatal;
+        mode.retry = mode.retry || chosen.retry;
+    } else if (mode.detailed) {
+        StartScreen(&mode, families);
+    }
+    ReportSetRetry(mode.retry);
+    ReportSetMayCrash(mode.fatal);
     if (plan.start == JOURNAL_FRESH) {
         char described[REPORT_NOTE_MAX + 1];
         ModeDescribe(described, sizeof(described), &mode, MODE_FAMILIES_PRESENT);
@@ -250,9 +311,7 @@ int main(int argc, char **argv) {
     PictureRetain(mode.detailed);
     ReportRetain(mode.detailed);
 
-    CpuSetFatal(mode.fatal);
     StreamSetStress(mode.stress);
-    const uint32_t families = ModeFamiliesToRun(&mode, MODE_FAMILIES_PRESENT);
     const bool timing = !mode.no_timing;
     for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
         const Step *const step = &STEPS[i];
@@ -280,6 +339,15 @@ int main(int argc, char **argv) {
         }
         ReportRequireStarts(false);
         JournalSimple(JOURNAL_DONE, step->name, 0);
+    }
+    {
+        // A table entry this launch's suites never reached names a case this build lacks, and
+        // would protect nothing.
+        char unreached[REPORT_NOTE_MAX - 96];
+        if (ReportMayCrashUnreached(unreached, sizeof(unreached)) > 0u) {
+            ReportNote("may crash: the table names %s, which the suites that ran never reached",
+                       unreached);
+        }
     }
     NoteCrashes(&plan);
     ReportSummary();

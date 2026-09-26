@@ -27,6 +27,7 @@ static const uint8_t PASSED[3] = { 0x40, 0xD0, 0x60 };
 static const uint8_t FAILED[3] = { 0xF0, 0x50, 0x50 };
 static const uint8_t SKIPPED[3] = { 0xE8, 0xB0, 0x40 };
 static const uint8_t SELECTED[3] = { 0x28, 0x2E, 0x3C };
+static const uint8_t CRASHED[3] = { 0xC0, 0x78, 0xF0 };
 
 // The shape of a real run: every suite with the counts a quick run of main 2b74917 reported,
 // with two failures put into intmath and one into ssl. Real names where a frame shows them.
@@ -1113,6 +1114,125 @@ static void CheckEdges(Fixture *f) {
                (unsigned)said[1], (unsigned)said[2]);
 }
 
+/// The start screen: shown only with something to choose, its three buttons, its ten seconds,
+/// and the warning exactly while a choice that can end the program is on.
+static void CheckStartScreen(Fixture *f) {
+    UiStartInfo info;
+    memset(&info, 0, sizeof(info));
+    info.heading = "edenprobe 0.2.0 (test)";
+    const bool nothing = !UiStartShown(&info) && !UiStartShown(NULL);
+    info.may_crash_count = 1u;
+    info.may_crash_suite[0] = "cpu";
+    info.may_crash_name[0] = "sm4ekey and sm4e give the SM4 standard's worked example";
+    const bool something = UiStartShown(&info);
+
+    // Only the may-crash list has cases: X, for the crash list, does nothing; Y turns the choice
+    // on and off; A beside Y in one frame begins with the choice as it was; nothing counts while
+    // the pad settles.
+    UiStartState state = UiStartOpen(false, false);
+    state = UiStartStep(state, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES - 1u, &info);
+    const bool settling = !state.may_crash;
+    state = UiStartStep(state, UI_START_TOGGLE_RETRY, UI_SETTLING_FRAMES, &info);
+    const bool empty_list = !state.retry;
+    state = UiStartStep(state, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES, &info);
+    const bool on = state.may_crash && !state.begun;
+    state = UiStartStep(state, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES + 1u, &info);
+    const bool off = !state.may_crash;
+    state = UiStartStep(state, UI_START_BEGIN | UI_START_TOGGLE_MAY_CRASH,
+                        UI_SETTLING_FRAMES + 2u, &info);
+    const bool begun = state.begun && !state.may_crash;
+    const bool from_file = UiStartOpen(true, true).may_crash && UiStartOpen(true, true).retry;
+    CHECK_TRUE(SUITE, "the start screen asks only with something to choose, a button a choice",
+               CHECK_NONE,
+               nothing && something && settling && empty_list && on && off && begun && from_file,
+               "shown with nothing %d, with a case %d; settling kept it off %d, the empty list "
+               "stayed off %d, Y on %d and off %d, A began as it was %d, the file's words %d",
+               (int)!nothing, (int)something, (int)settling, (int)empty_list, (int)on, (int)off,
+               (int)begun, (int)from_file);
+
+    const uint64_t second = 1000000000ull;
+    CHECK_TRUE(SUITE, "the start screen waits ten seconds for a person, and a press keeps it",
+               CHECK_NONE,
+               UI_START_NANOSECONDS == 10u * second && !UiStartTimesOut(0, false) &&
+                   !UiStartTimesOut(10u * second - 1u, false) &&
+                   UiStartTimesOut(10u * second, false) &&
+                   !UiStartTimesOut(100u * second, true) && UiStartSecondsLeft(0, false) == 10u &&
+                   UiStartSecondsLeft(9u * second + 1u, false) == 1u &&
+                   UiStartSecondsLeft(10u * second, false) == 0u &&
+                   UiStartSecondsLeft(0, true) == 0u,
+               "times out at ten %d, just before %d; seconds left at nought %u",
+               (int)UiStartTimesOut(10u * second, false),
+               (int)UiStartTimesOut(10u * second - 1u, false),
+               (unsigned)UiStartSecondsLeft(0, false));
+
+    // The warning's band holds the warning's red while a choice is on and nothing of it while
+    // both are off; the rest of the screen is the same either way.
+    const UiFrame frame = { f->pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
+    const uint32_t top = UiStartWarningTop(FRAME_HEIGHT);
+    const uint32_t bottom = top + UI_START_WARNING_LINES * UI_ROW_HEIGHT + 16u;
+    info.listed_count = 1u;
+    info.listed_suite[0] = "bcn";
+    info.listed_name[0] = "every layer of a six-layer BC4 array keeps its own 2x2 and 1x1 levels";
+    UiComposeStart(&frame, &info, UiStartOpen(false, false), 7u);
+    const uint32_t quiet = CountColour(&frame, 0, top, FRAME_WIDTH, bottom, FAILED);
+    const uint32_t above_quiet = CountLit(&frame, 0, top);
+    const uint32_t counting = CountColour(&frame, 0, FRAME_HEIGHT - 31u, FRAME_WIDTH,
+                                          FRAME_HEIGHT - 15u, FAILED);
+    const uint32_t buttons = CountLit(&frame, FRAME_HEIGHT - 14u, FRAME_HEIGHT - 6u);
+    UiComposeStart(&frame, &info, UiStartOpen(true, false), 7u);
+    const uint32_t loud = CountColour(&frame, 0, top, FRAME_WIDTH, bottom, FAILED);
+    UiComposeStart(&frame, &info, UiStartOpen(false, true), 0u);
+    const uint32_t retrying = CountColour(&frame, 0, top, FRAME_WIDTH, bottom, FAILED);
+    const uint32_t no_count = CountColour(&frame, 0, FRAME_HEIGHT - 31u, FRAME_WIDTH,
+                                          FRAME_HEIGHT - 15u, FAILED);
+    CHECK_TRUE(SUITE, "the start screen warns exactly while a choice that can end the program is on",
+               CHECK_NONE,
+               quiet == 0u && loud > 1000u && retrying > 1000u && above_quiet > 1000u &&
+                   counting > 0u && no_count == 0u && buttons > 100u && top > UI_LIST_TOP,
+               "warning pixels off %u, may crash on %u, retry on %u; countdown %u then %u; "
+               "button line %u",
+               (unsigned)quiet, (unsigned)loud, (unsigned)retrying, (unsigned)counting,
+               (unsigned)no_count, (unsigned)buttons);
+    DumpFrame(&frame, "9-start");
+}
+
+/// A case the program ended inside is counted apart from the skips, as the summary counts it,
+/// and marked in a colour of its own.
+static void CheckCrashed(Fixture *f) {
+    uint32_t at = 0;
+    Fill(&f->records[at++], "clear", "graphics device opens", "none", REPORT_PASS, "", -1);
+    Fill(&f->records[at++], "clear", "clear to opaque red", "none", REPORT_CRASHED,
+         "the program ended inside it earlier in this run", -1);
+    Fill(&f->records[at++], "clear", "clear to transparent cyan", "none", REPORT_SKIP,
+         "depends", -1);
+    Fill(&f->records[at++], "fill", "one quad", "exact", REPORT_PASS, "", -1);
+    UiRunIndex(&f->small, f->records, at, at);
+    const UiFrame frame = { f->pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
+    const UiState start = UiStart(&f->small);
+    UiCompose(&frame, &f->small, start, NULL);
+    const uint32_t row = UI_LIST_TOP + UiOverviewRow(&f->small, 0) * UI_ROW_HEIGHT;
+    const uint32_t in_row = CountColour(&frame, 0, row, FRAME_WIDTH, row + UI_ROW_HEIGHT, CRASHED);
+    const uint32_t heading = CountColour(&frame, 0, 8, FRAME_WIDTH, 26, CRASHED);
+    UiState in_group = start;
+    in_group.level = UI_LEVEL_GROUP;
+    in_group.group = 0;
+    in_group.index = 0;
+    UiCompose(&frame, &f->small, in_group, NULL);
+    const uint32_t mark_y = UI_LIST_TOP + UI_ROW_HEIGHT;
+    const uint32_t marked = CountColour(&frame, UI_MARK_LEFT, mark_y, UI_MARK_LEFT + 64u,
+                                        mark_y + UI_ROW_HEIGHT, CRASHED);
+    const UiGroup *const clear = &f->small.groups[0];
+    CHECK_TRUE(SUITE, "a case the program ended inside is counted apart and in a colour of its own",
+               CHECK_NONE,
+               f->small.crashed == 1u && f->small.skipped == 1u && f->small.passed == 2u &&
+                   clear->crashed == 1u && clear->skipped == 1u && in_row > 0u &&
+                   heading > 0u && marked > 0u,
+               "run crashed %u skipped %u passed %u; the row %u, the heading %u and the mark %u "
+               "pixels of its colour",
+               (unsigned)f->small.crashed, (unsigned)f->small.skipped, (unsigned)f->small.passed,
+               (unsigned)in_row, (unsigned)heading, (unsigned)marked);
+}
+
 void RunSupportScreens(void) {
     Fixture *const f = (Fixture *)calloc(1, sizeof(Fixture));
     if (f == NULL) {
@@ -1130,5 +1250,7 @@ void RunSupportScreens(void) {
     CheckScreens(f);
     CheckOverflow(f);
     CheckEdges(f);
+    CheckStartScreen(f);
+    CheckCrashed(f);
     free(f);
 }

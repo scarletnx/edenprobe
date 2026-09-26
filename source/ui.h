@@ -85,6 +85,8 @@ typedef struct {
     uint32_t passed;
     uint32_t failed;
     uint32_t skipped;
+    /// Skipped because the program ended inside them, counted apart as the summary counts them.
+    uint32_t crashed;
 } UiGroup;
 
 /// The recorded cases, gathered into groups: families in their order, groups within a family in
@@ -103,6 +105,7 @@ typedef struct {
     uint32_t passed;
     uint32_t failed;
     uint32_t skipped;
+    uint32_t crashed;
 } UiRun;
 
 /// Indexes @p count records for the screens. @p reported is what the run's own counts add up to.
@@ -246,6 +249,71 @@ void UiFrameDrawn(UiState *state);
 /// looks it up because the pictures live in their own store.
 void UiCompose(const UiFrame *frame, const UiRun *run, UiState state,
                const PictureRecord *picture);
+
+/// The start screen: what a detailed run asks before it begins, when a case in it might end the
+/// program. Two choices, each off unless the mode file's word turned it on: the may-crash table's
+/// cases (the word `fatal`), and the crash list's cases again (the word `retry`). A choice that
+/// can end the program shows a warning of what that costs while it is on.
+
+/// The most cases each list names; the rest are counted.
+#define UI_START_LIST_MAX 24u
+
+typedef struct {
+    /// The first line: the program and its build.
+    const char *heading;
+    /// The may-crash table's cases in the families this run has.
+    uint32_t may_crash_count;
+    const char *may_crash_suite[UI_START_LIST_MAX];
+    const char *may_crash_name[UI_START_LIST_MAX];
+    /// The crash list's cases.
+    uint32_t listed_count;
+    const char *listed_suite[UI_START_LIST_MAX];
+    const char *listed_name[UI_START_LIST_MAX];
+} UiStartInfo;
+
+typedef struct {
+    bool may_crash;
+    bool retry;
+    /// Begun, by a press or by the countdown.
+    bool begun;
+    /// Owes a frame, as UiState does.
+    bool changed;
+} UiStartState;
+
+/// Whether there is anything to choose: a case that may crash, or one on the crash list.
+bool UiStartShown(const UiStartInfo *info);
+
+/// The screen as the mode file leaves it.
+UiStartState UiStartOpen(bool may_crash, bool retry);
+
+/// The start screen's buttons, named for what they do there.
+enum {
+    UI_START_BEGIN = 1u << 0,
+    UI_START_TOGGLE_MAY_CRASH = 1u << 1,
+    UI_START_TOGGLE_RETRY = 1u << 2,
+};
+
+/// One frame's presses. Beginning wins over a toggle in the same frame; a toggle for a list with
+/// nothing in it does nothing; and nothing counts while the pad is still settling.
+UiStartState UiStartStep(UiStartState state, uint32_t pressed, uint32_t frame_index,
+                         const UiStartInfo *info);
+
+/// How long the start screen waits for a person before it begins with what the file said: a
+/// detailed run nobody attends must not wait for ever, and any press keeps the screen.
+#define UI_START_NANOSECONDS 10000000000ull
+
+bool UiStartTimesOut(uint64_t elapsed_ns, bool pressed);
+
+/// Whole seconds left, rounded up; 0 once a press was seen or the time is up.
+uint32_t UiStartSecondsLeft(uint64_t elapsed_ns, bool pressed);
+
+/// Draws the start screen over the whole frame, its countdown included.
+void UiComposeStart(const UiFrame *frame, const UiStartInfo *info, UiStartState state,
+                    uint32_t seconds_left);
+
+/// Where the warning is drawn, for the cases that check it is there exactly when it should be.
+#define UI_START_WARNING_LINES 3u
+uint32_t UiStartWarningTop(uint32_t frame_height);
 
 /// How many rows the overview (UI_LEVEL_OVERVIEW) or a group (UI_LEVEL_GROUP) has room for on
 /// a frame @p height tall.

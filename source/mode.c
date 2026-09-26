@@ -217,11 +217,13 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
     }
     if (mode->fatal) {
         const size_t used = strlen(out);
-        snprintf(out + used, out_size - used, "; fatal cases");
+        snprintf(out + used, out_size - used, "; the cases that may crash%s",
+                 mode->fatal_by_screen ? ", chosen on the start screen" : "");
     }
     if (mode->retry) {
         const size_t used = strlen(out);
-        snprintf(out + used, out_size - used, "; the crash list's cases again");
+        snprintf(out + used, out_size - used, "; the crash list's cases again%s",
+                 mode->retry_by_screen ? ", chosen on the start screen" : "");
     }
     if (mode->no_journal) {
         const size_t used = strlen(out);

@@ -52,6 +52,9 @@ size_t JournalFormat(char *out, size_t out_size, const JournalRecord *r) {
         wrote = snprintf(out, out_size, "run %s %s%s%s\n", suite, name, mode[0] != '\0' ? " " : "",
                          mode);
         break;
+    case JOURNAL_CHOSEN:
+        wrote = snprintf(out, out_size, "chosen %s\n", mode);
+        break;
     case JOURNAL_LAUNCH:
         wrote = snprintf(out, out_size, "launch %u\n", (unsigned)r->number);
         break;
@@ -85,7 +88,8 @@ size_t JournalFormat(char *out, size_t out_size, const JournalRecord *r) {
     }
     // A name or a word with nothing in it would leave two fields where the reader wants three.
     const bool empty_field = (r->kind != JOURNAL_LAUNCH && r->kind != JOURNAL_FINISHED &&
-                              suite[0] == '\0') ||
+                              r->kind != JOURNAL_CHOSEN && suite[0] == '\0') ||
+                             (r->kind == JOURNAL_CHOSEN && mode[0] == '\0') ||
                              ((r->kind == JOURNAL_START || r->kind == JOURNAL_END ||
                                r->kind == JOURNAL_CRASH || r->kind == JOURNAL_RUN) &&
                               name[0] == '\0');
@@ -197,6 +201,9 @@ bool JournalParse(const char *line, JournalRecord *out) {
         } else {
             ok = false;
         }
+    } else if (strcmp(kind, "chosen") == 0) {
+        out->kind = JOURNAL_CHOSEN;
+        ok = Rest(cursor, out->mode, sizeof(out->mode));
     } else if (strcmp(kind, "launch") == 0) {
         out->kind = JOURNAL_LAUNCH;
         ok = Small(&cursor, &out->number) && *cursor == '\0';
@@ -294,6 +301,9 @@ void JournalFeed(JournalState *state, const char *line, bool complete) {
         memcpy(state->mode, r.mode, sizeof(state->mode));
         break;
     }
+    case JOURNAL_CHOSEN:
+        memcpy(state->chosen, r.mode, sizeof(state->chosen));
+        break;
     case JOURNAL_LAUNCH:
         state->launches = r.number > state->launches ? r.number : state->launches + 1u;
         break;

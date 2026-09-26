@@ -17,12 +17,6 @@
 
 static const char *const SUITE = "cpu";
 
-static bool fatal_cases = false;
-
-void CpuSetFatal(bool on) {
-    fatal_cases = on;
-}
-
 // FPSR's cumulative flags: QC, and IXC, which FRINTX raises when it changes a value.
 #define FPSR_QC (1u << 27)
 #define FPSR_IXC (1u << 4)
@@ -172,7 +166,8 @@ static const char *const FRINTX = "frintx rounds to nearest even and raises inex
 static const char *const FRINTA = "frinta rounds halfway cases away from zero";
 static const char *const SQSHLU = "sqshlu saturates 8, 16 and 64-bit lanes and sets QC";
 static const char *const FCVTZ = "fcvtzs and fcvtzu with 64 fraction bits scale by 2^64";
-static const char *const SM4_CASE = "sm4ekey and sm4e give the SM4 standard's worked example";
+// Last, and in the may-crash table: a translator that cannot compile SM4 ends the program.
+static const char *const SM4_CASE = CPU_SM4_CASE;
 
 void RunCpu(void) {
     char seen[160];
@@ -306,12 +301,6 @@ void RunCpu(void) {
                    (unsigned long long)converted[6], (unsigned long long)converted[7]);
     }
 
-    if (!fatal_cases) {
-        ReportSkip(SUITE, SM4_CASE, REPORT_REASON_MAY_CRASH,
-                   "needs the mode word fatal: the console's processor has no SM4, and an "
-                   "emulator that cannot translate it ends the run");
-        return;
-    }
     if (!ReportStart(SUITE, SM4_CASE)) {
         return;
     }
