@@ -1257,6 +1257,178 @@ static void CheckCrashed(Fixture *f) {
                (unsigned)in_row, (unsigned)heading, (unsigned)marked);
 }
 
+/// The region a screen hashes, so two wordings cannot draw the same frame and pass.
+static uint32_t HashRows(const UiFrame *frame, uint32_t y0, uint32_t y1) {
+    uint32_t hash = 2166136261u;
+    for (uint32_t y = y0; y < y1 && y < frame->height; ++y) {
+        for (uint32_t x = 0; x < frame->width; x += 4u) {
+            const uint8_t *const pixel = UiPixel(frame, x, y);
+            if (pixel == NULL) {
+                continue;
+            }
+            for (uint32_t channel = 0; channel < 4u; ++channel) {
+                hash = (hash ^ pixel[channel]) * 16777619u;
+            }
+        }
+    }
+    return hash;
+}
+
+static bool TextIs(UiListenScreen screen, double left, double right, const char *mark,
+                   const char *name, const char *take, const char *guide, bool numbered) {
+    char buffer[192];
+    UiListenCopy text;
+    UiListenCopyOf(screen, left, right, &text, buffer, sizeof(buffer));
+    const char *const buttons = numbered ? "Y repeat this take   X next part" : "Y repeat   X next part";
+    const bool mark_ok = mark == NULL ? text.mark == NULL : text.mark != NULL && strcmp(text.mark, mark) == 0;
+    return mark_ok && strcmp(text.name, name) == 0 && strcmp(text.take, take) == 0 &&
+           strcmp(text.guide, guide) == 0 && strcmp(text.buttons, buttons) == 0;
+}
+
+static void CheckListen(Fixture *f) {
+    const uint32_t results =
+        UI_BUTTON_UP | UI_BUTTON_DOWN | UI_BUTTON_LEFT | UI_BUTTON_RIGHT | UI_BUTTON_OPEN |
+        UI_BUTTON_BACK | UI_BUTTON_NEXT_FAILURE | UI_BUTTON_PREVIOUS_FAILURE |
+        UI_BUTTON_CYCLE_VIEW | UI_BUTTON_QUIT;
+    uint32_t wrong = 0;
+    if (UiListenInputFromButtons(UI_BUTTON_LISTEN_SKIP, 0) != UI_LISTEN_NONE ||
+        UiListenInputFromButtons(UI_BUTTON_LISTEN_REPEAT, UI_SETTLING_FRAMES) != UI_LISTEN_REPEAT ||
+        UiListenInputFromButtons(UI_BUTTON_LISTEN_SKIP, UI_SETTLING_FRAMES) != UI_LISTEN_SKIP ||
+        UiListenInputFromButtons(UI_BUTTON_LISTEN_REPEAT | UI_BUTTON_LISTEN_SKIP,
+                                 UI_SETTLING_FRAMES) != UI_LISTEN_SKIP ||
+        UiListenInputFromButtons(results, UI_SETTLING_FRAMES) != UI_LISTEN_NONE ||
+        UiInputFromButtons(UI_BUTTON_LISTEN_REPEAT | UI_BUTTON_LISTEN_SKIP, UI_SETTLING_FRAMES) !=
+            UI_INPUT_NONE) {
+        ++wrong;
+    }
+    // Opening, then each part, then the close. Sixteen steps from the first screen.
+    UiListenScreen walk = UI_LISTEN_OPENING;
+    unsigned steps = 0;
+    while (walk != UI_LISTEN_DONE && steps < 20u) {
+        const UiListenScreen next = UiListenNext(walk);
+        if (next != (walk == UI_LISTEN_CLOSING ? UI_LISTEN_DONE : (UiListenScreen)(walk + 1))) {
+            ++wrong;
+        }
+        walk = next;
+        ++steps;
+    }
+    if (steps != 16u || UiListenNext(UI_LISTEN_DONE) != UI_LISTEN_DONE) {
+        ++wrong;
+    }
+    if (UiListenSkip(UI_LISTEN_OPENING) != UI_LISTEN_A_BEEP ||
+        UiListenSkip(UI_LISTEN_A_BEEP) != UI_LISTEN_B_BEEP ||
+        UiListenSkip(UI_LISTEN_A1) != UI_LISTEN_B_BEEP ||
+        UiListenSkip(UI_LISTEN_A4) != UI_LISTEN_B_BEEP ||
+        UiListenSkip(UI_LISTEN_B_BEEP) != UI_LISTEN_C_BEEP ||
+        UiListenSkip(UI_LISTEN_B_RECORD) != UI_LISTEN_C_BEEP ||
+        UiListenSkip(UI_LISTEN_B_RIGHT) != UI_LISTEN_C_BEEP ||
+        UiListenSkip(UI_LISTEN_C_BEEP) != UI_LISTEN_CLOSING ||
+        UiListenSkip(UI_LISTEN_C1) != UI_LISTEN_CLOSING ||
+        UiListenSkip(UI_LISTEN_C4) != UI_LISTEN_CLOSING ||
+        UiListenSkip(UI_LISTEN_CLOSING) != UI_LISTEN_DONE) {
+        ++wrong;
+    }
+    const char *const a_low =
+        "duller than the high beep, most in the hiss and the top of the sweep, means default "
+        "quality is low-passing. the same sound means it is not.";
+    const char *const b_left =
+        "the low notes again means the sink recorded them. silence means it recorded nothing. "
+        "peak 0.150 on the left and 0.000 on the right (0 is silence).";
+    const char *const c_high =
+        "about 7 dB louder than mode 0 where the mode byte is read. the same volume means it is not.";
+    if (!TextIs(UI_LISTEN_OPENING, 0.0, 0.0, NULL, "listening", "three rising notes",
+                "then part a, the resampler; part b, the circular buffer sink; part c, the limiter.",
+                false) ||
+        !TextIs(UI_LISTEN_A1, 0.0, 0.0, "a", "resampler",
+                "take 1 of 4, low beep: default quality", a_low, true) ||
+        !TextIs(UI_LISTEN_A2, 0.0, 0.0, "a", "resampler", "take 2 of 4, high beep: high quality",
+                "the control. compare its hiss with the take before it.", true) ||
+        !TextIs(UI_LISTEN_B_BEEP, 0.0, 0.0, "b", "circular buffer sink", "two beeps, then the phrase",
+                "three low notes on the left, then three high notes on the right. the sink records them.",
+                false) ||
+        !TextIs(UI_LISTEN_B_RECORD, 0.0, 0.0, "b", "circular buffer sink", "recording",
+                "low notes on the left, then high notes on the right.", false) ||
+        !TextIs(UI_LISTEN_B_LEFT, 0.15, 0.0, "b", "circular buffer sink",
+                "low beep: left channel of the recording, on the left", b_left, true) ||
+        !TextIs(UI_LISTEN_C2, 0.0, 0.0, "c", "limiter", "take 2 of 4, high beep: mode 1", c_high,
+                true) ||
+        !TextIs(UI_LISTEN_C1, 0.0, 0.0, "c", "limiter", "take 1 of 4, low beep: mode 0",
+                "where mode 1 is read from its byte, this take is the quieter one. the same volume "
+                "as mode 1 means the mode is ignored.",
+                true) ||
+        !TextIs(UI_LISTEN_CLOSING, 0.0, 0.0, NULL, "listening", "three falling notes",
+                "the cases that follow are nearly silent.", false)) {
+        ++wrong;
+    }
+    char buffer[192];
+    UiListenCopy a3;
+    UiListenCopyOf(UI_LISTEN_A3, 0.0, 0.0, &a3, buffer, sizeof(buffer));
+    UiListenCopy a4;
+    UiListenCopyOf(UI_LISTEN_A4, 0.0, 0.0, &a4, buffer, sizeof(buffer));
+    UiListenCopy c4;
+    UiListenCopyOf(UI_LISTEN_C4, 0.0, 0.0, &c4, buffer, sizeof(buffer));
+    if (strcmp(a3.take, "take 3 of 4, low beep: default quality") != 0 ||
+        strcmp(a3.guide, a_low) != 0 ||
+        strcmp(a4.take, "take 4 of 4, high beep: high quality") != 0 ||
+        strcmp(c4.take, "take 4 of 4, high beep: mode 1") != 0) {
+        ++wrong;
+    }
+    CHECK_TRUE(SUITE,
+               "the listening screen names the part, the take and what to listen for, and its "
+               "buttons are not the results screens'",
+               CHECK_NONE, wrong == 0u, "%u checks disagreed", (unsigned)wrong);
+
+    const UiFrame frame = { f->pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
+    static const UiListenScreen SHOWN[] = {
+        UI_LISTEN_OPENING, UI_LISTEN_A1, UI_LISTEN_A2, UI_LISTEN_B_LEFT, UI_LISTEN_C2,
+        UI_LISTEN_CLOSING,
+    };
+    uint32_t hashes[6];
+    uint32_t crowded = 0;
+    uint32_t unlabelled = 0;
+    uint32_t blank = 0;
+    uint32_t bare_header = 0;
+    for (size_t i = 0; i < sizeof(SHOWN) / sizeof(SHOWN[0]); ++i) {
+        UiComposeListen(&frame, SHOWN[i], i == 3u ? 0.15 : 0.0, 0.0);
+        hashes[i] = HashRows(&frame, 32u, 200u);
+        crowded += CountLit(&frame, FRAME_HEIGHT - 31u, FRAME_HEIGHT - 15u) > 0u ? 1u : 0u;
+        unlabelled += CountLit(&frame, FRAME_HEIGHT - 14u, FRAME_HEIGHT - 6u) > 100u ? 0u : 1u;
+        blank += CountLit(&frame, 36u, 140u) > 100u ? 0u : 1u;
+        // The results header is the row at y = 8, sixteen pixels tall. A letter four cells
+        // tall does not sit there.
+        bare_header += CountLit(&frame, 8u, 24u) > 40u ? 0u : 1u;
+    }
+    UiCompose(&frame, &f->run, UiStart(&f->run), NULL);
+    const uint32_t results_header = CountLit(&frame, 8u, 24u);
+    UiComposeListen(&frame, UI_LISTEN_A1, 0.0, 0.0);
+    const uint32_t listen_header = CountLit(&frame, 8u, 24u);
+    const uint32_t listen_second = CountLit(&frame, 30u, 46u);
+    uint32_t same = 0;
+    for (size_t i = 0; i < 6u; ++i) {
+        for (size_t j = i + 1u; j < 6u; ++j) {
+            same += hashes[i] == hashes[j] ? 1u : 0u;
+        }
+    }
+    const UiFrame small = { f->pixels, 24u, 100u, 24u * 4u };
+    const size_t used = (size_t)small.pitch * small.height;
+    memset(f->pixels + used, 0xA5, 64u);
+    UiComposeListen(&small, UI_LISTEN_A1, 0.0, 0.0);
+    uint32_t spilled = 0;
+    for (size_t b = used; b < used + 64u; ++b) {
+        spilled += f->pixels[b] != 0xA5 ? 1u : 0u;
+    }
+    const bool shouted = CountLit(&small, 0u, 8u) > 0u;
+    CHECK_TRUE(SUITE, "the listening screen leaves the countdown its rows and names its buttons",
+               CHECK_NONE, crowded == 0u && unlabelled == 0u && blank == 0u && same == 0u &&
+                               spilled == 0u && shouted && bare_header == 0u &&
+                               results_header > 40u && listen_header > 40u && listen_second > 40u,
+               "countdown %u, no buttons %u, blank %u, identical %u, spilled %u, small %d, "
+               "header %u, results %u, listen %u, second %u",
+               (unsigned)crowded, (unsigned)unlabelled, (unsigned)blank, (unsigned)same,
+               (unsigned)spilled, (int)shouted, (unsigned)bare_header, (unsigned)results_header,
+               (unsigned)listen_header, (unsigned)listen_second);
+}
+
 void RunSupportScreens(void) {
     Fixture *const f = (Fixture *)calloc(1, sizeof(Fixture));
     if (f == NULL) {
@@ -1271,6 +1443,7 @@ void RunSupportScreens(void) {
     CheckWalk(f);
     CheckNavigation(f);
     CheckButtons();
+    CheckListen(f);
     CheckScreens(f);
     CheckOverflow(f);
     CheckEdges(f);

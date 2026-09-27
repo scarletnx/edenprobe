@@ -1441,3 +1441,153 @@ void UiComposeStart(const UiFrame *frame, const UiStartInfo *info, UiStartState 
     }
     DrawButtons(frame, "A begin the run   Y the cases that may crash   X the crash list again");
 }
+
+// The listening sequence, one row per screen, in the order a run with no button plays them.
+// The guide is what a person is listening for; the log lines stay the sequence's own.
+static const char *const LISTEN_A_LOW =
+    "duller than the high beep, most in the hiss and the top of the sweep, means default "
+    "quality is low-passing. the same sound means it is not.";
+static const char *const LISTEN_A_HIGH =
+    "the control. compare its hiss with the take before it.";
+static const char *const LISTEN_B_PHRASE =
+    "three low notes on the left, then three high notes on the right. the sink records them.";
+static const char *const LISTEN_B_LEFT =
+    "the low notes again means the sink recorded them. silence means it recorded nothing.";
+static const char *const LISTEN_B_RIGHT =
+    "the high notes again, on the right. silence means nothing was recorded.";
+static const char *const LISTEN_C_LOW =
+    "where mode 1 is read from its byte, this take is the quieter one. the same volume as "
+    "mode 1 means the mode is ignored.";
+static const char *const LISTEN_C_HIGH =
+    "about 7 dB louder than mode 0 where the mode byte is read. the same volume means it is not.";
+static const char *const LISTEN_REPEAT = "Y repeat   X next part";
+static const char *const LISTEN_REPEAT_TAKE = "Y repeat this take   X next part";
+
+static const struct {
+    const char *mark;
+    const char *name;
+    const char *take;
+    const char *guide;
+    bool numbered;
+    bool peaks;
+} LISTEN[] = {
+    { NULL, "listening", "three rising notes",
+      "then part a, the resampler; part b, the circular buffer sink; part c, the limiter.",
+      false, false },
+    { "a", "resampler", "one beep, then four takes",
+      "each take is noise bursts, a sweep to 16 kHz and a second of hiss.", false, false },
+    { "a", "resampler", "take 1 of 4, low beep: default quality", LISTEN_A_LOW, true, false },
+    { "a", "resampler", "take 2 of 4, high beep: high quality", LISTEN_A_HIGH, true, false },
+    { "a", "resampler", "take 3 of 4, low beep: default quality", LISTEN_A_LOW, true, false },
+    { "a", "resampler", "take 4 of 4, high beep: high quality", LISTEN_A_HIGH, true, false },
+    { "b", "circular buffer sink", "two beeps, then the phrase", LISTEN_B_PHRASE, false, false },
+    { "b", "circular buffer sink", "recording",
+      "low notes on the left, then high notes on the right.", false, false },
+    { "b", "circular buffer sink", "low beep: left channel of the recording, on the left",
+      LISTEN_B_LEFT, true, true },
+    { "b", "circular buffer sink", "high beep: right channel of the recording, on the right",
+      LISTEN_B_RIGHT, true, true },
+    { "c", "limiter", "three beeps, then four takes",
+      "three notes through the limiter, threshold 0.2.", false, false },
+    { "c", "limiter", "take 1 of 4, low beep: mode 0", LISTEN_C_LOW, true, false },
+    { "c", "limiter", "take 2 of 4, high beep: mode 1", LISTEN_C_HIGH, true, false },
+    { "c", "limiter", "take 3 of 4, low beep: mode 0", LISTEN_C_LOW, true, false },
+    { "c", "limiter", "take 4 of 4, high beep: mode 1", LISTEN_C_HIGH, true, false },
+    { NULL, "listening", "three falling notes", "the cases that follow are nearly silent.",
+      false, false },
+};
+
+_Static_assert(sizeof(LISTEN) / sizeof(LISTEN[0]) == UI_LISTEN_CLOSING + 1u,
+               "one row per listening screen");
+
+UiListenInput UiListenInputFromButtons(uint32_t buttons, uint32_t frame_index) {
+    if (frame_index < UI_SETTLING_FRAMES) {
+        return UI_LISTEN_NONE;
+    }
+    // Moving on wins over hearing it again, so a mask with both does one thing.
+    if ((buttons & UI_BUTTON_LISTEN_SKIP) != 0u) {
+        return UI_LISTEN_SKIP;
+    }
+    if ((buttons & UI_BUTTON_LISTEN_REPEAT) != 0u) {
+        return UI_LISTEN_REPEAT;
+    }
+    return UI_LISTEN_NONE;
+}
+
+void UiListenCopyOf(UiListenScreen screen, double left, double right, UiListenCopy *text,
+                    char *guide, size_t guide_size) {
+    if (text == NULL) {
+        return;
+    }
+    if ((unsigned)screen >= sizeof(LISTEN) / sizeof(LISTEN[0])) {
+        text->mark = NULL;
+        text->name = "";
+        text->take = "";
+        text->guide = "";
+        text->buttons = LISTEN_REPEAT;
+        return;
+    }
+    text->mark = LISTEN[screen].mark;
+    text->name = LISTEN[screen].name;
+    text->take = LISTEN[screen].take;
+    text->buttons = LISTEN[screen].numbered ? LISTEN_REPEAT_TAKE : LISTEN_REPEAT;
+    text->guide = LISTEN[screen].guide;
+    if (LISTEN[screen].peaks && guide != NULL && guide_size > 0u) {
+        snprintf(guide, guide_size, "%s peak %.3f on the left and %.3f on the right (0 is silence).",
+                 LISTEN[screen].guide, left, right);
+        text->guide = guide;
+    }
+}
+
+UiListenScreen UiListenNext(UiListenScreen screen) {
+    if (screen >= UI_LISTEN_CLOSING) {
+        return UI_LISTEN_DONE;
+    }
+    return (UiListenScreen)(screen + 1);
+}
+
+UiListenScreen UiListenSkip(UiListenScreen screen) {
+    if (screen <= UI_LISTEN_OPENING) {
+        return UI_LISTEN_A_BEEP;
+    }
+    if (screen <= UI_LISTEN_A4) {
+        return UI_LISTEN_B_BEEP;
+    }
+    if (screen <= UI_LISTEN_B_RIGHT) {
+        return UI_LISTEN_C_BEEP;
+    }
+    if (screen <= UI_LISTEN_C4) {
+        return UI_LISTEN_CLOSING;
+    }
+    return UI_LISTEN_DONE;
+}
+
+void UiComposeListen(const UiFrame *frame, UiListenScreen screen, double left, double right) {
+    if (frame == NULL || frame->pixels == NULL) {
+        return;
+    }
+    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
+        UiText(frame, 0, 0, 1, TEXT, "frame too small");
+        return;
+    }
+    char guide[192];
+    UiListenCopy text;
+    UiListenCopyOf(screen, left, right, &text, guide, sizeof(guide));
+
+    // The same header as a results screen: one short word at the margin on the top row, the
+    // name in the slot a verdict leaves, the take on the second row, then a rule and the body
+    // where a list would start. This screen decides no verdict, so the word is not a result
+    // colour.
+    const char *const word = text.mark != NULL ? text.mark : "listen";
+    Say(frame, MARGIN, 8, TEXT, word);
+    SayFitted(frame, MARGIN + 6u * GLYPH, 8, DIM, text.name);
+    SayFitted(frame, MARGIN, 30, TEXT, text.take);
+    if (frame->width > 2u * MARGIN) {
+        FillRect(frame, MARGIN, 56u, frame->width - 2u * MARGIN, 1u, BORDER);
+    }
+    const uint32_t room =
+        frame->height > UI_LIST_TOP + FOOT ? (frame->height - UI_LIST_TOP - FOOT) / LINE : 1u;
+    TextWrapped(frame, MARGIN, UI_LIST_TOP, BIG, LINE, TEXT, text.guide, Columns(frame), room);
+    DrawButtons(frame, text.buttons);
+}

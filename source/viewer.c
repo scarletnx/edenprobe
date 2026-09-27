@@ -270,3 +270,100 @@ ViewerEnd ViewerRun(void) {
     CloseScreen();
     return end;
 }
+
+// The listening sequence's screen, up during the sequence to name what is playing; it is not
+// an input to a verdict. It draws into the program's one framebuffer and leaves it as it found
+// it: open when the start screen opened it, for the results, and closed otherwise.
+static bool listen_tried;
+static bool listen_open;
+static bool listen_opened_screen;
+static PadState listen_pad;
+static bool listen_pad_ready;
+static uint32_t listen_frames;
+static UiListenScreen listen_screen;
+static double listen_left;
+static double listen_right;
+static bool listen_drawn;
+
+static bool ListenReady(void) {
+    if (listen_tried) {
+        return listen_open;
+    }
+    listen_tried = true;
+    const bool was_open = screen_open;
+    if (!OpenScreen()) {
+        return false;
+    }
+    listen_opened_screen = !was_open;
+    listen_open = true;
+    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
+    padInitializeDefault(&listen_pad);
+    listen_pad_ready = true;
+    return true;
+}
+
+void ViewerListenShow(UiListenScreen shown, double left, double right) {
+    if (!ListenReady()) {
+        return;
+    }
+    if (listen_drawn && shown == listen_screen && left == listen_left && right == listen_right) {
+        return;
+    }
+    uint32_t stride = 0;
+    uint8_t *const pixels = (uint8_t *)framebufferBegin(&screen, &stride);
+    if (pixels == NULL || stride < SCREEN_WIDTH * 4u) {
+        if (pixels != NULL) {
+            framebufferEnd(&screen);
+        }
+        return;
+    }
+    const UiFrame frame = { pixels, SCREEN_WIDTH, SCREEN_HEIGHT, stride };
+    UiComposeListen(&frame, shown, left, right);
+    framebufferEnd(&screen);
+    listen_screen = shown;
+    listen_left = left;
+    listen_right = right;
+    listen_drawn = true;
+}
+
+ViewerListenAction ViewerListenPoll(void) {
+    if (!listen_pad_ready) {
+        return VIEWER_LISTEN_NONE;
+    }
+    if (!appletMainLoop()) {
+        return VIEWER_LISTEN_CLOSED;
+    }
+    padUpdate(&listen_pad);
+    const uint64_t down = padGetButtonsDown(&listen_pad);
+    // Y and X only. Plus, minus and the results screens' buttons are not in this mask, so
+    // none of them can quit the sequence or move a list that is not up.
+    uint32_t buttons = 0;
+    if ((down & HidNpadButton_Y) != 0u) {
+        buttons |= UI_BUTTON_LISTEN_REPEAT;
+    }
+    if ((down & HidNpadButton_X) != 0u) {
+        buttons |= UI_BUTTON_LISTEN_SKIP;
+    }
+    const uint32_t frame = listen_frames;
+    if (listen_frames < UI_SETTLING_FRAMES) {
+        ++listen_frames;
+    }
+    const UiListenInput input = UiListenInputFromButtons(buttons, frame);
+    if (input == UI_LISTEN_REPEAT) {
+        return VIEWER_LISTEN_REPEAT;
+    }
+    if (input == UI_LISTEN_SKIP) {
+        return VIEWER_LISTEN_SKIP;
+    }
+    return VIEWER_LISTEN_NONE;
+}
+
+void ViewerListenClose(void) {
+    if (listen_open && listen_opened_screen) {
+        CloseScreen();
+    }
+    listen_open = false;
+    listen_tried = true;
+    listen_pad_ready = false;
+    listen_drawn = false;
+}

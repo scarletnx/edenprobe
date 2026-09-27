@@ -239,8 +239,10 @@ int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
 
-    // No console and no screen, even now that a suite draws: the report channels stay the whole
-    // interface, so a bring-up problem on a new machine is never "did the screen work".
+    // No console. The report channels stay the interface a verdict is read from, so a bring-up
+    // problem on a new machine is never "did the screen work". The screens up before the report
+    // closes, the start screen and the listening sequence, only choose what runs and say what
+    // is playing.
     mkdir(REPORT_DIRECTORY, 0777);
     PictureSetRoot(REPORT_DIRECTORY);
 
