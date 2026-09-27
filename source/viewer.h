@@ -48,6 +48,34 @@ typedef enum {
 /// closed before a pixel reaches a screen, so the two modes cannot report different bytes.
 ViewerEnd ViewerRun(void);
 
+/// What the listening sequence was asked since the previous poll, or that a voice did not end.
+/// The viewer itself only returns a button or CLOSED. FAIL is the sequence's own: a step failed,
+/// or a clip did not finish in time.
+typedef enum {
+    VIEWER_LISTEN_NONE = 0,
+    VIEWER_LISTEN_REPEAT,
+    VIEWER_LISTEN_SKIP,
+    /// The system is closing the program. The sequence stops and the cases still run.
+    VIEWER_LISTEN_CLOSED,
+    VIEWER_LISTEN_FAIL,
+} ViewerListenAction;
+
+/// Draws @p screen if it is not already up, into the program's one framebuffer, which the first
+/// call opens unless the start screen already did; a machine with no screen leaves the sequence
+/// to play as it did with a black window.
+void ViewerListenShow(UiListenScreen screen, double left, double right);
+
+/// One look at the pad. The first UI_SETTLING_FRAMES calls are not a press: a controller
+/// arriving with the window reports its whole mask as newly pressed. Y repeats, X skips.
+/// Nothing else is read, and a button already held (X, from asking for the detailed mode at
+/// launch) is not a new press.
+ViewerListenAction ViewerListenPoll(void);
+
+/// Ends the listening screen, and closes the framebuffer only when the sequence opened it: the
+/// start screen's stays open for the results. The sequence calls it after the cases, so the last
+/// frame stays up while they run. Safe when the screen never opened.
+void ViewerListenClose(void);
+
 #ifdef __cplusplus
 }
 #endif

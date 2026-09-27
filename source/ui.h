@@ -194,6 +194,11 @@ enum {
     UI_BUTTON_PREVIOUS_FAILURE = 1u << 7,
     UI_BUTTON_CYCLE_VIEW = 1u << 8,
     UI_BUTTON_QUIT = 1u << 9,
+    /// The listening sequence only. Y repeats the take, X skips to the next part. The results
+    /// screens do not act on either: Y is unused there, and X cycles pictures only on a case
+    /// screen, which is not open while the sequence plays.
+    UI_BUTTON_LISTEN_REPEAT = 1u << 10,
+    UI_BUTTON_LISTEN_SKIP = 1u << 11,
 };
 
 /// The buttons that act again while they are held: the four directions, and nothing that opens,
@@ -335,6 +340,66 @@ uint32_t UiWrappedLines(const char *text, uint32_t columns);
 
 /// The four bytes of the pixel at @p x, @p y, or NULL when it is off the frame.
 const uint8_t *UiPixel(const UiFrame *frame, uint32_t x, uint32_t y);
+
+/// The listening sequence's screens, in the order a run with no button plays them. Not a level
+/// of the results navigation: this screen is up while the report is still open, and it names
+/// what is playing. It decides no verdict.
+typedef enum {
+    UI_LISTEN_OPENING = 0,
+    UI_LISTEN_A_BEEP,
+    UI_LISTEN_A1,
+    UI_LISTEN_A2,
+    UI_LISTEN_A3,
+    UI_LISTEN_A4,
+    UI_LISTEN_B_BEEP,
+    UI_LISTEN_B_RECORD,
+    UI_LISTEN_B_LEFT,
+    UI_LISTEN_B_RIGHT,
+    UI_LISTEN_C_BEEP,
+    UI_LISTEN_C1,
+    UI_LISTEN_C2,
+    UI_LISTEN_C3,
+    UI_LISTEN_C4,
+    UI_LISTEN_CLOSING,
+    UI_LISTEN_DONE,
+} UiListenScreen;
+
+/// What one press means during the sequence. Skip wins when both are down. Nothing until the
+/// pad has settled, and nothing for a button the results screens use, so a press of one cannot
+/// quit the sequence or move a list that is not on screen.
+typedef enum {
+    UI_LISTEN_NONE = 0,
+    UI_LISTEN_REPEAT,
+    UI_LISTEN_SKIP,
+} UiListenInput;
+
+UiListenInput UiListenInputFromButtons(uint32_t buttons, uint32_t frame_index);
+
+/// The words on @p screen. @p guide receives the line when it names a recording's peaks;
+/// otherwise the guide points at a fixed sentence and @p guide is left alone.
+typedef struct {
+    /// "a", "b" or "c", or NULL for the opening and the closing notes.
+    const char *mark;
+    const char *name;
+    const char *take;
+    const char *guide;
+    const char *buttons;
+} UiListenCopy;
+
+void UiListenCopyOf(UiListenScreen screen, double left, double right, UiListenCopy *text,
+                    char *guide, size_t guide_size);
+
+/// The next screen when the one playing finishes on its own.
+UiListenScreen UiListenNext(UiListenScreen screen);
+
+/// Where X lands: the opening notes go on to part a, a part goes on to the next part, and the
+/// closing notes end the sequence.
+UiListenScreen UiListenSkip(UiListenScreen screen);
+
+/// Draws @p screen over the whole frame, in the results screens' header, second line and
+/// button line. @p left and @p right are the recording's peaks, read on part b's two echoes
+/// and ignored on every other screen.
+void UiComposeListen(const UiFrame *frame, UiListenScreen screen, double left, double right);
 
 #ifdef __cplusplus
 }

@@ -40,7 +40,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 Forty suites, in the order they run: the judge, then the processor, then the graphics family,
 then the fs family, then the audio family when a word asks for it, then the net family. A run is
-779 cases: 711 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
+781 cases: 713 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
 the net family; the audio family adds six when named or with `listen`, the mode word `stress` adds
 one, and `fatal` runs the cases the may-crash table names, which are otherwise skipped. The order,
 and what a failure in each suite points at, is in "The roadmap" below. A case that ends the
@@ -50,7 +50,7 @@ program costs that case and not the rest of the run: see "When the program ends 
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and eleven cases, no hardware involved: what the program does around a
+- **support**, one hundred and thirteen cases, no hardware involved: what the program does around a
   verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
   detailed mode's store, screens and navigation, the start screen, the mode file and its `stress`
   word, the `skip` result, the time a case reports (nineteen cases, see "Time per case"), and the
@@ -1102,6 +1102,13 @@ On the screens, each of which names its buttons on its bottom line:
 And on the start screen: A begins the run, Y turns the cases that may crash on or off, X the crash
 list's cases again. Y and X in the same edge change neither.
 
+The listening sequence has its own screen, up while it plays, and that screen names its buttons
+the same way. Y repeats the take that is playing. X skips to the next part. Neither is read by
+the results screens: Y is unused there, and X cycles pictures only on a case, which is not open
+during the sequence; the start screen has closed before any suite runs. A hold of X at launch was
+already read, and a hold is not a press. Plus, minus and the other buttons do nothing on this
+screen, so they cannot quit the sequence.
+
 Every list comes round at either end. A direction held down acts again after twenty frames and then
 every four, so the reference suite's hundred and eighteen cases do not take a press each; what
 repeats is the direction pressed, whatever else is held, and only after a press counted past the
@@ -1456,6 +1463,11 @@ LISTEN` line as each part starts.
 - **c**, the limiter: four takes of three notes at 0.4 through the limiter at threshold 0.2, low
   beep mode 0, high beep mode 1. Where the mode byte is read, mode 1 is about 7 dB louder; where it
   is not, the four sound the same.
+
+The screen shows the same things while they play: the part and its name, the take, and what to
+listen for. Y repeats that take. X skips to the next part, from the opening notes on to part a
+and from a part on to the next, and from the closing notes it ends the sequence. With no press
+the sequence plays straight through, and the `EDENPROBE LISTEN` lines are unchanged.
 
 The recording only holds the phrase whole when the renderer runs at the speed of the sound it
 plays. With the emulator's output engine set to null it renders as fast as it can, the ring wraps

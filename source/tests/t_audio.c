@@ -12,6 +12,7 @@
 #include "../audioref.h"
 #include "../check.h"
 #include "../report.h"
+#include "../viewer.h"
 #include "tests.h"
 
 // The audio family: the audio renderer asked the way a game asks it, and judged by recording
@@ -81,24 +82,6 @@ static bool PlayUntil(unsigned voice, uint64_t samples, uint64_t limit_ms) {
         }
     }
     return true;
-}
-
-/// Steps until @p voice has come to the end of its buffer.
-static bool PlayToEnd(unsigned voice, size_t samples) {
-    const uint64_t start = AudioNowMs();
-    const uint64_t limit = samples * 1000u / AUDIO_RATE + 3000u;
-    while (!AudioVoiceDone(voice)) {
-        if (!AudioStep() || AudioNowMs() - start > limit) {
-            return false;
-        }
-    }
-    return true;
-}
-
-static bool Play(unsigned voice, const int16_t *data, size_t samples, AudioQuality quality,
-                 unsigned mix, float left, float right) {
-    AudioPlay(voice, data, samples, false, quality, mix, left, right);
-    return PlayToEnd(voice, samples);
 }
 
 static int32_t captured[40 * AUDIO_FRAME];
@@ -286,6 +269,343 @@ static void Notes(int16_t *out, size_t at, const double *hz, unsigned count, uns
     }
 }
 
+/// The clips the sequence plays, and where a repeated recording has to be read from. The sink's
+/// write cursor only moves forward, so a take played again is read from where this one started.
+typedef struct {
+    int16_t *up;
+    size_t n_up;
+    int16_t *down;
+    size_t n_down;
+    int16_t *one;
+    size_t n_one;
+    int16_t *two;
+    size_t n_two;
+    int16_t *three;
+    size_t n_three;
+    int16_t *low;
+    size_t n_low;
+    int16_t *high;
+    size_t n_high;
+    int16_t *bright;
+    size_t n_bright;
+    int16_t *phrase_l;
+    int16_t *phrase_r;
+    size_t n_phrase;
+    int16_t *echo_l;
+    int16_t *echo_r;
+    size_t n_echo;
+    int16_t *motif;
+    size_t n_motif;
+    bool ok;
+    /// Part b's echoes are said only after the recording finished. A failed beep before that
+    /// stays quiet; a failed left echo still announces the right one.
+    bool echoes;
+    bool settled;
+    double peak_l;
+    double peak_r;
+    size_t record_at;
+} Listen;
+
+/// Stops whatever a button cut off, and one step so the renderer drops it before the next take.
+/// @p recording also takes the listening sink back out of use.
+static ViewerListenAction StopHear(ViewerListenAction act, bool recording) {
+    for (unsigned voice = 0; voice < 4u; ++voice) {
+        AudioStop(voice);
+    }
+    if (recording) {
+        AudioRecord(AUDIO_SINK_LISTEN, false);
+    }
+    return AudioStep() ? act : VIEWER_LISTEN_FAIL;
+}
+
+/// Plays one clip to its end. A button stops it; running out of time does not, which is how a
+/// take that never ends already behaved.
+static ViewerListenAction PlayHear(unsigned voice, const int16_t *data, size_t samples,
+                                   AudioQuality quality, unsigned mix, float left, float right,
+                                   size_t *wrote) {
+    AudioPlay(voice, data, samples, false, quality, mix, left, right);
+    const uint64_t start = AudioNowMs();
+    const uint64_t limit = samples * 1000u / AUDIO_RATE + 3000u;
+    while (!AudioVoiceDone(voice)) {
+        const ViewerListenAction act = ViewerListenPoll();
+        if (act != VIEWER_LISTEN_NONE) {
+            return StopHear(act, false);
+        }
+        if (!AudioStep()) {
+            return VIEWER_LISTEN_FAIL;
+        }
+        if (wrote != NULL) {
+            ++*wrote;
+        }
+        if (AudioNowMs() - start > limit) {
+            return VIEWER_LISTEN_FAIL;
+        }
+    }
+    return VIEWER_LISTEN_NONE;
+}
+
+static ViewerListenAction Finish(Listen *listen, ViewerListenAction act) {
+    if (act == VIEWER_LISTEN_FAIL) {
+        listen->ok = false;
+        return VIEWER_LISTEN_NONE;
+    }
+    return act;
+}
+
+static void LimiterOff(void) {
+    AudioSubmixGain(0.0f);
+    const AudioLimiterSettings off = {
+        .enabled = false, .mode = 1, .threshold = 1.0f,
+        .attack = 0.001f, .release = 0.001f, .lookahead = 48u,
+    };
+    AudioLimiter(&off);
+}
+
+/// One channel of a recording that did not start at the front of the ring.
+static void ChannelFrom(const int16_t *ring, size_t capacity, size_t origin, size_t count,
+                        unsigned channel, int16_t *out) {
+    for (size_t frame = 0; frame < count; ++frame) {
+        const size_t at = capacity == 0u ? 0u : (origin + frame) % capacity;
+        memcpy(out + frame * AUDIO_FRAME, ring + (at * 2u + channel) * AUDIO_FRAME,
+               AUDIO_FRAME * sizeof(int16_t));
+    }
+}
+
+static void AdvanceRecord(Listen *listen, size_t origin, size_t wrote) {
+    size_t capacity = 0;
+    AudioRecordRing(AUDIO_SINK_LISTEN, &capacity);
+    if (capacity > 0u) {
+        listen->record_at = (origin + wrote) % capacity;
+    }
+}
+
+/// The phrase, then the thirty silent frames the echo's window was cut to. A button leaves the
+/// sink where the cursor got to, so playing the phrase again reads the new take.
+static ViewerListenAction RecordPhrase(Listen *listen) {
+    size_t wrote = 0;
+    const size_t origin = listen->record_at;
+    const AudioQuality hq = AUDIO_QUALITY_HIGH;
+    const unsigned final = AUDIO_FINAL_MIX;
+    AudioRecord(AUDIO_SINK_LISTEN, true);
+    AudioPlay(1, listen->phrase_l, listen->n_phrase, false, hq, final, 1.0f, 0.0f);
+    AudioPlay(2, listen->phrase_r, listen->n_phrase, false, hq, final, 0.0f, 1.0f);
+    const uint64_t start = AudioNowMs();
+    const uint64_t limit = listen->n_phrase * 1000u / AUDIO_RATE + 3000u;
+    ViewerListenAction act = VIEWER_LISTEN_NONE;
+    while (listen->ok && (!AudioVoiceDone(1) || !AudioVoiceDone(2))) {
+        act = ViewerListenPoll();
+        if (act != VIEWER_LISTEN_NONE) {
+            break;
+        }
+        if (!AudioStep()) {
+            listen->ok = false;
+            break;
+        }
+        ++wrote;
+        if (AudioNowMs() - start > limit) {
+            listen->ok = false;
+            break;
+        }
+    }
+    if (act == VIEWER_LISTEN_NONE && listen->ok) {
+        for (unsigned i = 0; i < 30u; ++i) {
+            act = ViewerListenPoll();
+            if (act != VIEWER_LISTEN_NONE) {
+                break;
+            }
+            if (!AudioStep()) {
+                listen->ok = false;
+                break;
+            }
+            ++wrote;
+        }
+    }
+    if (act != VIEWER_LISTEN_NONE) {
+        act = StopHear(act, true);
+        AdvanceRecord(listen, origin, wrote);
+        return Finish(listen, act);
+    }
+    AudioRecord(AUDIO_SINK_LISTEN, false);
+    if (listen->ok) {
+        listen->ok = AudioStep();
+    }
+    if (!listen->ok) {
+        AdvanceRecord(listen, origin, wrote);
+        return VIEWER_LISTEN_NONE;
+    }
+
+    size_t frames = 0;
+    const int16_t *ring = AudioRecordRing(AUDIO_SINK_LISTEN, &frames);
+    const size_t take =
+        listen->n_echo / AUDIO_FRAME < frames ? listen->n_echo / AUDIO_FRAME : frames;
+    if (origin == 0u) {
+        AudioRefChannel16(ring, take, 2u, AUDIO_FRAME, 0u, listen->echo_l);
+        AudioRefChannel16(ring, take, 2u, AUDIO_FRAME, 1u, listen->echo_r);
+    } else {
+        ChannelFrom(ring, frames, origin, take, 0u, listen->echo_l);
+        ChannelFrom(ring, frames, origin, take, 1u, listen->echo_r);
+    }
+    AudioSync(listen->echo_l, listen->n_echo * sizeof(int16_t));
+    AudioSync(listen->echo_r, listen->n_echo * sizeof(int16_t));
+    listen->peak_l = AudioRefPeak16(listen->echo_l, listen->n_echo);
+    listen->peak_r = AudioRefPeak16(listen->echo_r, listen->n_echo);
+    Say("b: the recording peaks at %.3f on the left and %.3f on the right (0 is silence)",
+        listen->peak_l, listen->peak_r);
+    ReportNote("audio: the listening sequence recorded its phrase at a peak of %.3f on the "
+               "left and %.3f on the right, played at 0.15",
+               listen->peak_l, listen->peak_r);
+    if (frames > 0u) {
+        listen->record_at = (origin + wrote) % frames;
+    }
+    listen->echoes = true;
+    return VIEWER_LISTEN_NONE;
+}
+
+static ViewerListenAction PlayScreen(UiListenScreen screen, Listen *listen) {
+    const AudioQuality hq = AUDIO_QUALITY_HIGH;
+    const unsigned final = AUDIO_FINAL_MIX;
+    switch (screen) {
+    case UI_LISTEN_OPENING:
+        ViewerListenShow(screen, 0.0, 0.0);
+        Say("start: three rising notes, then parts a, b and c, about 40 seconds");
+        if (!listen->ok) {
+            return VIEWER_LISTEN_NONE;
+        }
+        return Finish(listen, PlayHear(0, listen->up, listen->n_up, hq, final, 1.0f, 1.0f, NULL));
+    case UI_LISTEN_A_BEEP:
+        ViewerListenShow(screen, 0.0, 0.0);
+        Say("a: resampler, one beep; four takes of noise bursts, a sweep to 16 kHz and hiss");
+        if (!listen->ok) {
+            return VIEWER_LISTEN_NONE;
+        }
+        return Finish(listen,
+                      PlayHear(0, listen->one, listen->n_one, hq, final, 1.0f, 1.0f, NULL));
+    case UI_LISTEN_A1:
+    case UI_LISTEN_A2:
+    case UI_LISTEN_A3:
+    case UI_LISTEN_A4: {
+        if (!listen->ok) {
+            return VIEWER_LISTEN_NONE;
+        }
+        const unsigned take = (unsigned)(screen - UI_LISTEN_A1);
+        const bool is_high = (take % 2u) == 1u;
+        ViewerListenShow(screen, 0.0, 0.0);
+        Say("a%u: %s", take + 1u,
+            is_high ? "high beep, high quality" : "low beep, default quality");
+        const int16_t *cue = is_high ? listen->high : listen->low;
+        const size_t n_cue = is_high ? listen->n_high : listen->n_low;
+        ViewerListenAction act = PlayHear(0, cue, n_cue, hq, final, 1.0f, 1.0f, NULL);
+        if (act == VIEWER_LISTEN_NONE) {
+            act = PlayHear(1, listen->bright, listen->n_bright,
+                           is_high ? AUDIO_QUALITY_HIGH : AUDIO_QUALITY_DEFAULT, final, 1.0f,
+                           1.0f, NULL);
+        }
+        return Finish(listen, act);
+    }
+    case UI_LISTEN_B_BEEP:
+        ViewerListenShow(screen, 0.0, 0.0);
+        Say("b: circular buffer sink, two beeps; low notes left, high notes right, recorded");
+        if (!listen->ok) {
+            return VIEWER_LISTEN_NONE;
+        }
+        return Finish(listen,
+                      PlayHear(0, listen->two, listen->n_two, hq, final, 1.0f, 1.0f, NULL));
+    case UI_LISTEN_B_RECORD:
+        if (!listen->ok) {
+            return VIEWER_LISTEN_NONE;
+        }
+        ViewerListenShow(screen, 0.0, 0.0);
+        return RecordPhrase(listen);
+    case UI_LISTEN_B_LEFT:
+        if (!listen->echoes) {
+            return VIEWER_LISTEN_NONE;
+        }
+        ViewerListenShow(screen, listen->peak_l, listen->peak_r);
+        Say("b2: low beep, the recording's left channel on the left");
+        if (!listen->ok) {
+            return VIEWER_LISTEN_NONE;
+        }
+        {
+            ViewerListenAction act =
+                PlayHear(0, listen->low, listen->n_low, hq, final, 1.0f, 1.0f, NULL);
+            if (act == VIEWER_LISTEN_NONE) {
+                act = PlayHear(3, listen->echo_l, listen->n_echo, hq, final, 1.0f, 0.0f, NULL);
+            }
+            return Finish(listen, act);
+        }
+    case UI_LISTEN_B_RIGHT:
+        if (!listen->echoes) {
+            return VIEWER_LISTEN_NONE;
+        }
+        ViewerListenShow(screen, listen->peak_l, listen->peak_r);
+        Say("b3: high beep, the recording's right channel on the right");
+        if (!listen->ok) {
+            return VIEWER_LISTEN_NONE;
+        }
+        {
+            ViewerListenAction act =
+                PlayHear(0, listen->high, listen->n_high, hq, final, 1.0f, 1.0f, NULL);
+            if (act == VIEWER_LISTEN_NONE) {
+                act = PlayHear(3, listen->echo_r, listen->n_echo, hq, final, 0.0f, 1.0f, NULL);
+            }
+            return Finish(listen, act);
+        }
+    case UI_LISTEN_C_BEEP: {
+        ViewerListenShow(screen, 0.0, 0.0);
+        Say("c: limiter, three beeps; four takes of three notes, threshold 0.2");
+        ViewerListenAction act = VIEWER_LISTEN_NONE;
+        if (listen->ok) {
+            act = PlayHear(0, listen->three, listen->n_three, hq, final, 1.0f, 1.0f, NULL);
+        }
+        act = Finish(listen, act);
+        // Even when the beeps did not finish: the takes that follow, if any, go through it,
+        // and a run that plays none of them sets it back before the closing notes.
+        if (act == VIEWER_LISTEN_NONE) {
+            AudioSubmixGain(1.0f);
+        }
+        return act;
+    }
+    case UI_LISTEN_C1:
+    case UI_LISTEN_C2:
+    case UI_LISTEN_C3:
+    case UI_LISTEN_C4: {
+        if (!listen->ok) {
+            return VIEWER_LISTEN_NONE;
+        }
+        const unsigned take = (unsigned)(screen - UI_LISTEN_C1);
+        const uint8_t mode = (uint8_t)(take % 2u);
+        ViewerListenShow(screen, 0.0, 0.0);
+        Say("c%u: %s", take + 1u,
+            mode ? "high beep, limiter mode 1" : "low beep, limiter mode 0");
+        const int16_t *cue = mode ? listen->high : listen->low;
+        const size_t n_cue = mode ? listen->n_high : listen->n_low;
+        ViewerListenAction act = PlayHear(0, cue, n_cue, hq, final, 1.0f, 1.0f, NULL);
+        const AudioLimiterSettings settings = {
+            .enabled = true, .mode = mode, .threshold = 0.2f,
+            .attack = 0.01f, .release = 0.01f, .lookahead = 48u,
+        };
+        AudioLimiter(&settings);
+        if (act == VIEWER_LISTEN_NONE) {
+            act = PlayHear(1, listen->motif, listen->n_motif, hq, AUDIO_SUBMIX, 1.0f, 1.0f, NULL);
+        }
+        return Finish(listen, act);
+    }
+    case UI_LISTEN_CLOSING:
+        LimiterOff();
+        listen->settled = true;
+        ViewerListenShow(screen, 0.0, 0.0);
+        Say("end: three falling notes; the cases that follow are nearly silent");
+        if (!listen->ok) {
+            return VIEWER_LISTEN_NONE;
+        }
+        return Finish(listen,
+                      PlayHear(0, listen->down, listen->n_down, hq, final, 1.0f, 1.0f, NULL));
+    case UI_LISTEN_DONE:
+        break;
+    }
+    return VIEWER_LISTEN_NONE;
+}
+
 static bool RunListening(void) {
     size_t n_one, n_two, n_three, n_low, n_high;
     int16_t *one = Marker(1, 880.0, 500, &n_one);
@@ -339,87 +659,36 @@ static bool RunListening(void) {
     AudioSync(up, chime_n * sizeof(int16_t));
     AudioSync(down, chime_n * sizeof(int16_t));
 
-    const AudioQuality hq = AUDIO_QUALITY_HIGH;
-    const unsigned final = AUDIO_FINAL_MIX;
-    bool ok = true;
-    Say("start: three rising notes, then parts a, b and c, about 40 seconds");
-    ok = ok && Play(0, up, chime_n, hq, final, 1.0f, 1.0f);
-
-    Say("a: resampler, one beep; four takes of noise bursts, a sweep to 16 kHz and hiss");
-    ok = ok && Play(0, one, n_one, hq, final, 1.0f, 1.0f);
-    for (unsigned take = 0; ok && take < 4u; ++take) {
-        const bool is_high = (take % 2u) == 1u;
-        Say("a%u: %s", take + 1u,
-            is_high ? "high beep, high quality" : "low beep, default quality");
-        ok = Play(0, is_high ? high : low, is_high ? n_high : n_low, hq, final, 1.0f, 1.0f) &&
-             Play(1, bright, bright_n, is_high ? AUDIO_QUALITY_HIGH : AUDIO_QUALITY_DEFAULT,
-                  final, 1.0f, 1.0f);
-    }
-
-    Say("b: circular buffer sink, two beeps; low notes left, high notes right, recorded");
-    ok = ok && Play(0, two, n_two, hq, final, 1.0f, 1.0f);
-    if (ok) {
-        AudioRecord(AUDIO_SINK_LISTEN, true);
-        AudioPlay(1, phrase_l, phrase_n, false, hq, final, 1.0f, 0.0f);
-        AudioPlay(2, phrase_r, phrase_n, false, hq, final, 0.0f, 1.0f);
-        ok = PlayToEnd(1, phrase_n) && PlayToEnd(2, phrase_n);
-        for (unsigned i = 0; ok && i < 30u; ++i) {
-            ok = AudioStep();
-        }
-        AudioRecord(AUDIO_SINK_LISTEN, false);
-        ok = ok && AudioStep();
-    }
-    if (ok) {
-        size_t frames = 0;
-        const int16_t *ring = AudioRecordRing(AUDIO_SINK_LISTEN, &frames);
-        const size_t take = echo_n / AUDIO_FRAME < frames ? echo_n / AUDIO_FRAME : frames;
-        AudioRefChannel16(ring, take, 2u, AUDIO_FRAME, 0u, echo_l);
-        AudioRefChannel16(ring, take, 2u, AUDIO_FRAME, 1u, echo_r);
-        AudioSync(echo_l, echo_n * sizeof(int16_t));
-        AudioSync(echo_r, echo_n * sizeof(int16_t));
-        const double peak_l = AudioRefPeak16(echo_l, echo_n);
-        const double peak_r = AudioRefPeak16(echo_r, echo_n);
-        Say("b: the recording peaks at %.3f on the left and %.3f on the right (0 is silence)",
-            peak_l, peak_r);
-        ReportNote("audio: the listening sequence recorded its phrase at a peak of %.3f on the "
-                   "left and %.3f on the right, played at 0.15",
-                   peak_l, peak_r);
-        Say("b2: low beep, the recording's left channel on the left");
-        ok = Play(0, low, n_low, hq, final, 1.0f, 1.0f) &&
-             Play(3, echo_l, echo_n, hq, final, 1.0f, 0.0f);
-        Say("b3: high beep, the recording's right channel on the right");
-        ok = ok && Play(0, high, n_high, hq, final, 1.0f, 1.0f) &&
-             Play(3, echo_r, echo_n, hq, final, 0.0f, 1.0f);
-    }
-
-    Say("c: limiter, three beeps; four takes of three notes, threshold 0.2");
-    ok = ok && Play(0, three, n_three, hq, final, 1.0f, 1.0f);
-    AudioSubmixGain(1.0f);
-    for (unsigned take = 0; ok && take < 4u; ++take) {
-        const uint8_t mode = (uint8_t)(take % 2u);
-        Say("c%u: %s", take + 1u, mode ? "high beep, limiter mode 1" : "low beep, limiter mode 0");
-        ok = Play(0, mode ? high : low, mode ? n_high : n_low, hq, final, 1.0f, 1.0f);
-        const AudioLimiterSettings settings = {
-            .enabled = true, .mode = mode, .threshold = 0.2f,
-            .attack = 0.01f, .release = 0.01f, .lookahead = 48u,
-        };
-        AudioLimiter(&settings);
-        ok = ok && Play(1, motif, motif_n, hq, AUDIO_SUBMIX, 1.0f, 1.0f);
-    }
-    AudioSubmixGain(0.0f);
-    const AudioLimiterSettings off = {
-        .enabled = false, .mode = 1, .threshold = 1.0f,
-        .attack = 0.001f, .release = 0.001f, .lookahead = 48u,
+    Listen listen = {
+        .up = up, .n_up = chime_n, .down = down, .n_down = chime_n,
+        .one = one, .n_one = n_one, .two = two, .n_two = n_two,
+        .three = three, .n_three = n_three, .low = low, .n_low = n_low,
+        .high = high, .n_high = n_high, .bright = bright, .n_bright = bright_n,
+        .phrase_l = phrase_l, .phrase_r = phrase_r, .n_phrase = phrase_n,
+        .echo_l = echo_l, .echo_r = echo_r, .n_echo = echo_n,
+        .motif = motif, .n_motif = motif_n, .ok = true, .echoes = false, .settled = false,
+        .peak_l = 0.0, .peak_r = 0.0, .record_at = 0,
     };
-    AudioLimiter(&off);
-
-    Say("end: three falling notes; the cases that follow are nearly silent");
-    ok = ok && Play(0, down, chime_n, hq, final, 1.0f, 1.0f);
-    if (!ok) {
+    // No press walks the screens in order. Y stays on the one that is playing, X jumps to the
+    // next part, and either way the log line for a screen is the one it already had.
+    for (UiListenScreen screen = UI_LISTEN_OPENING; screen != UI_LISTEN_DONE;) {
+        const ViewerListenAction act = PlayScreen(screen, &listen);
+        if (act == VIEWER_LISTEN_CLOSED) {
+            break;
+        }
+        if (act == VIEWER_LISTEN_REPEAT) {
+            continue;
+        }
+        screen = act == VIEWER_LISTEN_SKIP ? UiListenSkip(screen) : UiListenNext(screen);
+    }
+    if (!listen.settled) {
+        LimiterOff();
+    }
+    if (!listen.ok) {
         ReportNote("audio: the listening sequence stopped early: %s",
                    AudioError()[0] != '\0' ? AudioError() : "a part did not end in time");
     }
-    return ok;
+    return listen.ok;
 }
 
 void RunAudio(void) {
@@ -448,5 +717,7 @@ void RunAudio(void) {
     if (AudioError()[0] != '\0') {
         ReportNote("audio: the renderer said: %s", AudioError());
     }
+    // After the cases, so the closing screen stays up while they run.
+    ViewerListenClose();
     AudioClose();
 }
