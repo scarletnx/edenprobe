@@ -255,10 +255,13 @@ bool CrashListRemove(CrashList *list, const char *suite, const char *name);
 
 /// Appends @p line, which ends in its newline, so that it is on the card before this returns,
 /// on an emulator that holds a file's last write back in a buffer of its own as well as on one
-/// that does not: the line, then its last byte again where it already is. Eden writes through
-/// the host's C library, whose buffer a seek empties, and it seeks before every write, so the
-/// second write puts the first on the host's disk and keeps back only a byte already there.
-/// @p file is open for update, never for append, which would put the byte after the line.
+/// that does not. The line except its newline goes out first; the newline is the next write,
+/// at the end. Eden seeks to the offset of each host write, and that seek empties the host
+/// buffer onto disk, so what a crash can still hold is the newline and not the line. A seek
+/// back onto the line to rewrite a byte already there drops, on the Android host library,
+/// every buffered byte past the seek, which is how a finished journal lost whole suites of
+/// the report. @p file is open for update, never for append: append would put the newline
+/// after the line even when a seek asked for the end.
 bool JournalDurableAppend(FILE *file, const char *line);
 
 /// Reads a whole small file into @p out, terminated. Returns its length, or -1 when there is no
