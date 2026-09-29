@@ -71,6 +71,10 @@ static void Take(RunMode *mode, const char *word, bool cut) {
             mode->retry = true;
             return;
         }
+        if (strcmp(word, "hang") == 0) {
+            mode->hang = true;
+            return;
+        }
         if (strcmp(word, "nojournal") == 0) {
             mode->no_journal = true;
             return;
@@ -220,6 +224,10 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
         snprintf(out + used, out_size - used, "; the cases that may crash%s",
                  mode->fatal_by_screen ? ", chosen on the start screen" : "");
     }
+    if (mode->hang) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; the cases that hang");
+    }
     if (mode->retry) {
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; the crash list's cases again%s",
@@ -264,6 +272,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { (mode->families_named & MODE_FAMILY_CPU) != 0u, "cpu" },
         { mode->fatal, "fatal" },
         { (mode->families_named & MODE_FAMILY_GRAPHICS) != 0u, "graphics" },
+        { mode->hang, "hang" },
         { mode->every_case, "images" },
         { (mode->families_named & MODE_FAMILY_NET) != 0u, "net" },
         { mode->no_timing, "notime" },

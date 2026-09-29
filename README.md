@@ -694,6 +694,7 @@ since a machine that was never asked has agreed with nothing:
 |---|---|
 | `crashed` | the program ended inside it on this machine: in this run, which the journal says, or in an earlier one, which the crash list says |
 | `may crash` | it is in the may-crash table, and neither the word `fatal` nor the start screen asked for it: today the SM4 case, the two geometry shader cases and the three bcn array cases |
+| `hangs` | it is in the hang table, and the mode word `hang` did not ask: today the bsd receive that asks for a timeout and does not come back. `retry` does not run it |
 | `not configured` | the net file does not name what it needs: a session, a server, a rewrite, an account, a certificate |
 | `unavailable` | a service or a resource this program cannot have here |
 | `depends` | a case before it did not leave what it needs: it did not run, failed, or gave nothing to ask about |
@@ -976,7 +977,8 @@ person, never an input to one.
 **The start screen.** A detailed run with something that could end it, a case the may-crash table
 names in the families it runs or a case on the crash list, first shows both lists and two choices,
 each off unless the mode file's word turned it on: Y runs the cases that may crash (the word
-`fatal`), X the crash list's again (the word `retry`). While either is on, a warning says what it
+`fatal`), X the crash list's again (the word `retry`). Y and X in one edge change neither choice.
+While either is on, a warning says what it
 means: the program may end, and started again it goes on after the case that ended it. A begins
 the run; nothing pressed for ten seconds begins it as the file had it, and any press keeps the
 screen. What was chosen is in the mode line (`chosen on the start screen`) and in the journal, so a
@@ -995,7 +997,10 @@ something kills it; ten seconds because on a console the person is reading the o
 count starts. A press counts, not a connected controller, because an emulator presents a controller
 as connected whether or not anyone holds it. The countdown shows on the bottom line, and any button
 stops it for the rest of the run. The first eight frames are not a press, nor navigation: a
-controller arriving with the window reports its whole mask as newly pressed.
+controller arriving with the window reports its whole mask as newly pressed. An edge that holds
+both Y and X changes neither choice, because a pad that connects after those frames reports the
+same whole mask once; A in that edge still begins the run. Two presses, one button each, still
+choose both.
 
 **The mode file** is `sdmc:/edenprobe/mode`: a few words in any order and any case, anything that is
 not a letter between them.
@@ -1009,7 +1014,8 @@ not a letter between them.
 | `notime` | no timing passes: each drawing suite runs once, and no line carries a time; see "Time per case" |
 | `stress` | the heavy variants too, today the stream suite's 256 MiB list; off by default, since an emulator that runs out of memory on one takes the rest of the run with it |
 | `fatal` | the cases the may-crash table names, known to end the program on a machine that gets them wrong: today SM4EKEY and SM4E, which the console's processor lacks; off by default. On a console it costs a relaunch per case its processor lacks |
-| `retry` | the cases on the crash list run again; one that runs to its end leaves the list (see "When the program ends in the middle") |
+| `hang` | the cases the hang table names, known to never return on a machine that gets them wrong: today the bsd receive-timeout case; off by default. `retry` does not run one, and the start screen cannot turn this on |
+| `retry` | the cases on the crash list run again; one that runs to its end leaves the list (see "When the program ends in the middle"). A case the hang table names stays skipped until `hang` asks too |
 | `nojournal` | nothing is written between cases: no journal, so a crash costs the rest of the run as it did before the journal; for measuring what the journal costs |
 | `cpu` | the processor family: the cpu suite runs in every mode, so naming it alone keeps the graphics and net families out, a run of a few seconds with nothing drawn |
 | `graphics` | the graphics family: the twenty seven drawing suites, clear to query; selfcheck, support, reference and cpu always run, whatever family is named |
@@ -1049,7 +1055,7 @@ On the screens, each of which names its buttons on its bottom line:
 | plus or minus | quit | quit | quit |
 
 And on the start screen: A begins the run, Y turns the cases that may crash on or off, X the crash
-list's cases again.
+list's cases again. Y and X in the same edge change neither.
 
 Every list comes round at either end. A direction held down acts again after twenty frames and then
 every four, so the reference suite's hundred and eighteen cases do not take a press each; what
@@ -1115,9 +1121,10 @@ record; nor is a line that is not a whole one.
 `<suite> <case>` a line under a comment that says what it is. They are skipped in every later run
 as `crashed`, until the mode word `retry` runs them again; one that then runs to its end, through
 every pass, leaves the list, and a note says so. A case that ended the program in this very run is
-skipped even under `retry`, since running it is what ended the launch before. The file can be
-edited by hand, one line deleted to try one case again; the program writes it whole when it
-changes, so a comment typed into it does not stay.
+skipped even under `retry`, since running it is what ended the launch before. A case the hang
+table names stays skipped as `hangs` whether or not `retry` asks, until `hang` does too. The file
+can be edited by hand, one line deleted to try one case again; the program writes it whole when
+it changes, so a comment typed into it does not stay.
 
 **The may-crash table.** `source/maycrash.c` names the cases known to end the program on a machine
 that gets them wrong, each with its suite, its family and why, in one table. They are skipped with
@@ -1127,6 +1134,14 @@ with the run after it like any other. A case on the crash list stays skipped as 
 or not `fatal` asks, until `retry` does too; a case that ended the program in this run is skipped
 whatever either says. A launch whose suites never reached a case the table names says so in a note
 before the summary, since an entry naming a case this build lacks protects nothing.
+
+**The hang table.** `source/hang.c` names the cases known to never return on a machine that gets
+them wrong. They are skipped with the reason `hangs` and the table's sentence unless the mode word
+`hang` asks for them. `retry` does not run one: a hang does not end the program, so there is no
+next launch to mark it until something else kills the process, and running it again hangs that
+launch too. Today the table has one case, the bsd receive that asks for a timeout. The start
+screen cannot turn `hang` on. A case that ended the program in this run is still skipped as
+`crashed` before the hang table is consulted, whatever `hang` says.
 
 **Where a crash can be pinned.** Every case of the cpu, graphics and net families says it starts
 before any of its work, which is what lets a launch skip it: the start and the skip come before the
