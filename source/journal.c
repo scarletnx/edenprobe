@@ -700,11 +700,15 @@ bool JournalDurableAppend(FILE *file, const char *line) {
     if (length == 0u || line[length - 1u] != '\n') {
         return false;
     }
-    if (fputs(line, file) < 0 || fflush(file) != 0) {
-        return false;
-    }
-    const long end = ftell(file);
-    if (end <= 0 || fseek(file, end - 1, SEEK_SET) != 0) {
+    // The body, then the newline as the next write at the end. Eden seeks to the
+    // offset of each host write, and that seek empties the host buffer onto disk,
+    // so the newline is the only byte a crash can still hold. Seeking back onto
+    // the line to rewrite a newline that was already there drops, on the Android
+    // host library, every buffered byte past the seek. The phone's journal kept
+    // the offsets and the report lost the suites those offsets named: the file
+    // stayed a dense jsonl, shorter by exactly those suites.
+    if (length > 1u &&
+        (fwrite(line, 1, length - 1u, file) != length - 1u || fflush(file) != 0)) {
         return false;
     }
     return fputc('\n', file) != EOF && fflush(file) == 0;

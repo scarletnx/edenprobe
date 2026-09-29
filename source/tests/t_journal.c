@@ -1,9 +1,16 @@
 // SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// Before any header: the host regression below uses fopencookie, which glibc hides
+// without this. The console build defines __SWITCH__ and has no such function.
+#ifndef __SWITCH__
+#define _GNU_SOURCE
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 
 #include "../check.h"
 #include "../cpuref.h"
@@ -441,6 +448,190 @@ static void CheckDurableFile(const char *directory) {
                (int)wrote, end, (long long)length, back, (int)state.in_case, (int)removed);
 }
 
+/// Several lines, each longer than a word, through a real file. The two-line check above is
+/// the contract; this one is the same write repeated, which is what a suite looks like.
+static void CheckDurableLines(const char *directory) {
+    char path[400];
+    snprintf(path, sizeof(path), "%.300s/journal-lines", directory);
+    FILE *file = fopen(path, "w");
+    char expect[4096];
+    size_t expect_len = 0;
+    bool wrote = file != NULL;
+    for (int i = 0; i < 8 && wrote; ++i) {
+        char line[180];
+        const int len = snprintf(line, sizeof(line),
+                                 "start support %d a line long enough to leave the byte %02d\n",
+                                 i, i);
+        wrote = len > 0 && (size_t)len < sizeof(line) &&
+                expect_len + (size_t)len < sizeof(expect) && JournalDurableAppend(file, line);
+        if (wrote) {
+            memcpy(expect + expect_len, line, (size_t)len);
+            expect_len += (size_t)len;
+        }
+    }
+    const long end = file != NULL ? ftell(file) : -1L;
+    if (file != NULL) {
+        fclose(file);
+    }
+    char back[4096];
+    memset(back, 0, sizeof(back));
+    bool longer = false;
+    const int64_t length = JournalReadFile(path, back, sizeof(back), &longer);
+    const bool removed = remove(path) == 0;
+    CHECK_TRUE(SUITE, "several lines written forward are the file, with nothing missing between",
+               CHECK_NONE,
+               wrote && end == (long)expect_len && length == (int64_t)expect_len && !longer &&
+                   memcmp(back, expect, expect_len) == 0 && removed,
+               "written %d, at %ld against %u; read back %lld; removed %d", (int)wrote, end,
+               (unsigned)expect_len, (long long)length, (int)removed);
+}
+
+#if !defined(__SWITCH__) && defined(__GLIBC__)
+// The Android host library drops every buffered byte past a backward seek. This cookie does
+// that and nothing else: a write only waits, a backward seek throws the wait away, a tell
+// (seek of zero from here) keeps it, and close is what finally keeps the bytes. The old
+// append sought back one byte to rewrite a newline, so a file of lines came out as newlines.
+
+#define COOKIE_CAP (16u * 1024u)
+
+typedef struct {
+    char committed[COOKIE_CAP];
+    size_t committed_len;
+    char pending[COOKIE_CAP];
+    size_t pending_len;
+    __off64_t pos;
+    int backward;
+} DropCookie;
+
+static ssize_t CookieWrite(void *cookie, const char *buf, size_t size) {
+    DropCookie *const c = cookie;
+    if (size > COOKIE_CAP - c->pending_len) {
+        return 0;
+    }
+    memcpy(c->pending + c->pending_len, buf, size);
+    c->pending_len += size;
+    c->pos += (__off64_t)size;
+    return (ssize_t)size;
+}
+
+static int CookieSeek(void *cookie, __off64_t *offset, int whence) {
+    DropCookie *const c = cookie;
+    __off64_t next = c->pos;
+    if (whence == SEEK_SET) {
+        next = *offset;
+    } else if (whence == SEEK_CUR) {
+        next = c->pos + *offset;
+    } else if (whence == SEEK_END) {
+        next = (__off64_t)(c->committed_len + c->pending_len) + *offset;
+    } else {
+        return -1;
+    }
+    if (next < 0) {
+        return -1;
+    }
+    if (next < c->pos) {
+        c->pending_len = 0;
+        c->backward += 1;
+    }
+    c->pos = next;
+    *offset = next;
+    return 0;
+}
+
+static int CookieClose(void *cookie) {
+    DropCookie *const c = cookie;
+    if (c->committed_len + c->pending_len > COOKIE_CAP) {
+        return -1;
+    }
+    memcpy(c->committed + c->committed_len, c->pending, c->pending_len);
+    c->committed_len += c->pending_len;
+    c->pending_len = 0;
+    return 0;
+}
+
+static cookie_io_functions_t CookieIo(void) {
+    cookie_io_functions_t io;
+    io.read = NULL;
+    io.write = CookieWrite;
+    io.seek = CookieSeek;
+    io.close = CookieClose;
+    return io;
+}
+
+static void CheckDroppingCookie(void) {
+    cookie_io_functions_t io = CookieIo();
+
+    DropCookie told;
+    memset(&told, 0, sizeof(told));
+    FILE *tell = fopencookie(&told, "w", io);
+    const bool tell_open = tell != NULL;
+    if (tell != NULL) {
+        fputs("keep\n", tell);
+        fflush(tell);
+    }
+    const long told_at = tell != NULL ? ftell(tell) : -1L;
+    if (tell != NULL) {
+        fclose(tell);
+    }
+    const bool tell_kept = tell_open && told_at == 5 && told.backward == 0 &&
+                           told.committed_len == 5u && memcmp(told.committed, "keep\n", 5) == 0;
+
+    DropCookie dropped;
+    memset(&dropped, 0, sizeof(dropped));
+    FILE *probe = fopencookie(&dropped, "w", io);
+    const bool probe_open = probe != NULL;
+    if (probe != NULL) {
+        fputs("abcdefghij\n", probe);
+        fflush(probe);
+        // Back to the start: the host throws away the line it had not committed.
+        (void)fseek(probe, 0, SEEK_SET);
+        fputc('Z', probe);
+        fclose(probe);
+    }
+    const bool probe_dropped = probe_open && dropped.backward == 1 &&
+                               dropped.committed_len == 1u && dropped.committed[0] == 'Z';
+
+    DropCookie kept;
+    memset(&kept, 0, sizeof(kept));
+    FILE *file = fopencookie(&kept, "w", io);
+    char expect[COOKIE_CAP];
+    size_t expect_len = 0;
+    bool wrote = file != NULL;
+    static const char PAD[] = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                              "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    for (int i = 0; i < 40 && wrote; ++i) {
+        char line[200];
+        const int len = snprintf(line, sizeof(line), "case %02d %s\n", i, PAD);
+        wrote = len > 0 && (size_t)len < sizeof(line) &&
+                expect_len + (size_t)len < sizeof(expect) && JournalDurableAppend(file, line);
+        if (wrote) {
+            memcpy(expect + expect_len, line, (size_t)len);
+            expect_len += (size_t)len;
+        }
+    }
+    if (wrote) {
+        wrote = JournalDurableAppend(file, "\n");
+        if (wrote && expect_len + 1u < sizeof(expect)) {
+            expect[expect_len++] = '\n';
+        } else {
+            wrote = false;
+        }
+    }
+    if (file != NULL) {
+        fclose(file);
+    }
+    const bool whole = wrote && kept.backward == 0 && kept.committed_len == expect_len &&
+                       memcmp(kept.committed, expect, expect_len) == 0;
+    CHECK_TRUE(SUITE, "a backward seek drops a buffered line, and a report line never seeks back",
+               CHECK_NONE, tell_kept && probe_dropped && whole,
+               "tell kept the line %d; a seek back left %u byte(s) after %d seek(s); "
+               "forty lines %s, %d backward seek(s), %u of %u bytes",
+               (int)tell_kept, (unsigned)dropped.committed_len, dropped.backward,
+               whole ? "kept" : "lost", kept.backward, (unsigned)kept.committed_len,
+               (unsigned)expect_len);
+}
+#endif
+
 /// A crash list for the decision cases, with the one case on it.
 static void ListOne(CrashList *list) {
     CrashListInit(list);
@@ -736,6 +927,10 @@ void RunSupportJournal(const char *scratch) {
     CheckPlans();
     CheckCrashList();
     CheckDurableFile(scratch);
+    CheckDurableLines(scratch);
+#if !defined(__SWITCH__) && defined(__GLIBC__)
+    CheckDroppingCookie();
+#endif
     CheckDecisions();
     CheckBookkeeping();
     CheckMayCrashTable();
