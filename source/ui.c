@@ -1289,6 +1289,14 @@ UiStartState UiStartStep(UiStartState state, uint32_t pressed, uint32_t frame_in
     if (frame_index < UI_SETTLING_FRAMES || info == NULL) {
         return state;
     }
+    // Y and X in one edge are not a choice. The first frames are ignored because a pad that
+    // arrives with the window reports its whole mask as newly pressed; one that connects
+    // after those frames does the same in a single later edge. That edge wrote
+    // "chosen fatal retry" with no mode file, and the next launch ran the may-crash table
+    // and the crash list. A still begins, and the two choices stay as they were.
+    if ((pressed & UI_START_TOGGLE_MAY_CRASH) != 0u && (pressed & UI_START_TOGGLE_RETRY) != 0u) {
+        pressed &= ~(UI_START_TOGGLE_MAY_CRASH | UI_START_TOGGLE_RETRY);
+    }
     if ((pressed & UI_START_BEGIN) != 0u) {
         state.begun = true;
         state.changed = true;
