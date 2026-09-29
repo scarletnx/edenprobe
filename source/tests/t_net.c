@@ -19,6 +19,7 @@
 #include <switch/services/sfdnsres.h>
 
 #include "../check.h"
+#include "../hang.h"
 #include "../netref.h"
 #include "../report.h"
 #include "tests.h"
@@ -958,7 +959,7 @@ static void RunBsd(const char *sockets_why) {
     static const char *const EMPTY = "an empty datagram socket has nothing to read";
     static const char *const STREAM = "a stream on loopback carries bytes both ways";
     static const char *const REFUSED = "a stream to a port nothing listens on is refused";
-    static const char *const TIMEOUT = "a receive timeout gives up with EAGAIN within its time";
+    static const char *const TIMEOUT = HANG_BSD_TIMEOUT;
     static const char *const SERVER = "a stream connects to the game server";
     static const char *const NONBLOCKING = "a connect that does not block completes with no "
                                            "error";

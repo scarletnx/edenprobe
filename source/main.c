@@ -309,6 +309,7 @@ int main(int argc, char **argv) {
     }
     ReportSetRetry(mode.retry);
     ReportSetMayCrash(mode.fatal);
+    ReportSetHang(mode.hang);
     if (plan.start == JOURNAL_FRESH) {
         char described[REPORT_NOTE_MAX + 1];
         ModeDescribe(described, sizeof(described), &mode, MODE_FAMILIES_PRESENT);

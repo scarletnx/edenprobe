@@ -29,7 +29,10 @@ extern "C" {
 ///             machine that gets them wrong: off by default, and never on the console, whose
 ///             processor lacks SM4.
 ///   retry     the cases on the crash list, which a machine's program ended inside before, run
-///             again; one that runs to its end leaves the list.
+///             again; one that runs to its end leaves the list. A case in the hang table stays
+///             skipped until `hang` asks too.
+///   hang      the cases in the hang table (hang.h), known to never return on a machine that
+///             gets them wrong. Off by default. The start screen cannot turn this on.
 ///   nojournal nothing written between cases: no journal, so a crash costs the rest of the run.
 ///             For measuring what the journal costs, and for a card that must not be written.
 ///   cpu       a suite family: the processor's instructions, which run in every mode anyway, so
@@ -94,6 +97,8 @@ typedef struct {
     bool fatal;
     /// The word `retry`: the crash list's cases run again.
     bool retry;
+    /// The word `hang`: the hang table's cases run.
+    bool hang;
     /// Asked for on the start screen rather than in the file, which the mode line says.
     bool fatal_by_screen;
     bool retry_by_screen;

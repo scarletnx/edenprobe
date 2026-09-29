@@ -7,6 +7,7 @@
 
 #include "../check.h"
 #include "../cpuref.h"
+#include "../hang.h"
 #include "../journal.h"
 #include "../maycrash.h"
 #include "../mode.h"
@@ -492,6 +493,7 @@ static void CheckDecisions(void) {
                               "not configured") == 0 &&
                        strcmp(ReportReasonWord(REPORT_REASON_UNAVAILABLE), "unavailable") == 0 &&
                        strcmp(ReportReasonWord(REPORT_REASON_DEPENDS), "depends") == 0 &&
+                       strcmp(ReportReasonWord(REPORT_REASON_HANG), "hangs") == 0 &&
                        strcmp(ReportReasonWord(REPORT_REASON_COUNT), "unavailable") == 0;
     CHECK_TRUE(SUITE, "a case that ended this run is skipped even under retry", CHECK_NONE,
                !crashed_runs && handed_back,
@@ -611,6 +613,73 @@ static void CheckPrecedence(void) {
                (int)runs[4], (int)runs[5], handed_back ? "handed back" : "lost");
 }
 
+static void CheckHang(void) {
+    // The bsd receive-timeout hangs instead of ending, so the next launch is the one after
+    // something else kills the process. Until then the hang table is what skips it. Retry
+    // would start it again. The run's own settings are handed back afterwards.
+    static CrashList saved;
+    saved = *ReportCrashList();
+    char saved_path[64];
+    snprintf(saved_path, sizeof(saved_path), "%s", ReportCrashListPath());
+    const bool saved_retry = ReportRetrying();
+    const bool saved_hang = ReportHangAsked();
+    const bool saved_asked = ReportMayCrashAsked();
+    ReportSetCrashList(NULL, NULL, false);
+    ReportSetMayCrash(false);
+    ReportSetHang(false);
+
+    ReportReason reason = REPORT_REASON_CRASHED;
+    char detail[REPORT_KEPT_DETAIL];
+    const bool skipped = !ReportWouldRun("bsd", HANG_BSD_TIMEOUT, &reason, detail, sizeof(detail));
+    const bool says = reason == REPORT_REASON_HANG && strstr(detail, "mode word hang") != NULL;
+    ReportSetRetry(true);
+    ReportReason retry_reason = REPORT_REASON_CRASHED;
+    const bool retry_skips =
+        !ReportWouldRun("bsd", HANG_BSD_TIMEOUT, &retry_reason, NULL, 0) &&
+        retry_reason == REPORT_REASON_HANG;
+
+    static CrashList listed;
+    CrashListInit(&listed);
+    CrashListAdd(&listed, "bsd", HANG_BSD_TIMEOUT);
+    ReportSetCrashList(&listed, NULL, true);
+    ReportSetHang(true);
+    const bool asked_runs = ReportWouldRun("bsd", HANG_BSD_TIMEOUT, &reason, NULL, 0);
+
+    ReportSetCrashList(NULL, NULL, false);
+    ReportSetHang(true);
+    ReportSetMayCrash(false);
+    ReportReason sm4_reason = REPORT_REASON_CRASHED;
+    const bool sm4_still =
+        !ReportWouldRun("cpu", CPU_SM4_CASE, &sm4_reason, NULL, 0) &&
+        sm4_reason == REPORT_REASON_MAY_CRASH;
+
+    // Last, because a crash recorded for this run stays recorded, as the decision check's does.
+    JournalRecord crash = Record(JOURNAL_CRASH, "bsd", HANG_BSD_TIMEOUT, 1);
+    ReportAddCrashed(&crash);
+    ReportSetHang(true);
+    ReportSetRetry(true);
+    ReportReason crash_reason = REPORT_REASON_HANG;
+    const bool crash_wins =
+        !ReportWouldRun("bsd", HANG_BSD_TIMEOUT, &crash_reason, NULL, 0) &&
+        crash_reason == REPORT_REASON_CRASHED;
+
+    ReportSetCrashList(&saved, saved_path, saved_retry);
+    ReportSetHang(saved_hang);
+    ReportSetMayCrash(saved_asked);
+    const bool handed_back = ReportRetrying() == saved_retry && ReportHangAsked() == saved_hang &&
+                             ReportMayCrashAsked() == saved_asked &&
+                             strcmp(ReportCrashListPath(), saved_path) == 0;
+    CHECK_TRUE(SUITE, "a case known to hang is skipped until hang asks, and retry does not run it",
+               CHECK_NONE,
+               skipped && says && retry_skips && asked_runs && sm4_still && crash_wins &&
+                   handed_back,
+               "skipped %d (%s), retry %d (%s), hang and retry %d, SM4 still may-crash %d, "
+               "a crash this run %d (%s); settings %s",
+               (int)skipped, ReportReasonWord(reason), (int)retry_skips,
+               ReportReasonWord(retry_reason), (int)asked_runs, (int)sm4_still, (int)crash_wins,
+               ReportReasonWord(crash_reason), handed_back ? "handed back" : "lost");
+}
+
 static void CheckModeWords(void) {
     const RunMode plain = ModeFromText("quick");
     const RunMode both = ModeFromText("quick RETRY nojournal");
@@ -642,6 +711,23 @@ static void CheckModeWords(void) {
                strcmp(key, "fatal graphics images net notime retry stress") == 0 &&
                    strcmp(key, same) == 0 && bare[0] == '\0',
                "\"%s\" and \"%s\"; with none of them \"%s\"", key, same, bare);
+
+    const RunMode hanging = ModeFromText("hang retry");
+    char hang_key[JOURNAL_MODE_MAX];
+    char hang_said[REPORT_NOTE_MAX + 1];
+    ModeKey(hang_key, sizeof(hang_key), &hanging);
+    ModeDescribe(hang_said, sizeof(hang_said), &hanging, MODE_FAMILY_CPU);
+    CHECK_TRUE(SUITE, "the word hang asks for the cases that hang, and only beside retry for both",
+               CHECK_NONE,
+               hanging.hang && hanging.retry && !hanging.fatal &&
+                   strcmp(hang_key, "hang retry") == 0 &&
+                   strcmp(hang_said,
+                          "mode: detailed, the mode file has no quick; pictures of failures "
+                          "only; families cpu; the cases that hang; the crash list's cases "
+                          "again") == 0 &&
+                   ModeFromText("hang").hang && !ModeFromText("hang").retry &&
+                   !ModeFromText("hang").fatal,
+               "key \"%s\"; said \"%.240s\"", hang_key, hang_said);
 }
 
 void RunSupportJournal(const char *scratch) {
@@ -654,5 +740,6 @@ void RunSupportJournal(const char *scratch) {
     CheckBookkeeping();
     CheckMayCrashTable();
     CheckPrecedence();
+    CheckHang();
     CheckModeWords();
 }

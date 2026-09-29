@@ -73,6 +73,11 @@ void ReportSetRetry(bool on);
 void ReportSetMayCrash(bool asked);
 bool ReportMayCrashAsked(void);
 
+/// Whether the hang table's cases run: the mode word `hang`. Without it they are skipped,
+/// retry or not. The start screen cannot ask for this.
+void ReportSetHang(bool asked);
+bool ReportHangAsked(void);
+
 /// The table's cases this launch did not reach although their suite started cases, as
 /// `suite "case"` separated by commas: a name the table has and this build does not. Returns the
 /// length; the text is always terminated.
@@ -131,6 +136,9 @@ typedef enum {
     REPORT_REASON_UNAVAILABLE,
     /// A case before it did not leave what it needs.
     REPORT_REASON_DEPENDS,
+    /// In the hang table, and the mode word `hang` did not ask. Retry does not run it:
+    /// running it again is what hangs the launch.
+    REPORT_REASON_HANG,
     REPORT_REASON_COUNT,
 } ReportReason;
 
@@ -161,8 +169,8 @@ void ReportRequireStarts(bool on);
 
 /// What ReportStart decides for a case, without starting it or writing anything: whether it
 /// runs, and when it does not, the reason and the sentence its skip line carries. A crash in this
-/// run comes first, whatever retry says, then the crash list unless retry, then the may-crash
-/// table unless asked for.
+/// run comes first, whatever retry or hang says, then the hang table unless the word `hang`,
+/// then the crash list unless retry, then the may-crash table unless asked for.
 bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, char *detail,
                     size_t detail_size);
 

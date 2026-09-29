@@ -15,6 +15,7 @@
 #include <switch.h>
 #endif
 
+#include "hang.h"
 #include "maycrash.h"
 #include "report.h"
 
@@ -54,6 +55,7 @@ static bool retry_listed;
 // suites that started a case: an entry whose suite ran and which was never reached names a case
 // this build does not have.
 static bool may_crash_asked;
+static bool hang_asked;
 #define MAY_CRASH_TRACKED 64u
 static bool may_crash_reached[MAY_CRASH_TRACKED];
 #define SUITES_TRACKED 64u
@@ -537,14 +539,21 @@ bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, c
     ReportReason why = REPORT_REASON_CRASHED;
     uint32_t pass = 0;
     const MayCrash *const may_crash = MayCrashFind(suite, key);
+    const Hang *const hang = HangFind(suite, key);
     bool runs = true;
-    // A crash in this run first, whatever retry says; then the crash list, which is this
-    // machine's own evidence; then the table, which is what other machines did.
+    // A crash in this run first, whatever retry or hang says. Then a known hang: retry would
+    // run it again and it would not return, so the launch would never mark it. Then the crash
+    // list, which is this machine's own evidence; then the may-crash table.
     if (CrashedThisRun(suite, key, &pass)) {
         snprintf(detail, detail_size,
                  "the program ended inside it earlier in this run%s; it is on the crash list "
                  "(sdmc:/edenprobe/crashes), and the mode word retry runs it in a later run",
                  PassWords(pass));
+        runs = false;
+    } else if (hang != NULL && !hang_asked) {
+        why = REPORT_REASON_HANG;
+        snprintf(detail, detail_size,
+                 "known to hang the program: %s; the mode word hang runs it", hang->why);
         runs = false;
     } else if (!retry_listed && CrashListHas(&crash_list, suite, key)) {
         snprintf(detail, detail_size,
@@ -655,7 +664,7 @@ void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed
 }
 
 static const char *const REASON_WORDS[REPORT_REASON_COUNT] = {
-    "crashed", "may crash", "not configured", "unavailable", "depends",
+    "crashed", "may crash", "not configured", "unavailable", "depends", "hangs",
 };
 
 const char *ReportReasonWord(ReportReason reason) {
@@ -802,6 +811,14 @@ void ReportSetRetry(bool on) {
 
 void ReportSetMayCrash(bool asked) {
     may_crash_asked = asked;
+}
+
+void ReportSetHang(bool asked) {
+    hang_asked = asked;
+}
+
+bool ReportHangAsked(void) {
+    return hang_asked;
 }
 
 bool ReportMayCrashAsked(void) {
