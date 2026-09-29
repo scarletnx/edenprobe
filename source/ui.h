@@ -294,7 +294,9 @@ enum {
 };
 
 /// One frame's presses. Beginning wins over a toggle in the same frame; a toggle for a list with
-/// nothing in it does nothing; and nothing counts while the pad is still settling.
+/// nothing in it does nothing; and nothing counts while the pad is still settling. Y and X in
+/// the same edge change neither choice: a pad that connects late reports every button it is
+/// already holding as one edge.
 UiStartState UiStartStep(UiStartState state, uint32_t pressed, uint32_t frame_index,
                          const UiStartInfo *info);
 

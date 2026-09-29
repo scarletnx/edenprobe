@@ -1173,6 +1173,30 @@ static void CheckStartScreen(Fixture *f) {
     info.listed_count = 1u;
     info.listed_suite[0] = "bcn";
     info.listed_name[0] = "every layer of a six-layer BC4 array keeps its own 2x2 and 1x1 levels";
+
+    // Y and X in one edge are a pad that connected after the settling frames, not two choices.
+    // A in that edge still begins. One button, then the other, still chooses both.
+    UiStartState both = UiStartOpen(false, false);
+    both = UiStartStep(both, UI_START_TOGGLE_MAY_CRASH | UI_START_TOGGLE_RETRY,
+                       UI_SETTLING_FRAMES, &info);
+    const bool neither = !both.may_crash && !both.retry && !both.begun;
+    UiStartState y_only = UiStartOpen(false, false);
+    y_only = UiStartStep(y_only, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES, &info);
+    const bool y_toggles = y_only.may_crash && !y_only.retry && !y_only.begun;
+    UiStartState began = UiStartOpen(false, false);
+    began = UiStartStep(began,
+                        UI_START_BEGIN | UI_START_TOGGLE_MAY_CRASH | UI_START_TOGGLE_RETRY,
+                        UI_SETTLING_FRAMES, &info);
+    const bool began_clean = began.begun && !began.may_crash && !began.retry;
+    UiStartState apart = UiStartOpen(false, false);
+    apart = UiStartStep(apart, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES, &info);
+    apart = UiStartStep(apart, UI_START_TOGGLE_RETRY, UI_SETTLING_FRAMES + 1u, &info);
+    const bool two_presses = apart.may_crash && apart.retry && !apart.begun;
+    CHECK_TRUE(SUITE, "Y and X in one edge change neither choice, and A in that edge still begins",
+               CHECK_NONE, neither && y_toggles && began_clean && two_presses,
+               "together off %d, Y alone on %d, A with both began clean %d, two presses %d",
+               (int)neither, (int)y_toggles, (int)began_clean, (int)two_presses);
+
     UiComposeStart(&frame, &info, UiStartOpen(false, false), 7u);
     const uint32_t quiet = CountColour(&frame, 0, top, FRAME_WIDTH, bottom, FAILED);
     const uint32_t above_quiet = CountLit(&frame, 0, top);
