@@ -32,6 +32,10 @@ void RunSupportJournal(const char *scratch);
 /// the arithmetic and the shape of both lines. Support cases, so it runs in both builds.
 void RunSupportPerf(void);
 
+/// The wait a device close makes for a copy delivered after the queue went idle: when a slot
+/// counts as arrived, and the note a run carries when any close waited. Runs in both builds.
+void RunSupportSettle(void);
+
 /// The expected answers, checked without a graphics device: where clip space lands, which
 /// pixels a triangle covers, what a blend or a texel address works out to. Runs in both builds,
 /// because a reference that answered differently on the two processors would be blamed on the
