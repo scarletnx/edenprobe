@@ -12,6 +12,7 @@
 #include "perf.h"
 #include "picture.h"
 #include "report.h"
+#include "settle.h"
 #include "tests/tests.h"
 #include "viewer.h"
 #include "version.h"
@@ -38,6 +39,7 @@ typedef struct {
 static void RunSupportSteps(void) {
     RunSupport();
     RunSupportPerf();
+    RunSupportSettle();
 }
 
 // The order they run in, which is the roadmap's: the judge first and always, since the
@@ -353,6 +355,12 @@ int main(int argc, char **argv) {
             ReportNote("may crash: the table names %s, which the suites that ran never reached",
                        unreached);
         }
+    }
+    // Only when some close had to wait: a machine that delivers its copies before the queue is
+    // idle, as the console does, gets the same report it always did.
+    char settled[REPORT_NOTE_MAX + 1];
+    if (SettleDescribe(settled, sizeof(settled), SettleRun())) {
+        ReportNote("%s", settled);
     }
     NoteCrashes(&plan);
     ReportSummary();

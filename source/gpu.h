@@ -61,6 +61,7 @@ typedef struct {
     DkMemBlock image_memory; ///< the colour render target
     DkMemBlock read_memory;  ///< CPU-visible destination for readback
     uint32_t read_size;      ///< how many bytes it holds
+    DkMemBlock settle_memory; ///< where the copy GpuClose waits for lands, and nothing else
     DkImage image;
     DkImageLayout layout;
 

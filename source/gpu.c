@@ -10,6 +10,7 @@
 
 #include "gpu.h"
 #include "perf.h"
+#include "settle.h"
 
 // Far more than any pass here needs, and sized for the case not yet written: a list that runs
 // out of room mid-way reads like a driver fault and is really a budget.
@@ -355,6 +356,15 @@ static const char *BringUp(GpuContext *gpu) {
         return "the readback block is not visible to the processor";
     }
 
+    // Apart from the readback block because a copy queued earlier may still be landing there,
+    // which is exactly what GpuClose waits for; here only its own copy ever writes.
+    problem = MakeBlock(gpu, &gpu->settle_memory, gpu->width * gpu->height * gpu->bytes_per_pixel,
+                        DkMemBlockFlags_CpuUncached | DkMemBlockFlags_GpuCached,
+                        "no memory for the last copy before closing");
+    if (problem != NULL) {
+        return problem;
+    }
+
     if (gpu->spec.code_size != 0u) {
         // Shader code lives in its own address range that the driver reserves out of a separate
         // segment, which is what the Code flag asks for. Nothing else may share the block: the
@@ -482,9 +492,58 @@ bool GpuOpen(GpuContext *gpu, uint32_t width, uint32_t height) {
     return GpuOpenSpec(gpu, &spec);
 }
 
+static void BindTarget(GpuContext *gpu, const DkImage *image, uint32_t width, uint32_t height);
+static void BindSharedState(GpuContext *gpu);
+
+/// Returns only once every copy this device queued has landed in memory, or the wait ran out.
+///
+/// Clears the main target to zero, copies it onto a readback slot holding SETTLE_PRESET and
+/// watches the slot change: copies land in the order they were queued, so this one landing
+/// means every earlier one has. On the console that is true the moment the queue is idle and
+/// costs one copy. Eden's Android build at Low accuracy writes a copy from its fencing thread
+/// after the idle, and one still pending when the device goes writes through a freed page table
+/// (SIGSEGV in MemoryManager::WriteBlockImpl under TextureCache::PopAsyncFlushes). Not timed.
+static void SettleReadbacks(GpuContext *gpu) {
+    volatile uint8_t *const slot = (volatile uint8_t *)dkMemBlockGetCpuAddr(gpu->settle_memory);
+    const size_t bytes = gpu->bytes_per_pixel;
+    SettleFill(slot, bytes, SETTLE_PRESET);
+
+    dkCmdBufClear(gpu->cmdbuf);
+    dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Full, 0);
+    BindTarget(gpu, NULL, 0, 0);
+    BindSharedState(gpu);
+    // Raw zeros: every colour format encodes them as zero bytes, which the preset is not.
+    dkCmdBufClearColorUint(gpu->cmdbuf, 0, DkColorMask_RGBA, 0, 0, 0, 0);
+    dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Full, 0);
+    DkImageView source;
+    dkImageViewDefaults(&source, &gpu->image);
+    const DkImageRect rect = { 0, 0, 0, gpu->width, gpu->height, 1 };
+    const DkCopyBuf destination = { dkMemBlockGetGpuAddr(gpu->settle_memory), 0, 0 };
+    dkCmdBufCopyImageToBuffer(gpu->cmdbuf, &source, &rect, &destination, 0);
+    dkQueueSubmitCommands(gpu->queue, dkCmdBufFinishList(gpu->cmdbuf));
+    dkQueueWaitIdle(gpu->queue);
+    if (dkQueueIsInErrorState(gpu->queue)) {
+        return;
+    }
+
+    const uint64_t start = armGetSystemTick();
+    uint64_t waited = 0;
+    bool arrived = SettleArrived(slot, bytes, SETTLE_PRESET);
+    while (!arrived && waited < SETTLE_BUDGET_NS) {
+        svcSleepThread(SETTLE_POLL_NS);
+        waited = armTicksToNs(armGetSystemTick() - start);
+        arrived = SettleArrived(slot, bytes, SETTLE_PRESET);
+    }
+    SettleRecord(SettleRun(), waited, arrived);
+}
+
 void GpuClose(GpuContext *gpu) {
     if (gpu == NULL) {
         return;
+    }
+    // Only a device that came up and whose queue never faulted can be asked for one more copy.
+    if (gpu->ready && gpu->queue != NULL && gpu->cmdbuf != NULL && gpu->settle_memory != NULL) {
+        SettleReadbacks(gpu);
     }
     gpu->ready = false;
 
@@ -499,7 +558,7 @@ void GpuClose(GpuContext *gpu) {
         gpu->cmdbuf = NULL;
     }
     DkMemBlock *const blocks[] = {
-        &gpu->read_memory, &gpu->image_memory, &gpu->depth_memory,
+        &gpu->read_memory, &gpu->settle_memory, &gpu->image_memory, &gpu->depth_memory,
         &gpu->code_memory, &gpu->data_memory,  &gpu->extra_image_memory,
         &gpu->cpu_image_memory, &gpu->cpu_cached_memory, &gpu->cmd_memory,
     };

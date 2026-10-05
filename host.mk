@@ -11,10 +11,11 @@ HOSTSRC  := source/report.c source/journal.c source/maycrash.c source/check.c so
             source/ui.c \
             source/raster.c source/intref.c source/blendref.c source/texref.c \
             source/fmathref.c source/coherref.c source/formatref.c source/netref.c source/cpuref.c source/perf.c \
+            source/settle.c \
             source/rawref.c source/astcref.c source/astcblocks.c source/eacref.c \
             source/etc2ref.c source/etc2blocks.c source/bcnref.c \
             source/tests/t_selfcheck.c source/tests/t_support.c source/tests/t_screens.c \
-            source/tests/t_perf.c source/tests/t_reference.c source/tests/t_netref.c \
+            source/tests/t_perf.c source/tests/t_settle.c source/tests/t_reference.c source/tests/t_netref.c \
             source/tests/t_cpuref.c source/tests/t_rawref.c source/tests/t_astcref.c \
             source/tests/t_eacref.c source/tests/t_journal.c source/tests/t_etc2ref.c \
             source/tests/t_bcnref.c \
