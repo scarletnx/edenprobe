@@ -326,6 +326,8 @@ static bool Skipped(ReportResult result) {
     return result == REPORT_SKIP || result == REPORT_CRASHED;
 }
 
+_Static_assert(UI_MAX_GROUPS < 0xFFu, "0xFF marks a case with no group");
+
 void UiRunIndex(UiRun *run, const ReportRecord *records, uint32_t count, uint32_t reported) {
     if (run == NULL) {
         return;
