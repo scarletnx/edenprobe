@@ -40,7 +40,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 Forty suites, in the order they run: the judge, then the processor, then the graphics family,
 then the fs family, then the audio family when a word asks for it, then the net family. A run is
-781 cases: 713 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
+794 cases: 726 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
 the net family; the audio family adds six when named or with `listen`, the mode word `stress` adds
 one, and `fatal` runs the cases the may-crash table names, which are otherwise skipped. The order,
 and what a failure in each suite points at, is in "The roadmap" below. A case that ends the
@@ -50,15 +50,16 @@ program costs that case and not the rest of the run: see "When the program ends 
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and thirteen cases, no hardware involved: what the program does around a
-  verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
-  detailed mode's store, screens and navigation, the start screen, the mode file and its `stress`
-  word, the `skip` result, the time a case reports (nineteen cases, see "Time per case"), and the
-  journal, the crash list, the may-crash table and what a launch decides from them (eighteen cases,
-  see "When the program ends in the middle"). One case carries the whole idea: the diff picture is
-  built from what the judge decided pixel by pixel, not from comparing two images, so a pixel that
-  differs and was allowed to is not painted as a difference. Every line is the none tier, because
-  none of it is a claim about a machine.
+- **support**, one hundred and twenty six cases, no hardware involved: what the program does around
+  a verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
+  detailed mode's store, screens and navigation, the start screen and the listening screen, the mode
+  file and its words, the `skip` result, the time a case reports (nineteen cases, see "Time per
+  case"), the journal, the crash list, the may-crash and hang tables and what a launch decides from
+  them (twenty two cases, see "When the program ends in the middle"), and the last copy a device
+  waits for before it closes, and the note a late one leaves (eight cases). One case carries the
+  whole idea: the diff picture is built from what the judge decided pixel by pixel, not from
+  comparing two images, so a pixel that differs and was allowed to is not painted as a difference.
+  Every line is the none tier, because none of it is a claim about a machine.
 - **reference**, one hundred and eighty five cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
@@ -1067,11 +1068,25 @@ not a letter between them.
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
 
 Families choose what runs beyond the judge, which always runs because nothing a family reports can
-be believed without it, and beyond the cpu suite, which needs no device and runs in every mode. None named means every family this build has but audio, which makes sound; a named family this build
+be believed without it, and beyond the cpu suite, which needs no device and runs in every mode. None
+named means every family this build has but audio, which makes sound; a named family this build
 lacks is listed in the mode line and skipped, so a file written for a later build is reported, not
 refused. `net` alone runs the judge and the six net suites, which is what the fixture below writes.
 Any other word is reported in the mode line, quoted and counted, and ignored: a typo costs a line in
 the report, never the run.
+
+There is no menu for the families yet: the file is how a run is pointed at one. On a console it is
+`sdmc:/edenprobe/mode` on the memory card; under `make run` it is the `MODE` variable; on Android it
+is `files/sdmc/edenprobe/mode` in the app's data directory (see "Running it on Android"). For
+example:
+
+| the file holds | what runs |
+|---|---|
+| `quick net` | the judge, cpu and the six net suites, then exit: `make run MODE="quick net"` |
+| `quick audio` | the judge, cpu and the audio suite, nearly silent, then exit |
+| `listen` | every family, the listening sequence just before the audio suite, then the result screens |
+| `quick listen audio` | the judge, cpu, the listening sequence and the audio suite, then exit |
+| `quick fs` | the judge, cpu and the fs suite, then exit |
 
 The first 4096 bytes of the file are read. A longer file is read that far and the mode line says
 "mode file longer than 4096 bytes, the rest ignored"; a word the limit cuts in two is dropped rather
