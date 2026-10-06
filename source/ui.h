@@ -72,9 +72,10 @@ typedef enum {
 UiFamily UiFamilyOf(const char *suite);
 const char *UiFamilyName(UiFamily family);
 
-/// The most groups and cases the screens index. A run has nineteen suites and under five
-/// hundred cases; what does not fit is counted and the overview says so.
-#define UI_MAX_GROUPS 32u
+/// The most groups and cases the screens index. A run has up to forty suites and about eight
+/// hundred cases; what does not fit is counted and the overview says so. Under 255, which marks
+/// a case with no group while the index is built.
+#define UI_MAX_GROUPS 64u
 #define UI_MAX_CASES REPORT_MAX_RECORDS
 
 typedef struct {

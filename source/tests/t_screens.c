@@ -491,17 +491,23 @@ static void CheckRecordFill(void) {
 }
 
 static void CheckOverflow(Fixture *f) {
-    // Forty suites of one case each: the index holds thirty two and counts the rest.
-    for (uint32_t i = 0; i < 40u; ++i) {
+    // Eight suites more than the index holds, of one case each: it holds its limit and counts
+    // the rest.
+    const uint32_t suites = UI_MAX_GROUPS + 8u;
+    for (uint32_t i = 0; i < suites; ++i) {
         char suite[16];
         snprintf(suite, sizeof(suite), "suite%02u", (unsigned)i);
         Fill(&f->records[i], suite, "a case", "none", REPORT_PASS, "", -1);
     }
-    UiRunIndex(&f->small, f->records, 40, 40);
+    UiRunIndex(&f->small, f->records, suites, suites);
     const UiFrame frame = { f->pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
     UiCompose(&frame, &f->small, UiStart(&f->small), NULL);
     const uint32_t said = CountColour(&frame, 0, 50, FRAME_WIDTH, 62, SKIPPED);
     const bool counted = f->small.group_count == UI_MAX_GROUPS && f->small.unplaced == 8u;
+
+    // A run with every family has forty suites, and every one of them has a group of its own.
+    UiRunIndex(&f->small, f->records, 40, 40);
+    const bool whole_run = f->small.group_count == 40u && f->small.unplaced == 0u;
 
     // And a run whose store ran out: the report said more cases than the screens hold.
     UiRunIndex(&f->small, f->records, 3, 9);
@@ -511,10 +517,12 @@ static void CheckOverflow(Fixture *f) {
     UiCompose(&frame, &f->small, UiStart(&f->small), NULL);
     const uint32_t quiet = CountColour(&frame, 0, 50, FRAME_WIDTH, 62, SKIPPED);
     CHECK_TRUE(SUITE, "cases the screens could not hold are counted and the overview says so",
-               CHECK_NONE, counted && said > 50u && short_said > 50u && quiet == 0u,
-               "%u groups and %u unplaced; %u, %u and %u pixels of the warning",
-               (unsigned)f->small.group_count, (unsigned)f->small.unplaced, (unsigned)said,
-               (unsigned)short_said, (unsigned)quiet);
+               CHECK_NONE,
+               counted && whole_run && said > 50u && short_said > 50u && quiet == 0u,
+               "past the limit counted %d, a whole run placed %d; %u, %u and %u pixels of the "
+               "warning",
+               (int)counted, (int)whole_run, (unsigned)said, (unsigned)short_said,
+               (unsigned)quiet);
 }
 
 /// The walk a person makes: the overview, into the first failing group, to a case with pictures
