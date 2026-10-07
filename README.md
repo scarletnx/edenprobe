@@ -40,7 +40,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 Forty suites, in the order they run: the judge, then the processor, then the graphics family,
 then the fs family, then the audio family when a word asks for it, then the net family. A run is
-808 cases: 740 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
+809 cases: 741 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
 the net family; the audio family adds six when named or with `listen`, the mode word `stress` adds
 one, and `fatal` runs the cases the may-crash table names, which are otherwise skipped. The order,
 and what a failure in each suite points at, is in "The roadmap" below. A case that ends the
@@ -50,7 +50,7 @@ program costs that case and not the rest of the run: see "When the program ends 
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and forty cases, no hardware involved: what the program does around
+- **support**, one hundred and forty one cases, no hardware involved: what the program does around
   a verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
   detailed mode's store, screens and navigation, the start screen, the screen that asks whether to
   go on with a run, the running screen and the listening screen, the mode file and its words, the label and the folder
@@ -1059,7 +1059,8 @@ a run counts the steps it already did. It is drawn by the processor into the pro
 a case starts or ends, at most twice a second, and at once when a step begins; never inside a timed
 interval, and not while the listening sequence has its own screen up. A case that takes long, a
 net service waiting out its timeout, holds the screen still until it ends. A quick run from the mode
-file draws nothing, as before, so a script's run and the times it reports are what they were.
+file draws nothing, as before, so a script's run and the times it reports are what they were; the
+word `noprogress` turns it off in any run.
 
 The screens hold every case the report recorded, kept in memory as its line went out, exactly as a
 reader of the line gets it back, plus the pictures the judge looked at. Nothing is read back from
@@ -1133,6 +1134,7 @@ not a letter between them.
 | `hang` | the cases the hang table names, known to never return on a machine that gets them wrong: today the bsd receive-timeout case; off by default. `retry` does not run one, and the start screen cannot turn this on |
 | `retry` | the cases on the crash list run again; one that runs to its end leaves the list (see "When the program ends in the middle"). A case the hang table names stays skipped until `hang` asks too |
 | `nojournal` | nothing is written between cases: no journal, so a crash costs the rest of the run as it did before the journal; for measuring what the journal costs |
+| `noprogress` | no running screen while the suites run: the window keeps the screen before it, as it did before there was one; for a machine whose window misbehaves while the suites draw |
 | `cpu` | the processor family: the cpu suite runs in every mode, so naming it alone keeps the graphics, fs and net families out, a run of a few seconds with nothing drawn |
 | `graphics` | the graphics family: the twenty eight drawing suites, clear to dma; selfcheck, support, reference and cpu always run, whatever family is named |
 | `fs` | the fs family: reads from the memory card, timed and checked; it writes a 64 MiB file and 256 small ones under `sdmc:/edenprobe/fs` the first time |

@@ -81,6 +81,10 @@ static void Take(RunMode *mode, const char *word, bool cut) {
             mode->no_journal = true;
             return;
         }
+        if (strcmp(word, "noprogress") == 0) {
+            mode->no_progress = true;
+            return;
+        }
         if (strcmp(word, "listen") == 0) {
             mode->listen = true;
             return;
@@ -336,6 +340,10 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; listening sequence");
     }
+    if (mode->no_progress) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; no running screen");
+    }
     if (mode->label[0] != '\0') {
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; label %s", mode->label);
@@ -456,7 +464,8 @@ size_t ModeFormat(char *out, size_t out_size, const RunMode *mode) {
     ModeKey(key, sizeof(key), mode);
     bool fits = (mode->detailed || AppendWord(out, out_size, "quick")) &&
                 (key[0] == '\0' || AppendWord(out, out_size, key)) &&
-                (!mode->no_journal || AppendWord(out, out_size, "nojournal"));
+                (!mode->no_journal || AppendWord(out, out_size, "nojournal")) &&
+                (!mode->no_progress || AppendWord(out, out_size, "noprogress"));
     if (fits && ModeLabelValid(mode->label)) {
         char label[MODE_LABEL_MAX + 8u];
         snprintf(label, sizeof(label), "label=%s", mode->label);

@@ -444,7 +444,9 @@ int main(int argc, char **argv) {
     }
     static char running[96];
     snprintf(running, sizeof(running), "edenprobe %s (%s)", EDENPROBE_VERSION, EDENPROBE_BUILD);
-    ViewerProgressBegin(running, run_directory, steps, !mode.detailed, mode.detailed);
+    if (!mode.no_progress) {
+        ViewerProgressBegin(running, run_directory, steps, !mode.detailed, mode.detailed);
+    }
     uint32_t step_number = 0;
     for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
         const Step *const step = &STEPS[i];

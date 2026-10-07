@@ -827,6 +827,34 @@ static void CheckLaunchAndMode(void) {
                    (int)listen.listen, (unsigned)listen.unknown_count, said);
     }
 
+    // The noprogress word turns the running screen off, and only it: no word a launch compares,
+    // and the start screen keeps it when it saves the file.
+    {
+        const RunMode plain = ModeFromText("quick");
+        const RunMode still = ModeFromText("quick NOPROGRESS");
+        char said[REPORT_NOTE_MAX + 1] = "";
+        ModeDescribe(said, sizeof(said), &still, MODE_FAMILIES_PRESENT);
+        char key_plain[JOURNAL_MODE_MAX];
+        char key_still[JOURNAL_MODE_MAX];
+        ModeKey(key_plain, sizeof(key_plain), &plain);
+        ModeKey(key_still, sizeof(key_still), &still);
+        char saved[128];
+        ModeFormat(saved, sizeof(saved), &still);
+        const size_t length = strlen(said);
+        const char *const tail = "; no running screen";
+        CHECK_TRUE(SUITE, "the word noprogress turns the running screen off and nothing else",
+                   CHECK_NONE,
+                   !plain.no_progress && still.no_progress && still.unknown_count == 0u &&
+                       still.quick && strcmp(key_plain, key_still) == 0 &&
+                       strcmp(saved, "quick noprogress") == 0 && length > strlen(tail) &&
+                       strcmp(said + length - strlen(tail), tail) == 0 &&
+                       ModeFromText("noprogresses").unknown_count == 1u,
+                   "plain %d, noprogress %d, unknown %u, keys \"%s\" \"%s\", saved \"%.40s\", "
+                   "said \"%.200s\"",
+                   (int)plain.no_progress, (int)still.no_progress, (unsigned)still.unknown_count,
+                   key_plain, key_still, saved, said);
+    }
+
     // Every word, alone and together, any case, in a file that is missing, empty, or has words
     // nobody knows. What the run does is the first two columns; the rest is what it reports.
     // With no family named every family runs but audio, which only a word brings.

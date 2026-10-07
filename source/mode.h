@@ -35,6 +35,8 @@ extern "C" {
 ///             gets them wrong. Off by default. The start screen cannot turn this on.
 ///   nojournal nothing written between cases: no journal, so a crash costs the rest of the run.
 ///             For measuring what the journal costs, and for a card that must not be written.
+///   noprogress no running screen while the suites run: the window keeps the screen before it,
+///             as before there was one. For a machine whose window misbehaves while it draws.
 ///   listen    before the audio family's cases, a sequence of sounds for a person to hear, and
 ///             the audio family with it.
 ///   cpu       a suite family: the processor's instructions, which run in every mode anyway, so
@@ -138,6 +140,8 @@ typedef struct {
     bool saved_by_screen;
     /// The word `nojournal`: no journal, and no run that goes on after a crash.
     bool no_journal;
+    /// The word `noprogress`: no running screen.
+    bool no_progress;
     /// The word `listen`: the listening sequence, and the audio family with it.
     bool listen;
     /// The family words in the file, whether or not this build has them.
@@ -187,7 +191,8 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
 size_t ModeKey(char *out, size_t out_size, const RunMode *mode);
 
 /// The mode file's words for @p mode, as the start screen saves them: quick when the run leaves
-/// once the report closes, then the words ModeKey keeps, nojournal, and the label. Words the file
+/// once the report closes, then the words ModeKey keeps, nojournal, noprogress, and the label.
+/// Words the file
 /// had and nobody understood are not written. Returns the length, or 0 with an empty string when
 /// @p out is too small.
 size_t ModeFormat(char *out, size_t out_size, const RunMode *mode);
