@@ -1638,6 +1638,139 @@ static void CheckResumeScreen(Fixture *f) {
                (unsigned)small_lit);
 }
 
+/// The running screen: when it draws, how it counts a step's cases pass by pass, the words for
+/// a pass and a length of time, and a frame with the bar of steps in proportion.
+static void CheckProgress(Fixture *f) {
+    const uint64_t ms = 1000000ull;
+    const bool due = UI_PROGRESS_NANOSECONDS == 500u * ms && UiProgressDue(false, 0, 0, false) &&
+                     !UiProgressDue(true, 1000u * ms, 1499u * ms, false) &&
+                     UiProgressDue(true, 1000u * ms, 1500u * ms, false) &&
+                     UiProgressDue(true, 1000u * ms, 1000u * ms + 1u, true) &&
+                     UiProgressDue(true, 2000u * ms, 1000u * ms, false);
+
+    UiProgressCount untimed;
+    UiProgressCountReset(&untimed);
+    UiProgressCountCase(&untimed, 0, true);
+    UiProgressCountCase(&untimed, 0, false);
+    UiProgressCountCase(&untimed, 0, true);
+    UiProgressCountCase(&untimed, 0, false);
+    UiProgressCount judge;
+    UiProgressCountReset(&judge);
+    for (int i = 0; i < 3; ++i) {
+        UiProgressCountCase(&judge, 0, false);
+    }
+    UiProgressCount timed;
+    UiProgressCountReset(&timed);
+    for (int i = 0; i < 3; ++i) {
+        UiProgressCountCase(&timed, 1, true);
+        UiProgressCountCase(&timed, 1, false);
+    }
+    const uint32_t warm_up = timed.count;
+    UiProgressCountCase(&timed, 2, true);
+    const bool second_pass = timed.previous == 3u && timed.count == 1u;
+    UiProgressCountCase(&timed, 2, false);
+    // A case skipped at its start ends with no start, and counts once.
+    UiProgressCountCase(&timed, 2, false);
+    const bool counts = untimed.count == 2u && untimed.previous == 0u && judge.count == 3u &&
+                        warm_up == 3u && second_pass && timed.count == 2u;
+
+    char words[4][96];
+    UiProgressPassWords(words[0], sizeof(words[0]), 0u, 0u);
+    UiProgressPassWords(words[1], sizeof(words[1]), 1u, 10u);
+    UiProgressPassWords(words[2], sizeof(words[2]), 5u, 10u);
+    UiProgressPassWords(words[3], sizeof(words[3]), 10u, 10u);
+    char elapsed[4][32];
+    UiElapsedWords(elapsed[0], sizeof(elapsed[0]), 0u);
+    UiElapsedWords(elapsed[1], sizeof(elapsed[1]), 59999u * ms);
+    UiElapsedWords(elapsed[2], sizeof(elapsed[2]), 61000u * ms);
+    UiElapsedWords(elapsed[3], sizeof(elapsed[3]), 3725000u * ms);
+    const bool said = words[0][0] == '\0' &&
+                      strcmp(words[1], "pass 1 of 10: the warm-up") == 0 &&
+                      strcmp(words[2], "pass 5 of 10: a rehearsal, timed") == 0 &&
+                      strcmp(words[3], "pass 10 of 10: the verdict pass, timed and reported") ==
+                          0 &&
+                      strcmp(elapsed[0], "0 s") == 0 && strcmp(elapsed[1], "59 s") == 0 &&
+                      strcmp(elapsed[2], "1 min 1 s") == 0 &&
+                      strcmp(elapsed[3], "1 h 2 min") == 0;
+    CHECK_TRUE(SUITE, "the running screen draws twice a second and counts a step's cases by pass",
+               CHECK_NONE, due && counts && said,
+               "due %d; untimed %u, judge %u, warm-up %u, second pass %d then %u; words \"%s\" "
+               "\"%s\" \"%s\"; times \"%s\" \"%s\" \"%s\" \"%s\"",
+               (int)due, (unsigned)untimed.count, (unsigned)judge.count, (unsigned)warm_up,
+               (int)second_pass, (unsigned)timed.count, words[1], words[2], words[3],
+               elapsed[0], elapsed[1], elapsed[2], elapsed[3]);
+
+    UiProgress progress;
+    memset(&progress, 0, sizeof(progress));
+    progress.heading = "edenprobe 0.3.0 (test)";
+    progress.folder = "sdmc:/edenprobe/runs/b7172fc";
+    progress.step = 17u;
+    progress.steps = 34u;
+    progress.step_name = "net";
+    progress.pass = 0u;
+    progress.passes = 0u;
+    progress.suite = "ssl";
+    progress.name = "the name set on a connection reads back";
+    progress.case_number = 5u;
+    progress.case_total = 0u;
+    progress.passed = 412u;
+    progress.failed = 3u;
+    progress.skipped = 20u;
+    progress.crashed = 1u;
+    progress.elapsed_ns = 83000u * ms;
+    const UiFrame frame = { f->pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
+    static const uint8_t DIM_COLOUR[3] = { 0x88, 0x90, 0xA0 };
+    const uint32_t bar = UI_PROGRESS_BAR_TOP;
+    const uint32_t bar_end = bar + UI_PROGRESS_BAR_HEIGHT;
+    const uint32_t width = FRAME_WIDTH - 64u;
+    UiComposeProgress(&frame, &progress);
+    const uint32_t done = CountColour(&frame, 0, bar, FRAME_WIDTH, bar_end, PASSED);
+    const uint32_t under_way = CountColour(&frame, 0, bar, FRAME_WIDTH, bar_end, DIM_COLOUR);
+    const uint32_t header = CountLit(&frame, 8u, 24u);
+    const uint32_t counted = CountColour(&frame, 0, 30u, FRAME_WIDTH, 46u, FAILED);
+    const uint32_t named = TextLines(&frame, bar_end + 16u, bar_end + 16u + 4u * UI_ROW_HEIGHT);
+    const uint32_t footer = CountLit(&frame, FRAME_HEIGHT - 14u, FRAME_HEIGHT - 6u);
+    DumpFrame(&frame, "11-running");
+    progress.step = 1u;
+    UiComposeProgress(&frame, &progress);
+    const uint32_t first = CountColour(&frame, 0, bar, FRAME_WIDTH, bar_end, PASSED);
+    progress.step = 40u;
+    UiComposeProgress(&frame, &progress);
+    const uint32_t past = CountColour(&frame, 0, bar, FRAME_WIDTH, bar_end, PASSED);
+    progress.name = NULL;
+    progress.step = 3u;
+    progress.step_name = "clear";
+    progress.pass = 3u;
+    progress.passes = 10u;
+    UiComposeProgress(&frame, &progress);
+    const uint32_t unnamed = TextLines(&frame, bar_end + 16u + UI_ROW_HEIGHT,
+                                       bar_end + 16u + 4u * UI_ROW_HEIGHT);
+    const uint32_t pass_line = CountLit(&frame, bar_end + 16u, bar_end + 16u + 16u);
+    const UiFrame small = { f->pixels, 24u, 100u, 24u * 4u };
+    const size_t used = (size_t)small.pitch * small.height;
+    memset(f->pixels + used, 0xA5, 64u);
+    UiComposeProgress(&small, &progress);
+    uint32_t spilled = 0;
+    for (size_t b = used; b < used + 64u; ++b) {
+        spilled += f->pixels[b] != 0xA5 ? 1u : 0u;
+    }
+    const bool drawn = done == (width * 16u / 34u) * UI_PROGRESS_BAR_HEIGHT &&
+                       under_way == (width * 17u / 34u - width * 16u / 34u) *
+                                        UI_PROGRESS_BAR_HEIGHT &&
+                       first == 0u && past == (width * 33u / 34u) * UI_PROGRESS_BAR_HEIGHT &&
+                       header > 100u && counted > 0u && named >= 2u && footer > 100u &&
+                       unnamed == 0u && pass_line > 100u && spilled == 0u;
+    CHECK_TRUE(SUITE, "the running screen shows the step, the case and the steps done in proportion",
+               CHECK_NONE, drawn,
+               "bar done %u (want %u), under way %u, at the first step %u, past the last %u; "
+               "header %u, counts %u, case lines %u, footer %u, with no case %u, pass line %u, "
+               "spilled %u",
+               (unsigned)done, (unsigned)((width * 16u / 34u) * UI_PROGRESS_BAR_HEIGHT),
+               (unsigned)under_way, (unsigned)first, (unsigned)past, (unsigned)header,
+               (unsigned)counted, (unsigned)named, (unsigned)footer, (unsigned)unnamed,
+               (unsigned)pass_line, (unsigned)spilled);
+}
+
 /// A case the program ended inside is counted apart from the skips, as the summary counts it,
 /// and marked in a colour of its own.
 static void CheckCrashed(Fixture *f) {
@@ -1869,6 +2002,7 @@ void RunSupportScreens(void) {
     CheckStartScreen(f);
     CheckStartMenu(f);
     CheckResumeScreen(f);
+    CheckProgress(f);
     CheckCrashed(f);
     free(f);
 }

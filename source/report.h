@@ -165,6 +165,13 @@ void ReportSkip(const char *suite, const char *name, ReportReason reason, const 
 /// nothing but ordinary arithmetic, and are only journaled when they end.
 bool ReportStart(const char *suite, const char *name);
 
+/// Told as each case starts and as each ends, after the journal's record of it and outside every
+/// timed interval: what the running screen draws from. @p started is false for an end, whatever
+/// the case came to, a rehearsal's included. NULL tells nobody, which is the default. Hands back
+/// the watcher it replaces, for a case that borrows the place to put it back.
+typedef void (*ReportWatcher)(const char *suite, const char *name, bool started);
+ReportWatcher ReportSetWatcher(ReportWatcher watcher);
+
 /// Whether a case that reports a verdict must have started. On for the families that ask the
 /// machine something, where one that did not is a case a crash could not skip, and says so in a
 /// note.

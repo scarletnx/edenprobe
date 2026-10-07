@@ -453,6 +453,79 @@ uint32_t UiResumeRowTop(uint32_t row);
 void UiComposeResume(const UiFrame *frame, const UiResumeInfo *info, UiResumeState state,
                      uint32_t seconds_left);
 
+/// The running screen: what a run that has a screen shows while its suites run, so a person can
+/// tell a long run from a stuck one. It is drawn between cases, when the report says one started
+/// or ended, never inside a timed interval, and at most once every UI_PROGRESS_NANOSECONDS but
+/// when a step begins. Like every screen here, it decides nothing.
+typedef struct {
+    /// The first line: the program and its build.
+    const char *heading;
+    /// The run's folder.
+    const char *folder;
+    /// The step under way, counted from one among the steps this run has, and its name.
+    uint32_t step;
+    uint32_t steps;
+    const char *step_name;
+    /// The pass of a timed step, counted from one with the warm-up first, and how many it makes;
+    /// both nought for a step that is not timed.
+    uint32_t pass;
+    uint32_t passes;
+    /// The case under way, or the last that ended, with the suite its line names; NULL before
+    /// the step's first.
+    const char *suite;
+    const char *name;
+    /// Its number among the cases this pass of the step has met, and how many the pass before
+    /// met, which is how many this one will: nought when there was no pass before.
+    uint32_t case_number;
+    uint32_t case_total;
+    /// The report's counts so far.
+    uint32_t passed;
+    uint32_t failed;
+    uint32_t skipped;
+    uint32_t crashed;
+    /// Since this launch began the run's first step.
+    uint64_t elapsed_ns;
+    /// What comes after the run: the program leaves, or the results come up.
+    bool quick;
+} UiProgress;
+
+/// How often, at most, the running screen is drawn between two steps' first frames.
+#define UI_PROGRESS_NANOSECONDS 500000000ull
+
+/// Whether to draw now: the first time, when a step begins, and otherwise once
+/// UI_PROGRESS_NANOSECONDS have passed since the last frame. @p now_ns and @p drawn_ns are
+/// readings of one clock.
+bool UiProgressDue(bool drawn_before, uint64_t drawn_ns, uint64_t now_ns, bool step_began);
+
+/// The cases one step has met, pass by pass, from the report's starts and ends: a case that
+/// starts counts, and so does one that ends without having started, as the judge's do.
+typedef struct {
+    uint32_t pass;
+    uint32_t count;
+    /// What the pass before counted, nought when there was none.
+    uint32_t previous;
+    bool open;
+} UiProgressCount;
+
+/// A new step: nothing met.
+void UiProgressCountReset(UiProgressCount *count);
+
+/// One start or end, in pass @p pass (PerfPassNumber, nought outside a timed suite).
+void UiProgressCountCase(UiProgressCount *count, uint32_t pass, bool started);
+
+/// "pass 3 of 10: a rehearsal" and the like, or an empty string for a step that is not timed.
+size_t UiProgressPassWords(char *out, size_t out_size, uint32_t pass, uint32_t passes);
+
+/// A length of time as the screen says it: "45 s", "1 min 23 s", "2 h 5 min".
+size_t UiElapsedWords(char *out, size_t out_size, uint64_t ns);
+
+/// Where the bar of steps is drawn, for the cases that check how much of it is filled.
+#define UI_PROGRESS_BAR_TOP (UI_LIST_TOP + UI_ROW_HEIGHT + 6u)
+#define UI_PROGRESS_BAR_HEIGHT 8u
+
+/// Draws the running screen over the whole frame.
+void UiComposeProgress(const UiFrame *frame, const UiProgress *progress);
+
 /// How many rows the overview (UI_LEVEL_OVERVIEW) or a group (UI_LEVEL_GROUP) has room for on
 /// a frame @p height tall.
 uint32_t UiListRows(UiLevel level, uint32_t height);

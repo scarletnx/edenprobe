@@ -54,6 +54,25 @@ typedef enum {
 /// closed before a pixel reaches a screen, so the two modes cannot report different bytes.
 ViewerEnd ViewerRun(void);
 
+/// The running screen (UiComposeProgress), from the run's first step to its last. It draws into
+/// the program's one framebuffer, which is open when a screen came before the run; @p open opens
+/// it when none did, which a detailed run asks for and a quick one from the mode file does not,
+/// so a script's run draws nothing, as it always did. @p steps is how many the run has, @p quick
+/// what follows it. Nothing happens when there is no screen.
+void ViewerProgressBegin(const char *heading, const char *folder, uint32_t steps, bool quick,
+                         bool open);
+
+/// A step begins: its number among the run's steps, its name, and whether its suite is timed,
+/// which makes ten passes. Draws at once.
+void ViewerProgressStep(uint32_t step, const char *name, bool timed);
+
+/// The run has ended: nothing more is drawn until the results, and the report tells nobody.
+void ViewerProgressEnd(void);
+
+/// Closes the program's framebuffer if a screen left it open, for a run that leaves with no
+/// results screen. Safe when it is closed.
+void ViewerEndScreen(void);
+
 /// What the listening sequence was asked since the previous poll, or that a voice did not end.
 /// The viewer itself only returns a button or CLOSED. FAIL is the sequence's own: a step failed,
 /// or a clip did not finish in time.

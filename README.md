@@ -40,7 +40,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 Forty suites, in the order they run: the judge, then the processor, then the graphics family,
 then the fs family, then the audio family when a word asks for it, then the net family. A run is
-805 cases: 737 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
+808 cases: 740 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
 the net family; the audio family adds six when named or with `listen`, the mode word `stress` adds
 one, and `fatal` runs the cases the may-crash table names, which are otherwise skipped. The order,
 and what a failure in each suite points at, is in "The roadmap" below. A case that ends the
@@ -50,13 +50,13 @@ program costs that case and not the rest of the run: see "When the program ends 
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and thirty seven cases, no hardware involved: what the program does around
+- **support**, one hundred and forty cases, no hardware involved: what the program does around
   a verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
   detailed mode's store, screens and navigation, the start screen, the screen that asks whether to
-  go on with a run and the listening screen, the mode file and its words, the label and the folder
+  go on with a run, the running screen and the listening screen, the mode file and its words, the label and the folder
   it names, the `skip` result, the time a case reports (nineteen cases, see "Time per case"), the
   journal, the crash list, the may-crash and hang tables and what a launch decides from them
-  (twenty four cases, see "When the program ends in the middle"), and the last copy a device
+  (twenty five cases, see "When the program ends in the middle"), and the last copy a device
   waits for before it closes, and the note a late one leaves (eight cases). One case carries the
   whole idea: the diff picture is built from what the judge decided pixel by pixel, not from
   comparing two images, so a pixel that differs and was allowed to is not painted as a difference.
@@ -626,9 +626,12 @@ descriptor `sslConnectionSetSocketDescriptor` hands back (libnx's reading of it,
 shares: the one passed in); and nsd expanding the placeholder with no session (the contract's
 statement about the real service). Each case's detail says the same.
 
-Nothing is put on a screen during the run. The target is offscreen and the program reads it back
-itself, which keeps the compositor, the swapchain and vertical sync out of a test about none of
-them, and keeps the first problem on a new machine from being "did the screen work".
+No case draws to a screen. The targets are offscreen and the program reads them back itself,
+which keeps the compositor, the swapchain and vertical sync out of a test about none of them, and
+keeps the first problem on a new machine from being "did the screen work". The one thing on a
+screen while the suites run is the running screen of a run that has one (see "Looking at it on the
+console"), composed by the processor between cases, never inside a timed interval; a quick run
+from the mode file draws nothing at all.
 
 ## The roadmap
 
@@ -806,7 +809,9 @@ queue stands idle after it. A case's time is the sum of those intervals since th
 its clears, uploads, draw and readback. A line with no work since the previous one has no `us` (the
 device opening, a shader loading, a case judged from another's readback). Recording the commands,
 judging the pixels and writing the line or a picture happen outside those intervals, so a number is
-the machine's work, and a slower judge cannot move it.
+the machine's work, and a slower judge cannot move it. So does drawing the running screen, which a
+run with a screen does between cases, at most twice a second; a quick run from the mode file draws
+none, which is the run to compare numbers from.
 
 **How it is repeated.** A drawing suite runs ten times: a warm-up whose numbers are dropped, eight
 rehearsals with the report muted (no line, no count, no picture), and the verdict pass, the only one
@@ -1043,6 +1048,18 @@ a computer beside the console.
 **Quick** is what a script wants: every suite, both channels, and the program exits, in about six to
 seven seconds under eden-cli (6.4 to 7.3 in most runs at a load of 4 to 9, emulator start included),
 several times that when the machine is busy. It is the same run up to the report closing.
+
+**The running screen.** While the suites run, a run with a screen shows how far it is: every
+detailed run, and a quick one the start screen chose. It names the step under way and its number
+among the run's steps (`step 17 of 34: net`, the steps done drawn as a bar), the pass of a timed
+suite (`pass 3 of 10: a rehearsal, timed`), the case under way with its number in the pass and, from
+the second pass on, how many the pass has (`case 12 of 40`), the suite a net case belongs to, the
+report's counts so far, how long the run has been going and its folder. A launch that goes on with
+a run counts the steps it already did. It is drawn by the processor into the program's window when
+a case starts or ends, at most twice a second, and at once when a step begins; never inside a timed
+interval, and not while the listening sequence has its own screen up. A case that takes long, a
+net service waiting out its timeout, holds the screen still until it ends. A quick run from the mode
+file draws nothing, as before, so a script's run and the times it reports are what they were.
 
 The screens hold every case the report recorded, kept in memory as its line went out, exactly as a
 reader of the line gets it back, plus the pictures the judge looked at. Nothing is read back from
@@ -1373,8 +1390,8 @@ EDENPROBE_FRAMES=/tmp/frames make -f host.mk host-run
 
 The screen cases then also write each frame of their walk there as a PAM file: the overview, a
 failing graphics group, one of its cases on its pictures and alone on `judged`, the group again, a
-net case's detail page, a net group, the start screen and the screen that asks whether to go on
-with a run; `magick 1-overview.pam 1-overview.png` makes a PNG of one.
+net case's detail page, a net group, the start screen with its menu, the screen that asks whether
+to go on with a run and the running screen; `magick 1-overview.pam 1-overview.png` makes a PNG of one.
 The frames are never read, so they change no verdict.
 
 Commit messages have a convention too: `edenprobe: what changed`, one to three lines of intent, one

@@ -1779,6 +1779,139 @@ void UiComposeResume(const UiFrame *frame, const UiResumeInfo *info, UiResumeSta
     DrawButtons(frame, "up/down choose   A confirm");
 }
 
+bool UiProgressDue(bool drawn_before, uint64_t drawn_ns, uint64_t now_ns, bool step_began) {
+    return !drawn_before || step_began || now_ns < drawn_ns ||
+           now_ns - drawn_ns >= UI_PROGRESS_NANOSECONDS;
+}
+
+void UiProgressCountReset(UiProgressCount *count) {
+    if (count != NULL) {
+        memset(count, 0, sizeof(*count));
+    }
+}
+
+void UiProgressCountCase(UiProgressCount *count, uint32_t pass, bool started) {
+    if (count == NULL) {
+        return;
+    }
+    if (pass != count->pass) {
+        // A pass begins with its first case: the one before it counted every case there is.
+        count->previous = count->count;
+        count->count = 0u;
+        count->pass = pass;
+        count->open = false;
+    }
+    if (started || !count->open) {
+        ++count->count;
+    }
+    count->open = started;
+}
+
+size_t UiProgressPassWords(char *out, size_t out_size, uint32_t pass, uint32_t passes) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (pass == 0u || passes == 0u) {
+        return 0;
+    }
+    const char *const what = pass == 1u        ? "the warm-up"
+                             : pass < passes ? "a rehearsal, timed"
+                                             : "the verdict pass, timed and reported";
+    snprintf(out, out_size, "pass %u of %u: %s", (unsigned)pass, (unsigned)passes, what);
+    return strlen(out);
+}
+
+size_t UiElapsedWords(char *out, size_t out_size, uint64_t ns) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    const uint64_t seconds = ns / 1000000000ull;
+    if (seconds < 60u) {
+        snprintf(out, out_size, "%u s", (unsigned)seconds);
+    } else if (seconds < 3600u) {
+        snprintf(out, out_size, "%u min %u s", (unsigned)(seconds / 60u),
+                 (unsigned)(seconds % 60u));
+    } else {
+        snprintf(out, out_size, "%u h %u min", (unsigned)(seconds / 3600u),
+                 (unsigned)(seconds % 3600u / 60u));
+    }
+    return strlen(out);
+}
+
+void UiComposeProgress(const UiFrame *frame, const UiProgress *progress) {
+    if (frame == NULL || frame->pixels == NULL || progress == NULL) {
+        return;
+    }
+    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
+        UiText(frame, 0, 0, 1, TEXT, "frame too small");
+        return;
+    }
+    // The results screens' header: one word at the margin, the program after it, the counts on
+    // the second row.
+    Say(frame, MARGIN, 8, TEXT, "running");
+    SayFitted(frame, MARGIN + 9u * GLYPH, 8, DIM,
+              progress->heading != NULL ? progress->heading : "edenprobe");
+    const uint32_t x = Say(frame, MARGIN, 30, DIM, "so far: ");
+    SayCounts(frame, x, 30, progress->passed, progress->failed, progress->skipped,
+              progress->crashed);
+
+    char text[200];
+    const uint32_t step = progress->step < progress->steps ? progress->step : progress->steps;
+    snprintf(text, sizeof(text), "step %u of %u: %s", (unsigned)step, (unsigned)progress->steps,
+             progress->step_name != NULL ? progress->step_name : "");
+    SayFitted(frame, MARGIN, UI_LIST_TOP, TEXT, text);
+
+    // The steps done, and the one under way, in proportion.
+    const uint32_t width = frame->width - 2u * MARGIN;
+    FillRect(frame, MARGIN, UI_PROGRESS_BAR_TOP, width, UI_PROGRESS_BAR_HEIGHT, BORDER);
+    if (progress->steps > 0u && step > 0u) {
+        const uint32_t done = (uint32_t)((uint64_t)width * (step - 1u) / progress->steps);
+        const uint32_t under_way = (uint32_t)((uint64_t)width * step / progress->steps) - done;
+        FillRect(frame, MARGIN, UI_PROGRESS_BAR_TOP, done, UI_PROGRESS_BAR_HEIGHT, PASSED);
+        FillRect(frame, MARGIN + done, UI_PROGRESS_BAR_TOP, under_way, UI_PROGRESS_BAR_HEIGHT,
+                 DIM);
+    }
+
+    uint32_t y = UI_PROGRESS_BAR_TOP + UI_PROGRESS_BAR_HEIGHT + 16u;
+    if (UiProgressPassWords(text, sizeof(text), progress->pass, progress->passes) > 0u) {
+        SayFitted(frame, MARGIN, y, DIM, text);
+    }
+    y += LINE;
+    if (progress->name != NULL && progress->case_number > 0u) {
+        if (progress->case_total >= progress->case_number) {
+            snprintf(text, sizeof(text), "case %u of %u", (unsigned)progress->case_number,
+                     (unsigned)progress->case_total);
+        } else {
+            snprintf(text, sizeof(text), "case %u", (unsigned)progress->case_number);
+        }
+        // The suite as the case's line names it, when it is not the step's own name: the net
+        // step's six suites.
+        const bool other = progress->suite != NULL && progress->step_name != NULL &&
+                           strcmp(progress->suite, progress->step_name) != 0;
+        if (other) {
+            const size_t used = strlen(text);
+            snprintf(text + used, sizeof(text) - used, ", in %s", progress->suite);
+        }
+        SayFitted(frame, MARGIN, y, DIM, text);
+        TextWrapped(frame, MARGIN, y + LINE, BIG, LINE, TEXT, progress->name, Columns(frame), 2u);
+    }
+    y += 3u * LINE + 8u;
+    char elapsed[32];
+    UiElapsedWords(elapsed, sizeof(elapsed), progress->elapsed_ns);
+    snprintf(text, sizeof(text), "running for %s", elapsed);
+    SayFitted(frame, MARGIN, y, DIM, text);
+    snprintf(text, sizeof(text), "folder: %s", progress->folder != NULL ? progress->folder : "");
+    SayFitted(frame, MARGIN, y + LINE, DIM, text);
+
+    DrawButtons(frame, progress->quick
+                           ? "nothing to press: the program leaves when the run ends; this screen "
+                             "is drawn between cases"
+                           : "nothing to press: the results come up when the run ends; this "
+                             "screen is drawn between cases");
+}
+
 // The listening sequence, one row per screen, in the order a run with no button plays them.
 // The guide is what a person is listening for; the log lines stay the sequence's own.
 static const char *const LISTEN_A_LOW =

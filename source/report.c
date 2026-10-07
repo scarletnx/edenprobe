@@ -73,6 +73,8 @@ static char pending_suite[JOURNAL_SUITE_MAX];
 static char pending_name[JOURNAL_NAME_MAX];
 static uint32_t bookkeeping_notes;
 
+static ReportWatcher watcher;
+
 static bool retaining;
 static ReportRecord *records;
 static size_t record_count;
@@ -594,7 +596,23 @@ bool ReportStart(const char *suite, const char *name) {
     KeyOf(pending_suite, sizeof(pending_suite), suite);
     memcpy(pending_name, key, sizeof(pending_name));
     JournalCase(JOURNAL_START, suite, key, JOURNAL_MUTED);
+    if (watcher != NULL) {
+        watcher(suite, name, true);
+    }
     return true;
+}
+
+ReportWatcher ReportSetWatcher(ReportWatcher next) {
+    const ReportWatcher previous = watcher;
+    watcher = next;
+    return previous;
+}
+
+/// Tells the watcher a case ended, after everything else its end does.
+static void Watch(const char *suite, const char *name) {
+    if (watcher != NULL) {
+        watcher(suite, name, false);
+    }
 }
 
 void ReportRequireStarts(bool on) {
@@ -626,8 +644,9 @@ static void Survived(const char *suite, const char *key) {
     ReportNote("retry: %s case \"%s\" ran to its end, so it leaves the crash list", suite, key);
 }
 
-void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed_,
-                const char *detail) {
+/// A case's end, everything but telling the watcher, which ReportCase does after it.
+static void EndCase(const char *suite, const char *name, CheckTier tier, bool passed_,
+                    const char *detail) {
     uint32_t us = 0;
     const bool timed = PerfCaseEnd(name, &us);
     char key[JOURNAL_NAME_MAX];
@@ -673,7 +692,9 @@ const char *ReportReasonWord(ReportReason reason) {
     return reason < REPORT_REASON_COUNT ? REASON_WORDS[reason] : "unavailable";
 }
 
-void ReportSkip(const char *suite, const char *name, ReportReason reason, const char *detail) {
+/// A skip, everything but telling the watcher, which ReportSkip does after it.
+static void EndSkip(const char *suite, const char *name, ReportReason reason,
+                    const char *detail) {
     // A skip closes a case like any other, so a timed suite's positions stay in step; it asked
     // nothing, so its line never carries a time, and a rehearsal counts it no more than a case.
     (void)PerfCaseEnd(name, NULL);
@@ -704,6 +725,17 @@ void ReportSkip(const char *suite, const char *name, ReportReason reason, const 
     // No picture on the screens either, as on the line: nothing in one was judged.
     Keep(suite, name, TierName(CHECK_NONE), as_crash ? REPORT_CRASHED : REPORT_SKIP, detail, -1);
     JournalCase(JOURNAL_END, suite, key, as_crash ? JOURNAL_CRASHED : JOURNAL_SKIPPED);
+}
+
+void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed_,
+                const char *detail) {
+    EndCase(suite, name, tier, passed_, detail);
+    Watch(suite, name);
+}
+
+void ReportSkip(const char *suite, const char *name, ReportReason reason, const char *detail) {
+    EndSkip(suite, name, reason, detail);
+    Watch(suite, name);
 }
 
 bool ReportJournalOpen(const char *path, bool fresh) {

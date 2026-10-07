@@ -325,8 +325,8 @@ int main(int argc, char **argv) {
 
     // No console. The report channels stay the interface a verdict is read from, so a bring-up
     // problem on a new machine is never "did the screen work". The screens up before the report
-    // closes, the start screen and the listening sequence, only choose what runs and say what
-    // is playing.
+    // closes, the one that asks whether to go on, the start screen, the running screen and the
+    // listening sequence, only choose what runs and say what is happening.
     mkdir(PROBE_DIRECTORY, 0777);
 
     // What the card says before anything is opened: the mode file's words, then, in the folder
@@ -435,11 +435,23 @@ int main(int argc, char **argv) {
     StreamSetStress(mode.stress);
     AudioSetListen(mode.listen);
     const bool timing = !mode.no_timing;
+    // The running screen, for a run with a screen: a detailed one, or one the start screen made
+    // quick. Counted over every step the run has, done ones included, so a launch that goes on
+    // says how far the whole run is.
+    uint32_t steps = 0;
+    for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
+        steps += StepRuns(&STEPS[i], families) ? 1u : 0u;
+    }
+    static char running[96];
+    snprintf(running, sizeof(running), "edenprobe %s (%s)", EDENPROBE_VERSION, EDENPROBE_BUILD);
+    ViewerProgressBegin(running, run_directory, steps, !mode.detailed, mode.detailed);
+    uint32_t step_number = 0;
     for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
         const Step *const step = &STEPS[i];
         if (!StepRuns(step, families)) {
             continue;
         }
+        ++step_number;
         if (plan.start != JOURNAL_FRESH &&
             (JournalStepDone(&journal, step->name) ||
              (plan.start == JOURNAL_RESUME_STEP && journal.in_step &&
@@ -453,6 +465,7 @@ int main(int argc, char **argv) {
         record.offset = ReportOffset();
         record.counts = ReportCounts();
         ReportJournalWrite(&record);
+        ViewerProgressStep(step_number, step->name, step->timed && timing);
         ReportRequireStarts(step->asks);
         if (step->timed) {
             RunTimed(step->name, step->run, timing);
@@ -462,6 +475,7 @@ int main(int argc, char **argv) {
         ReportRequireStarts(false);
         JournalSimple(JOURNAL_DONE, step->name, 0);
     }
+    ViewerProgressEnd();
     {
         // A table entry this launch's suites never reached names a case this build lacks, and
         // would protect nothing.
@@ -507,6 +521,8 @@ int main(int argc, char **argv) {
                    (unsigned)(UI_UNATTENDED_NANOSECONDS / 1000000000ull));
         ReportClose();
     }
+    // A quick run the start screen chose has its screen still open.
+    ViewerEndScreen();
 
     return ReportFailed() == 0 ? 0 : 1;
 }

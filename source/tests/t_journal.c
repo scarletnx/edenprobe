@@ -885,6 +885,49 @@ static void CheckBookkeeping(void) {
                (unsigned)overlapped, (unsigned)after);
 }
 
+// What the watcher below was told, in order.
+static uint32_t watched_starts;
+static uint32_t watched_ends;
+static char watched_last[64];
+
+static void Watcher(const char *suite, const char *name, bool started) {
+    if (started) {
+        ++watched_starts;
+    } else {
+        ++watched_ends;
+    }
+    snprintf(watched_last, sizeof(watched_last), "%s/%s", suite, name);
+}
+
+/// The report tells its watcher each start and each end, a skip and a rehearsal's included, and
+/// nothing once there is no watcher. The running screen's watcher, on the console, is put back.
+static void CheckWatcher(void) {
+    ReportRehearse(SUITE);
+    watched_starts = watched_ends = 0u;
+    watched_last[0] = '\0';
+    const ReportWatcher running = ReportSetWatcher(Watcher);
+    const bool started = ReportStart(SUITE, "a watched case");
+    const bool told_start = watched_starts == 1u && watched_ends == 0u &&
+                            strcmp(watched_last, "support/a watched case") == 0;
+    ReportCase(SUITE, "a watched case", CHECK_NONE, true, NULL);
+    ReportCase(SUITE, "a watched case that never said it started", CHECK_NONE, true, NULL);
+    ReportSkip(SUITE, "a watched skip", REPORT_REASON_NOT_CONFIGURED, "nothing");
+    const bool told_ends = watched_starts == 1u && watched_ends == 3u &&
+                           strcmp(watched_last, "support/a watched skip") == 0;
+    const bool handed_back = ReportSetWatcher(NULL) == Watcher;
+    (void)ReportStart(SUITE, "an unwatched case");
+    ReportCase(SUITE, "an unwatched case", CHECK_NONE, true, NULL);
+    const bool quiet = watched_starts == 1u && watched_ends == 3u && handed_back;
+    ReportSetWatcher(running);
+    ReportRehearse(NULL);
+    CHECK_TRUE(SUITE, "the report tells its watcher each case's start and end, and no one else",
+               CHECK_NONE, started && told_start && told_ends && quiet,
+               "started %d; told the start %d, the ends %d, nothing after %d (%u starts, %u ends, "
+               "last %s)",
+               (int)started, (int)told_start, (int)told_ends, (int)quiet,
+               (unsigned)watched_starts, (unsigned)watched_ends, watched_last);
+}
+
 static void CheckMayCrashTable(void) {
     // Every entry names one case of one suite, once, with the family its suite is in and a
     // reason; and SM4's is the name the cpu suite gives it.
@@ -1099,6 +1142,7 @@ void RunSupportJournal(const char *scratch) {
 #endif
     CheckDecisions();
     CheckBookkeeping();
+    CheckWatcher();
     CheckMayCrashTable();
     CheckPrecedence();
     CheckHang();

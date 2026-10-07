@@ -8,6 +8,7 @@
 #include <switch.h>
 
 #include "mode.h"
+#include "perf.h"
 #include "picture.h"
 #include "report.h"
 #include "ui.h"
@@ -339,11 +340,105 @@ ViewerEnd ViewerRun(void) {
     return end;
 }
 
+void ViewerEndScreen(void) {
+    CloseScreen();
+}
+
+// The running screen, drawn between cases into the program's one framebuffer while the run is
+// on. Nothing here is read by a case: the counts are the report's, the pass is the timer's.
+static bool progress_on;
+static UiProgress progress;
+static UiProgressCount progress_count;
+static uint64_t progress_began;
+static uint64_t progress_drawn;
+static bool progress_drawn_once;
+static char progress_suite[REPORT_KEPT_SUITE];
+static char progress_name[REPORT_KEPT_NAME];
+
+// The listening sequence's screen is up from its first frame to its close, and the running
+// screen keeps off it; declared here, set below.
+static bool listen_open;
+
+static void ProgressDraw(bool step_began) {
+    if (!progress_on || !screen_open || listen_open) {
+        return;
+    }
+    const uint64_t now = armGetSystemTick();
+    if (!UiProgressDue(progress_drawn_once, armTicksToNs(progress_drawn), armTicksToNs(now),
+                       step_began)) {
+        return;
+    }
+    progress.elapsed_ns = armTicksToNs(now - progress_began);
+    progress.passed = (uint32_t)ReportPassed();
+    progress.failed = (uint32_t)ReportFailed();
+    progress.skipped = (uint32_t)ReportSkipped();
+    progress.crashed = (uint32_t)ReportCrashed();
+    progress.pass = progress.passes > 0u ? PerfPassNumber() : 0u;
+    progress.case_number = progress_count.count;
+    // How many the pass before met is how many this one will, from the second pass on.
+    progress.case_total = progress.pass > 1u ? progress_count.previous : 0u;
+    uint32_t stride = 0;
+    uint8_t *const pixels = (uint8_t *)framebufferBegin(&screen, &stride);
+    if (pixels == NULL) {
+        return;
+    }
+    if (stride >= SCREEN_WIDTH * 4u) {
+        const UiFrame frame = { pixels, SCREEN_WIDTH, SCREEN_HEIGHT, stride };
+        UiComposeProgress(&frame, &progress);
+    }
+    framebufferEnd(&screen);
+    progress_drawn = now;
+    progress_drawn_once = true;
+}
+
+static void ProgressWatch(const char *suite, const char *name, bool started) {
+    UiProgressCountCase(&progress_count, progress.passes > 0u ? PerfPassNumber() : 0u, started);
+    snprintf(progress_suite, sizeof(progress_suite), "%s", suite != NULL ? suite : "");
+    snprintf(progress_name, sizeof(progress_name), "%s", name != NULL ? name : "");
+    progress.suite = progress_suite;
+    progress.name = progress_name;
+    ProgressDraw(false);
+}
+
+void ViewerProgressBegin(const char *heading, const char *folder, uint32_t steps, bool quick,
+                         bool open) {
+    if (!screen_open && !(open && OpenScreen())) {
+        return;
+    }
+    memset(&progress, 0, sizeof(progress));
+    progress.heading = heading;
+    progress.folder = folder;
+    progress.steps = steps;
+    progress.quick = quick;
+    UiProgressCountReset(&progress_count);
+    progress_began = armGetSystemTick();
+    progress_drawn_once = false;
+    progress_on = true;
+    ReportSetWatcher(ProgressWatch);
+}
+
+void ViewerProgressStep(uint32_t step, const char *name, bool timed) {
+    if (!progress_on) {
+        return;
+    }
+    progress.step = step;
+    progress.step_name = name;
+    progress.passes = timed ? PERF_WARMUPS + PERF_REHEARSALS + 1u : 0u;
+    progress.suite = NULL;
+    progress.name = NULL;
+    UiProgressCountReset(&progress_count);
+    ProgressDraw(true);
+}
+
+void ViewerProgressEnd(void) {
+    ReportSetWatcher(NULL);
+    progress_on = false;
+}
+
 // The listening sequence's screen, up during the sequence to name what is playing; it is not
 // an input to a verdict. It draws into the program's one framebuffer and leaves it as it found
 // it: open when the start screen opened it, for the results, and closed otherwise.
 static bool listen_tried;
-static bool listen_open;
 static bool listen_opened_screen;
 static PadState listen_pad;
 static bool listen_pad_ready;
