@@ -18,11 +18,41 @@
 #include "version.h"
 
 // Where the run leaves its report on the machine it ran on. On an emulator this is a plain
-// directory on the host; on the console it is the memory card. The pictures of the failing
-// cases go under the same directory, so one folder is the whole of what a run leaves behind.
-static const char *const REPORT_DIRECTORY = "sdmc:/edenprobe";
-static const char *const REPORT_PATH = "sdmc:/edenprobe/report.jsonl";
+// directory on the host; on the console it is the memory card. Each build, and each label the
+// mode file gives, has a folder of its own under runs/, named after its hash: the report, the
+// pictures of the failing cases and the journal go there, so one folder is the whole of what a
+// run leaves behind and runs of two builds never mix. The mode file, the net file and the
+// crash list stay at the top, since they belong to the person and the machine, not a build.
+static const char *const PROBE_DIRECTORY = "sdmc:/edenprobe";
+static const char *const RUNS_DIRECTORY = "sdmc:/edenprobe/runs";
 static const char *const MODE_PATH = "sdmc:/edenprobe/mode";
+// The folder the latest launch went to, relative to sdmc:/edenprobe: how a runner, or a person
+// with a file manager, finds the report without knowing the build's hash.
+static const char *const LAST_RUN_PATH = "sdmc:/edenprobe/last-run";
+
+static char run_directory[128];
+static char report_path[sizeof(run_directory) + 16u];
+static char journal_path[sizeof(run_directory) + 16u];
+
+/// The run's folder for this build and @p mode's label, made if it is not there, and every path
+/// under it; and last-run, naming it.
+static void PlaceRun(const RunMode *mode) {
+    char folder[MODE_FOLDER_MAX + 1u];
+    if (ModeRunFolder(folder, sizeof(folder), EDENPROBE_HASH, mode) == 0u) {
+        snprintf(folder, sizeof(folder), "unknown");
+    }
+    snprintf(run_directory, sizeof(run_directory), "%s/%s", RUNS_DIRECTORY, folder);
+    snprintf(report_path, sizeof(report_path), "%s/report.jsonl", run_directory);
+    snprintf(journal_path, sizeof(journal_path), "%s/%s", run_directory, JOURNAL_FILE_NAME);
+    mkdir(RUNS_DIRECTORY, 0777);
+    mkdir(run_directory, 0777);
+    char last[MODE_FOLDER_MAX + 8u];
+    snprintf(last, sizeof(last), "runs/%s\n", folder);
+    (void)JournalWriteFile(LAST_RUN_PATH, last);
+}
+
+_Static_assert(sizeof("sdmc:/edenprobe/runs/") + MODE_FOLDER_MAX <= sizeof(run_directory),
+               "the longest folder fits run_directory");
 
 /// What main runs as one, and the journal records as one: a suite, or a family run by one call.
 typedef struct {
@@ -137,17 +167,18 @@ static CrashList crashes;
 /// Starts the report and the journal the way the plan says.
 static void OpenRun(const JournalPlan *plan, const RunMode *mode, const char *key) {
     if (plan->start == JOURNAL_FRESH) {
-        ReportOpen(REPORT_PATH);
+        ReportOpen(report_path);
         ReportNote("edenprobe %s (%s) starting", EDENPROBE_VERSION, EDENPROBE_BUILD);
+        ReportNote("folder: %s", run_directory);
         if (mode->no_journal) {
             // A journal left by a run before this one would be taken, by the next launch, for
             // this run's.
-            (void)remove(JOURNAL_PATH);
+            (void)remove(journal_path);
             return;
         }
-        if (!ReportJournalOpen(JOURNAL_PATH, true)) {
+        if (!ReportJournalOpen(journal_path, true)) {
             ReportNote("journal: %s cannot be written, so a crash costs the rest of the run",
-                       JOURNAL_PATH);
+                       journal_path);
             return;
         }
         JournalRecord record;
@@ -160,11 +191,11 @@ static void OpenRun(const JournalPlan *plan, const RunMode *mode, const char *ke
         JournalSimple(JOURNAL_LAUNCH, NULL, 1u);
         return;
     }
-    ReportResume(REPORT_PATH, plan->offset, plan->start == JOURNAL_RESUME_CASE, &plan->counts);
-    if (!ReportJournalOpen(JOURNAL_PATH, false)) {
+    ReportResume(report_path, plan->offset, plan->start == JOURNAL_RESUME_CASE, &plan->counts);
+    if (!ReportJournalOpen(journal_path, false)) {
         ReportNote("journal: %s cannot be written to go on with, so a crash from here costs "
                    "the rest of the run",
-                   JOURNAL_PATH);
+                   journal_path);
     }
     JournalSimple(JOURNAL_LAUNCH, NULL, plan->launch);
     if (plan->start == JOURNAL_RESUME_CASE) {
@@ -243,17 +274,18 @@ int main(int argc, char **argv) {
     // problem on a new machine is never "did the screen work". The screens up before the report
     // closes, the start screen and the listening sequence, only choose what runs and say what
     // is playing.
-    mkdir(REPORT_DIRECTORY, 0777);
-    PictureSetRoot(REPORT_DIRECTORY);
+    mkdir(PROBE_DIRECTORY, 0777);
 
-    // What the card says before anything is opened: the mode file's words, the journal of the
-    // run before, and the crash list. Whether this launch goes on with that run or starts a new
-    // one depends on all three, and on this build.
+    // What the card says before anything is opened: the mode file's words, then, in the folder
+    // they and this build name, the journal of the run before, and the crash list. Whether this
+    // launch goes on with that run or starts a new one depends on all three, and on this build.
     RunMode mode = ViewerModeFromFile(MODE_PATH);
+    PlaceRun(&mode);
+    PictureSetRoot(run_directory);
     char key[JOURNAL_MODE_MAX];
     ModeKey(key, sizeof(key), &mode);
     JournalStateInit(&journal);
-    (void)JournalReadPath(&journal, JOURNAL_PATH);
+    (void)JournalReadPath(&journal, journal_path);
     CrashListInit(&crashes);
     {
         static char text[CRASH_LIST_MAX * (JOURNAL_SUITE_MAX + JOURNAL_NAME_MAX + 2u) + 1024u];
@@ -263,7 +295,7 @@ int main(int argc, char **argv) {
         }
     }
     JournalPlan plan = JournalPlanStart(&journal, EDENPROBE_VERSION, EDENPROBE_BUILD, key,
-                                        JournalFileSize(REPORT_PATH));
+                                        JournalFileSize(report_path));
     if (mode.no_journal && plan.start != JOURNAL_FRESH) {
         // Asked for no journal: nothing goes on, and the run starts over unjournaled.
         plan.start = JOURNAL_FRESH;
@@ -404,7 +436,7 @@ int main(int argc, char **argv) {
         // The one line that comes after the summary, and only on this path: a detailed run
         // nobody attended says it left by itself, on both channels, so a script that forgot the
         // mode file finds out why its emulator took ten seconds longer to stop.
-        ReportAppend(REPORT_PATH);
+        ReportAppend(report_path);
         ReportNote("detailed mode: nothing pressed for %u seconds after the report closed, "
                    "left by itself",
                    (unsigned)(UI_UNATTENDED_NANOSECONDS / 1000000000ull));

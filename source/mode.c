@@ -95,6 +95,53 @@ static void Take(RunMode *mode, const char *word, bool cut) {
     NoteUnknown(mode, word);
 }
 
+/// What ends a label's name: a space, a tab, a line end, or the end of the text.
+static bool EndsValue(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\0';
+}
+
+static bool LabelCharacter(char c) {
+    return IsLetter(c) || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_';
+}
+
+bool ModeLabelValid(const char *label) {
+    if (label == NULL || label[0] == '\0' || label[0] == '.') {
+        return false;
+    }
+    size_t n = 0;
+    for (; label[n] != '\0'; ++n) {
+        if (n >= MODE_LABEL_MAX || !LabelCharacter(label[n])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// Takes the name after `label=`, @p length bytes of it: kept when a folder can be named after
+/// it, quoted in the mode line otherwise.
+static void TakeLabel(RunMode *mode, const char *value, size_t length) {
+    char name[MODE_LABEL_MAX + 2u];
+    const size_t kept = length < sizeof(name) - 1u ? length : sizeof(name) - 1u;
+    memcpy(name, value, kept);
+    name[kept] = '\0';
+    if (length <= MODE_LABEL_MAX && ModeLabelValid(name)) {
+        memcpy(mode->label, name, kept + 1u);
+        mode->label_was_refused = false;
+        mode->label_refused[0] = '\0';
+        mode->label_refused_cut = false;
+        return;
+    }
+    mode->label_was_refused = true;
+    // Quoted as written, as much as fits; anything a line could not carry as itself is a '?'.
+    const size_t quoted = length < MODE_LABEL_MAX ? length : MODE_LABEL_MAX;
+    for (size_t i = 0; i < quoted; ++i) {
+        const unsigned char c = (unsigned char)value[i];
+        mode->label_refused[i] = c < 0x20u || c >= 0x7Fu || c == '"' || c == '\\' ? '?' : (char)c;
+    }
+    mode->label_refused[quoted] = '\0';
+    mode->label_refused_cut = length > MODE_LABEL_MAX;
+}
+
 /// The words in the first @p size bytes of @p text, or up to a terminator if one comes first.
 static void ReadWords(RunMode *mode, const char *text, size_t size) {
     char word[WORD_MAX + 1u];
@@ -110,6 +157,17 @@ static void ReadWords(RunMode *mode, const char *text, size_t size) {
             }
             continue;
         }
+        if (c == '=' && length == 5u && !cut && memcmp(word, "label", 5u) == 0) {
+            // A name rather than words: it runs to the next space or line end, whatever it holds.
+            size_t end = i + 1u;
+            while (end < size && !EndsValue(text[end])) {
+                ++end;
+            }
+            TakeLabel(mode, text + i + 1u, end - i - 1u);
+            length = 0;
+            i = end - 1u;
+            continue;
+        }
         if (length > 0u) {
             word[length] = '\0';
             Take(mode, word, cut);
@@ -120,6 +178,25 @@ static void ReadWords(RunMode *mode, const char *text, size_t size) {
             break;
         }
     }
+}
+
+/// Where the last space-separated piece of the first @p length bytes starts.
+static size_t LastPiece(const char *text, size_t length) {
+    while (length > 0u && !EndsValue(text[length - 1u])) {
+        --length;
+    }
+    return length;
+}
+
+static bool StartsWithLabel(const char *text) {
+    static const char LABEL[] = "label=";
+    for (size_t i = 0; i < sizeof(LABEL) - 1u; ++i) {
+        const char c = text[i];
+        if ((c >= 'A' && c <= 'Z' ? (char)(c - 'A' + 'a') : c) != LABEL[i]) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /// Detailed unless the file asked for the quick run: the default is for a person, and a script
@@ -139,7 +216,12 @@ RunMode ModeFromFile(ModeSource source, const char *text, size_t length, bool lo
     mode.source = source;
     if (source == MODE_SOURCE_FILE && text != NULL) {
         mode.longer = longer;
-        if (longer && IsLetter(text[length])) {
+        const size_t piece = LastPiece(text, length);
+        if (longer && !EndsValue(text[length]) && length - piece >= 6u &&
+            StartsWithLabel(text + piece)) {
+            // A label's name runs on past the limit: what was read of it names another folder.
+            length = piece;
+        } else if (longer && IsLetter(text[length])) {
             // The last word runs on past the limit, so what was read of it is a fragment.
             while (length > 0u && IsLetter(text[length - 1u])) {
                 --length;
@@ -251,6 +333,18 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; listening sequence");
     }
+    if (mode->label[0] != '\0') {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; label %s", mode->label);
+    }
+    if (mode->label_was_refused) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used,
+                 "; label refused: \"%s%s\", a folder name takes 1 to %u letters, digits, dots, "
+                 "dashes and underscores, the first not a dot",
+                 mode->label_refused, mode->label_refused_cut ? "..." : "",
+                 (unsigned)MODE_LABEL_MAX);
+    }
     const uint32_t missing = mode->families_named & ~present;
     if (missing != 0u) {
         size_t used = strlen(out);
@@ -304,4 +398,33 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         snprintf(out + used, out_size - used, "%s%s", used > 0u ? " " : "", WORDS[i].word);
     }
     return strlen(out);
+}
+
+size_t ModeRunFolder(char *out, size_t out_size, const char *hash, const RunMode *mode) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    char kept[MODE_HASH_MAX + 1u];
+    size_t n = 0;
+    for (; hash != NULL && hash[n] != '\0' && n < MODE_HASH_MAX; ++n) {
+        const char c = hash[n];
+        const bool fits = IsLetter(c) || (c >= '0' && c <= '9') || c == '.' || c == '-';
+        kept[n] = fits ? c : '-';
+    }
+    kept[n] = '\0';
+    // A hash of dots alone would name this folder's parent or itself.
+    bool only_dots = true;
+    for (size_t i = 0; i < n; ++i) {
+        only_dots = only_dots && kept[i] == '.';
+    }
+    const char *const name = n > 0u && !only_dots ? kept : "unknown";
+    const bool labelled = mode != NULL && ModeLabelValid(mode->label);
+    const int wrote = snprintf(out, out_size, "%s%s%s", name, labelled ? "_" : "",
+                               labelled ? mode->label : "");
+    if (wrote < 0 || (size_t)wrote >= out_size) {
+        out[0] = '\0';
+        return 0;
+    }
+    return (size_t)wrote;
 }

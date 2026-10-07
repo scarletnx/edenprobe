@@ -28,6 +28,9 @@ APP_AUTHOR  := reden
 # from static/icon.svg by `make icon` (rsvg-convert and magick, not needed for a build).
 APP_VERSION := $(strip $(shell cat VERSION))
 APP_BUILD   := $(strip $(shell git describe --tags --always --dirty 2>/dev/null || echo unknown))
+# The commit alone, tags left out, with -dirty for uncommitted changes: what a run's folder is
+# named after (README, "Where a run leaves its report"), so two builds never share one.
+APP_HASH    := $(strip $(shell git describe --always --dirty --abbrev=7 --exclude='*' 2>/dev/null || echo unknown))
 APP_ICON    := icon.jpg
 
 # The processor in the console, and the position independence its loader expects.
@@ -112,11 +115,12 @@ $(SHADER_OBJ): $(SHADER_ASM)
 # a shader added to the directory and not added there is a build failure rather than dead weight.
 $(BUILD)/source/shaders.o: $(SHADER_HDR)
 
-# The version and the build id reach main.c through a header rewritten only when its content
-# changes, so the starting note follows a new commit or a dirty tree without a clean build.
+# The version, the build id and the hash reach main.c through a header rewritten only when its
+# content changes, so the starting note follows a new commit or a dirty tree without a clean
+# build.
 $(BUILD)/version.h: FORCE
 	@mkdir -p $(dir $@)
-	@printf '#define EDENPROBE_VERSION "%s"\n#define EDENPROBE_BUILD "%s"\n' "$(APP_VERSION)" "$(APP_BUILD)" > $@.tmp; \
+	@printf '#define EDENPROBE_VERSION "%s"\n#define EDENPROBE_BUILD "%s"\n#define EDENPROBE_HASH "%s"\n' "$(APP_VERSION)" "$(APP_BUILD)" "$(APP_HASH)" > $@.tmp; \
 	if cmp -s $@.tmp $@; then rm -f $@.tmp; else mv $@.tmp $@; fi
 FORCE:
 .PHONY: FORCE

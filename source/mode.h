@@ -46,6 +46,12 @@ extern "C" {
 ///   net       another: the online services, nifm to friend, against the backend the file
 ///             sdmc:/edenprobe/net names (see netref.h).
 ///
+/// And one that is not a word: `label=<name>`, the name of the folder the run's report goes in
+/// beside this build's hash (ModeRunFolder), so runs of one build against two emulators keep
+/// apart. The name runs to the next space or line end; letters, digits, dot, dash and
+/// underscore, at most MODE_LABEL_MAX, not starting with a dot. Anything else is refused, said
+/// in the mode line, and the run goes in the folder with no label.
+///
 /// Families choose which suites beyond the judge run. None named means every family this build
 /// has but audio. The judge itself (selfcheck, support, reference) always runs, because no
 /// verdict below it can be believed without it, and so does cpu, which needs no device. Any other
@@ -90,6 +96,13 @@ typedef enum {
 /// the list ends in "..." while the count stays exact.
 #define MODE_UNKNOWN_TEXT_MAX 96u
 
+/// The longest label, and the longest build hash a folder name keeps.
+#define MODE_LABEL_MAX 32u
+#define MODE_HASH_MAX 48u
+
+/// The longest folder name ModeRunFolder makes, the separator included.
+#define MODE_FOLDER_MAX (MODE_HASH_MAX + 1u + MODE_LABEL_MAX)
+
 typedef struct {
     /// What was at the path. Nothing changes with it but the line that says so.
     ModeSource source;
@@ -127,6 +140,13 @@ typedef struct {
     /// How many words were not understood, and the first of them, space separated.
     uint32_t unknown_count;
     char unknown[MODE_UNKNOWN_TEXT_MAX];
+    /// `label=<name>`: the name, or empty. With several, the last one the file has.
+    char label[MODE_LABEL_MAX + 1u];
+    /// The last `label=` refused, as written and cut to fit, for the mode line; empty when
+    /// none was. A refused label leaves an earlier good one alone.
+    bool label_was_refused;
+    char label_refused[MODE_LABEL_MAX + 1u];
+    bool label_refused_cut;
 } RunMode;
 
 /// Reads the words in @p text. NULL means there was no file, which reads like an empty one.
@@ -157,8 +177,21 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
 
 /// The words that decide what a run reports, in one order, for the journal: a launch goes on
 /// with a run only when the mode file still says the same. Quick and detailed are left out,
-/// since they decide what happens after the report and not what is in it.
+/// since they decide what happens after the report and not what is in it, and so is the label,
+/// since it decides the folder the journal is in.
 size_t ModeKey(char *out, size_t out_size, const RunMode *mode);
+
+/// Whether @p label is one a folder can be named after: 1 to MODE_LABEL_MAX letters, digits,
+/// dots, dashes and underscores, the first not a dot.
+bool ModeLabelValid(const char *label);
+
+/// The name of the folder a run's report, pictures and journal go in, under
+/// sdmc:/edenprobe/runs: the build's @p hash, and `_<label>` after it when the mode file has a
+/// label. The hash keeps letters, digits, dots and dashes, every other character a dash, at
+/// most MODE_HASH_MAX of them, and is `unknown` when it is empty or NULL; it has no underscore,
+/// so the first one in a name is where the label starts. Returns the length, or 0 with an empty
+/// string when @p out is too small.
+size_t ModeRunFolder(char *out, size_t out_size, const char *hash, const RunMode *mode);
 
 #ifdef __cplusplus
 }

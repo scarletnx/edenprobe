@@ -8,9 +8,11 @@
 
 The emulator's settings, memory card and caches go under DIR, as XDG_CONFIG_HOME, XDG_DATA_HOME and
 XDG_CACHE_HOME, so nothing of the person's own setup is read or written. The run starts clean: the
-previous report, its pictures, the support suite's scratch directory and the mode file are
-removed, and WORDS (default `quick`; empty for no file, which is the detailed screen) written into
-a new mode file.
+reports and pictures in every run folder (sdmc:/edenprobe/runs/*), the support suite's scratch
+directory, last-run and the mode file are removed, and WORDS (default `quick`; empty for no file,
+which is the detailed screen) written into a new mode file. The program names the folder it
+reports in, its build's hash and the mode file's label, in sdmc:/edenprobe/last-run; the report
+and the journal are read from there.
 
 A launch whose report has no summary line ended before the run did: it crashed, or was stopped at
 its time limit, which is what a hang looks like from here. The program keeps a journal on the card
@@ -50,6 +52,31 @@ SHOWN = re.compile(rb"edenprobe|EDENPROBE|\"type\":")
 
 def card(xdg):
     return os.path.join(xdg, "data", "eden", "sdmc", "edenprobe")
+
+
+# What the program writes into last-run: one folder under runs/, never a path out of the card.
+FOLDER = re.compile(r"runs/[A-Za-z0-9.-]+(_[A-Za-z0-9._-]+)?")
+
+
+def run_folder(sd):
+    """The folder the program's last launch reported in, as named in last-run, or None."""
+    try:
+        with open(os.path.join(sd, "last-run"), "rb") as f:
+            text = f.read().decode("ascii", "replace").strip()
+    except FileNotFoundError:
+        return None
+    if not FOLDER.fullmatch(text) or not text[len("runs/"):].strip("."):
+        return None
+    return os.path.join(sd, text)
+
+
+def run_folders(sd):
+    """Every run folder on the card."""
+    runs = os.path.join(sd, "runs")
+    if not os.path.isdir(runs):
+        return []
+    return [os.path.join(runs, d) for d in sorted(os.listdir(runs))
+            if os.path.isdir(os.path.join(runs, d))]
 
 
 class Journal:
@@ -148,21 +175,26 @@ def swap_out(xdg, store):
 
 
 def prepare(xdg, mode):
-    """The directories, the previous run's leavings taken away, and the mode file. The journal
-    stays: the probe reads it to decide the run is new, and lists a case the last launch of an
-    earlier run ended inside."""
+    """The directories, the previous runs' leavings taken away, and the mode file. Every run
+    folder loses its report and pictures, since this script cannot know which folder the build
+    it runs will name. The journals stay: the probe reads its own to decide the run is new, the
+    report being gone, and lists a case the last launch of an earlier run ended inside. The
+    report and the pictures at the top of the card are a build's from before run folders."""
     for d in ("data", "config", "cache"):
         os.makedirs(os.path.join(xdg, d), exist_ok=True)
     sd = card(xdg)
     os.makedirs(sd, exist_ok=True)
-    for name in ("report.jsonl", "mode"):
-        path = os.path.join(sd, name)
-        if os.path.isfile(path) or os.path.islink(path):
-            os.remove(path)
-    for name in ("images", "support-check", "mode"):
-        path = os.path.join(sd, name)
-        if os.path.isdir(path):
-            shutil.rmtree(path)
+    for folder in [sd] + run_folders(sd):
+        names = ("report.jsonl", "mode", "last-run") if folder == sd else ("report.jsonl",)
+        for name in names:
+            path = os.path.join(folder, name)
+            if os.path.isfile(path) or os.path.islink(path):
+                os.remove(path)
+        names = ("images", "support-check", "mode") if folder == sd else ("images",)
+        for name in names:
+            path = os.path.join(folder, name)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
     if mode:
         with open(os.path.join(sd, "mode"), "w") as f:
             f.write(mode + "\n")
@@ -251,8 +283,12 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
     prepare(xdg, mode)
     say("mode file: %s" % mode if mode else "mode file: none, so the detailed screen")
     sd = card(xdg)
-    report = os.path.join(sd, "report.jsonl")
-    journal_path = os.path.join(sd, "journal")
+    # Where the report and the journal are once a launch has named its folder. Before the first
+    # launch every folder's journal is kept as it was, to compare the one it names against.
+    folder = None
+    report = None
+    journal_path = None
+    earlier = {f: Journal.read(os.path.join(f, "journal")) for f in run_folders(sd)}
     store = swap_in(xdg, emulator)
     log = open(log_path, "wb") if log_path else None
     launches = 0
@@ -261,15 +297,25 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
     previous = signal.signal(signal.SIGTERM, interrupt)
     try:
         while True:
-            before = Journal.read(journal_path)
+            before = Journal.read(journal_path) if journal_path is not None else None
             launches += 1
             status, stopped_after = launch(emulator, nro, xdg, timeout, log, echo)
+            said = "launch %d %s" % (launches, describe(status, stopped_after))
+            named = run_folder(sd)
+            if named is None:
+                say(said + "; it named no run folder in last-run, so no journal to go on with "
+                    "and no relaunch")
+                break
+            if named != folder:
+                folder = named
+                report = os.path.join(folder, "report.jsonl")
+                journal_path = os.path.join(folder, "journal")
+                before = earlier.get(folder) if launches == 1 else None
             if summary(report) is not None:
                 code = 0
                 break
             after = Journal.read(journal_path)
             where = after.inside() if after is not None else None
-            said = "launch %d %s" % (launches, describe(status, stopped_after))
             if where is not None:
                 said += " inside %s case \"%s\"%s" % (
                     where[0], where[2],
@@ -293,7 +339,9 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
                 break
             say(said + "; launching again (%d of at most %d)" % (launches + 1, relaunches + 1))
     except KeyboardInterrupt:
-        mark_stopped(journal_path)
+        named = run_folder(sd)
+        if named is not None:
+            mark_stopped(os.path.join(named, "journal"))
         say("stopped; the journal says so, so the case under way is not taken for a crash")
         code = 130
     finally:
@@ -303,6 +351,10 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
         swap_out(xdg, store)
     if code == 130:
         return code
+    if folder is None:
+        print("%s: the emulator named no run folder in %s, so it left no report" %
+              (who, os.path.join(sd, "last-run")), file=sys.stderr)
+        return 1
     if not os.path.isfile(report):
         print("%s: the emulator left no report at %s" % (who, report), file=sys.stderr)
         return 1

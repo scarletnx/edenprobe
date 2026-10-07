@@ -15,17 +15,19 @@ extern "C" {
 /// Where a run is, kept on the memory card between every two things that could end it, so a
 /// crash costs the case it happened in and not the rest of the run.
 ///
-/// Two files beside the report. The journal (`sdmc:/edenprobe/journal`) says what the run has
-/// done: a line before each case starts and one after it ends, in every pass, each on the card
-/// before the program goes on. A launch that finds a run whose last line is a case starting
-/// knows the program ended inside that case, and resumes the run after it. The crash list
-/// (`sdmc:/edenprobe/crashes`) names the cases that ended this machine's program, one per line,
-/// and outlives the run: they are skipped until the word `retry` asks for them again.
+/// Two files. The journal (`journal`, beside the report in the run's folder under
+/// `sdmc:/edenprobe/runs`) says what the run has done: a line before each case starts and one
+/// after it ends, in every pass, each on the card before the program goes on. A launch that finds
+/// a run whose last line is a case starting knows the program ended inside that case, and resumes
+/// the run after it. One per folder, so each build and label goes on with its own run. The crash
+/// list (`sdmc:/edenprobe/crashes`) names the cases that ended this machine's program, one per
+/// line, and outlives the run and the build: they are skipped until the word `retry` asks for
+/// them again.
 ///
 /// Everything here but the two file helpers is text in and text out, so the host build checks
 /// the reading, the writing and every decision a relaunch makes.
 
-#define JOURNAL_PATH "sdmc:/edenprobe/journal"
+#define JOURNAL_FILE_NAME "journal"
 #define CRASH_LIST_PATH "sdmc:/edenprobe/crashes"
 
 /// The longest suite or step name, and the longest case name, kept whole. A report line carries

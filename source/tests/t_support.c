@@ -715,6 +715,8 @@ static void CheckReportLine(void) {
 
 // The navigation between the screens, and the screens themselves, are checked in t_screens.c;
 // what is left here is what happens before and after them: the launch and the mode file.
+static void CheckLabel(void);
+
 static void CheckLaunchAndMode(void) {
     // The pad is waited for until it answers, and no longer.
     CHECK_TRUE(SUITE, "the pad is waited for until it answers and then not at all", CHECK_NONE,
@@ -954,6 +956,124 @@ static void CheckLaunchAndMode(void) {
                typo_said ? "right" : said, none_said_right ? "right" : none_said,
                folder_right ? "right" : folder_said, net_said_right ? "right" : net_said,
                flood_right ? "right" : flood.unknown, cut_right ? "right" : cut_said);
+
+    CheckLabel();
+}
+
+/// `label=<name>` names the folder a run goes in beside the build's hash, and a name a folder
+/// cannot carry is refused, said, and left out; the label is not one of the words that decide
+/// what a run reports.
+static void CheckLabel(void) {
+    char folder[MODE_FOLDER_MAX + 8u];
+    char said[REPORT_NOTE_MAX + 1];
+    uint32_t wrong = 0;
+    const char *first = "none";
+#define LABEL_EXPECT(condition, what)                                                              \
+    do {                                                                                           \
+        if (!(condition) && wrong++ == 0u) {                                                       \
+            first = (what);                                                                        \
+        }                                                                                          \
+    } while (0)
+
+    const RunMode eden = ModeFromText("quick label=eden-0.1.2 net");
+    ModeRunFolder(folder, sizeof(folder), "b7172fc", &eden);
+    ModeDescribe(said, sizeof(said), &eden, MODE_FAMILIES_PRESENT);
+    LABEL_EXPECT(strcmp(eden.label, "eden-0.1.2") == 0 && eden.quick &&
+                     eden.families_named == MODE_FAMILY_NET && eden.unknown_count == 0u &&
+                     !eden.label_was_refused,
+                 "a label among the words");
+    LABEL_EXPECT(strcmp(folder, "b7172fc_eden-0.1.2") == 0, "the folder with a label");
+    LABEL_EXPECT(strcmp(said, "mode: quick, from the mode file; pictures of failures only; "
+                              "families net; label eden-0.1.2") == 0,
+                 "the mode line with a label");
+
+    const RunMode upper = ModeFromText("LABEL=Phone_X\r\nquick");
+    LABEL_EXPECT(strcmp(upper.label, "Phone_X") == 0 && upper.quick && upper.unknown_count == 0u,
+                 "the word label in capitals, the name as written, a CR before the line end");
+    LABEL_EXPECT(strcmp(ModeFromText("label=a label=b").label, "b") == 0, "the last label wins");
+
+    char key_plain[JOURNAL_MODE_MAX];
+    char key_labelled[JOURNAL_MODE_MAX];
+    const RunMode plain = ModeFromText("quick net");
+    ModeKey(key_plain, sizeof(key_plain), &plain);
+    ModeKey(key_labelled, sizeof(key_labelled), &eden);
+    LABEL_EXPECT(strcmp(key_plain, key_labelled) == 0, "the label stays out of the key");
+
+    // Refused: a slash, a leading dot, nothing at all, one character too many, and a refusal
+    // after a good label, which keeps the good one.
+    static const struct {
+        const char *text;
+        const char *quoted;
+        bool cut;
+    } BAD[] = {
+        { "label=../x quick", "\"../x\"", false },
+        { "label=.hidden", "\".hidden\"", false },
+        { "label=", "\"\"", false },
+        { "label=abcdefghijklmnopqrstuvwxyz0123456", "\"abcdefghijklmnopqrstuvwxyz012345...\"",
+          true },
+        { "label=sp\"ce", "\"sp?ce\"", false },
+    };
+    for (size_t i = 0; i < sizeof(BAD) / sizeof(BAD[0]); ++i) {
+        const RunMode bad = ModeFromText(BAD[i].text);
+        ModeRunFolder(folder, sizeof(folder), "b7172fc", &bad);
+        ModeDescribe(said, sizeof(said), &bad, MODE_FAMILIES_PRESENT);
+        char want[96];
+        snprintf(want, sizeof(want), "; label refused: %s, a folder name", BAD[i].quoted);
+        LABEL_EXPECT(bad.label[0] == '\0' && bad.label_was_refused &&
+                         bad.label_refused_cut == BAD[i].cut && bad.unknown_count == 0u &&
+                         strcmp(folder, "b7172fc") == 0 && strstr(said, want) != NULL,
+                     BAD[i].text);
+    }
+    const RunMode kept = ModeFromText("label=good label=bad/");
+    LABEL_EXPECT(strcmp(kept.label, "good") == 0 && kept.label_was_refused &&
+                     strcmp(kept.label_refused, "bad/") == 0,
+                 "a refusal after a good label");
+    // Spaces around the sign make two words nobody knows, not a label.
+    const RunMode spaced = ModeFromText("label = x");
+    LABEL_EXPECT(spaced.label[0] == '\0' && !spaced.label_was_refused &&
+                     spaced.unknown_count == 2u,
+                 "label = x");
+    LABEL_EXPECT(ModeLabelValid("a") && ModeLabelValid("eden_master-1.2") &&
+                     !ModeLabelValid("") && !ModeLabelValid(NULL) && !ModeLabelValid("a b") &&
+                     !ModeLabelValid(".x") && ModeLabelValid("x.") &&
+                     ModeLabelValid("abcdefghijklmnopqrstuvwxyz012345") &&
+                     !ModeLabelValid("abcdefghijklmnopqrstuvwxyz0123456"),
+                 "which labels a folder can carry");
+
+    // The limit falling inside a label's name drops the name, which would name another folder;
+    // falling just after it keeps it.
+    static const char LONG[] = "quick label=abcdef more";
+    const RunMode cut = ModeFromFile(MODE_SOURCE_FILE, LONG, 15u, true);
+    const RunMode whole = ModeFromFile(MODE_SOURCE_FILE, LONG, 18u, true);
+    LABEL_EXPECT(cut.quick && cut.label[0] == '\0' && !cut.label_was_refused &&
+                     cut.unknown_count == 0u && strcmp(whole.label, "abcdef") == 0,
+                 "a label cut by the limit");
+
+    // The hash part: letters, digits, dots and dashes, the rest dashes, never empty, never only
+    // dots, at most MODE_HASH_MAX; no underscore, so the label always starts at the first.
+    static const struct {
+        const char *hash;
+        const char *folder;
+    } HASHES[] = {
+        { "v0.3.0-1-gb7172fc-dirty", "v0.3.0-1-gb7172fc-dirty" },
+        { NULL, "unknown" },
+        { "", "unknown" },
+        { "..", "unknown" },
+        { "a/b_c d", "a-b-c-d" },
+        { "0123456789012345678901234567890123456789012345678901234",
+          "012345678901234567890123456789012345678901234567" },
+    };
+    for (size_t i = 0; i < sizeof(HASHES) / sizeof(HASHES[0]); ++i) {
+        ModeRunFolder(folder, sizeof(folder), HASHES[i].hash, NULL);
+        LABEL_EXPECT(strcmp(folder, HASHES[i].folder) == 0, HASHES[i].folder);
+    }
+    char tiny[4];
+    LABEL_EXPECT(ModeRunFolder(tiny, sizeof(tiny), "b7172fc", NULL) == 0u && tiny[0] == '\0',
+                 "a buffer too small");
+#undef LABEL_EXPECT
+    CHECK_TRUE(SUITE, "a label in the mode file names the run's folder, and a bad one is refused",
+               CHECK_NONE, wrong == 0u, "%u readings wrong, the first: %.80s", (unsigned)wrong,
+               first);
 }
 
 /// How much of the heading band is drawn in the colour a failure is shouted in.

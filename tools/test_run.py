@@ -21,7 +21,9 @@ SPEC.loader.exec_module(run)
 # One launch per line of the scenario, the last line repeating: `crash <suite> <case>` starts the
 # case and aborts; `hang <suite> <case>` starts it and sleeps; `finish` ends the run with a
 # summary; `early` exits 1 having written nothing; `step` ends one more case and aborts outside
-# any, so every launch adds to the journal.
+# any, so every launch adds to the journal. Every launch but an early one names its folder in
+# last-run first, as the probe does: the one in fake-folder, or runs/fake; `named` exits 1 right
+# after, having touched no journal.
 FAKE = r'''#!/usr/bin/env python3
 import os, sys, time
 def write(path, text):
@@ -40,8 +42,14 @@ what = lines[min(n, len(lines)) - 1].split(" ", 2)
 print("\x1b[1;33mEDENPROBE fake launch %d: %s\x1b[0m" % (n, what[0]), flush=True)
 if what[0] == "early":
     sys.exit(1)
-journal = os.path.join(card, "journal")
-report = os.path.join(card, "report.jsonl")
+folder_path = os.path.join(card, "fake-folder")
+folder = read(folder_path).strip() if os.path.exists(folder_path) else "runs/fake"
+os.makedirs(os.path.join(card, folder), exist_ok=True)
+write(os.path.join(card, "last-run"), folder + "\n")
+if what[0] == "named":
+    sys.exit(1)
+journal = os.path.join(card, folder, "journal")
+report = os.path.join(card, folder, "report.jsonl")
 def add(path, text):
     with open(path, "a") as f:
         f.write(text)
@@ -166,7 +174,49 @@ class Relaunch(unittest.TestCase):
         code, said = f.run()
         self.assertEqual(code, 1, said)
         self.assertEqual(f.launches(), 1)
-        self.assertIn("no journal to go on with", said)
+        self.assertIn("it named no run folder in last-run, so no journal to go on with", said)
+        self.assertIn("so it left no report", said)
+
+    def test_the_report_is_read_from_the_folder_last_run_names(self):
+        f = self.fixture(["crash bcn a case", "finish"])
+        write(os.path.join(f.card, "fake-folder"), "runs/b7172fc_phone\n")
+        os.makedirs(os.path.join(f.card, "runs", "other"))
+        write(os.path.join(f.card, "runs", "other", "report.jsonl"),
+              '{"type":"summary","passed":9,"failed":0,"skipped":0,"crashed":0}\n')
+        code, said = f.run()
+        self.assertEqual(code, 0, said)
+        self.assertEqual(f.launches(), 2)
+        self.assertIn('inside bcn case "a case"', said)
+        self.assertIn("passed 1, failed 0", said)
+        self.assertIn(os.path.join(f.card, "runs", "b7172fc_phone", "report.jsonl"), said)
+        # The other folder's report went with the leftovers, and its folder stayed.
+        self.assertFalse(os.path.exists(os.path.join(f.card, "runs", "other", "report.jsonl")))
+        self.assertTrue(os.path.isdir(os.path.join(f.card, "runs", "other")))
+
+    def test_a_journal_unchanged_since_before_the_first_launch_ends_it(self):
+        # The folder's journal as an earlier run left it is what the first launch is compared
+        # with: one that names the folder and dies before writing anything is not relaunched.
+        f = self.fixture(["named"])
+        folder = os.path.join(f.card, "runs", "fake")
+        os.makedirs(folder)
+        write(os.path.join(folder, "journal"), "run 0.0.0 fake quick\nlaunch 1\n")
+        code, said = f.run()
+        self.assertEqual(code, 1, said)
+        self.assertEqual(f.launches(), 1)
+        self.assertIn("it left the journal as it was", said)
+
+    def test_last_run_names_a_folder_under_runs_and_nothing_else(self):
+        with tempfile.TemporaryDirectory() as sd:
+            for text, folder in (("runs/b7172fc\n", "runs/b7172fc"),
+                                 ("runs/b7172fc-dirty_eden-1.2\n", "runs/b7172fc-dirty_eden-1.2"),
+                                 ("runs/..\n", None), ("../../etc\n", None),
+                                 ("runs/a/b\n", None), ("runs/\n", None),
+                                 ("runs/a b\n", None), ("", None)):
+                write(os.path.join(sd, "last-run"), text)
+                want = os.path.join(sd, folder) if folder else None
+                self.assertEqual(run.run_folder(sd), want, text)
+            os.remove(os.path.join(sd, "last-run"))
+            self.assertIsNone(run.run_folder(sd))
 
     def test_no_emulator_is_said_and_nothing_runs(self):
         f = self.fixture(["finish"])
@@ -179,11 +229,21 @@ class Relaunch(unittest.TestCase):
         f = self.fixture(["finish"])
         os.makedirs(os.path.join(f.card, "images", "clear"))
         write(os.path.join(f.card, "report.jsonl"), "old\n")
-        write(os.path.join(f.card, "journal"), "run 0.0.0 old quick\nfinished 0 0 0 0\n")
+        write(os.path.join(f.card, "last-run"), "runs/a\n")
+        for name in ("a", "b_label"):
+            folder = os.path.join(f.card, "runs", name)
+            os.makedirs(os.path.join(folder, "images", "clear"))
+            write(os.path.join(folder, "report.jsonl"), "old\n")
+            write(os.path.join(folder, "journal"), "run 0.0.0 old quick\nfinished 0 0 0 0\n")
         run.prepare(f.xdg, "quick fatal")
         self.assertFalse(os.path.exists(os.path.join(f.card, "images")))
         self.assertFalse(os.path.exists(os.path.join(f.card, "report.jsonl")))
-        self.assertTrue(os.path.exists(os.path.join(f.card, "journal")))
+        self.assertFalse(os.path.exists(os.path.join(f.card, "last-run")))
+        for name in ("a", "b_label"):
+            folder = os.path.join(f.card, "runs", name)
+            self.assertFalse(os.path.exists(os.path.join(folder, "images")))
+            self.assertFalse(os.path.exists(os.path.join(folder, "report.jsonl")))
+            self.assertTrue(os.path.exists(os.path.join(folder, "journal")))
         self.assertEqual(read(os.path.join(f.card, "mode")), "quick fatal\n")
         run.prepare(f.xdg, "")
         self.assertFalse(os.path.exists(os.path.join(f.card, "mode")))

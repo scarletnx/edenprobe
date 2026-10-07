@@ -207,10 +207,9 @@ reden_online_client_secret\\default=false
 reden_online_client_secret=$CLIENT_SECRET
 INI
 
-# The old report goes first, and the run has to say it finished: its exit status, and the summary
-# line the program prints on the debug channel at the end of this run.
-REPORT=$SDMC/report.jsonl
-rm -f "$REPORT"
+# The run has to say it finished: its exit status, and the summary line the program prints on
+# the debug channel at the end of this run. make run takes the old reports away first, and the
+# report is in the folder the program names in last-run (the build's hash).
 set +e
 make -C "$PROBE" --no-print-directory run MODE="net quick" ${EMULATOR:+EMULATOR="$EMULATOR"} \
     >"$WORK/run.log" 2>&1
@@ -221,6 +220,9 @@ set -e
 [ "$status" = 0 ] || die "make run exited $status; see $WORK/run.log"
 grep -aq 'EDENPROBE DONE' "$WORK/run.log" ||
     die "this run printed no EDENPROBE DONE line; see $WORK/run.log"
+FOLDER=$(cat "$SDMC/last-run" 2>/dev/null) || die "this run named no folder in $SDMC/last-run"
+case $FOLDER in runs/*) ;; *) die "last-run names $FOLDER, not a folder under runs/" ;; esac
+REPORT=$SDMC/$FOLDER/report.jsonl
 [ -s "$REPORT" ] || die "this run left no report at $REPORT"
 python3 - "$REPORT" <<'PY'
 import collections, json, sys

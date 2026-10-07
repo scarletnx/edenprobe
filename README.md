@@ -40,7 +40,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 Forty suites, in the order they run: the judge, then the processor, then the graphics family,
 then the fs family, then the audio family when a word asks for it, then the net family. A run is
-795 cases: 727 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
+796 cases: 728 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
 the net family; the audio family adds six when named or with `listen`, the mode word `stress` adds
 one, and `fatal` runs the cases the may-crash table names, which are otherwise skipped. The order,
 and what a failure in each suite points at, is in "The roadmap" below. A case that ends the
@@ -50,7 +50,7 @@ program costs that case and not the rest of the run: see "When the program ends 
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and twenty seven cases, no hardware involved: what the program does around
+- **support**, one hundred and twenty eight cases, no hardware involved: what the program does around
   a verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
   detailed mode's store, screens and navigation, the start screen and the listening screen, the mode
   file and its words, the `skip` result, the time a case reports (nineteen cases, see "Time per
@@ -751,6 +751,44 @@ carries the counts so a runner does not have to parse the rest. The summary is t
 every run but one: a detailed run nobody attended adds one note after it (see "Looking at it on the
 console").
 
+## Where a run leaves its report
+
+Every build reports in a folder of its own, so runs of several builds, or of one build under
+several emulators, sit side by side instead of each overwriting the last:
+
+```
+sdmc:/edenprobe/
+  mode              the mode file: a person's, read by every build
+  net               what the net family is pointed at
+  crashes           the crash list: this machine's, shared by every build
+  last-run          the folder the latest launch reported in, e.g. runs/b7172fc_phone
+  fs/               the fs family's files, written once
+  runs/
+    b7172fc/        a build, by the hash of its commit
+      report.jsonl
+      images/       the pictures of the failing cases
+      journal       where the run is, for the launch after a crash
+    b7172fc_phone/  the same build with label=phone in the mode file
+    9e1c2a4-dirty/  a build of a tree with uncommitted changes
+```
+
+The folder is the commit the build came from, as `git describe --always --dirty --exclude='*'`
+gives it: seven hex digits, `-dirty` when the tree had uncommitted changes, `unknown` when it was
+not built from git. The report's first note names the same build, and the second the folder.
+`label=<name>` in the mode file adds `_<name>`, for one build tested under two emulators that share
+a card: `label=eden-master` for one and `label=pr4477` for the other. The name runs to the next
+space or line end and is 1 to 32 letters, digits, dots, dashes and underscores, the first not a
+dot; anything else is refused, quoted in the mode line, and the run goes in the folder with no
+label.
+
+The journal is per folder, so the run a build left in the middle stays where it stopped while
+another build runs, and goes on when that build is started again. The label is not one of the words
+a launch compares before going on with a run: another label is another folder, with its own
+journal. The crash list stays the machine's, shared by every build, because a case that ended this
+emulator's program will end it again whichever build asks. `last-run` is rewritten by every launch
+before the report is opened, which is how `make run`, and a person with a file manager, find the
+report without knowing the hash.
+
 ## Time per case
 
 Every line a drawing suite reports ends with how long the case kept the graphics unit busy, in
@@ -968,7 +1006,7 @@ comparison would paint the whole float suite red on a machine that did nothing w
 
 By default only a failing case writes anything; the word `images` in the mode file (next section)
 asks for every drawing case. The `support` suite writes a few eight by four fixtures into
-`support-check/` beside the report while it runs, parses them back and takes them away again, and a
+`sdmc:/edenprobe/support-check/` while it runs, parses them back and takes them away again, and a
 run that leaves that directory behind has failed that case and says so.
 
 ## Looking at it on the console
@@ -1066,6 +1104,7 @@ not a letter between them.
 | `audio` | the audio family: the renderer's resampler, circular buffer sink and limiter, recorded through its own effect and sink; only when named, since it makes sound, most of it at a gain of nought |
 | `listen` | the listening sequence before the audio family's cases, and the audio family with it: about 40 seconds of sound meant to be heard; see "The audio family" |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
+| `label=<name>` | not a word: the run's folder gets `_<name>` after the build's hash, to keep apart runs of one build under two emulators; see "Where a run leaves its report" |
 
 Families choose what runs beyond the judge, which always runs because nothing a family reports can
 be believed without it, and beyond the cpu suite, which needs no device and runs in every mode. None
@@ -1138,7 +1177,8 @@ processor lacks, a list asking for more memory than it has, a service it has not
 such a case cost the rest of the run. Now it costs the case: the run goes on over as many launches
 as it takes, and one report covers it all.
 
-**The journal.** `sdmc:/edenprobe/journal` says what the run has done, a line at a time, each on
+**The journal.** `journal`, in the run's folder (see "Where a run leaves its report"), says what
+the run has done, a line at a time, each on
 the card before the program goes on: before a case starts, its name and the pass; after it ends,
 its result. A launch that finds a run whose last line is a case starting knows the program ended
 inside that case, and goes on with the run instead of starting another. It skips the steps the
@@ -1243,15 +1283,16 @@ always promised, everything up to its last completed case.
 **Under Ryujinx**, which a person starts by hand: open `edenprobe.nro`, and when Ryujinx stops or
 closes, open it again, and again, until the report ends on its summary; each launch goes on with
 the run. Its card is Ryujinx's own, `~/.config/Ryujinx/sdcard/edenprobe/` on Linux (or
-`$XDG_CONFIG_HOME/Ryujinx/...`, or `portable/sdcard/` beside a portable build): the report, the
-journal and the crash list are there. A console is the same: start the program again from the
+`$XDG_CONFIG_HOME/Ryujinx/...`, or `portable/sdcard/` beside a portable build): the run folders
+and the crash list are there. A console is the same: start the program again from the
 menu after it ends.
 
 ## Versions
 
 The version is the one line of `VERSION`, semantic (`0.1.0` was the first), and a tag `v<version>`
 on `main` marks each. Every report opens with a note naming it and the build, as git describes the
-tree: `edenprobe 0.1.0 (9632b63) starting`, or `-dirty` when uncommitted changes were built. Two
+tree: `edenprobe 0.1.0 (9632b63) starting`, or `-dirty` when uncommitted changes were built, and
+the report sits in a folder named after that commit (see "Where a run leaves its report"). Two
 reports are worth diffing only when that line agrees, or when the difference between the builds is
 what is being measured. The version moves when what a case asks or how it judges changes: a new
 suite or case is a minor step, a changed verdict for an existing case at least that, and the
@@ -1313,21 +1354,23 @@ make run
 `EMULATOR` points at the binary to test: `make run EMULATOR=/path/to/emulator`. With nothing given
 it is an eden-cli build kept in `~/WorkDir/accord/bin`.
 
-The run leaves `report.jsonl`, and `images/` beside it, in `sdmc:/edenprobe`: the memory card on a
-console, and on a desktop a directory the emulator keeps under `$XDG_DATA_HOME`, beside its settings
-and caches under `$XDG_CONFIG_HOME` and `$XDG_CACHE_HOME`. `make run` points all three at
-`build/xdg/` inside this tree, so the report is at `build/xdg/data/eden/sdmc/edenprobe/report.jsonl`
-(the target's last line prints it) and `make clean` takes the lot away. That is not tidiness: a
+The run leaves `report.jsonl`, and `images/` beside it, in its folder under
+`sdmc:/edenprobe/runs` (see "Where a run leaves its report"): the memory card on a console, and on a
+desktop a directory the emulator keeps under `$XDG_DATA_HOME`, beside its settings and caches under
+`$XDG_CONFIG_HOME` and `$XDG_CACHE_HOME`. `make run` points all three at `build/xdg/` inside this
+tree, so the report is at `build/xdg/data/eden/sdmc/edenprobe/runs/<hash>/report.jsonl` (the
+target's last line prints it) and `make clean` takes the lot away. That is not tidiness: a
 frontend saves its settings when it exits, so a run pointed at your own directories reads your
 settings and may rewrite them, while one pointed here starts from the emulator's defaults every
 time, which also makes two runs comparable. An emulator with a different layout puts the same names
 under whatever it calls its memory card.
 
-The target runs `tools/run.py`, which first deletes the previous report, its pictures and the
-support suite's scratch directory, so a run that never started cannot leave an old report looking
-like its own, and a green run cannot sit beside the pictures of an earlier failing one. The journal
-stays: the program reads it, starts a new run because the report is gone, and lists a case the last
-launch of an earlier run ended inside.
+The target runs `tools/run.py`, which first deletes the report and the pictures in every run
+folder, `last-run` and the support suite's scratch directory, so a run that never started cannot
+leave an old report looking like its own, and a green run cannot sit beside the pictures of an
+earlier failing one. It reads the report and the journal in the folder the program then names in
+`last-run`. The journals stay: the program reads its own, starts a new run because the report is
+gone, and lists a case the last launch of an earlier run ended inside.
 
 **It starts the emulator again after a crash.** A launch that ends with no summary in the report,
 crashed or stopped at its time limit (`TIMEOUT`, 60 seconds, then killed ten after that), is
@@ -1377,13 +1420,16 @@ run is:
 
 ```sh
 adb install -r Eden.apk && adb push edenprobe.nro /sdcard/edenprobe.nro && \
-adb shell 'd=/sdcard/Android/data/dev.eden.eden_emulator/files/sdmc/edenprobe; mkdir -p $d && rm -f $d/report.jsonl && echo quick > $d/mode'
+adb shell 'd=/sdcard/Android/data/dev.eden.eden_emulator/files/sdmc/edenprobe; mkdir -p $d && rm -f $d/runs/*/report.jsonl && echo "quick label=phone" > $d/mode'
 # open /sdcard/edenprobe.nro from the app, wait for it to leave by itself, then:
-adb pull /sdcard/Android/data/dev.eden.eden_emulator/files/sdmc/edenprobe/report.jsonl report-android.jsonl
+d=/sdcard/Android/data/dev.eden.eden_emulator/files/sdmc/edenprobe
+adb pull "$d/$(adb shell cat $d/last-run | tr -d '\r')/report.jsonl" report-android.jsonl
 ```
 
-Two builds of one package share that directory, so run them one after the other and pull the
-report in between. When the app stops in the middle of a run, open the program again: it goes on
+Deleting the reports makes the next launch start a run rather than go on with one left in the
+middle. Two builds of one package share that directory: each build of the probe reports in its own
+folder, and a label per emulator build (`label=eden-nightly`) keeps two of those apart too. When
+the app stops in the middle of a run, open the program again: it goes on
 with the run (see "When the program ends in the middle"), and the report is whole once it ends on
 its summary. The device and driver are in the report's first lines only as far as the
 emulator logs them; say which phone and which driver next to the file.
