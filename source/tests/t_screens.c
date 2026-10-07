@@ -423,6 +423,50 @@ static void CheckStore(void) {
                last != NULL ? last->name : "(none)", last != NULL ? last->suite : "(none)");
 }
 
+/// Every suite a run reports sits under its own family on the screens, never under other: the
+/// suites in the order main runs them, the net family's six by the names their lines carry. A
+/// suite added to main goes here too; main also says in a note when one has no family.
+static void CheckFamilies(void) {
+    static const struct {
+        const char *suite;
+        UiFamily family;
+    } SUITES[] = {
+        { "selfcheck", UI_FAMILY_JUDGE },   { "support", UI_FAMILY_JUDGE },
+        { "reference", UI_FAMILY_JUDGE },   { "cpu", UI_FAMILY_CPU },
+        { "clear", UI_FAMILY_GRAPHICS },    { "format", UI_FAMILY_GRAPHICS },
+        { "raster", UI_FAMILY_GRAPHICS },   { "intmath", UI_FAMILY_GRAPHICS },
+        { "blend", UI_FAMILY_GRAPHICS },    { "depth", UI_FAMILY_GRAPHICS },
+        { "texture", UI_FAMILY_GRAPHICS },  { "coherence", UI_FAMILY_GRAPHICS },
+        { "fmath", UI_FAMILY_GRAPHICS },    { "order", UI_FAMILY_GRAPHICS },
+        { "index", UI_FAMILY_GRAPHICS },    { "instance", UI_FAMILY_GRAPHICS },
+        { "geometry", UI_FAMILY_GRAPHICS }, { "bindless", UI_FAMILY_GRAPHICS },
+        { "astc", UI_FAMILY_GRAPHICS },     { "eac", UI_FAMILY_GRAPHICS },
+        { "etc2", UI_FAMILY_GRAPHICS },     { "bcn", UI_FAMILY_GRAPHICS },
+        { "zeta", UI_FAMILY_GRAPHICS },     { "swizzle", UI_FAMILY_GRAPHICS },
+        { "texel", UI_FAMILY_GRAPHICS },    { "stream", UI_FAMILY_GRAPHICS },
+        { "fill", UI_FAMILY_GRAPHICS },     { "ring", UI_FAMILY_GRAPHICS },
+        { "occlusion", UI_FAMILY_GRAPHICS }, { "drawtex", UI_FAMILY_GRAPHICS },
+        { "query", UI_FAMILY_GRAPHICS },    { "dma", UI_FAMILY_GRAPHICS },
+        { "fs", UI_FAMILY_FS },             { "audio", UI_FAMILY_AUDIO },
+        { "nifm", UI_FAMILY_NET },          { "dns", UI_FAMILY_NET },
+        { "bsd", UI_FAMILY_NET },           { "ssl", UI_FAMILY_NET },
+        { "acc", UI_FAMILY_NET },           { "friend", UI_FAMILY_NET },
+    };
+    const size_t count = sizeof(SUITES) / sizeof(SUITES[0]);
+    uint32_t wrong = 0;
+    const char *first = "none";
+    for (size_t i = 0; i < count; ++i) {
+        if (UiFamilyOf(SUITES[i].suite) != SUITES[i].family && wrong++ == 0u) {
+            first = SUITES[i].suite;
+        }
+    }
+    CHECK_TRUE(SUITE, "every suite a run reports is shown under its own family", CHECK_NONE,
+               wrong == 0u && count == 40u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
+                   UiFamilyOf(NULL) == UI_FAMILY_OTHER,
+               "%u of %u suites under the wrong family, the first %s", (unsigned)wrong,
+               (unsigned)count, first);
+}
+
 /// One string field of a line with its escapes undone, as a reader of the report gets it back.
 static bool FieldOf(const char *line, const char *key, char *out, size_t out_size) {
     char pattern[32];
@@ -1446,6 +1490,7 @@ void RunSupportScreens(void) {
     }
     CheckIndex();
     CheckStore();
+    CheckFamilies();
     CheckRecordFill();
     BuildRun(f);
     CheckWalk(f);

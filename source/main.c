@@ -322,6 +322,15 @@ int main(int argc, char **argv) {
         ModeDescribe(described, sizeof(described), &mode, MODE_FAMILIES_PRESENT);
         ReportNote("%s", described);
     }
+    // A step the screens know no family for is shown under other, away from its own. The net
+    // step reports under its six suites' names, which the screens know.
+    for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
+        if (strcmp(STEPS[i].name, "net") != 0 && UiFamilyOf(STEPS[i].name) == UI_FAMILY_OTHER) {
+            ReportNote("bookkeeping: the screens have no family for suite %s and show it under "
+                       "other",
+                       STEPS[i].name);
+        }
+    }
     PictureWriteEveryCase(mode.every_case);
     PictureRetain(mode.detailed);
     ReportRetain(mode.detailed);

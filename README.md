@@ -40,7 +40,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 Forty suites, in the order they run: the judge, then the processor, then the graphics family,
 then the fs family, then the audio family when a word asks for it, then the net family. A run is
-794 cases: 726 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
+795 cases: 727 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
 the net family; the audio family adds six when named or with `listen`, the mode word `stress` adds
 one, and `fatal` runs the cases the may-crash table names, which are otherwise skipped. The order,
 and what a failure in each suite points at, is in "The roadmap" below. A case that ends the
@@ -50,7 +50,7 @@ program costs that case and not the rest of the run: see "When the program ends 
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and twenty six cases, no hardware involved: what the program does around
+- **support**, one hundred and twenty seven cases, no hardware involved: what the program does around
   a verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
   detailed mode's store, screens and navigation, the start screen and the listening screen, the mode
   file and its words, the `skip` result, the time a case reports (nineteen cases, see "Time per
@@ -978,8 +978,8 @@ One binary, two ways to run it, and a file on the memory card that chooses.
 **Detailed** is the default, because whoever starts this on a console is standing in front of the
 screen. Every suite runs, both report channels get every line, the summary is counted and the report
 is closed, and only then does the run go on the screen, a group at a time. A group is a suite,
-gathered under its family: the judge (selfcheck, support, reference), cpu, graphics (clear to fmath)
-and net (nifm to friend). Three screens, one inside the other:
+gathered under its family: the judge (selfcheck, support, reference), cpu, graphics (clear to dma),
+fs, audio and net (nifm to friend). Three screens, one inside the other:
 
 - **The overview** comes first, on the first group that failed. Its heading carries the run's counts
   and names the groups that failed, as many as fit. Below it, every group under its family with its
