@@ -40,7 +40,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 Forty suites, in the order they run: the judge, then the processor, then the graphics family,
 then the fs family, then the audio family when a word asks for it, then the net family. A run is
-796 cases: 728 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
+799 cases: 731 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
 the net family; the audio family adds six when named or with `listen`, the mode word `stress` adds
 one, and `fatal` runs the cases the may-crash table names, which are otherwise skipped. The order,
 and what a failure in each suite points at, is in "The roadmap" below. A case that ends the
@@ -50,12 +50,13 @@ program costs that case and not the rest of the run: see "When the program ends 
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and twenty eight cases, no hardware involved: what the program does around
+- **support**, one hundred and thirty one cases, no hardware involved: what the program does around
   a verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
-  detailed mode's store, screens and navigation, the start screen and the listening screen, the mode
-  file and its words, the `skip` result, the time a case reports (nineteen cases, see "Time per
-  case"), the journal, the crash list, the may-crash and hang tables and what a launch decides from
-  them (twenty two cases, see "When the program ends in the middle"), and the last copy a device
+  detailed mode's store, screens and navigation, the start screen, the screen that asks whether to
+  go on with a run and the listening screen, the mode file and its words, the label and the folder
+  it names, the `skip` result, the time a case reports (nineteen cases, see "Time per case"), the
+  journal, the crash list, the may-crash and hang tables and what a launch decides from them
+  (twenty three cases, see "When the program ends in the middle"), and the last copy a device
   waits for before it closes, and the note a late one leaves (eight cases). One case carries the
   whole idea: the diff picture is built from what the judge decided pixel by pixel, not from
   comparing two images, so a pixel that differs and was allowed to is not painted as a difference.
@@ -1154,7 +1155,9 @@ On the screens, each of which names its buttons on its bottom line:
 | plus or minus | quit | quit | quit |
 
 And on the start screen: A begins the run, Y turns the cases that may crash on or off, X the crash
-list's cases again. Y and X in the same edge change neither.
+list's cases again. Y and X in the same edge change neither. On the screen that asks whether to go
+on with a run (see "When the program ends in the middle"), up and down choose and A confirms; an
+edge that holds A and a direction does nothing.
 
 The listening sequence has its own screen, up while it plays, and that screen names its buttons
 the same way. Y repeats the take that is playing. X skips to the next part. Neither is read by
@@ -1206,7 +1209,20 @@ when the journal is this build's, was begun with the same mode words (quick and 
 since they change nothing a report holds), and the report it describes is still there and at
 least as long as the journal says it was; otherwise it starts the run again, and says why in a
 note. A case the journal shows the program ended inside goes on the crash list whichever way the
-launch goes. To start over rather than go on, delete the journal or the report.
+launch goes. To start over rather than go on, delete the journal or the report, or choose it on the
+screen below.
+
+**Going on or starting over.** A detailed launch that could go on with a run asks first, before
+it opens anything: a screen says where the program stopped (inside which case, in which step, or
+between two steps), which launch of the run this is, how many of the run's steps are done, the
+counts so far and the run's folder, and offers two choices, the cursor on the first: go on from
+where it stopped, or start over. Up and down move the cursor, A confirms; nothing pressed for ten
+seconds goes on, as a launch always did, so a detailed run nobody attends still finishes over its
+relaunches. Starting over begins a new report in the same folder, and the report's first note
+says why: `journal: a new run (the screen was asked to start over rather than go on)`; a case the
+program ended inside still goes on the crash list. A quick run never asks: it is a script's, and
+`make run` relaunches it expecting it to go on. A card that says `quick` with X held at launch does
+not ask either, since the pad is read only once the run has started.
 
 | journal line | written |
 |---|---|
@@ -1337,7 +1353,8 @@ EDENPROBE_FRAMES=/tmp/frames make -f host.mk host-run
 
 The screen cases then also write each frame of their walk there as a PAM file: the overview, a
 failing graphics group, one of its cases on its pictures and alone on `judged`, the group again, a
-net case's detail page and a net group; `magick 1-overview.pam 1-overview.png` makes a PNG of one.
+net case's detail page, a net group, the start screen and the screen that asks whether to go on
+with a run; `magick 1-overview.pam 1-overview.png` makes a PNG of one.
 The frames are never read, so they change no verdict.
 
 Commit messages have a convention too: `edenprobe: what changed`, one to three lines of intent, one

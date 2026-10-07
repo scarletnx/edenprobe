@@ -325,6 +325,76 @@ void UiComposeStart(const UiFrame *frame, const UiStartInfo *info, UiStartState 
 #define UI_START_WARNING_LINES 3u
 uint32_t UiStartWarningTop(uint32_t frame_height);
 
+/// The screen a detailed launch shows when its journal left a run in the middle, before anything
+/// is opened: where the program stopped, how far the run had got, and two choices, to go on from
+/// there or to start over. Nothing pressed for UI_RESUME_NANOSECONDS goes on, as a launch always
+/// did; a quick run never shows it.
+typedef struct {
+    /// The first line: the program and its build.
+    const char *heading;
+    /// Where the program stopped, a sentence (JournalDescribeStop).
+    const char *where;
+    /// The run's folder.
+    const char *folder;
+    /// This launch's number in the run, how many steps the run has and how many are done.
+    uint32_t launch;
+    uint32_t steps;
+    uint32_t steps_done;
+    /// The counts the report holds where the run would go on from.
+    uint32_t passed;
+    uint32_t failed;
+    uint32_t skipped;
+    uint32_t crashed;
+} UiResumeInfo;
+
+/// The two choices, in the order the screen lists them.
+enum {
+    UI_RESUME_GO_ON = 0,
+    UI_RESUME_START_OVER = 1,
+    UI_RESUME_CHOICES = 2,
+};
+
+typedef struct {
+    /// The row the cursor is on.
+    uint32_t cursor;
+    /// A press chose the row under the cursor.
+    bool decided;
+    /// What was decided: start over rather than go on.
+    bool start_over;
+    /// Owes a frame, as UiState does.
+    bool changed;
+} UiResumeState;
+
+/// The screen's buttons, named for what they do there.
+enum {
+    UI_RESUME_UP = 1u << 0,
+    UI_RESUME_DOWN = 1u << 1,
+    UI_RESUME_CHOOSE = 1u << 2,
+};
+
+/// The cursor on going on, which is what a launch did before it asked.
+UiResumeState UiResumeOpen(void);
+
+/// One frame's presses. Nothing while the pad settles; up and down move the cursor, coming
+/// round; choose takes the row under it. A choice in the same edge as a move does nothing: a pad
+/// that connects late reports every button it holds as one edge, and that is nobody choosing.
+UiResumeState UiResumeStep(UiResumeState state, uint32_t pressed, uint32_t frame_index);
+
+/// How long the screen waits for a person before it goes on with the run.
+#define UI_RESUME_NANOSECONDS 10000000000ull
+
+bool UiResumeTimesOut(uint64_t elapsed_ns, bool pressed);
+
+/// Whole seconds left, rounded up; 0 once a press was seen or the time is up.
+uint32_t UiResumeSecondsLeft(uint64_t elapsed_ns, bool pressed);
+
+/// Where the row of choice @p row starts down the frame, for the cases that check the cursor.
+uint32_t UiResumeRowTop(uint32_t row);
+
+/// Draws the screen over the whole frame, its countdown included.
+void UiComposeResume(const UiFrame *frame, const UiResumeInfo *info, UiResumeState state,
+                     uint32_t seconds_left);
+
 /// How many rows the overview (UI_LEVEL_OVERVIEW) or a group (UI_LEVEL_GROUP) has room for on
 /// a frame @p height tall.
 uint32_t UiListRows(UiLevel level, uint32_t height);

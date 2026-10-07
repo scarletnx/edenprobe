@@ -367,6 +367,72 @@ static void CheckPlans(void) {
                (int)after.start, (unsigned)after.launch, said);
 }
 
+/// A launch that could go on asks first only in a detailed run; starting over makes the plan a
+/// new run's and keeps the case the program ended inside for the crash list; and the screen and
+/// the report say where it stopped and why the run is new.
+static void CheckAsking(void) {
+    JournalState inside;
+    JournalStateInit(&inside);
+    JournalReadText(&inside, RUN_HEAD, strlen(RUN_HEAD));
+    static const char STEPPED[] = "run 0.2.0 v0.2.0-20-g2ddafce fatal\nlaunch 1\n"
+                                  "step clear 400 3 0 0 0\nstart clear 1 a\nend clear 1 muted a\n";
+    JournalState stepped;
+    JournalStateInit(&stepped);
+    JournalReadText(&stepped, STEPPED, strlen(STEPPED));
+    static const char BETWEEN[] = "run 0.2.0 v0.2.0-20-g2ddafce fatal\nlaunch 1\n"
+                                  "step clear 400 3 0 0 0\ndone clear\n";
+    JournalState between;
+    JournalStateInit(&between);
+    JournalReadText(&between, BETWEEN, strlen(BETWEEN));
+    const char *const version = "0.2.0";
+    const char *const build = "v0.2.0-20-g2ddafce";
+    const JournalPlan case_ = JournalPlanStart(&inside, version, build, "fatal", 1000);
+    const JournalPlan step = JournalPlanStart(&stepped, version, build, "fatal", 1000);
+    const JournalPlan after = JournalPlanStart(&between, version, build, "fatal", 1000);
+    const JournalPlan fresh = JournalPlanStart(&inside, version, build, "", 1000);
+
+    const bool asks = JournalPlanAsks(&case_, true) && !JournalPlanAsks(&case_, false) &&
+                      JournalPlanAsks(&step, true) && JournalPlanAsks(&after, true) &&
+                      !JournalPlanAsks(&fresh, true) && !JournalPlanAsks(NULL, true);
+
+    JournalPlan over = case_;
+    JournalPlanRestart(&over);
+    const bool restarted = over.start == JOURNAL_FRESH && over.why_new == JOURNAL_NEW_CHOSEN &&
+                           over.launch == 1u && over.offset == 0u &&
+                           over.counts.counts[JOURNAL_PASSED] == 0u && over.crashed &&
+                           strcmp(over.crash.suite, "cpu") == 0 && !JournalPlanAsks(&over, true);
+    JournalPlan left = fresh;
+    JournalPlanRestart(&left);
+    const bool fresh_kept = memcmp(&left, &fresh, sizeof(left)) == 0;
+
+    char stop_case[256];
+    char stop_step[256];
+    char stop_between[256];
+    char stop_fresh[64] = "x";
+    char said[REPORT_NOTE_MAX + 1];
+    JournalDescribeStop(stop_case, sizeof(stop_case), &case_, &inside);
+    JournalDescribeStop(stop_step, sizeof(stop_step), &step, &stepped);
+    JournalDescribeStop(stop_between, sizeof(stop_between), &after, &between);
+    JournalDescribeStop(stop_fresh, sizeof(stop_fresh), &fresh, &inside);
+    JournalDescribePlan(said, sizeof(said), &over, &inside);
+    const bool stops =
+        strcmp(stop_case, "the program ended inside cpu case \"sm4ekey and sm4e give the SM4 "
+                          "standard's worked example\"") == 0 &&
+        strcmp(stop_step, "the program ended in step clear after \"a\", outside any case") == 0 &&
+        strcmp(stop_between, "the program ended between two steps, after 1 done") == 0 &&
+        stop_fresh[0] == '\0' &&
+        strncmp(said, "journal: a new run (the screen was asked to start over rather than go on); "
+                      "before it, the program ended inside cpu case",
+                strlen("journal: a new run (the screen was asked to start over rather than go "
+                       "on); before it, the program ended inside cpu case")) == 0;
+    CHECK_TRUE(SUITE, "a detailed launch asks before going on, and starting over keeps the crash",
+               CHECK_NONE, asks && restarted && fresh_kept && stops,
+               "asks %d, restarted %d, a new run left alone %d; said \"%.70s\" \"%.70s\" "
+               "\"%.60s\"; report \"%.120s\"",
+               (int)asks, (int)restarted, (int)fresh_kept, stop_case, stop_step, stop_between,
+               said);
+}
+
 static void CheckCrashList(void) {
     static const char TEXT[] = "# a comment\n"
                                "\n"
@@ -928,6 +994,7 @@ void RunSupportJournal(const char *scratch) {
     CheckRecords();
     CheckReading();
     CheckPlans();
+    CheckAsking();
     CheckCrashList();
     CheckDurableFile(scratch);
     CheckDurableLines(scratch);

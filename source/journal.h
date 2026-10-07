@@ -192,6 +192,8 @@ typedef enum {
     JOURNAL_NEW_OTHER_MODE,
     JOURNAL_NEW_NO_REPORT,
     JOURNAL_NEW_NO_RUN,
+    /// The launch could have gone on, and the person at the screen chose to start over.
+    JOURNAL_NEW_CHOSEN,
 } JournalWhyNew;
 
 typedef struct {
@@ -213,6 +215,21 @@ typedef struct {
 /// says it was.
 JournalPlan JournalPlanStart(const JournalState *state, const char *version, const char *build,
                              const char *mode, int64_t report_size);
+
+/// Whether the launch asks before going on with the run its journal left in the middle: only
+/// when it could go on, and only in a detailed run, which has a person in front of it. A quick
+/// run is a script's, and goes on as it always did.
+bool JournalPlanAsks(const JournalPlan *plan, bool detailed);
+
+/// Turns a plan that goes on with a run into one that starts a new run, as the screen does when
+/// the person chooses to start over. A case the program ended inside stays in the plan, since it
+/// goes on the crash list whichever way the launch goes. A new run's plan is left as it is.
+void JournalPlanRestart(JournalPlan *plan);
+
+/// Where the last launch stopped, for the screen that asks: inside a case, in a step outside any
+/// case, or between two steps. Empty for a new run.
+size_t JournalDescribeStop(char *out, size_t out_size, const JournalPlan *plan,
+                           const JournalState *state);
 
 /// The sentence the report carries about a plan: why a new run, or where the last launch ended.
 size_t JournalDescribePlan(char *out, size_t out_size, const JournalPlan *plan,

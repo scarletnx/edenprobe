@@ -450,6 +450,54 @@ JournalPlan JournalPlanStart(const JournalState *state, const char *version, con
     return plan;
 }
 
+bool JournalPlanAsks(const JournalPlan *plan, bool detailed) {
+    return plan != NULL && detailed && plan->start != JOURNAL_FRESH;
+}
+
+void JournalPlanRestart(JournalPlan *plan) {
+    if (plan == NULL || plan->start == JOURNAL_FRESH) {
+        return;
+    }
+    plan->start = JOURNAL_FRESH;
+    plan->why_new = JOURNAL_NEW_CHOSEN;
+    plan->launch = 1u;
+    plan->offset = 0u;
+    memset(&plan->counts, 0, sizeof(plan->counts));
+}
+
+/// How a pass is said after a case's name: the warm-up, a timed pass, or nothing outside them.
+static const char *PassSaid(uint32_t pass) {
+    return pass == 1u ? " in its warm-up" : pass > 1u ? " in a timed pass" : "";
+}
+
+size_t JournalDescribeStop(char *out, size_t out_size, const JournalPlan *plan,
+                           const JournalState *state) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (plan == NULL || state == NULL) {
+        return 0;
+    }
+    switch (plan->start) {
+    case JOURNAL_RESUME_CASE:
+        snprintf(out, out_size, "the program ended inside %s case \"%s\"%s", plan->crash.suite,
+                 plan->crash.name, PassSaid(plan->crash.number));
+        break;
+    case JOURNAL_RESUME_STEP:
+        snprintf(out, out_size, "the program ended in step %s after \"%s\", outside any case",
+                 state->step.suite, state->last_ended[0] != '\0' ? state->last_ended : "its start");
+        break;
+    case JOURNAL_RESUME_BETWEEN:
+        snprintf(out, out_size, "the program ended between two steps, after %u done",
+                 (unsigned)state->done_count);
+        break;
+    case JOURNAL_FRESH:
+        break;
+    }
+    return strlen(out);
+}
+
 size_t JournalDescribePlan(char *out, size_t out_size, const JournalPlan *plan,
                            const JournalState *state) {
     if (out == NULL || out_size == 0u) {
@@ -463,10 +511,7 @@ size_t JournalDescribePlan(char *out, size_t out_size, const JournalPlan *plan,
     crash[0] = '\0';
     if (plan->crashed) {
         snprintf(crash, sizeof(crash), "the program ended inside %s case \"%s\"%s",
-                 plan->crash.suite, plan->crash.name,
-                 plan->crash.number == 1u   ? " in its warm-up"
-                 : plan->crash.number > 1u ? " in a timed pass"
-                                           : "");
+                 plan->crash.suite, plan->crash.name, PassSaid(plan->crash.number));
     }
     switch (plan->start) {
     case JOURNAL_FRESH: {
@@ -474,7 +519,10 @@ size_t JournalDescribePlan(char *out, size_t out_size, const JournalPlan *plan,
             "no journal", "the last run finished", "the journal is another build's",
             "the journal was started with other mode words",
             "the report the journal describes is gone or shorter", "the journal names no run",
+            "the screen was asked to start over rather than go on",
         };
+        _Static_assert(sizeof(WHY) / sizeof(WHY[0]) == JOURNAL_NEW_CHOSEN + 1,
+                       "a reason for every new run");
         snprintf(out, out_size, "journal: a new run (%s)%s%s%s", WHY[plan->why_new],
                  crash[0] != '\0' ? "; before it, " : "", crash,
                  crash[0] != '\0' ? ", which goes on the crash list" : "");

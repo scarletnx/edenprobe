@@ -1446,6 +1446,112 @@ void UiComposeStart(const UiFrame *frame, const UiStartInfo *info, UiStartState 
     DrawButtons(frame, "A begin the run   Y the cases that may crash   X the crash list again");
 }
 
+UiResumeState UiResumeOpen(void) {
+    const UiResumeState state = { UI_RESUME_GO_ON, false, false, true };
+    return state;
+}
+
+UiResumeState UiResumeStep(UiResumeState state, uint32_t pressed, uint32_t frame_index) {
+    if (frame_index < UI_SETTLING_FRAMES || state.decided) {
+        return state;
+    }
+    const uint32_t moves = pressed & (UI_RESUME_UP | UI_RESUME_DOWN);
+    if ((pressed & UI_RESUME_CHOOSE) != 0u) {
+        // With a move in the same edge it is a whole mask, not a choice; see the header.
+        if (moves == 0u) {
+            state.decided = true;
+            state.start_over = state.cursor == UI_RESUME_START_OVER;
+            state.changed = true;
+        }
+        return state;
+    }
+    if (moves == UI_RESUME_UP) {
+        state.cursor = Around(state.cursor, -1, UI_RESUME_CHOICES);
+        state.changed = true;
+    } else if (moves == UI_RESUME_DOWN) {
+        state.cursor = Around(state.cursor, 1, UI_RESUME_CHOICES);
+        state.changed = true;
+    }
+    return state;
+}
+
+bool UiResumeTimesOut(uint64_t elapsed_ns, bool pressed) {
+    return !pressed && elapsed_ns >= UI_RESUME_NANOSECONDS;
+}
+
+uint32_t UiResumeSecondsLeft(uint64_t elapsed_ns, bool pressed) {
+    if (pressed || elapsed_ns >= UI_RESUME_NANOSECONDS) {
+        return 0u;
+    }
+    return (uint32_t)((UI_RESUME_NANOSECONDS - elapsed_ns + 999999999ull) / 1000000000ull);
+}
+
+// Below the sentence of where it stopped, which takes up to three lines, and the three lines of
+// how far the run got, with a line between.
+#define RESUME_WHERE_LINES 3u
+#define RESUME_ROWS_TOP (UI_LIST_TOP + (RESUME_WHERE_LINES + 4u) * LINE)
+
+uint32_t UiResumeRowTop(uint32_t row) {
+    return RESUME_ROWS_TOP + row * 2u * LINE;
+}
+
+void UiComposeResume(const UiFrame *frame, const UiResumeInfo *info, UiResumeState state,
+                     uint32_t seconds_left) {
+    if (frame == NULL || frame->pixels == NULL || info == NULL) {
+        return;
+    }
+    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
+        UiText(frame, 0, 0, 1, TEXT, "frame too small");
+        return;
+    }
+    SayFitted(frame, MARGIN, 8, TEXT, info->heading != NULL ? info->heading : "edenprobe");
+    SayFitted(frame, MARGIN, 30, SKIPPED, "the last run in this folder stopped before its end");
+
+    TextWrapped(frame, MARGIN, UI_LIST_TOP, BIG, LINE, TEXT,
+                info->where != NULL && info->where[0] != '\0' ? info->where
+                                                              : "where it stopped is not known",
+                Columns(frame), RESUME_WHERE_LINES);
+    uint32_t y = UI_LIST_TOP + RESUME_WHERE_LINES * LINE;
+    char text[160];
+    snprintf(text, sizeof(text), "this is launch %u of the run; %u of its %u steps are done",
+             (unsigned)info->launch, (unsigned)info->steps_done, (unsigned)info->steps);
+    SayFitted(frame, MARGIN, y, DIM, text);
+    y += LINE;
+    const uint32_t x = Say(frame, MARGIN, y, DIM, "so far: ");
+    SayCounts(frame, x, y, info->passed, info->failed, info->skipped, info->crashed);
+    y += LINE;
+    snprintf(text, sizeof(text), "folder: %s", info->folder != NULL ? info->folder : "");
+    SayFitted(frame, MARGIN, y, DIM, text);
+
+    static const char *const CHOICES[UI_RESUME_CHOICES][2] = {
+        { "go on from where it stopped",
+          "the report keeps what it has, and a case the program ended inside is skipped" },
+        { "start over",
+          "a new report in this folder; a case the program ended inside stays on the crash list" },
+    };
+    for (uint32_t row = 0; row < UI_RESUME_CHOICES; ++row) {
+        const uint32_t top = UiResumeRowTop(row);
+        const bool selected = state.cursor == row;
+        if (selected) {
+            FillRect(frame, MARGIN / 2u, top, frame->width - MARGIN, 2u * LINE, SELECTED);
+            Say(frame, MARGIN, top + 2u, TEXT, ">");
+        }
+        SayFitted(frame, MARGIN + 2u * GLYPH, top + 2u, selected ? TEXT : DIM, CHOICES[row][0]);
+        UiText(frame, MARGIN + 2u * GLYPH, top + LINE + 4u, 1, DIM, CHOICES[row][1]);
+    }
+
+    const uint32_t countdown = frame->height - 28u;
+    FillRect(frame, 0, countdown - 2u, frame->width, 12u, BACKGROUND);
+    if (seconds_left > 0u) {
+        snprintf(text, sizeof(text),
+                 "nothing pressed yet: the run goes on in %u s, any button keeps this screen",
+                 (unsigned)seconds_left);
+        UiText(frame, MARGIN, countdown, 1, FAILED, text);
+    }
+    DrawButtons(frame, "up/down choose   A confirm");
+}
+
 // The listening sequence, one row per screen, in the order a run with no button plays them.
 // The guide is what a person is listening for; the log lines stay the sequence's own.
 static const char *const LISTEN_A_LOW =

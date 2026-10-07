@@ -257,6 +257,42 @@ static void StartScreen(RunMode *mode, uint32_t families) {
     }
 }
 
+/// Whether @p step runs in a run of @p families: the steps every mode runs, and its families'.
+static bool StepRuns(const Step *step, uint32_t families) {
+    return step->family == 0u || (families & step->family) != 0u;
+}
+
+/// The screen that asks whether to go on with the run the journal left in the middle, before
+/// anything is opened. Starting over makes the plan a new run's; the case the program ended
+/// inside stays in it, for the crash list.
+static void AskToGoOn(JournalPlan *plan, const RunMode *mode) {
+    static UiResumeInfo info;
+    memset(&info, 0, sizeof(info));
+    static char heading[96];
+    snprintf(heading, sizeof(heading), "edenprobe %s (%s)", EDENPROBE_VERSION, EDENPROBE_BUILD);
+    static char where[JOURNAL_SUITE_MAX + JOURNAL_NAME_MAX + 96u];
+    JournalDescribeStop(where, sizeof(where), plan, &journal);
+    info.heading = heading;
+    info.where = where;
+    info.folder = run_directory;
+    info.launch = plan->launch;
+    const uint32_t families = ModeFamiliesToRun(mode, MODE_FAMILIES_PRESENT);
+    for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
+        if (StepRuns(&STEPS[i], families)) {
+            ++info.steps;
+            info.steps_done += JournalStepDone(&journal, STEPS[i].name) ? 1u : 0u;
+        }
+    }
+    info.passed = plan->counts.counts[JOURNAL_PASSED];
+    info.failed = plan->counts.counts[JOURNAL_FAILED];
+    info.skipped = plan->counts.counts[JOURNAL_SKIPPED];
+    info.crashed = plan->counts.counts[JOURNAL_CRASHED];
+    bool start_over = false;
+    if (ViewerResumeScreen(&info, &start_over) && start_over) {
+        JournalPlanRestart(plan);
+    }
+}
+
 /// The note before the summary of a run that took more than one launch or skipped cases as
 /// crashed: how many launches, how many such cases, and which ended the program in this run.
 static void NoteCrashes(const JournalPlan *plan) {
@@ -300,6 +336,11 @@ int main(int argc, char **argv) {
         // Asked for no journal: nothing goes on, and the run starts over unjournaled.
         plan.start = JOURNAL_FRESH;
         plan.launch = 1u;
+    }
+    // A person in front of a detailed run chooses whether to go on with the run left in the
+    // middle or start over; a quick run is a script's, and goes on.
+    if (JournalPlanAsks(&plan, mode.detailed)) {
+        AskToGoOn(&plan, &mode);
     }
 
     // Opened first, because reading the pad touches a service this program otherwise never
@@ -372,7 +413,7 @@ int main(int argc, char **argv) {
     const bool timing = !mode.no_timing;
     for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
         const Step *const step = &STEPS[i];
-        if (step->family != 0u && (families & step->family) == 0u) {
+        if (!StepRuns(step, families)) {
             continue;
         }
         if (plan.start != JOURNAL_FRESH &&

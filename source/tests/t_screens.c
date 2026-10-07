@@ -1272,6 +1272,99 @@ static void CheckStartScreen(Fixture *f) {
     DumpFrame(&frame, "9-start");
 }
 
+/// The screen that asks whether to go on: the cursor on going on, up and down coming round, A
+/// taking the row under the cursor, nothing while the pad settles or in an edge that also moves,
+/// ten seconds before it goes on by itself; and the frame shows where the cursor is.
+static void CheckResumeScreen(Fixture *f) {
+    UiResumeState state = UiResumeOpen();
+    const bool opens = state.cursor == UI_RESUME_GO_ON && !state.decided && state.changed;
+    UiResumeState settling = UiResumeStep(state, UI_RESUME_CHOOSE, UI_SETTLING_FRAMES - 1u);
+    const bool settled = !settling.decided;
+    UiResumeState go_on = UiResumeStep(state, UI_RESUME_CHOOSE, UI_SETTLING_FRAMES);
+    const bool went_on = go_on.decided && !go_on.start_over;
+    UiResumeState over = UiResumeStep(state, UI_RESUME_DOWN, UI_SETTLING_FRAMES);
+    const bool moved = over.cursor == UI_RESUME_START_OVER && !over.decided;
+    over = UiResumeStep(over, UI_RESUME_CHOOSE, UI_SETTLING_FRAMES + 1u);
+    const bool started_over = over.decided && over.start_over;
+    const bool stays = UiResumeStep(over, UI_RESUME_UP, UI_SETTLING_FRAMES + 2u).cursor ==
+                       UI_RESUME_START_OVER;
+    UiResumeState round = UiResumeStep(state, UI_RESUME_UP, UI_SETTLING_FRAMES);
+    const bool came_round = round.cursor == UI_RESUME_START_OVER &&
+                            UiResumeStep(round, UI_RESUME_DOWN, UI_SETTLING_FRAMES).cursor ==
+                                UI_RESUME_GO_ON;
+    UiResumeState mask = UiResumeStep(state, UI_RESUME_CHOOSE | UI_RESUME_DOWN | UI_RESUME_UP,
+                                      UI_SETTLING_FRAMES);
+    const bool whole_mask = !mask.decided && mask.cursor == UI_RESUME_GO_ON;
+    const uint64_t second = 1000000000ull;
+    const bool timer = UI_RESUME_NANOSECONDS == 10u * second &&
+                       !UiResumeTimesOut(10u * second - 1u, false) &&
+                       UiResumeTimesOut(10u * second, false) &&
+                       !UiResumeTimesOut(100u * second, true) &&
+                       UiResumeSecondsLeft(0, false) == 10u &&
+                       UiResumeSecondsLeft(9u * second + 1u, false) == 1u &&
+                       UiResumeSecondsLeft(0, true) == 0u;
+    CHECK_TRUE(SUITE, "the resume screen goes on unless start over is chosen, and a mask chooses "
+                      "nothing",
+               CHECK_NONE,
+               opens && settled && went_on && moved && started_over && stays && came_round &&
+                   whole_mask && timer,
+               "opens %d, settling %d, A goes on %d, down %d, A starts over %d, decided stays %d, "
+               "comes round %d, whole mask %d, ten seconds %d",
+               (int)opens, (int)settled, (int)went_on, (int)moved, (int)started_over, (int)stays,
+               (int)came_round, (int)whole_mask, (int)timer);
+
+    UiResumeInfo info;
+    memset(&info, 0, sizeof(info));
+    info.heading = "edenprobe 0.3.0 (test)";
+    info.where = "the program ended inside bcn case \"every layer of a six-layer BC4 array keeps "
+                 "its own 2x2 and 1x1 levels\" in its warm-up";
+    info.folder = "sdmc:/edenprobe/runs/b7172fc";
+    info.launch = 2u;
+    info.steps = 34u;
+    info.steps_done = 21u;
+    info.passed = 412u;
+    info.failed = 3u;
+    info.skipped = 20u;
+    info.crashed = 1u;
+    const UiFrame frame = { f->pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
+    const uint32_t row0 = UiResumeRowTop(UI_RESUME_GO_ON);
+    const uint32_t row1 = UiResumeRowTop(UI_RESUME_START_OVER);
+    UiComposeResume(&frame, &info, UiResumeOpen(), 7u);
+    const uint32_t on_first = CountColour(&frame, 0, row0, FRAME_WIDTH, row0 + 2u * UI_ROW_HEIGHT,
+                                          SELECTED);
+    const uint32_t off_second = CountColour(&frame, 0, row1, FRAME_WIDTH,
+                                            row1 + 2u * UI_ROW_HEIGHT, SELECTED);
+    const uint32_t counting = CountColour(&frame, 0, FRAME_HEIGHT - 31u, FRAME_WIDTH,
+                                          FRAME_HEIGHT - 15u, FAILED);
+    const uint32_t heading = CountLit(&frame, 8u, 24u);
+    const uint32_t where = TextLines(&frame, UI_LIST_TOP, UI_LIST_TOP + 3u * UI_ROW_HEIGHT);
+    const uint32_t crashed = CountColour(&frame, 0, UI_LIST_TOP, FRAME_WIDTH, row0, CRASHED);
+    const uint32_t buttons = CountLit(&frame, FRAME_HEIGHT - 14u, FRAME_HEIGHT - 6u);
+    DumpFrame(&frame, "10-resume");
+    UiComposeResume(&frame, &info, over, 0u);
+    const uint32_t off_first = CountColour(&frame, 0, row0, FRAME_WIDTH,
+                                           row0 + 2u * UI_ROW_HEIGHT, SELECTED);
+    const uint32_t on_second = CountColour(&frame, 0, row1, FRAME_WIDTH,
+                                           row1 + 2u * UI_ROW_HEIGHT, SELECTED);
+    const uint32_t not_counting = CountColour(&frame, 0, FRAME_HEIGHT - 31u, FRAME_WIDTH,
+                                              FRAME_HEIGHT - 15u, FAILED);
+    const UiFrame small = { f->pixels, 320u, 200u, 320u * 4u };
+    UiComposeResume(&small, &info, over, 3u);
+    const uint32_t small_lit = CountLit(&small, 0u, small.height);
+    CHECK_TRUE(SUITE, "the resume screen shows where it stopped and which choice the cursor is on",
+               CHECK_NONE,
+               on_first > 10000u && off_second == 0u && off_first == 0u && on_second > 10000u &&
+                   counting > 0u && not_counting == 0u && heading > 100u && where == 2u &&
+                   crashed > 0u && buttons > 100u && small_lit > 0u && small_lit < 2000u &&
+                   row1 > row0 + UI_ROW_HEIGHT && row1 + 2u * UI_ROW_HEIGHT < FRAME_HEIGHT - 32u,
+               "cursor band %u then %u, other row %u then %u; countdown %u then %u; heading %u, "
+               "where in %u lines, crashed %u, buttons %u, small frame %u",
+               (unsigned)on_first, (unsigned)on_second, (unsigned)off_second,
+               (unsigned)off_first, (unsigned)counting, (unsigned)not_counting,
+               (unsigned)heading, (unsigned)where, (unsigned)crashed, (unsigned)buttons,
+               (unsigned)small_lit);
+}
+
 /// A case the program ended inside is counted apart from the skips, as the summary counts it,
 /// and marked in a colour of its own.
 static void CheckCrashed(Fixture *f) {
@@ -1501,6 +1594,7 @@ void RunSupportScreens(void) {
     CheckOverflow(f);
     CheckEdges(f);
     CheckStartScreen(f);
+    CheckResumeScreen(f);
     CheckCrashed(f);
     free(f);
 }

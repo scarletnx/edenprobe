@@ -196,6 +196,66 @@ bool ViewerStartScreen(const UiStartInfo *info, bool *may_crash, bool *retry) {
     return true;
 }
 
+/// The resume screen's buttons: up and down move, A confirms.
+static uint32_t ResumeButtonsFrom(uint64_t pressed) {
+    uint32_t buttons = 0;
+    if ((pressed & HidNpadButton_AnyUp) != 0u) {
+        buttons |= UI_RESUME_UP;
+    }
+    if ((pressed & HidNpadButton_AnyDown) != 0u) {
+        buttons |= UI_RESUME_DOWN;
+    }
+    if ((pressed & HidNpadButton_A) != 0u) {
+        buttons |= UI_RESUME_CHOOSE;
+    }
+    return buttons;
+}
+
+bool ViewerResumeScreen(const UiResumeInfo *info, bool *start_over) {
+    if (start_over != NULL) {
+        *start_over = false;
+    }
+    if (info == NULL || start_over == NULL || !OpenScreen()) {
+        return false;
+    }
+    PadState pad;
+    ReadPad(&pad);
+    UiResumeState state = UiResumeOpen();
+    const uint64_t opened = armGetSystemTick();
+    bool pressed = false;
+    uint32_t shown_left = UINT32_MAX;
+    uint32_t frames_seen = 0;
+    while (appletMainLoop() && !state.decided) {
+        padUpdate(&pad);
+        const uint64_t down = padGetButtonsDown(&pad);
+        if (frames_seen >= UI_SETTLING_FRAMES && down != 0u) {
+            pressed = true;
+        }
+        state = UiResumeStep(state, ResumeButtonsFrom(down), frames_seen);
+        if (frames_seen < UI_SETTLING_FRAMES) {
+            ++frames_seen;
+        }
+        const uint64_t elapsed = armTicksToNs(armGetSystemTick() - opened);
+        if (UiResumeTimesOut(elapsed, pressed)) {
+            break;
+        }
+        const uint32_t left = UiResumeSecondsLeft(elapsed, pressed);
+        if (state.changed || left != shown_left) {
+            uint32_t stride = 0;
+            UiFrame frame = { (uint8_t *)framebufferBegin(&screen, &stride), SCREEN_WIDTH,
+                              SCREEN_HEIGHT, stride };
+            UiComposeResume(&frame, info, state, left);
+            framebufferEnd(&screen);
+            state.changed = false;
+            shown_left = left;
+        }
+        svcSleepThread(FRAME_NANOSECONDS);
+    }
+    // Left open, as the start screen leaves it, for the screens after it.
+    *start_over = state.decided && state.start_over;
+    return true;
+}
+
 /// The kept picture of the case the cursor has open, or NULL, which draws the case as its detail.
 static const PictureRecord *OpenPicture(UiState state) {
     const int32_t index = UiOpenPicture(&run, state);

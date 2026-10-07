@@ -30,6 +30,12 @@ RunMode ViewerModeWithPad(RunMode from_file);
 /// it reads no case and writes no line.
 bool ViewerStartScreen(const UiStartInfo *info, bool *may_crash, bool *retry);
 
+/// Shows the screen that asks whether to go on with the run the journal left in the middle,
+/// until a choice is confirmed or nothing has been pressed for UI_RESUME_NANOSECONDS, which goes
+/// on. Sets @p start_over. False, with @p start_over false, when there was no screen to open.
+/// Before the report is opened, and the window stays open for the screens after it.
+bool ViewerResumeScreen(const UiResumeInfo *info, bool *start_over);
+
 /// How the screen ended.
 typedef enum {
     /// Quit with plus or minus, or closed by the system.
