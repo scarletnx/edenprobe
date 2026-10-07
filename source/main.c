@@ -164,31 +164,15 @@ static void RunTimed(const char *suite, void (*run)(void), bool timing) {
 static JournalState journal;
 static CrashList crashes;
 
-/// Starts the report and the journal the way the plan says.
-static void OpenRun(const JournalPlan *plan, const RunMode *mode, const char *key) {
+/// Starts the report the way the plan says, and the journal of a run that goes on. A new run's
+/// journal is begun by BeginJournal, once the start screen has chosen what runs; the run before's
+/// goes now, so a launch that ends before then does not go on with that run in this report.
+static void OpenRun(const JournalPlan *plan) {
     if (plan->start == JOURNAL_FRESH) {
         ReportOpen(report_path);
         ReportNote("edenprobe %s (%s) starting", EDENPROBE_VERSION, EDENPROBE_BUILD);
         ReportNote("folder: %s", run_directory);
-        if (mode->no_journal) {
-            // A journal left by a run before this one would be taken, by the next launch, for
-            // this run's.
-            (void)remove(journal_path);
-            return;
-        }
-        if (!ReportJournalOpen(journal_path, true)) {
-            ReportNote("journal: %s cannot be written, so a crash costs the rest of the run",
-                       journal_path);
-            return;
-        }
-        JournalRecord record;
-        memset(&record, 0, sizeof(record));
-        record.kind = JOURNAL_RUN;
-        snprintf(record.suite, sizeof(record.suite), "%s", EDENPROBE_VERSION);
-        snprintf(record.name, sizeof(record.name), "%s", EDENPROBE_BUILD);
-        snprintf(record.mode, sizeof(record.mode), "%s", key);
-        ReportJournalWrite(&record);
-        JournalSimple(JOURNAL_LAUNCH, NULL, 1u);
+        (void)remove(journal_path);
         return;
     }
     ReportResume(report_path, plan->offset, plan->start == JOURNAL_RESUME_CASE, &plan->counts);
@@ -210,23 +194,72 @@ static void OpenRun(const JournalPlan *plan, const RunMode *mode, const char *ke
     }
 }
 
-/// The start screen, when a detailed run begins and something on it can be chosen: the
-/// may-crash table's cases in the families that run, and the crash list's. What it adds to the
-/// mode goes into the journal, so a launch that goes on with the run keeps it.
-static void StartScreen(RunMode *mode, uint32_t families) {
+/// A new run's journal: the run record, with the words a launch that goes on with it will find
+/// in the mode file, the screen's when it wrote them there; what the screen chose, when the file
+/// does not say it; and the first launch.
+static void BeginJournal(const RunMode *from_file, const RunMode *mode) {
+    if (mode->no_journal) {
+        return;
+    }
+    if (!ReportJournalOpen(journal_path, true)) {
+        ReportNote("journal: %s cannot be written, so a crash costs the rest of the run",
+                   journal_path);
+        return;
+    }
+    char run_key[JOURNAL_MODE_MAX];
+    char chosen[JOURNAL_MODE_MAX];
+    ModeJournalWords(run_key, sizeof(run_key), chosen, sizeof(chosen), from_file, mode);
+    JournalRecord record;
+    memset(&record, 0, sizeof(record));
+    record.kind = JOURNAL_RUN;
+    snprintf(record.suite, sizeof(record.suite), "%s", EDENPROBE_VERSION);
+    snprintf(record.name, sizeof(record.name), "%s", EDENPROBE_BUILD);
+    snprintf(record.mode, sizeof(record.mode), "%s", run_key);
+    ReportJournalWrite(&record);
+    if (chosen[0] != '\0') {
+        memset(&record, 0, sizeof(record));
+        record.kind = JOURNAL_CHOSEN;
+        snprintf(record.mode, sizeof(record.mode), "%s", chosen);
+        ReportJournalWrite(&record);
+    }
+    JournalSimple(JOURNAL_LAUNCH, NULL, 1u);
+}
+
+/// Writes the words the start screen chose into the mode file, when it was asked to; a file that
+/// cannot be written leaves the choice this run's alone, and says so.
+static void SaveModeFile(RunMode *mode) {
+    if (!mode->saved_by_screen) {
+        return;
+    }
+    static char text[MODE_FILE_MAX];
+    const size_t length = ModeFormat(text, sizeof(text) - 1u, mode);
+    text[length] = '\n';
+    text[length + 1u] = '\0';
+    if (!JournalWriteFile(MODE_PATH, text)) {
+        mode->saved_by_screen = false;
+        ReportNote("mode file: %s could not be written, so what the start screen chose is this "
+                   "run's only",
+                   MODE_PATH);
+    }
+}
+
+/// The start screen, when a new detailed run begins: the menu that chooses the families, quick,
+/// notime, the may-crash table's cases and the crash list's, and whether to keep the choice in the
+/// mode file. Hands back the mode the run begins with; as it came when there was no screen.
+static RunMode StartScreen(const RunMode *from_file) {
     static UiStartInfo info;
     memset(&info, 0, sizeof(info));
     static char heading[96];
     snprintf(heading, sizeof(heading), "edenprobe %s (%s)", EDENPROBE_VERSION, EDENPROBE_BUILD);
     info.heading = heading;
+    info.families_present = MODE_FAMILIES_PRESENT;
+    // Every entry, with its family: the screen counts those of the families chosen.
     for (size_t i = 0; i < MayCrashCount() && info.may_crash_count < UI_START_LIST_MAX; ++i) {
         const MayCrash *const entry = MayCrashAt(i);
-        // The cpu suite runs in every mode, whatever family is named.
-        if (entry->family == MODE_FAMILY_CPU || (families & entry->family) != 0u) {
-            info.may_crash_suite[info.may_crash_count] = entry->suite;
-            info.may_crash_name[info.may_crash_count] = entry->name;
-            ++info.may_crash_count;
-        }
+        info.may_crash_suite[info.may_crash_count] = entry->suite;
+        info.may_crash_name[info.may_crash_count] = entry->name;
+        info.may_crash_family[info.may_crash_count] = entry->family;
+        ++info.may_crash_count;
     }
     const CrashList *const listed = ReportCrashList();
     for (uint32_t i = 0; i < listed->count && info.listed_count < UI_START_LIST_MAX; ++i) {
@@ -234,27 +267,11 @@ static void StartScreen(RunMode *mode, uint32_t families) {
         info.listed_name[info.listed_count] = listed->entries[i].name;
         ++info.listed_count;
     }
-    if (!UiStartShown(&info)) {
-        return;
+    UiStartState chosen;
+    if (!UiStartShown(&info) || !ViewerStartScreen(&info, from_file, &chosen)) {
+        return *from_file;
     }
-    bool may_crash = mode->fatal;
-    bool retry = mode->retry;
-    if (!ViewerStartScreen(&info, &may_crash, &retry)) {
-        return;
-    }
-    mode->fatal_by_screen = may_crash && !mode->fatal;
-    mode->retry_by_screen = retry && !mode->retry;
-    mode->fatal = may_crash;
-    mode->retry = retry;
-    if (mode->fatal_by_screen || mode->retry_by_screen) {
-        JournalRecord record;
-        memset(&record, 0, sizeof(record));
-        record.kind = JOURNAL_CHOSEN;
-        snprintf(record.mode, sizeof(record.mode), "%s%s%s", mode->fatal_by_screen ? "fatal" : "",
-                 mode->fatal_by_screen && mode->retry_by_screen ? " " : "",
-                 mode->retry_by_screen ? "retry" : "");
-        ReportJournalWrite(&record);
-    }
+    return UiStartMode(&chosen, *from_file, MODE_FAMILIES_PRESENT);
 }
 
 /// Whether @p step runs in a run of @p families: the steps every mode runs, and its families'.
@@ -315,11 +332,11 @@ int main(int argc, char **argv) {
     // What the card says before anything is opened: the mode file's words, then, in the folder
     // they and this build name, the journal of the run before, and the crash list. Whether this
     // launch goes on with that run or starts a new one depends on all three, and on this build.
-    RunMode mode = ViewerModeFromFile(MODE_PATH);
-    PlaceRun(&mode);
+    const RunMode from_file = ViewerModeFromFile(MODE_PATH);
+    PlaceRun(&from_file);
     PictureSetRoot(run_directory);
     char key[JOURNAL_MODE_MAX];
-    ModeKey(key, sizeof(key), &mode);
+    ModeKey(key, sizeof(key), &from_file);
     JournalStateInit(&journal);
     (void)JournalReadPath(&journal, journal_path);
     CrashListInit(&crashes);
@@ -332,20 +349,27 @@ int main(int argc, char **argv) {
     }
     JournalPlan plan = JournalPlanStart(&journal, EDENPROBE_VERSION, EDENPROBE_BUILD, key,
                                         JournalFileSize(report_path));
-    if (mode.no_journal && plan.start != JOURNAL_FRESH) {
+    if (from_file.no_journal && plan.start != JOURNAL_FRESH) {
         // Asked for no journal: nothing goes on, and the run starts over unjournaled.
         plan.start = JOURNAL_FRESH;
         plan.launch = 1u;
     }
+    // A launch that goes on with a run keeps what its start screen chose; the label is the
+    // file's, since it named the folder the journal is in.
+    RunMode mode = plan.start != JOURNAL_FRESH ? ModeWithChosen(from_file, journal.chosen)
+                                               : from_file;
     // A person in front of a detailed run chooses whether to go on with the run left in the
     // middle or start over; a quick run is a script's, and goes on.
     if (JournalPlanAsks(&plan, mode.detailed)) {
         AskToGoOn(&plan, &mode);
+        if (plan.start == JOURNAL_FRESH) {
+            mode = from_file;
+        }
     }
 
     // Opened first, because reading the pad touches a service this program otherwise never
     // uses, and a run that dies there should still leave a report.
-    OpenRun(&plan, &mode, key);
+    OpenRun(&plan);
     ReportSetCrashList(&crashes, CRASH_LIST_PATH, mode.retry);
     // A case the program ended inside goes on the crash list whether this run goes on or not:
     // the machine did end inside it.
@@ -375,18 +399,18 @@ int main(int argc, char **argv) {
     // kept in memory and shown once everything is over, and whether every drawing case writes
     // one. It changes no verdict, and before the summary the line below is all it adds to the
     // report; a launch that goes on with a run said it when the run began, and keeps what that
-    // launch's start screen chose.
+    // launch's start screen chose. A new detailed run's start screen chooses it, and the
+    // journal begins once it has.
     mode = ViewerModeWithPad(mode);
-    const uint32_t families = ModeFamiliesToRun(&mode, MODE_FAMILIES_PRESENT);
-    if (plan.start != JOURNAL_FRESH) {
-        const RunMode chosen = ModeFromText(journal.chosen);
-        mode.fatal_by_screen = chosen.fatal && !mode.fatal;
-        mode.retry_by_screen = chosen.retry && !mode.retry;
-        mode.fatal = mode.fatal || chosen.fatal;
-        mode.retry = mode.retry || chosen.retry;
-    } else if (mode.detailed) {
-        StartScreen(&mode, families);
+    if (plan.start == JOURNAL_FRESH) {
+        const RunMode asked = mode;
+        if (mode.detailed) {
+            mode = StartScreen(&asked);
+            SaveModeFile(&mode);
+        }
+        BeginJournal(&asked, &mode);
     }
+    const uint32_t families = ModeFamiliesToRun(&mode, MODE_FAMILIES_PRESENT);
     ReportSetRetry(mode.retry);
     ReportSetMayCrash(mode.fatal);
     ReportSetHang(mode.hang);

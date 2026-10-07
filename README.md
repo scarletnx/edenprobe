@@ -40,7 +40,7 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
 
 Forty suites, in the order they run: the judge, then the processor, then the graphics family,
 then the fs family, then the audio family when a word asks for it, then the net family. A run is
-799 cases: 731 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
+805 cases: 737 for the judge, the processor and the graphics family, 15 for the fs family, 53 for
 the net family; the audio family adds six when named or with `listen`, the mode word `stress` adds
 one, and `fatal` runs the cases the may-crash table names, which are otherwise skipped. The order,
 and what a failure in each suite points at, is in "The roadmap" below. A case that ends the
@@ -50,13 +50,13 @@ program costs that case and not the rest of the run: see "When the program ends 
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and thirty one cases, no hardware involved: what the program does around
+- **support**, one hundred and thirty seven cases, no hardware involved: what the program does around
   a verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
   detailed mode's store, screens and navigation, the start screen, the screen that asks whether to
   go on with a run and the listening screen, the mode file and its words, the label and the folder
   it names, the `skip` result, the time a case reports (nineteen cases, see "Time per case"), the
   journal, the crash list, the may-crash and hang tables and what a launch decides from them
-  (twenty three cases, see "When the program ends in the middle"), and the last copy a device
+  (twenty four cases, see "When the program ends in the middle"), and the last copy a device
   waits for before it closes, and the note a late one leaves (eight cases). One case carries the
   whole idea: the diff picture is built from what the judge decided pixel by pixel, not from
   comparing two images, so a pixel that differs and was allowed to is not painted as a difference.
@@ -1056,16 +1056,32 @@ the same verdicts and the same images, line for line. The report differs only in
 top that says which mode ran and why, and in the case below. The screen is a second opinion for a
 person, never an input to one.
 
-**The start screen.** A detailed run with something that could end it, a case the may-crash table
-names in the families it runs or a case on the crash list, first shows both lists and two choices,
-each off unless the mode file's word turned it on: Y runs the cases that may crash (the word
-`fatal`), X the crash list's again (the word `retry`). Y and X in one edge change neither choice.
-While either is on, a warning says what it
-means: the program may end, and started again it goes on after the case that ended it. A begins
-the run; nothing pressed for ten seconds begins it as the file had it, and any press keeps the
-screen. What was chosen is in the mode line (`chosen on the start screen`) and in the journal, so a
-launch that goes on with the run keeps it. The screen decides the mode, as holding X does, and reads
-no case and writes no line.
+**The start screen** is where a person chooses what runs, with no mode file to write. Every new
+detailed run opens on it: no mode file, a file without `quick`, or `quick` with X held at launch. A
+cursor walks its rows, each starting as the mode file leaves it:
+
+| row | what it turns |
+|---|---|
+| begin the run | where the cursor starts: A here begins the run, as plus or minus does from any row |
+| graphics, fs, audio, net | the families, each on or off; the judge and the cpu suite run whatever is chosen |
+| listen | the listening sequence before the audio suite (see "The audio family"); turning it on turns audio on, turning audio off turns it off |
+| quick | leave when the report closes, with no results screens |
+| notime | each drawing suite once, with no timing passes |
+| may crash | the cases the may-crash table names in the families chosen (the word `fatal`); Y turns it from any row |
+| crash list | the crash list's cases again (the word `retry`); X turns it from any row |
+| save | write the choice into `sdmc:/edenprobe/mode`, so the next launch starts from it |
+
+Up and down move the cursor, coming round, and A turns the row under it. Under the rows, the cases
+that may crash in the families chosen and the cases on the crash list are listed by name; while
+either choice is on with a case to run, a warning says what it means: the program may end, and
+started again it goes on after the case that ended it. Nothing pressed for ten seconds begins the
+run as the file had it, and any press keeps the screen. What was chosen is in the mode line
+(`detailed, chosen on the start screen`, `the cases that may crash, chosen on the start screen`,
+`saved to the mode file by the start screen`) and in the journal, so a launch that goes on with the
+run after a crash keeps it whether or not it was saved. Saving writes the words the screen chose,
+the file's label kept and words nobody understood dropped; saved with quick on, the next launch
+leaves without the screen, and X held at launch brings it back. The screen decides the mode, as
+holding X does, and reads no case and writes no line.
 
 **Nobody there.** A detailed run whose screen sees no button pressed for ten seconds after the
 report closed leaves by itself, and appends one line after the summary:
@@ -1081,8 +1097,9 @@ as connected whether or not anyone holds it. The countdown shows on the bottom l
 stops it for the rest of the run. The first eight frames are not a press, nor navigation: a
 controller arriving with the window reports its whole mask as newly pressed. An edge that holds
 both Y and X changes neither choice, because a pad that connects after those frames reports the
-same whole mask once; A in that edge still begins the run. Two presses, one button each, still
-choose both.
+same whole mask once; A in that edge still begins the run when the cursor is on begin the run, and
+anywhere else A in an edge that also moves the cursor turns nothing. Two presses, one button each,
+still choose both.
 
 **The mode file** is `sdmc:/edenprobe/mode`: a few words in any order and any case, anything that is
 not a letter between them.
@@ -1115,9 +1132,10 @@ refused. `net` alone runs the judge and the six net suites, which is what the fi
 Any other word is reported in the mode line, quoted and counted, and ignored: a typo costs a line in
 the report, never the run.
 
-There is no menu for the families yet: the file is how a run is pointed at one. On a console it is
-`sdmc:/edenprobe/mode` on the memory card; under `make run` it is the `MODE` variable; on Android it
-is `files/sdmc/edenprobe/mode` in the app's data directory (see "Running it on Android"). For
+The start screen chooses the same words for a person; the file is for a script, for a run with
+no one in front of it, and for a choice that should stay. On a console it is `sdmc:/edenprobe/mode`
+on the memory card; under `make run` it is the `MODE` variable; on Android it is
+`files/sdmc/edenprobe/mode` in the app's data directory (see "Running it on Android"). For
 example:
 
 | the file holds | what runs |
@@ -1154,8 +1172,10 @@ On the screens, each of which names its buttons on its bottom line:
 | X | | | the pictures: all three, then each alone |
 | plus or minus | quit | quit | quit |
 
-And on the start screen: A begins the run, Y turns the cases that may crash on or off, X the crash
-list's cases again. Y and X in the same edge change neither. On the screen that asks whether to go
+And on the start screen: up and down move the cursor, A turns the row under it or, on begin the
+run, begins it, plus or minus begins from any row, Y turns the cases that may crash on or off and X
+the crash list's cases again, from any row. Y and X in the same edge change neither. On the screen
+that asks whether to go
 on with a run (see "When the program ends in the middle"), up and down choose and A confirms; an
 edge that holds A and a direction does nothing.
 
@@ -1227,7 +1247,7 @@ not ask either, since the pad is read only once the run has started.
 | journal line | written |
 |---|---|
 | `run <version> <build> <mode words>` | first, when a run begins |
-| `chosen <words>` | after it, when the start screen added `fatal` or `retry` |
+| `chosen screen <words>` | after it, when the start screen chose a mode the mode file does not say: the words a launch compares, and `quick` |
 | `launch <n>` | each time the program starts on the run, 1 the first |
 | `step <step> <offset> <passed> <failed> <skipped> <crashed>` | before a step: the report's length then, and its counts |
 | `pass <step> <n>` | before each pass of a drawing suite, 1 the warm-up and 10 the verdict pass |
@@ -1524,8 +1544,8 @@ to 2% (Eden's mode 1 is a reciprocal estimate; Ryujinx divides), and that the co
 conversion quality and runs a limiter at revision 4. A console that ignored the quality would pass
 the resampler cases all the same, since its default quality passes 11 kHz at a ratio of one.
 
-**The listening sequence** (`listen`) is about 40 seconds for a person, played before the cases
-through the final mix, so it is loud: peaks from 0.12 to 0.4 of full scale. Each part opens with
+**The listening sequence** (`listen` in the mode file, or the listen row of the start screen) is
+about 40 seconds for a person, played before the cases through the final mix, so it is loud: peaks from 0.12 to 0.4 of full scale. Each part opens with
 880 Hz beeps, one, two or three; inside a part, a low beep (440 Hz) comes before one take and a high
 beep (1760 Hz) before the take it is compared with. The emulator's log carries an `EDENPROBE
 LISTEN` line as each part starts.

@@ -131,6 +131,11 @@ typedef struct {
     /// Asked for on the start screen rather than in the file, which the mode line says.
     bool fatal_by_screen;
     bool retry_by_screen;
+    /// The start screen changed what runs beyond those two: the families, the listening
+    /// sequence, quick or notime. The mode line then says the mode was chosen there.
+    bool chosen_on_screen;
+    /// The start screen wrote these words into the mode file, for the launches after this one.
+    bool saved_by_screen;
     /// The word `nojournal`: no journal, and no run that goes on after a crash.
     bool no_journal;
     /// The word `listen`: the listening sequence, and the audio family with it.
@@ -180,6 +185,31 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
 /// since they decide what happens after the report and not what is in it, and so is the label,
 /// since it decides the folder the journal is in.
 size_t ModeKey(char *out, size_t out_size, const RunMode *mode);
+
+/// The mode file's words for @p mode, as the start screen saves them: quick when the run leaves
+/// once the report closes, then the words ModeKey keeps, nojournal, and the label. Words the file
+/// had and nobody understood are not written. Returns the length, or 0 with an empty string when
+/// @p out is too small.
+size_t ModeFormat(char *out, size_t out_size, const RunMode *mode);
+
+/// What the journal's chosen record keeps of a mode the start screen chose: the word `screen`,
+/// then the words ModeKey keeps, then quick when the run leaves once the report closes. Never
+/// empty, since a choice that turned every word off is still a choice.
+size_t ModeChosenWords(char *out, size_t out_size, const RunMode *mode);
+
+/// The mode a launch going on with a run runs in: @p from_file with what the start screen chose
+/// when the run began, as ModeChosenWords wrote it. Everything ModeKey keeps comes from the
+/// choice, and quick with it; the label and the file's other words stay the file's. NULL or an
+/// empty text changes nothing.
+RunMode ModeWithChosen(RunMode from_file, const char *chosen);
+
+/// What a new run's journal keeps of its mode: in @p run_key, the words its run record holds,
+/// which a launch that goes on with it must find in the mode file, the screen's when it saved
+/// them there and the file's otherwise; in @p chosen, ModeChosenWords when the run's mode is not
+/// what those words and the file say, and an empty string when it is. @p from_file is the mode
+/// as the file and the pad left it, @p mode as the start screen did.
+void ModeJournalWords(char *run_key, size_t run_key_size, char *chosen, size_t chosen_size,
+                      const RunMode *from_file, const RunMode *mode);
 
 /// Whether @p label is one a folder can be named after: 1 to MODE_LABEL_MAX letters, digits,
 /// dots, dashes and underscores, the first not a dot.

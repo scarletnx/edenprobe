@@ -23,12 +23,12 @@ RunMode ViewerModeFromFile(const char *mode_path);
 /// leaves a report saying how far it got.
 RunMode ViewerModeWithPad(RunMode from_file);
 
-/// Shows the start screen until the run begins: A, or nothing pressed for UI_START_NANOSECONDS.
-/// Starts from @p may_crash and @p retry as the mode file set them and hands back what was
-/// chosen. False, with both as they came, when there was no screen to open. Before the report
-/// has any case in it and while it is open, since what it decides is the mode, like holding X;
-/// it reads no case and writes no line.
-bool ViewerStartScreen(const UiStartInfo *info, bool *may_crash, bool *retry);
+/// Shows the start screen until the run begins: A on begin the run, plus from any row, or nothing
+/// pressed for UI_START_NANOSECONDS. Every row starts as @p from_file leaves it, and @p chosen
+/// receives the screen as it was when the run began. False, with @p chosen as the file left it,
+/// when there was no screen to open. Before the report has any case in it and while it is open,
+/// since what it decides is the mode, like holding X; it reads no case and writes no line.
+bool ViewerStartScreen(const UiStartInfo *info, const RunMode *from_file, UiStartState *chosen);
 
 /// Shows the screen that asks whether to go on with the run the journal left in the middle,
 /// until a choice is confirmed or nothing has been pressed for UI_RESUME_NANOSECONDS, which goes

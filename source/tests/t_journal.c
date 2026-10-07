@@ -433,6 +433,101 @@ static void CheckAsking(void) {
                said);
 }
 
+/// Appends @p record's line to @p text.
+static void Append(char *text, size_t size, const JournalRecord *record) {
+    char line[JOURNAL_LINE_MAX];
+    JournalFormat(line, sizeof(line), record);
+    const size_t used = strlen(text);
+    snprintf(text + used, size - used, "%s", line);
+}
+
+/// A run the start screen chose, ended by a crash, is gone on with in the mode it chose: with the
+/// choice kept in the journal when the mode file still says what it did, and with no chosen
+/// record when the screen wrote the choice into the file. A choice that changed nothing writes
+/// none, and one that turned every word off still writes one.
+static void CheckChosenRun(void) {
+    const char *const version = "0.3.0";
+    const char *const build = "v0.3.0-4-gabcdef0";
+    const RunMode file = ModeFromText("net");
+    uint32_t wrong = 0;
+    char said[160] = "";
+    // Graphics and notime added and quick turned on, not saved and saved; quick alone, which
+    // leaves the words as they were and still has to be kept.
+    for (int which = 0; which < 3; ++which) {
+        const int saved = which == 1;
+        RunMode chosen = file;
+        if (which < 2) {
+            chosen.families_named = MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET;
+            chosen.no_timing = true;
+        }
+        chosen.quick = true;
+        chosen.detailed = false;
+        chosen.chosen_on_screen = true;
+        chosen.saved_by_screen = saved != 0;
+        char want[JOURNAL_MODE_MAX];
+        ModeKey(want, sizeof(want), &chosen);
+        char run_key[JOURNAL_MODE_MAX];
+        char words[JOURNAL_MODE_MAX];
+        ModeJournalWords(run_key, sizeof(run_key), words, sizeof(words), &file, &chosen);
+        // The journal as a new run begins it, and as a launch that ends inside a case leaves it.
+        char text[1024] = "";
+        JournalRecord record;
+        memset(&record, 0, sizeof(record));
+        record.kind = JOURNAL_RUN;
+        snprintf(record.suite, sizeof(record.suite), "%s", version);
+        snprintf(record.name, sizeof(record.name), "%s", build);
+        snprintf(record.mode, sizeof(record.mode), "%s", run_key);
+        Append(text, sizeof(text), &record);
+        if (words[0] != '\0') {
+            memset(&record, 0, sizeof(record));
+            record.kind = JOURNAL_CHOSEN;
+            snprintf(record.mode, sizeof(record.mode), "%s", words);
+            Append(text, sizeof(text), &record);
+        }
+        static const char REST[] = "launch 1\nstep clear 400 0 0 0 0\nstart clear 1 a case\n";
+        snprintf(text + strlen(text), sizeof(text) - strlen(text), "%s", REST);
+        JournalState state;
+        JournalStateInit(&state);
+        JournalReadText(&state, text, strlen(text));
+        // The next launch reads the mode file as the screen left it.
+        char file_words[256];
+        ModeFormat(file_words, sizeof(file_words), &chosen);
+        const RunMode next_file = saved != 0 ? ModeFromText(file_words) : file;
+        char next_key[JOURNAL_MODE_MAX];
+        ModeKey(next_key, sizeof(next_key), &next_file);
+        const JournalPlan plan = JournalPlanStart(&state, version, build, next_key, 100000);
+        const RunMode resumed = ModeWithChosen(next_file, state.chosen);
+        char got[JOURNAL_MODE_MAX];
+        ModeKey(got, sizeof(got), &resumed);
+        const bool right = plan.start == JOURNAL_RESUME_CASE && strcmp(got, want) == 0 &&
+                           resumed.quick && !resumed.detailed &&
+                           (saved != 0 ? words[0] == '\0' : words[0] != '\0');
+        if (!right && wrong++ == 0u) {
+            snprintf(said, sizeof(said), "choice %d: plan %d, key \"%.40s\", chosen \"%.40s\"",
+                     which, (int)plan.start, got, words);
+        }
+    }
+    char run_key[JOURNAL_MODE_MAX];
+    char words[JOURNAL_MODE_MAX] = "x";
+    ModeJournalWords(run_key, sizeof(run_key), words, sizeof(words), &file, &file);
+    const bool unchanged = strcmp(run_key, "net") == 0 && words[0] == '\0';
+    const RunMode fatal_file = ModeFromText("fatal");
+    RunMode unfatal = fatal_file;
+    unfatal.fatal = false;
+    ModeJournalWords(run_key, sizeof(run_key), words, sizeof(words), &fatal_file, &unfatal);
+    JournalRecord record;
+    memset(&record, 0, sizeof(record));
+    record.kind = JOURNAL_CHOSEN;
+    snprintf(record.mode, sizeof(record.mode), "%s", words);
+    char line[JOURNAL_LINE_MAX];
+    const bool kept_empty = strcmp(run_key, "fatal") == 0 && strcmp(words, "screen") == 0 &&
+                            JournalFormat(line, sizeof(line), &record) > 0u;
+    CHECK_TRUE(SUITE, "a run the start screen chose goes on after a crash in the mode it chose",
+               CHECK_NONE, wrong == 0u && unchanged && kept_empty,
+               "%u of 3 wrong (%s); unchanged %d; every word off kept %d", (unsigned)wrong, said,
+               (int)unchanged, (int)kept_empty);
+}
+
 static void CheckCrashList(void) {
     static const char TEXT[] = "# a comment\n"
                                "\n"
@@ -995,6 +1090,7 @@ void RunSupportJournal(const char *scratch) {
     CheckReading();
     CheckPlans();
     CheckAsking();
+    CheckChosenRun();
     CheckCrashList();
     CheckDurableFile(scratch);
     CheckDurableLines(scratch);

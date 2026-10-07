@@ -286,7 +286,10 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
         return 0;
     }
     const char *why;
-    if (!mode->detailed) {
+    if (mode->chosen_on_screen) {
+        why = mode->detailed ? "detailed, chosen on the start screen"
+                             : "quick, chosen on the start screen";
+    } else if (!mode->detailed) {
         why = "quick, from the mode file";
     } else if (mode->detailed_by_button) {
         why = "detailed, X held at launch";
@@ -344,6 +347,10 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
                  "dashes and underscores, the first not a dot",
                  mode->label_refused, mode->label_refused_cut ? "..." : "",
                  (unsigned)MODE_LABEL_MAX);
+    }
+    if (mode->saved_by_screen) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; saved to the mode file by the start screen");
     }
     const uint32_t missing = mode->families_named & ~present;
     if (missing != 0u) {
@@ -427,4 +434,118 @@ size_t ModeRunFolder(char *out, size_t out_size, const char *hash, const RunMode
         return 0;
     }
     return (size_t)wrote;
+}
+
+/// Appends @p word to @p out with a space before it when @p out has anything, and says whether it
+/// fitted.
+static bool AppendWord(char *out, size_t out_size, const char *word) {
+    const size_t used = strlen(out);
+    const int wrote = snprintf(out + used, out_size - used, "%s%s", used > 0u ? " " : "", word);
+    return wrote >= 0 && (size_t)wrote < out_size - used;
+}
+
+size_t ModeFormat(char *out, size_t out_size, const RunMode *mode) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (mode == NULL) {
+        return 0;
+    }
+    char key[128];
+    ModeKey(key, sizeof(key), mode);
+    bool fits = (mode->detailed || AppendWord(out, out_size, "quick")) &&
+                (key[0] == '\0' || AppendWord(out, out_size, key)) &&
+                (!mode->no_journal || AppendWord(out, out_size, "nojournal"));
+    if (fits && ModeLabelValid(mode->label)) {
+        char label[MODE_LABEL_MAX + 8u];
+        snprintf(label, sizeof(label), "label=%s", mode->label);
+        fits = AppendWord(out, out_size, label);
+    }
+    if (!fits) {
+        out[0] = '\0';
+        return 0;
+    }
+    return strlen(out);
+}
+
+size_t ModeChosenWords(char *out, size_t out_size, const RunMode *mode) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (mode == NULL) {
+        return 0;
+    }
+    char key[128];
+    ModeKey(key, sizeof(key), mode);
+    const bool fits = AppendWord(out, out_size, "screen") &&
+                      (key[0] == '\0' || AppendWord(out, out_size, key)) &&
+                      (mode->detailed || AppendWord(out, out_size, "quick"));
+    if (!fits) {
+        out[0] = '\0';
+        return 0;
+    }
+    return strlen(out);
+}
+
+RunMode ModeWithChosen(RunMode from_file, const char *chosen) {
+    if (chosen == NULL || chosen[0] == '\0') {
+        return from_file;
+    }
+    RunMode mode = from_file;
+    if (strncmp(chosen, "screen", 6u) != 0 || (chosen[6] != '\0' && chosen[6] != ' ')) {
+        // Not a choice this build wrote: read as words added to the file's, which is what a
+        // chosen record said before the start screen chose more than fatal and retry.
+        const RunMode added = ModeFromText(chosen);
+        mode.fatal_by_screen = added.fatal && !from_file.fatal;
+        mode.retry_by_screen = added.retry && !from_file.retry;
+        mode.fatal = from_file.fatal || added.fatal;
+        mode.retry = from_file.retry || added.retry;
+        return mode;
+    }
+    const RunMode screen = ModeFromText(chosen + 6);
+    mode.families_named = screen.families_named;
+    mode.listen = screen.listen;
+    mode.every_case = screen.every_case;
+    mode.no_timing = screen.no_timing;
+    mode.stress = screen.stress;
+    mode.hang = screen.hang;
+    mode.fatal = screen.fatal;
+    mode.retry = screen.retry;
+    mode.fatal_by_screen = screen.fatal && !from_file.fatal;
+    mode.retry_by_screen = screen.retry && !from_file.retry;
+    mode.quick = screen.quick;
+    mode.detailed = !screen.quick;
+    mode.detailed_by_button = false;
+    // Beyond fatal and retry, which the mode line already says were chosen there.
+    RunMode file_rest = from_file;
+    RunMode chosen_rest = mode;
+    file_rest.fatal = file_rest.retry = chosen_rest.fatal = chosen_rest.retry = false;
+    char before[128];
+    char after[128];
+    ModeKey(before, sizeof(before), &file_rest);
+    ModeKey(after, sizeof(after), &chosen_rest);
+    mode.chosen_on_screen = strcmp(before, after) != 0 || mode.detailed != from_file.detailed;
+    return mode;
+}
+
+void ModeJournalWords(char *run_key, size_t run_key_size, char *chosen, size_t chosen_size,
+                      const RunMode *from_file, const RunMode *mode) {
+    if (chosen != NULL && chosen_size > 0u) {
+        chosen[0] = '\0';
+    }
+    if (run_key == NULL || run_key_size == 0u || from_file == NULL || mode == NULL) {
+        if (run_key != NULL && run_key_size > 0u) {
+            run_key[0] = '\0';
+        }
+        return;
+    }
+    const RunMode *const in_file = mode->saved_by_screen ? mode : from_file;
+    ModeKey(run_key, run_key_size, in_file);
+    char run[128];
+    ModeKey(run, sizeof(run), mode);
+    if (chosen != NULL && (strcmp(run, run_key) != 0 || mode->detailed != in_file->detailed)) {
+        ModeChosenWords(chosen, chosen_size, mode);
+    }
 }

@@ -134,31 +134,40 @@ static uint32_t ButtonsFrom(uint64_t pressed) {
     return buttons;
 }
 
-/// The start screen's buttons: A begins, Y and X turn the two choices.
+/// The start screen's buttons: up and down move the cursor, A takes the row under it, plus or
+/// minus begins from any row, Y and X turn the two lists' choices from any row.
 static uint32_t StartButtonsFrom(uint64_t pressed) {
+    static const struct {
+        uint64_t console;
+        uint32_t screen;
+    } MAP[] = {
+        { HidNpadButton_Plus | HidNpadButton_Minus, UI_START_BEGIN },
+        { HidNpadButton_A, UI_START_SELECT },
+        { HidNpadButton_Y, UI_START_TOGGLE_MAY_CRASH },
+        { HidNpadButton_X, UI_START_TOGGLE_RETRY },
+        { HidNpadButton_AnyUp, UI_START_UP },
+        { HidNpadButton_AnyDown, UI_START_DOWN },
+    };
     uint32_t buttons = 0;
-    if ((pressed & HidNpadButton_A) != 0u) {
-        buttons |= UI_START_BEGIN;
-    }
-    if ((pressed & HidNpadButton_Y) != 0u) {
-        buttons |= UI_START_TOGGLE_MAY_CRASH;
-    }
-    if ((pressed & HidNpadButton_X) != 0u) {
-        buttons |= UI_START_TOGGLE_RETRY;
+    for (size_t i = 0; i < sizeof(MAP) / sizeof(MAP[0]); ++i) {
+        if ((pressed & MAP[i].console) != 0u) {
+            buttons |= MAP[i].screen;
+        }
     }
     return buttons;
 }
 
-bool ViewerStartScreen(const UiStartInfo *info, bool *may_crash, bool *retry) {
-    if (info == NULL || may_crash == NULL || retry == NULL) {
+bool ViewerStartScreen(const UiStartInfo *info, const RunMode *from_file, UiStartState *chosen) {
+    if (info == NULL || from_file == NULL || chosen == NULL) {
         return false;
     }
+    UiStartState state = UiStartOpen(from_file, info->families_present);
+    *chosen = state;
     if (!OpenScreen()) {
         return false;
     }
     PadState pad;
     ReadPad(&pad);
-    UiStartState state = UiStartOpen(*may_crash, *retry);
     const uint64_t opened = armGetSystemTick();
     bool pressed = false;
     uint32_t shown_left = UINT32_MAX;
@@ -191,8 +200,7 @@ bool ViewerStartScreen(const UiStartInfo *info, bool *may_crash, bool *retry) {
     }
     // Left open through the run, for the viewer to draw the results into: the suites draw
     // offscreen, and the window keeps the last frame shown here until then.
-    *may_crash = state.may_crash;
-    *retry = state.retry;
+    *chosen = state;
     return true;
 }
 
