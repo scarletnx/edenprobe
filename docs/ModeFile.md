@@ -11,7 +11,7 @@ not a letter between them.
 | `images` | a picture for every drawing case, passing ones too, on either mode |
 | `notime` | no timing passes: each drawing suite runs once, and no line carries a time; see [Time per case](TimePerCase.md) |
 | `stress` | the heavy variants too, today the stream suite's 256 MiB list; off by default, since an emulator that runs out of memory on one takes the rest of the run with it |
-| `fatal` | the cases the may-crash table names, known to end the program on a machine that gets them wrong: today SM4EKEY and SM4E, which the console's processor lacks; off by default. On a console it costs a relaunch per case its processor lacks |
+| `fatal` | the cases the may-crash table names, known to end the program on a machine that gets them wrong: today SM4EKEY and SM4E, which the console's processor lacks, and the CNTVCT_EL0 and DAIF reads dynarmic does not model; off by default. On a console it costs a relaunch per case its processor lacks |
 | `hang` | the cases the hang table names, known to never return on a machine that gets them wrong: today the bsd receive-timeout case; off by default. `retry` does not run one, and the start screen cannot turn this on |
 | `retry` | the cases on the crash list run again; one that runs to its end leaves the list (see [When the program ends in the middle](Crashes.md)). A case the hang table names stays skipped until `hang` asks too |
 | `nojournal` | nothing is written between cases: no journal, so a crash costs the rest of the run as it did before the journal; for measuring what the journal costs |

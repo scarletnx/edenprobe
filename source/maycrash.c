@@ -19,6 +19,12 @@
     "program (Eden, and the fork before ECFE-2026-1163)"
 
 static const MayCrash TABLE[] = {
+    { "cpu", CPU_CNTVCT_CASE, MODE_FAMILY_CPU,
+      "dynarmic's translator has no CNTVCT_EL0 and reaches UNREACHABLE, which ends the program; "
+      "the console's kernel may also refuse EL0 the virtual count" },
+    { "cpu", CPU_DAIF_CASE, MODE_FAMILY_CPU,
+      "dynarmic's translator has no DAIF and reaches UNREACHABLE, which ends the program; the "
+      "console's kernel may also refuse EL0 the interrupt masks" },
     { "cpu", CPU_SM4_CASE, MODE_FAMILY_CPU,
       "the console's processor has no SM4, and a translator that cannot compile it ends the "
       "program (dynarmic before ECFE-2026-1158 throws Xbyak's 64-bit displacement error)" },

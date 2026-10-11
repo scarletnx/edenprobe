@@ -60,6 +60,77 @@ extern const uint64_t CPU_FCVTZ_INPUT[6];
 /// integer, as FCVTZS and FCVTZU with 64 fraction bits give it; integer arithmetic only.
 uint64_t CpuRefFcvtzFixed64(uint64_t bits, bool is_unsigned);
 
+/// One lane of SQRSHL (signed) or UQRSHL (unsigned): the @p esize bit lane @p value shifted by
+/// @p shift, the signed low byte of the shift operand's lane: left when positive, right with
+/// rounding (half of the last bit shifted out added first) when negative, then saturated to the
+/// lane (Arm ARM, SQRSHL and UQRSHL, and the shared SatQ functions). @p saturated says whether it
+/// saturated, which is when QC is set.
+uint64_t CpuRefRoundingShiftLane(uint64_t value, int shift, unsigned esize, bool is_unsigned,
+                                 bool *saturated);
+
+/// One lane of SQDMULL (@p accumulate 0), SQDMLAL (1) or SQDMLSL (-1): twice the product of the
+/// signed @p esize bit lanes @p a and @p b, saturated to 2 * esize bits, then added to or taken
+/// from the signed 2 * esize bit @p acc and saturated again.
+uint64_t CpuRefDoublingMultiplyLane(uint64_t acc, uint64_t a, uint64_t b, unsigned esize,
+                                    int accumulate, bool *saturated);
+
+/// SQRSHRN, UQRSHRN or SQRSHRUN on one scalar: the 2 * @p esize bit @p value, read as unsigned
+/// when @p source_unsigned, plus half of 2^shift, shifted right by @p shift (1 to esize) and
+/// saturated to esize bits, unsigned when @p result_unsigned.
+uint64_t CpuRefRoundingNarrow(uint64_t value, unsigned esize, unsigned shift, bool source_unsigned,
+                              bool result_unsigned, bool *saturated);
+
+/// What the rounding shift case feeds each lane width, 8 to 64 bits: two 64-bit halves of the
+/// values, then two of the shifts. Every width has lanes that saturate both ways, round up, round
+/// to zero and shift past the lane.
+extern const uint64_t CPU_RSHL_VALUE[4][2];
+extern const uint64_t CPU_RSHL_SHIFT[4][2];
+
+/// The doubling multiply case's operands, as two 64-bit halves each: the multiplicands, the
+/// multipliers and the accumulators. The halfword and word lanes hold the most negative value
+/// against itself, which is the one product that saturates, and accumulators at the edges.
+extern const uint64_t CPU_DMUL_A[2];
+extern const uint64_t CPU_DMUL_B[2];
+extern const uint64_t CPU_DMUL_ACC[2];
+
+/// The narrowing case's scalars for halfword, word and doubleword sources, two each: one that
+/// rounds, one that saturates.
+extern const uint64_t CPU_RNARROW_VALUE[3][2];
+
+/// One instruction of the NEON gap cases, in the order the case's assembly runs them: what the
+/// reference needs to work out its answer. v0 and v1 are the sources and v2 the destination,
+/// which holds the accumulator first for SQDMLAL and SQDMLSL.
+typedef enum { CPU_GAP_KIND_RSHL, CPU_GAP_KIND_DMUL, CPU_GAP_KIND_RNARROW } CpuGapKind;
+typedef struct {
+    const char *text;   ///< the instruction as written in the case
+    CpuGapKind kind;
+    int op;             ///< RSHL: 1 unsigned; DMUL: 1 add, -1 subtract, 0 multiply only;
+                        ///< RNARROW: 0 SQRSHRN, 1 UQRSHRN, 2 SQRSHRUN
+    unsigned esize;     ///< source lane bits (the narrow side for DMUL and RNARROW)
+    unsigned upper;     ///< the "2" forms: sources from the upper half
+    int index;          ///< DMUL by element: the element of v1, else -1
+    unsigned scalar;    ///< scalar form: lane 0 only, the rest of v2 zeroed
+    unsigned shift;     ///< RNARROW: the immediate
+    unsigned input;     ///< which row of the inputs v0 (and v1) come from
+} CpuGapForm;
+
+#define CPU_GAP_RSHL_FORMS 16u
+#define CPU_GAP_DMUL_FORMS 26u
+#define CPU_GAP_RNARROW_FORMS 18u
+extern const CpuGapForm CPU_GAP_RSHL[CPU_GAP_RSHL_FORMS];
+extern const CpuGapForm CPU_GAP_DMUL[CPU_GAP_DMUL_FORMS];
+extern const CpuGapForm CPU_GAP_RNARROW[CPU_GAP_RNARROW_FORMS];
+
+/// What @p form leaves in v2, as low and high halves, from sources @p v0 and @p v1 and v2's
+/// previous value @p v2; @p qc says whether it saturated.
+void CpuRefGapExpected(const CpuGapForm *form, const uint64_t v0[2], const uint64_t v1[2],
+                       const uint64_t v2[2], uint64_t out[2], bool *qc);
+
+/// The two cases that read system registers a game may reach from EL0 and that dynarmic does not
+/// model: the may-crash table names them too.
+#define CPU_CNTVCT_CASE "mrs cntvct_el0 reads a virtual count that moves with the physical one"
+#define CPU_DAIF_CASE "mrs daif reads nothing outside the four interrupt mask bits"
+
 /// The SM4 case's name, which the may-crash table names too.
 #define CPU_SM4_CASE "sm4ekey and sm4e give the SM4 standard's worked example"
 

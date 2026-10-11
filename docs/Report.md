@@ -34,7 +34,7 @@ since a machine that was never asked has agreed with nothing:
 | reason | why the case did not ask |
 |---|---|
 | `crashed` | the program ended inside it on this machine: in this run, which the journal says, or in an earlier one, which the crash list says |
-| `may crash` | it is in the may-crash table, and neither the word `fatal` nor the start screen asked for it: today the SM4 case, the two geometry shader cases and the three bcn array cases |
+| `may crash` | it is in the may-crash table, and neither the word `fatal` nor the start screen asked for it: today the SM4 case, the CNTVCT_EL0 and DAIF reads, the two geometry shader cases and the three bcn array cases |
 | `hangs` | it is in the hang table, and the mode word `hang` did not ask: today the bsd receive that asks for a timeout and does not come back. `retry` does not run it |
 | `not configured` | the net file does not name what it needs: a session, a server, a rewrite, an account, a certificate |
 | `unavailable` | a service or a resource this program cannot have here |

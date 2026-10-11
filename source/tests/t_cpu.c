@@ -9,6 +9,7 @@
 #include <switch.h>
 
 #include "../check.h"
+#include "../cpugaps.h"
 #include "../cpuref.h"
 #include "../jitblocks.h"
 #include "../report.h"
@@ -170,6 +171,9 @@ static const char *const FRINTA = "frinta rounds halfway cases away from zero";
 static const char *const SQSHLU = "sqshlu saturates 8, 16 and 64-bit lanes and sets QC";
 static const char *const COMPILE = "48 new straight-line blocks with 33 live registers leave the "
                                    "state worked out apart";
+static const char *const GAP_RSHL = "sqrshl and uqrshl round, shift and saturate lanes of every width";
+static const char *const GAP_DMUL = "sqdmlal, sqdmlsl and sqdmull double, accumulate and saturate";
+static const char *const GAP_RNARROW = "sqrshrn, uqrshrn and sqrshrun round and narrow scalars";
 static const char *const FCVTZ = "fcvtzs and fcvtzu with 64 fraction bits scale by 2^64";
 // Last, and in the may-crash table: a translator that cannot compile SM4 ends the program.
 static const char *const SM4_CASE = CPU_SM4_CASE;
@@ -213,6 +217,67 @@ static unsigned CompileBlocks(uint64_t *first_ns, uint64_t *second_ns, unsigned 
         }
     }
     return bad;
+}
+
+/// The sources and accumulator each NEON gap form starts from, as cpuref.h describes them.
+static void GapInputs(const CpuGapForm *form, uint64_t v0[2], uint64_t v1[2], uint64_t v2[2]) {
+    v0[0] = v0[1] = v1[0] = v1[1] = v2[0] = v2[1] = 0;
+    if (form->kind == CPU_GAP_KIND_RSHL) {
+        memcpy(v0, CPU_RSHL_VALUE[form->input], 16);
+        memcpy(v1, CPU_RSHL_SHIFT[form->input], 16);
+    } else if (form->kind == CPU_GAP_KIND_DMUL) {
+        memcpy(v0, CPU_DMUL_A, 16);
+        memcpy(v1, CPU_DMUL_B, 16);
+        memcpy(v2, CPU_DMUL_ACC, 16);
+    } else {
+        v0[0] = CPU_RNARROW_VALUE[form->input / 2u][form->input % 2u];
+    }
+}
+
+/// Checks what each gap instruction stored, register and QC, against the reference. Returns how
+/// many were wrong and describes the first in @p detail.
+static unsigned GapCheck(const CpuGapForm *forms, unsigned count, const uint64_t out[][2],
+                         const uint64_t *fpsr, char *detail, size_t size) {
+    unsigned wrong = 0;
+    for (unsigned i = 0; i < count; ++i) {
+        uint64_t v0[2], v1[2], v2[2], want[2];
+        bool qc;
+        GapInputs(&forms[i], v0, v1, v2);
+        CpuRefGapExpected(&forms[i], v0, v1, v2, want, &qc);
+        const bool got_qc = (fpsr[i] & FPSR_QC) != 0;
+        if (out[i][0] != want[0] || out[i][1] != want[1] || got_qc != qc) {
+            if (wrong == 0) {
+                snprintf(detail, size, "%s gave %016llx%016llx QC %d, expected %016llx%016llx QC %d",
+                         forms[i].text, (unsigned long long)out[i][1], (unsigned long long)out[i][0],
+                         got_qc, (unsigned long long)want[1], (unsigned long long)want[0], qc);
+            }
+            ++wrong;
+        }
+    }
+    return wrong;
+}
+
+/// The physical count, the virtual count twice, the physical count again.
+static void ReadCounts(uint64_t counts[4]) {
+    __asm__ volatile("isb\n"
+                     "mrs x9, cntpct_el0\n"
+                     "isb\n"
+                     "mrs x10, cntvct_el0\n"
+                     "isb\n"
+                     "mrs x11, cntvct_el0\n"
+                     "isb\n"
+                     "mrs x12, cntpct_el0\n"
+                     "stp x9, x10, [%[counts]]\n"
+                     "stp x11, x12, [%[counts], #16]\n"
+                     :
+                     : [counts] "r"(counts)
+                     : "x9", "x10", "x11", "x12", "memory");
+}
+
+static uint64_t ReadDaif(void) {
+    uint64_t daif;
+    __asm__ volatile("mrs %[daif], daif\n" : [daif] "=r"(daif));
+    return daif;
 }
 
 void RunCpu(void) {
@@ -344,6 +409,37 @@ void RunCpu(void) {
                    (unsigned long long)(compile_ns / JIT_BLOCKS));
     }
 
+    // Instructions of the base AdvSIMD set that dynarmic had no translation for. Eden logs the
+    // exception and skips the instruction, so the program goes on with v2 never written: wrong
+    // answers here, not a crash.
+    static uint64_t gap_out[26][2];
+    static uint64_t gap_fpsr[26];
+    char gap_detail[200];
+    if (ReportStart(SUITE, GAP_RSHL)) {
+        memset(gap_out, 0, sizeof(gap_out));
+        CpuGapRoundingShifts(CPU_RSHL_VALUE, CPU_RSHL_SHIFT, gap_out, gap_fpsr);
+        const unsigned gap_wrong = GapCheck(CPU_GAP_RSHL, CPU_GAP_RSHL_FORMS, gap_out, gap_fpsr,
+                                            gap_detail, sizeof(gap_detail));
+        CHECK_TRUE(SUITE, GAP_RSHL, CHECK_EXACT, gap_wrong == 0, "%u of %u wrong, first: %s",
+                   gap_wrong, CPU_GAP_RSHL_FORMS, gap_detail);
+    }
+    if (ReportStart(SUITE, GAP_DMUL)) {
+        memset(gap_out, 0, sizeof(gap_out));
+        CpuGapDoublingMultiplies(CPU_DMUL_A, CPU_DMUL_B, CPU_DMUL_ACC, gap_out, gap_fpsr);
+        const unsigned gap_wrong = GapCheck(CPU_GAP_DMUL, CPU_GAP_DMUL_FORMS, gap_out, gap_fpsr,
+                                            gap_detail, sizeof(gap_detail));
+        CHECK_TRUE(SUITE, GAP_DMUL, CHECK_EXACT, gap_wrong == 0, "%u of %u wrong, first: %s",
+                   gap_wrong, CPU_GAP_DMUL_FORMS, gap_detail);
+    }
+    if (ReportStart(SUITE, GAP_RNARROW)) {
+        memset(gap_out, 0, sizeof(gap_out));
+        CpuGapRoundingNarrows(CPU_RNARROW_VALUE, gap_out, gap_fpsr);
+        const unsigned gap_wrong = GapCheck(CPU_GAP_RNARROW, CPU_GAP_RNARROW_FORMS, gap_out,
+                                            gap_fpsr, gap_detail, sizeof(gap_detail));
+        CHECK_TRUE(SUITE, GAP_RNARROW, CHECK_EXACT, gap_wrong == 0, "%u of %u wrong, first: %s",
+                   gap_wrong, CPU_GAP_RNARROW_FORMS, gap_detail);
+    }
+
     // Last of the cases every run has: a translator whose table of fraction bits stops at 63
     // calls a null pointer here, and nothing after it reports.
     if (ReportStart(SUITE, FCVTZ)) {
@@ -363,6 +459,24 @@ void RunCpu(void) {
                    (unsigned long long)converted[2], (unsigned long long)converted[3],
                    (unsigned long long)converted[4], (unsigned long long)converted[5],
                    (unsigned long long)converted[6], (unsigned long long)converted[7]);
+    }
+
+    // System registers a game may reach from EL0 that dynarmic does not model: its translator
+    // hits UNREACHABLE and the emulator ends. Both are in the may-crash table; on the console
+    // they say whether Horizon lets EL0 read them at all.
+    if (ReportStart(SUITE, CPU_CNTVCT_CASE)) {
+        uint64_t counts[4];
+        ReadCounts(counts);
+        CHECK_TRUE(SUITE, CPU_CNTVCT_CASE, CHECK_EXACT,
+                   counts[1] <= counts[2] && counts[2] - counts[1] <= counts[3] - counts[0],
+                   "physical %llu, virtual %llu then %llu, physical %llu",
+                   (unsigned long long)counts[0], (unsigned long long)counts[1],
+                   (unsigned long long)counts[2], (unsigned long long)counts[3]);
+    }
+    if (ReportStart(SUITE, CPU_DAIF_CASE)) {
+        const uint64_t daif = ReadDaif();
+        CHECK_TRUE(SUITE, CPU_DAIF_CASE, CHECK_EXACT, (daif & ~0x3c0ull) == 0, "daif %016llx",
+                   (unsigned long long)daif);
     }
 
     if (!ReportStart(SUITE, SM4_CASE)) {

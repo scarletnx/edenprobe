@@ -21,6 +21,61 @@ static const uint8_t CLZ8_EXPECTED[16] = {8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 6, 5, 4,
 static const uint16_t CLZ16_EXPECTED[8] = {16, 15, 8, 1, 0, 4, 14, 8};
 static const uint32_t CLZ32_EXPECTED[4] = {32, 15, 0, 29};
 
+// By hand, from the Arm ARM's pseudocode (SQRSHL, UQRSHL, SQDMLAL, SQDMLSL, SQDMULL, SQRSHRN,
+// UQRSHRN, SQRSHRUN and SatQ): the lane, the shift or operands, and the answer with its QC.
+typedef struct {
+    uint64_t value;
+    int shift;
+    unsigned esize;
+    bool is_unsigned;
+    uint64_t result;
+    bool saturated;
+} RshlByHand;
+static const RshlByHand RSHL_BY_HAND[] = {
+    {0x7f, 1, 8, false, 0x7f, true},                  // 254 does not fit: saturates
+    {0x80, -1, 8, false, 0xc0, false},                // (-128 + 1) >> 1 = -64
+    {0x01, -1, 8, false, 0x01, false},                // (1 + 1) >> 1 rounds up
+    {0xff, -1, 8, true, 0x80, false},                 // (255 + 1) >> 1 = 128
+    {0xff, 1, 8, true, 0xff, true},                   // 510 saturates
+    {0x40, -128, 8, false, 0x00, false},              // past the lane: zero
+    {0x8000000000000000ull, -64, 64, false, 0, false}, // (-2^63 + 2^63) >> 64
+    {~0ull, -64, 64, true, 1, false},                 // (2^64 - 1 + 2^63) >> 64 = 1
+    {0x7fff, 127, 16, false, 0x7fff, true},
+    {0xfffe, 2, 16, false, 0xfff8, false},            // -2 << 2 = -8
+};
+
+typedef struct {
+    uint64_t acc, a, b;
+    unsigned esize;
+    int accumulate;
+    uint64_t result;
+    bool saturated;
+} DmulByHand;
+static const DmulByHand DMUL_BY_HAND[] = {
+    {0, 0x8000, 0x8000, 16, 0, 0x7fffffff, true},           // 2 * (-2^15)^2 = 2^31
+    {0x7ffffffe, 1, 1, 16, 1, 0x7fffffff, true},            // the sum passes the top
+    {0x80000000, 1, 1, 16, -1, 0x80000000, true},           // the difference passes the bottom
+    {5, 3, 0xfffc, 16, 1, 0xffffffed, false},               // 5 + 2 * 3 * -4 = -19
+    {0x8000000000000000ull, 0x80000000, 0x80000000, 32, -1, 0x8000000000000000ull, true},
+    {10, 0xffffffff, 0xffffffff, 32, -1, 8, false},         // 10 - 2 * -1 * -1
+};
+
+typedef struct {
+    uint64_t value;
+    unsigned esize, shift;
+    bool source_unsigned, result_unsigned;
+    uint64_t result;
+    bool saturated;
+} NarrowByHand;
+static const NarrowByHand NARROW_BY_HAND[] = {
+    {0x01ff, 8, 1, false, false, 0x7f, true},               // (511 + 1) >> 1 = 256
+    {0x7f80, 8, 8, true, true, 0x80, false},                // (32640 + 128) >> 8 = 128
+    {0xffff8001, 16, 16, false, true, 0, false},            // (-32767 + 32768) >> 16 = 0
+    {0xffff0000, 16, 1, false, true, 0, true},              // -32768 to an unsigned lane
+    {0x7fffffffffffffffull, 32, 32, false, false, 0x7fffffff, true},
+    {0x1ffffffffull, 32, 1, true, true, 0xffffffff, true},  // (2^33 - 1 + 1) >> 1 = 2^32
+};
+
 void RunReferenceCpu(void) {
     int wrong = -1;
     for (int i = 0; i < 16 && wrong < 0; ++i) {
@@ -150,4 +205,41 @@ void RunReferenceCpu(void) {
     }
     CHECK_TRUE(SUITE, "sm4's inputs are the standard's key, FK and CK", CHECK_NONE, wrong < 0,
                "word %d differs", wrong);
+
+    // The NEON gap cases' references, against the tables above.
+    int at = -1;
+    for (int i = 0; i < (int)(sizeof(RSHL_BY_HAND) / sizeof(RSHL_BY_HAND[0])) && at < 0; ++i) {
+        const RshlByHand *h = &RSHL_BY_HAND[i];
+        bool sat;
+        if (CpuRefRoundingShiftLane(h->value, h->shift, h->esize, h->is_unsigned, &sat) != h->result ||
+            sat != h->saturated) {
+            at = i;
+        }
+    }
+    CHECK_TRUE(SUITE, "sqrshl and uqrshl lanes worked out by hand", CHECK_NONE, at < 0,
+               "row %d differs from its value by hand", at);
+
+    at = -1;
+    for (int i = 0; i < (int)(sizeof(DMUL_BY_HAND) / sizeof(DMUL_BY_HAND[0])) && at < 0; ++i) {
+        const DmulByHand *h = &DMUL_BY_HAND[i];
+        bool sat;
+        if (CpuRefDoublingMultiplyLane(h->acc, h->a, h->b, h->esize, h->accumulate, &sat) != h->result ||
+            sat != h->saturated) {
+            at = i;
+        }
+    }
+    CHECK_TRUE(SUITE, "sqdmlal, sqdmlsl and sqdmull lanes worked out by hand", CHECK_NONE, at < 0,
+               "row %d differs from its value by hand", at);
+
+    at = -1;
+    for (int i = 0; i < (int)(sizeof(NARROW_BY_HAND) / sizeof(NARROW_BY_HAND[0])) && at < 0; ++i) {
+        const NarrowByHand *h = &NARROW_BY_HAND[i];
+        bool sat;
+        if (CpuRefRoundingNarrow(h->value, h->esize, h->shift, h->source_unsigned, h->result_unsigned,
+                                 &sat) != h->result || sat != h->saturated) {
+            at = i;
+        }
+    }
+    CHECK_TRUE(SUITE, "sqrshrn, uqrshrn and sqrshrun scalars worked out by hand", CHECK_NONE,
+               at < 0, "row %d differs from its value by hand", at);
 }

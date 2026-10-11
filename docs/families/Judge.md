@@ -19,7 +19,7 @@ family reports can be believed without them.
   what the judge decided pixel by pixel, not from comparing two images, so a pixel that differs and
   was allowed to is not painted as a difference. Every line is the none tier, because none of it is
   a claim about a machine.
-- **reference**, two hundred and seventeen cases, no hardware involved either: the other half of
+- **reference**, two hundred and twenty cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -49,9 +49,10 @@ family reports can be believed without them.
     certificate forms, an HTTP response head, a status document, a friend profile at the offsets the
     guest reads, a bearer token's alphabet, a result code as the platform prints one), and what nsd,
     sfdnsres, the sign-in wait, a picture url's `{size}` and a profile slot should be;
-  - eight on the cpu suite's answers, against numbers written by hand: the leading zero counts,
-    the two roundings, the saturating shifts, the conversions with 64 fraction bits, and the SM4
-    inputs from the standard's key and constants;
+  - eleven on the cpu suite's answers, against numbers written by hand: the leading zero counts,
+    the two roundings, the saturating shifts, the conversions with 64 fraction bits, the SM4
+    inputs from the standard's key and constants, and the rounding shifts, doubling multiplies and
+    rounding narrows of the NEON gap cases, from the Arm ARM's pseudocode;
   - eight on the raw 3D method words the index, instance, drawtex and query suites send, against
     words worked out by hand from deko3d's command header layout;
   - twenty one on the astc suite's answers: the ASTC reference decoder, `source/astcref.c`, held

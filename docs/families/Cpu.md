@@ -1,6 +1,6 @@
 # The processor
 
-- **cpu**, ten cases, on the processor and in every mode, since it needs no device. Three count
+- **cpu**, fifteen cases, on the processor and in every mode, since it needs no device. Three count
   leading zeros over the sixteen 8-bit, eight 16-bit and four 32-bit lanes of one vector register,
   loaded from memory so a translator cannot fold the answer away, and compared exactly with the
   reference. The 16-bit case is there because a translator that widened the lanes to count them
@@ -35,9 +35,25 @@
   The note is for comparing two builds of one emulator on one machine; the verdict is the state.
   On the console the two calls differ by a cold instruction cache and nothing more.
 
+  Three cover base AdvSIMD instructions dynarmic has no translation for, found by sampling the
+  instruction groups recompiled games execute and keeping what a Cortex-A57 runs (Unicorn's model)
+  and dynarmic refuses: SQRSHL and UQRSHL on every lane width and as scalars, sixteen instructions;
+  SQDMLAL, SQDMLSL and SQDMULL as vectors, by element, in their upper-half forms and as scalars,
+  twenty six; SQRSHRN, UQRSHRN and SQRSHRUN as scalars, eighteen. Each stores its register and
+  FPSR, checked against references in integer arithmetic (`source/cpuref.c`), with inputs that
+  saturate in 35 of the 60 and round in the rest. Eden logs the exception and skips the
+  instruction, so the program goes on with the register never written: the cases fail there
+  rather than end the program. The instructions sit in `source/cpugaps.c`, apart from the case,
+  so their machine code can be run on Unicorn against the same references before a console sees
+  them.
+
   The conversions run last of the cases every run has, because a translator that
-  cannot compile them without SSE4.1 calls a null pointer there and nothing after it reports. SM4
-  is in the may-crash table: it runs only with the mode word `fatal` or when the start screen asks
-  for it, and is skipped as `may crash` otherwise, since the console's processor has no SM4 and a
-  translator that cannot compile it ends the program. Console build only, since its cases are
+  cannot compile them without SSE4.1 calls a null pointer there and nothing after it reports.
+  Three are in the may-crash table and run only with the mode word `fatal` or when the start
+  screen asks, skipped as `may crash` otherwise: reading CNTVCT_EL0, the virtual count, which has
+  to move forward with the physical one; reading DAIF, which holds nothing outside its four mask
+  bits; and SM4. dynarmic has no translation for the two system registers and reaches UNREACHABLE,
+  which ends the program, and the console's kernel may refuse EL0 either of them, which a console
+  run settles. The console's processor has no SM4, and a translator that cannot compile it ends
+  the program. Console build only, since its cases are
   AArch64 instructions.
