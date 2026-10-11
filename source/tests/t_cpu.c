@@ -6,8 +6,11 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <switch.h>
+
 #include "../check.h"
 #include "../cpuref.h"
+#include "../jitblocks.h"
 #include "../report.h"
 #include "tests.h"
 
@@ -165,9 +168,52 @@ static const char *const DIV = "sdiv and udiv by zero give zero, 32 and 64 bits"
 static const char *const FRINTX = "frintx rounds to nearest even and raises inexact";
 static const char *const FRINTA = "frinta rounds halfway cases away from zero";
 static const char *const SQSHLU = "sqshlu saturates 8, 16 and 64-bit lanes and sets QC";
+static const char *const COMPILE = "48 new straight-line blocks with 33 live registers leave the "
+                                   "state worked out apart";
 static const char *const FCVTZ = "fcvtzs and fcvtzu with 64 fraction bits scale by 2^64";
 // Last, and in the may-crash table: a translator that cannot compile SM4 ends the program.
 static const char *const SM4_CASE = CPU_SM4_CASE;
+
+/// Calls each block twice from JIT_INITIAL: the first call is the one a translator compiles on,
+/// the second only runs. The state after each call is checked against JIT_EXPECTED; the time
+/// both calls took, added over every block, goes to @p first_ns and @p second_ns. Returns the
+/// number of blocks that left a wrong state and the first wrong block and word.
+static unsigned CompileBlocks(uint64_t *first_ns, uint64_t *second_ns, unsigned *bad_block,
+                              unsigned *bad_word) {
+    static uint64_t state[JIT_STATE_WORDS] __attribute__((aligned(16)));
+    unsigned bad = 0;
+    *first_ns = 0;
+    *second_ns = 0;
+    *bad_block = JIT_BLOCKS;
+    *bad_word = 0;
+    // Index -1 is the warm-up: the same call site, so the loop's own code is compiled untimed.
+    for (int k = -1; k < (int)JIT_BLOCKS; ++k) {
+        void (*block)(uint64_t *) = k < 0 ? JitWarm : JIT_BLOCK[k];
+        uint64_t took[2];
+        bool wrong = false;
+        for (int call = 0; call < 2; ++call) {
+            memcpy(state, JIT_INITIAL, sizeof(state));
+            const uint64_t start = armGetSystemTick();
+            block(state);
+            took[call] = armTicksToNs(armGetSystemTick() - start);
+            for (unsigned w = 0; k >= 0 && w < JIT_STATE_WORDS; ++w) {
+                if (w != 17u && state[w] != JIT_EXPECTED[k][w]) {  // word 17 is padding
+                    if (!wrong && *bad_block == JIT_BLOCKS) {
+                        *bad_block = (unsigned)k;
+                        *bad_word = w;
+                    }
+                    wrong = true;
+                }
+            }
+        }
+        if (k >= 0) {
+            bad += wrong;
+            *first_ns += took[0];
+            *second_ns += took[1];
+        }
+    }
+    return bad;
+}
 
 void RunCpu(void) {
     char seen[160];
@@ -278,6 +324,24 @@ void RunCpu(void) {
                    (flags[1] & FPSR_QC) != 0, (flags[2] & FPSR_QC) != 0,
                    (flags[3] & FPSR_QC) != 0, saturated[0], saturated[1], saturated[2],
                    saturated[3]);
+    }
+
+    // Code the translator has never seen, with more live registers than an x86-64 host has, so
+    // its register allocator spills. The state is the verdict; the time of the first calls less
+    // the second is what compiling cost, a note for comparing two builds of one emulator.
+    if (ReportStart(SUITE, COMPILE)) {
+        uint64_t first_ns, second_ns;
+        unsigned bad_block, bad_word;
+        const unsigned bad = CompileBlocks(&first_ns, &second_ns, &bad_block, &bad_word);
+        CHECK_TRUE(SUITE, COMPILE, CHECK_EXACT, bad == 0,
+                   "%u of %u blocks left a wrong state, the first block %u at word %u", bad,
+                   JIT_BLOCKS, bad_block, bad_word);
+        const uint64_t compile_ns = first_ns > second_ns ? first_ns - second_ns : 0;
+        ReportNote("cpu compile: %u blocks of %u operations, first calls %llu us, second calls "
+                   "%llu us, %llu ns a block to compile",
+                   JIT_BLOCKS, JIT_OPS, (unsigned long long)(first_ns / 1000u),
+                   (unsigned long long)(second_ns / 1000u),
+                   (unsigned long long)(compile_ns / JIT_BLOCKS));
     }
 
     // Last of the cases every run has: a translator whose table of fraction bits stops at 63
