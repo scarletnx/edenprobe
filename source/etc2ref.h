@@ -22,6 +22,11 @@ void Etc2DecodeRgb(const uint8_t block[8], bool punchthrough, uint8_t texels[16]
 /// Decodes an RGBA8 block: the alpha block in bytes 0 to 7, the RGB8 block in bytes 8 to 15.
 void Etc2DecodeRgba(const uint8_t block[16], uint8_t texels[16][4]);
 
+/// Whether @p texels are @p block's own bytes rather than its colours: texels 0 and 1 hold bytes
+/// 0 to 7, each texel's alpha either its byte or 255, which an RGB format's swizzle can put
+/// there. What a host shows when the blocks were uploaded as they are and never decoded.
+bool Etc2LooksRaw(const uint8_t block[16], const uint8_t texels[16][4]);
+
 /// The builders take the fields of one mode and @p indices in row major order (two bits a texel
 /// for colour, three for alpha). @p bit33 is the differential bit of RGB8 or the opaque bit of
 /// RGB8A1. Bases are four bits a channel in individual, T and H mode and five in differential

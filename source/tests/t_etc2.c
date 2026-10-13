@@ -103,6 +103,7 @@ static void SampleCase(GpuContext *gpu, const DkShader *vertex_shader,
     uint32_t wrong = 0;
     uint32_t first = 0;
     uint8_t seen[4] = { 0, 0, 0, 0 };
+    uint8_t got[16][4];
     for (uint32_t y = 0; y < TARGET_HEIGHT; ++y) {
         for (uint32_t x = 0; x < TARGET_WIDTH; ++x) {
             const uint8_t *const pixel = GpuPixel(pixels, TARGET_WIDTH, x, y);
@@ -111,6 +112,7 @@ static void SampleCase(GpuContext *gpu, const DkShader *vertex_shader,
                 continue;
             }
             const uint32_t t = y * 4u + x;
+            memcpy(got[t], pixel, 4);
             const bool right = memcmp(pixel, want[t], 4) == 0;
             PictureSet(picture, x, y, want[t], right ? PICTURE_MATCHED : PICTURE_WRONG);
             if (!right) {
@@ -122,11 +124,16 @@ static void SampleCase(GpuContext *gpu, const DkShader *vertex_shader,
             }
         }
     }
+    // The signature the detail names, as the order and coherence suites name theirs.
+    const char *const raw = Etc2LooksRaw(block->bytes, (const uint8_t(*)[4])got)
+                                ? "; texels 0 and 1 are the block's own bytes: it was uploaded "
+                                  "as it is and never decoded"
+                                : "";
     CHECK_TRUE(SUITE, name, CHECK_EXACT, wrong == 0,
                "%u of 16 texels wrong; texel %u is %02x%02x%02x%02x, the specification's "
-               "%02x%02x%02x%02x",
+               "%02x%02x%02x%02x%s",
                (unsigned)wrong, (unsigned)first, seen[0], seen[1], seen[2], seen[3],
-               want[first][0], want[first][1], want[first][2], want[first][3]);
+               want[first][0], want[first][1], want[first][2], want[first][3], raw);
 }
 
 void RunEtc2(void) {

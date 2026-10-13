@@ -36,6 +36,27 @@ static const Etc2TestBlock *Find(const char *name) {
     return &ETC2_TEST_BLOCK[0];
 }
 
+// What each block shows when a host uploads it as it is and samples its bytes as RGBA8, worked
+// out apart from etc2ref.c straight from the bytes (an RGB8 format's alpha is 255 by its
+// swizzle); an emulator that does that showed exactly these texel 0s.
+// clang-format off
+static const struct {
+    const char *name;
+    uint8_t texels[2][4];
+} RAW[] = {
+    { "individual", { { 0xf2, 0x0d, 0x85, 0xff }, { 0x93, 0x6c, 0x5a, 0xff } } },
+    { "differential", { { 0xa4, 0x2b, 0xff, 0xff }, { 0x93, 0x6c, 0x5a, 0xff } } },
+    { "T", { { 0x1c, 0x39, 0xf1, 0xff }, { 0x93, 0x6c, 0x5a, 0xff } } },
+    { "H-high", { { 0x73, 0x05, 0x1c, 0xff }, { 0x93, 0x6c, 0x5a, 0xff } } },
+    { "H-low", { { 0x9c, 0xfa, 0x73, 0xff }, { 0x93, 0x6c, 0x5a, 0xff } } },
+    { "planar", { { 0x7e, 0x01, 0x04, 0xff }, { 0xff, 0xfa, 0xb0, 0xff } } },
+    { "pta-diff", { { 0x53, 0xa6, 0xf1, 0x94 }, { 0x93, 0x6c, 0x5a, 0x5a } } },
+    { "pta-t", { { 0x05, 0xe7, 0x84, 0xb5 }, { 0x93, 0x6c, 0x5a, 0x5a } } },
+    { "pta-planar", { { 0x0b, 0x49, 0xfa, 0x50 }, { 0x28, 0x1f, 0xff, 0xd1 } } },
+    { "rgba", { { 0x80, 0xf0, 0x10, 0x43 }, { 0x4d, 0x59, 0x67, 0xdf } } },
+};
+// clang-format on
+
 static uint32_t Rgba(const uint8_t texel[4]) {
     return ((uint32_t)texel[0] << 24) | ((uint32_t)texel[1] << 16) | ((uint32_t)texel[2] << 8) |
            texel[3];
@@ -102,4 +123,35 @@ void RunReferenceEtc2(void) {
     CHECK_TRUE(SUITE, "ETC2 RGBA alpha is base plus modifier times multiplier, clamped",
                CHECK_NONE, t[3][3] == 0u && t[7][3] == 255u && t[0][3] == 83u,
                "alpha at (3, 0), (3, 1) and (0, 0) is %u, %u and %u", t[3][3], t[7][3], t[0][3]);
+
+    // The etc2 suite names an upload of the blocks as they are when it sees one: every block's
+    // own bytes must read as one, and no block's colours may, or the note would land on a pass.
+    uint32_t missed = 0, false_alarms = 0;
+    const char *first_missed = "none";
+    const char *first_alarm = "none";
+    for (uint32_t i = 0; i < ETC2_TEST_BLOCKS; ++i) {
+        const Etc2TestBlock *const b = &ETC2_TEST_BLOCK[i];
+        uint8_t raw[16][4];
+        memset(raw, 0, sizeof(raw));
+        for (size_t r = 0; r < sizeof(RAW) / sizeof(RAW[0]); ++r) {
+            if (strcmp(RAW[r].name, b->name) == 0) {
+                memcpy(raw[0], RAW[r].texels[0], 4);
+                memcpy(raw[1], RAW[r].texels[1], 4);
+            }
+        }
+        if (!Etc2LooksRaw(b->bytes, raw) && missed++ == 0u) {
+            first_missed = b->name;
+        }
+        Decode(b, t);
+        if (Etc2LooksRaw(b->bytes, t) && false_alarms++ == 0u) {
+            first_alarm = b->name;
+        }
+    }
+    CHECK_TRUE(SUITE, "an ETC2 block's own bytes sampled as RGBA8 read as an upload of the block",
+               CHECK_NONE, missed == 0u && sizeof(RAW) / sizeof(RAW[0]) == ETC2_TEST_BLOCKS,
+               "%u of %u blocks not seen as raw, the first %s", (unsigned)missed,
+               (unsigned)ETC2_TEST_BLOCKS, first_missed);
+    CHECK_TRUE(SUITE, "no ETC2 block's decoded colours read as an upload of its bytes",
+               CHECK_NONE, false_alarms == 0u, "%u of %u blocks would be, the first %s",
+               (unsigned)false_alarms, (unsigned)ETC2_TEST_BLOCKS, first_alarm);
 }

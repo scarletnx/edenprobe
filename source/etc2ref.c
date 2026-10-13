@@ -341,3 +341,17 @@ void Etc2BuildAlpha(uint8_t block[8], uint32_t base, uint32_t multiplier, uint32
     }
     Store(block, word);
 }
+
+bool Etc2LooksRaw(const uint8_t block[16], const uint8_t texels[16][4]) {
+    for (uint32_t t = 0; t < 2u; ++t) {
+        for (uint32_t c = 0; c < 3u; ++c) {
+            if (texels[t][c] != block[t * 4u + c]) {
+                return false;
+            }
+        }
+        if (texels[t][3] != block[t * 4u + 3u] && texels[t][3] != 255u) {
+            return false;
+        }
+    }
+    return true;
+}
