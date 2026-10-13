@@ -80,14 +80,20 @@ def run_folders(sd):
 
 
 class Journal:
-    """The journal as the probe writes it (source/journal.h): the last run's records, a last line
-    with no newline left out as a write the program did not live to finish."""
+    """The journal as the probe writes it (source/journal.h): the last run's records. Every record
+    ends in a tab before its newline, so a last line that ends in its tab lost only its newline
+    (Eden loses a file's last write in an abort) and is read; one without the tab was cut inside
+    its body and is left out."""
 
     def __init__(self, text=""):
         self.records = []
         lines = text.split("\n")
         # The piece after the last newline is a torn line, or nothing.
+        if lines[-1].endswith("\t"):
+            lines.append("")
         for line in lines[:-1]:
+            if line.endswith("\t"):
+                line = line[:-1]
             fields = line.split(" ")
             if not fields or not fields[0]:
                 continue
@@ -267,8 +273,14 @@ def mark_stopped(journal_path):
     crash; nothing when there is no journal."""
     if not os.path.isfile(journal_path):
         return False
+    with open(journal_path, "rb") as f:
+        open_line = False
+        if f.seek(0, os.SEEK_END) > 0:
+            f.seek(-1, os.SEEK_END)
+            open_line = f.read(1) != b"\n"
     with open(journal_path, "ab") as f:
-        f.write(b"stopped\n")
+        # A line the program left open would swallow the word.
+        f.write(b"\nstopped\n" if open_line else b"stopped\n")
         f.flush()
         os.fsync(f.fileno())
     return True

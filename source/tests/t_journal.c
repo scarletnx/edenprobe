@@ -90,7 +90,7 @@ static void CheckRecords(void) {
     CHECK_TRUE(SUITE, "every journal record reads back as it was written", CHECK_NONE,
                wrong == 0u &&
                    strcmp(start, "start index 7 an indexed draw with the library's open limit "
-                                 "uses every index\n") == 0,
+                                 "uses every index\t\n") == 0,
                "%u of 11 records came back different, the first \"%.120s\"; a start reads "
                "\"%.120s\"",
                (unsigned)wrong, first_wrong, start);
@@ -108,7 +108,8 @@ static void CheckRecords(void) {
     const size_t spaced_length = JournalFormat(refused, sizeof(refused), &spaced);
     CHECK_TRUE(SUITE, "a journal record too long for its buffer is not written in part",
                CHECK_NONE,
-               cut == 0u && small[0] == '\0' && strcmp(joined, "start clear 0 two lines\n") == 0 &&
+               cut == 0u && small[0] == '\0' &&
+                   strcmp(joined, "start clear 0 two lines\t\n") == 0 &&
                    spaced_length == 0u && refused[0] == '\0',
                "cut %u \"%.20s\"; a newline in a name gave \"%.40s\"; a suite with a space %u",
                (unsigned)cut, small, joined, (unsigned)spaced_length);
@@ -135,6 +136,9 @@ static void CheckRecords(void) {
         "begin clear 1 a case",
         "pass clear 99999999999",
         "start clear 1 a\tcase",
+        "start clear 1 a case\t\t",
+        "start clear 1 a case\t \n",
+        "\t",
         "START clear 1 a case",
         " start clear 1 a case",
     };
@@ -204,6 +208,40 @@ static void CheckReading(void) {
                "completed: in a case %d",
                (int)state.in_case, (int)state.in_step, (unsigned)state.done_count,
                (int)torn.torn, (int)torn.in_case, (int)complete.in_case);
+
+    // Eden keeps a file's last write in a host buffer and loses it in an abort, and the newline
+    // is the last write of every record: the start is all there, ending in its tab, and that
+    // is the case the program ended inside. A start cut inside its body has no tab, so it stays
+    // out, as does one a build before the tab wrote.
+    static const char ABORTED[] = "start cpu 0 frintx rounds to nearest even\t";
+    static const char CUT[] = "start cpu 0 frintx rounds to ne";
+    char aborted_text[sizeof(RUN_HEAD) + 200];
+    snprintf(aborted_text, sizeof(aborted_text),
+             "%send cpu 0 skip sm4ekey and sm4e give the SM4 standard's worked example\t\n%s",
+             RUN_HEAD, ABORTED);
+    JournalState aborted;
+    JournalStateInit(&aborted);
+    JournalReadText(&aborted, aborted_text, strlen(aborted_text));
+    char cut_text[sizeof(RUN_HEAD) + 200];
+    snprintf(cut_text, sizeof(cut_text),
+             "%send cpu 0 skip sm4ekey and sm4e give the SM4 standard's worked example\t\n%s",
+             RUN_HEAD, CUT);
+    JournalState cut;
+    JournalStateInit(&cut);
+    JournalReadText(&cut, cut_text, strlen(cut_text));
+    const JournalPlan aborted_plan = JournalPlanStart(&aborted, "0.2.0", "v0.2.0-20-g2ddafce",
+                                                      "fatal", 100000);
+    CHECK_TRUE(SUITE, "a start whose newline an abort took is the case the program ended inside",
+               CHECK_NONE,
+               aborted.in_case && !aborted.torn &&
+                   strcmp(aborted.started.name, "frintx rounds to nearest even") == 0 &&
+                   aborted_plan.crashed &&
+                   strcmp(aborted_plan.crash.name, "frintx rounds to nearest even") == 0 &&
+                   !cut.in_case && cut.torn && torn.torn && !torn.in_case,
+               "aborted: in a case %d, torn %d, name \"%s\", crashed %d; cut: in a case %d, "
+               "torn %d; with no tab: in a case %d",
+               (int)aborted.in_case, (int)aborted.torn, aborted.started.name,
+               (int)aborted_plan.crashed, (int)cut.in_case, (int)cut.torn, (int)torn.in_case);
 
     // Where each launch stopped, told apart: inside a case, after one inside a step, between
     // steps, and a run that finished.
@@ -578,6 +616,44 @@ static void CheckCrashList(void) {
                "added and removed %s; %u entries back of %u, %u unreadable",
                added ? "as asked" : "wrongly", (unsigned)back.count, (unsigned)list.count,
                (unsigned)back.unreadable);
+}
+
+/// The launch after an abort ends the line the abort left open before it writes, so its first
+/// record starts a line of its own; a journal whose last line is whole is left as it was.
+static void CheckEndLine(const char *directory) {
+    char path[400];
+    snprintf(path, sizeof(path), "%.300s/journal-end-line", directory);
+    static const char OPEN[] = "run 0.2.0 b fatal\t\nlaunch 1\t\nstep cpu 10 0 0 0 0\t\n"
+                               "start cpu 0 frintx rounds to nearest even\t";
+    FILE *file = fopen(path, "w");
+    bool wrote = file != NULL && fwrite(OPEN, 1, sizeof(OPEN) - 1u, file) == sizeof(OPEN) - 1u;
+    if (file != NULL) {
+        fclose(file);
+    }
+    file = wrote ? fopen(path, "r+") : NULL;
+    wrote = file != NULL && JournalEndLine(file) && JournalDurableAppend(file, "launch 2\t\n") &&
+            JournalEndLine(file);
+    const long after = file != NULL ? ftell(file) : -1;
+    if (file != NULL) {
+        fclose(file);
+    }
+    JournalState state;
+    JournalStateInit(&state);
+    const bool read_back = JournalReadPath(&state, path);
+    char text[512];
+    bool longer = false;
+    const int64_t length = JournalReadFile(path, text, sizeof(text), &longer);
+    const bool removed = remove(path) == 0;
+    const bool joined = length > 0 && strstr(text, "even\tlaunch") != NULL;
+    CHECK_TRUE(SUITE, "the launch after an abort ends the open line before its own records",
+               CHECK_NONE,
+               wrote && read_back && removed && !joined && state.launches == 2u &&
+                   !state.in_case && !state.torn && state.unreadable == 0u &&
+                   after == (long)(sizeof(OPEN) - 1u + 1u + 10u),
+               "wrote %d, read %d, removed %d, joined %d, launches %u, in a case %d, torn %d, "
+               "unreadable %u, at %ld",
+               (int)wrote, (int)read_back, (int)removed, (int)joined, (unsigned)state.launches,
+               (int)state.in_case, (int)state.torn, (unsigned)state.unreadable, after);
 }
 
 static void CheckDurableFile(const char *directory) {
@@ -1136,6 +1212,7 @@ void RunSupportJournal(const char *scratch) {
     CheckChosenRun();
     CheckCrashList();
     CheckDurableFile(scratch);
+    CheckEndLine(scratch);
     CheckDurableLines(scratch);
 #if !defined(__SWITCH__) && defined(__GLIBC__)
     CheckDroppingCookie();

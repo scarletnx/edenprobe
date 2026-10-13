@@ -62,8 +62,12 @@ not ask either, since the pad is read only once the run has started.
 | `done <step>` | after a step |
 | `finished <passed> <failed> <skipped> <crashed>` | after the summary |
 
-A last line with no newline is a write the program did not live to finish, and is never read as a
-record; nor is a line that is not a whole one.
+Every line ends in a tab before its newline, which no field can hold. A last line with no
+newline that ends in its tab lost only the newline, which is what an abort on Eden takes (see
+below), and is read as the record it is: a start there is the case the program ended inside. A
+last line without the tab is a write cut inside its body, and is never read as a record; nor is
+a line that is not a whole one. A launch that goes on with the run ends that line before its own
+first record, and `tools/run.py` does the same before it writes `stopped`, so nothing joins it.
 
 **The crash list.** `sdmc:/edenprobe/crashes` names the cases that ended this machine's program,
 `<suite> <case>` a line under a comment that says what it is. They are skipped in every later run
@@ -114,12 +118,13 @@ run.
 **On an emulator that buffers.** Eden writes the card through the host's C library and seeks before
 every write, so a file's last write sits in a buffer until the next one comes, and dies with the
 process. Each line is therefore written without its newline, flushed, and then the newline is
-written at the end: the flush puts the line on the host's disk, and what a crash can still hold
-is the newline. Seeking back onto the line to rewrite a byte already there drops, on the Android
-host library, every buffered byte past the seek. A finished journal then keeps the offsets while
-the report loses whole suites and stays a dense jsonl, shorter by exactly those suites. While the
-journal is on, the report is written the same way, which makes true on Eden what a killed run
-always promised, everything up to its last completed case.
+written at the end: the flush puts the line on the host's disk, and what a crash can still hold is
+the newline, which is why a last line that ends in its tab is read. Seeking back onto the line to
+rewrite a byte already there drops, on the Android host library, every buffered byte past the seek.
+A finished journal then keeps the offsets while the report loses whole suites and stays a dense
+jsonl, shorter by exactly those suites. While the journal is on, the report is written the same way,
+which makes true on Eden what a killed run always promised, everything up to its last completed
+case.
 
 **Under Ryujinx**, which a person starts by hand: open `edenprobe.nro`, and when Ryujinx stops or
 closes, open it again, and again, until the report ends on its summary; each launch goes on with

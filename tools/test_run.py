@@ -279,6 +279,28 @@ class JournalReading(unittest.TestCase):
         self.assertEqual(j.inside(), ("clear", "1", "a case"))
         self.assertEqual(len(j.records), 3)
 
+    def test_a_start_whose_newline_an_abort_took_is_read(self):
+        # Eden keeps a file's last write in a host buffer, and the newline is every record's
+        # last write: an abort leaves the start whole, ending in its tab, with no newline.
+        j = run.Journal("run 0 b q\t\nlaunch 1\t\nstart clear 1 a case\t")
+        self.assertEqual(j.inside(), ("clear", "1", "a case"))
+        self.assertEqual(j.records[-1], "start clear 1 a case")
+
+    def test_a_start_cut_inside_its_body_is_still_left_out(self):
+        j = run.Journal("run 0 b q\t\nlaunch 1\t\nend clear 1 pass a\t\nstart clear 1 half a ca")
+        self.assertIsNone(j.inside())
+        self.assertEqual(j.records[-1], "end clear 1 pass a")
+
+    def test_marking_a_stop_ends_a_torn_line_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "journal")
+            with open(path, "wb") as f:
+                f.write(b"run 0 b q\t\nlaunch 1\t\nstart clear 1 a case\t")
+            self.assertTrue(run.mark_stopped(path))
+            j = run.Journal.read(path)
+            self.assertEqual(j.records[-2:], ["start clear 1 a case", "stopped"])
+            self.assertIsNone(j.inside())
+
     def test_the_case_it_ended_inside_is_the_last_start(self):
         self.assertIsNone(run.Journal("run 0 b q\nstart a 0 x\nend a 0 pass x\n").inside())
         self.assertIsNone(run.Journal("run 0 b q\nstart a 0 x\nstopped\n").inside())

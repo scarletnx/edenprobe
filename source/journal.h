@@ -159,8 +159,9 @@ typedef struct {
 
 void JournalStateInit(JournalState *state);
 
-/// Takes one line in. @p complete says it ended in a newline: a last line without one is a
-/// write the program did not live to finish, and counts for nothing.
+/// Takes one line in. @p complete says it ended in a newline. A last line without one that ends
+/// in its record's tab is a whole record whose newline a crash took, and is read; any other is
+/// a write the program did not live to finish, and counts for nothing.
 void JournalFeed(JournalState *state, const char *line, bool complete);
 
 /// The whole text of a journal, one line at a time.
@@ -273,6 +274,11 @@ bool CrashListHas(const CrashList *list, const char *suite, const char *name);
 bool CrashListAdd(CrashList *list, const char *suite, const char *name);
 /// False when it was not there.
 bool CrashListRemove(CrashList *list, const char *suite, const char *name);
+
+/// Ends the last line of @p file with a newline when a crash left it without one, so the next
+/// record starts a line of its own instead of joining it; leaves the stream at the end. False
+/// when the file cannot be read or written.
+bool JournalEndLine(FILE *file);
 
 /// Appends @p line, which ends in its newline, so that it is on the card before this returns,
 /// on an emulator that holds a file's last write back in a buffer of its own as well as on one

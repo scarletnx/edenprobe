@@ -46,45 +46,48 @@ size_t JournalFormat(char *out, size_t out_size, const JournalRecord *r) {
     CopyField(name, sizeof(name), r->name);
     CopyField(mode, sizeof(mode), r->mode);
     const JournalCounts *const c = &r->counts;
+    // Every record ends in a tab before its newline. No field holds one, since CopyField turns
+    // control characters into spaces, so a last line that ends in its tab is a whole record
+    // whose newline a crash took, and one that does not was cut inside its body.
     int wrote = -1;
     switch (r->kind) {
     case JOURNAL_RUN:
-        wrote = snprintf(out, out_size, "run %s %s%s%s\n", suite, name, mode[0] != '\0' ? " " : "",
-                         mode);
+        wrote = snprintf(out, out_size, "run %s %s%s%s\t\n", suite, name,
+                         mode[0] != '\0' ? " " : "", mode);
         break;
     case JOURNAL_CHOSEN:
-        wrote = snprintf(out, out_size, "chosen %s\n", mode);
+        wrote = snprintf(out, out_size, "chosen %s\t\n", mode);
         break;
     case JOURNAL_LAUNCH:
-        wrote = snprintf(out, out_size, "launch %u\n", (unsigned)r->number);
+        wrote = snprintf(out, out_size, "launch %u\t\n", (unsigned)r->number);
         break;
     case JOURNAL_STEP:
-        wrote = snprintf(out, out_size, "step %s %" PRIu64 " %u %u %u %u\n", suite, r->offset,
+        wrote = snprintf(out, out_size, "step %s %" PRIu64 " %u %u %u %u\t\n", suite, r->offset,
                          (unsigned)c->counts[0], (unsigned)c->counts[1], (unsigned)c->counts[2],
                          (unsigned)c->counts[3]);
         break;
     case JOURNAL_PASS:
-        wrote = snprintf(out, out_size, "pass %s %u\n", suite, (unsigned)r->number);
+        wrote = snprintf(out, out_size, "pass %s %u\t\n", suite, (unsigned)r->number);
         break;
     case JOURNAL_START:
-        wrote = snprintf(out, out_size, "start %s %u %s\n", suite, (unsigned)r->number, name);
+        wrote = snprintf(out, out_size, "start %s %u %s\t\n", suite, (unsigned)r->number, name);
         break;
     case JOURNAL_END:
-        wrote = snprintf(out, out_size, "end %s %u %s %s\n", suite, (unsigned)r->number,
+        wrote = snprintf(out, out_size, "end %s %u %s %s\t\n", suite, (unsigned)r->number,
                          JournalResultWord(r->result), name);
         break;
     case JOURNAL_CRASH:
-        wrote = snprintf(out, out_size, "crashed %s %u %s\n", suite, (unsigned)r->number, name);
+        wrote = snprintf(out, out_size, "crashed %s %u %s\t\n", suite, (unsigned)r->number, name);
         break;
     case JOURNAL_DONE:
-        wrote = snprintf(out, out_size, "done %s\n", suite);
+        wrote = snprintf(out, out_size, "done %s\t\n", suite);
         break;
     case JOURNAL_FINISHED:
-        wrote = snprintf(out, out_size, "finished %u %u %u %u\n", (unsigned)c->counts[0],
+        wrote = snprintf(out, out_size, "finished %u %u %u %u\t\n", (unsigned)c->counts[0],
                          (unsigned)c->counts[1], (unsigned)c->counts[2], (unsigned)c->counts[3]);
         break;
     case JOURNAL_STOPPED:
-        wrote = snprintf(out, out_size, "stopped\n");
+        wrote = snprintf(out, out_size, "stopped\t\n");
         break;
     case JOURNAL_NONE:
         break;
@@ -176,6 +179,10 @@ bool JournalParse(const char *line, JournalRecord *out) {
     char text[JOURNAL_LINE_MAX];
     size_t length = strlen(line);
     if (length > 0u && line[length - 1u] == '\n') {
+        --length;
+    }
+    // The tab every record ends in; a line from before there was one reads the same.
+    if (length > 0u && line[length - 1u] == '\t') {
         --length;
     }
     if (length == 0u || length >= sizeof(text)) {
@@ -278,7 +285,11 @@ static void Forget(JournalState *state, const char *step) {
 }
 
 void JournalFeed(JournalState *state, const char *line, bool complete) {
-    if (!complete) {
+    // A last line that ends in its record's tab lost only its newline: Eden keeps a file's last
+    // write in a host buffer and loses it in an abort, and the newline is every record's last
+    // write. Anything else without a newline was cut inside its body.
+    const size_t length = strlen(line);
+    if (!complete && (length == 0u || line[length - 1u] != '\t')) {
         state->torn = true;
         return;
     }
@@ -760,6 +771,25 @@ bool JournalDurableAppend(FILE *file, const char *line) {
         return false;
     }
     return fputc('\n', file) != EOF && fflush(file) == 0;
+}
+
+bool JournalEndLine(FILE *file) {
+    if (file == NULL || fseek(file, 0, SEEK_END) != 0) {
+        return false;
+    }
+    const long size = ftell(file);
+    if (size <= 0) {
+        return size == 0;
+    }
+    if (fseek(file, -1, SEEK_END) != 0) {
+        return false;
+    }
+    const int last = fgetc(file);
+    // Back to the end, which a stream that was read from needs before it is written to.
+    if (fseek(file, 0, SEEK_END) != 0) {
+        return false;
+    }
+    return last == '\n' || (fputc('\n', file) != EOF && fflush(file) == 0);
 }
 
 bool JournalReadPath(JournalState *state, const char *path) {

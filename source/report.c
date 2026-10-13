@@ -742,6 +742,12 @@ bool ReportJournalOpen(const char *path, bool fresh) {
     ReportJournalClose();
     journal_broken = false;
     FILE *file = fresh ? fopen(path, "w") : OpenAtEnd(path);
+    // A run that goes on after a crash ends the line the crash left open first, or this
+    // launch's first record would join it.
+    if (file != NULL && !fresh && !JournalEndLine(file)) {
+        fclose(file);
+        file = NULL;
+    }
     if (file == NULL) {
         return false;
     }
