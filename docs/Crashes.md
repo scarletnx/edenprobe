@@ -93,7 +93,9 @@ them wrong. They are skipped with the reason `hangs` and the table's sentence un
 next launch to mark it until something else kills the process, and running it again hangs that
 launch too. Today the table has one case, the bsd receive that asks for a timeout. The start
 screen cannot turn `hang` on. A case that ended the program in this run is still skipped as
-`crashed` before the hang table is consulted, whatever `hang` says.
+`crashed` before the hang table is consulted, whatever `hang` says. The support checks that try
+this record such a crash themselves and take it back before they end, so the run they sit in
+never skips the real case as `crashed` (a support case checks that they do).
 
 **Where a crash can be pinned.** Every case of the cpu, graphics, fs, video, audio and net families
 says it starts before any of its work, which is what lets a launch skip it: the start and the skip

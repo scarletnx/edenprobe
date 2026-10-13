@@ -823,6 +823,16 @@ void ReportAddCrashed(const JournalRecord *crash) {
     crashed_this_run[crashed_this_run_count++] = *crash;
 }
 
+uint32_t ReportCrashedMark(void) {
+    return crashed_this_run_count;
+}
+
+void ReportCrashedRewind(uint32_t mark) {
+    if (mark < crashed_this_run_count) {
+        crashed_this_run_count = mark;
+    }
+}
+
 bool ReportCrashListAdd(const char *suite, const char *name) {
     char key[JOURNAL_NAME_MAX];
     KeyOf(key, sizeof(key), name);

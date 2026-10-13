@@ -879,7 +879,8 @@ static void CheckDecisions(void) {
     // Muted like a rehearsal, so these cases leave the counts and the report as they were, and
     // what they check is only whether each case was let run. The run's own list, its path and
     // whether it retries are handed back as they were found: a run with retry that lost it here
-    // skipped every case its list names.
+    // skipped every case its list names. So is the run's set of crashes.
+    const uint32_t crashes = ReportCrashedMark();
     static CrashList saved;
     saved = *ReportCrashList();
     char saved_path[64];
@@ -908,6 +909,7 @@ static void CheckDecisions(void) {
     ReportRehearse(SUITE);
     const bool crashed_runs = ReportStart(SUITE, "a case that ended this run");
     ReportRehearse(NULL);
+    ReportCrashedRewind(crashes);
     ReportSetCrashList(&saved, saved_path, saved_retry);
     const bool handed_back = ReportRetrying() == saved_retry &&
                              strcmp(ReportCrashListPath(), saved_path) == 0 &&
@@ -1087,7 +1089,9 @@ static void CheckPrecedence(void) {
 static void CheckHang(void) {
     // The bsd receive-timeout hangs instead of ending, so the next launch is the one after
     // something else kills the process. Until then the hang table is what skips it. Retry
-    // would start it again. The run's own settings are handed back afterwards.
+    // would start it again. The run's own settings and its set of crashes are handed back
+    // afterwards.
+    const uint32_t crashes = ReportCrashedMark();
     static CrashList saved;
     saved = *ReportCrashList();
     char saved_path[64];
@@ -1124,7 +1128,8 @@ static void CheckHang(void) {
         !ReportWouldRun("cpu", CPU_SM4_CASE, &sm4_reason, NULL, 0) &&
         sm4_reason == REPORT_REASON_MAY_CRASH;
 
-    // Last, because a crash recorded for this run stays recorded, as the decision check's does.
+    // Last, and taken back below: kept, it skipped the real bsd case as crashed for the rest of
+    // the run.
     JournalRecord crash = Record(JOURNAL_CRASH, "bsd", HANG_BSD_TIMEOUT, 1);
     ReportAddCrashed(&crash);
     ReportSetHang(true);
@@ -1134,6 +1139,7 @@ static void CheckHang(void) {
         !ReportWouldRun("bsd", HANG_BSD_TIMEOUT, &crash_reason, NULL, 0) &&
         crash_reason == REPORT_REASON_CRASHED;
 
+    ReportCrashedRewind(crashes);
     ReportSetCrashList(&saved, saved_path, saved_retry);
     ReportSetHang(saved_hang);
     ReportSetMayCrash(saved_asked);
@@ -1149,6 +1155,36 @@ static void CheckHang(void) {
                (int)skipped, ReportReasonWord(reason), (int)retry_skips,
                ReportReasonWord(retry_reason), (int)asked_runs, (int)sm4_still, (int)crash_wins,
                ReportReasonWord(crash_reason), handed_back ? "handed back" : "lost");
+}
+
+/// The decision and hang checks each record a crash for this run, to see it win over everything
+/// else. Left behind, that record skips a real case for the rest of the run: in a run of one
+/// launch the bsd receive timeout came out crashed instead of hangs, and the summary counted it.
+static void CheckCrashesHandedBack(uint32_t before) {
+    static CrashList saved;
+    saved = *ReportCrashList();
+    char saved_path[64];
+    snprintf(saved_path, sizeof(saved_path), "%s", ReportCrashListPath());
+    const bool saved_retry = ReportRetrying();
+    const bool saved_hang = ReportHangAsked();
+    ReportSetCrashList(NULL, NULL, false);
+    ReportSetHang(false);
+
+    const uint32_t after = ReportCrashedMark();
+    ReportReason bsd_reason = REPORT_REASON_CRASHED;
+    const bool bsd_hangs = !ReportWouldRun("bsd", HANG_BSD_TIMEOUT, &bsd_reason, NULL, 0) &&
+                           bsd_reason == REPORT_REASON_HANG;
+    ReportReason decision_reason = REPORT_REASON_COUNT;
+    const bool decision_runs =
+        ReportWouldRun(SUITE, "a case that ended this run", &decision_reason, NULL, 0);
+
+    ReportSetCrashList(&saved, saved_path, saved_retry);
+    ReportSetHang(saved_hang);
+    CHECK_TRUE(SUITE, "the checks that record a crash for this run take it back", CHECK_NONE,
+               after == before && bsd_hangs && decision_runs,
+               "crashes this run %u before them, %u after; bsd %s; the decision check's case %s",
+               (unsigned)before, (unsigned)after, ReportReasonWord(bsd_reason),
+               decision_runs ? "runs" : ReportReasonWord(decision_reason));
 }
 
 static void CheckModeWords(void) {
@@ -1217,11 +1253,13 @@ void RunSupportJournal(const char *scratch) {
 #if !defined(__SWITCH__) && defined(__GLIBC__)
     CheckDroppingCookie();
 #endif
+    const uint32_t crashes_before = ReportCrashedMark();
     CheckDecisions();
     CheckBookkeeping();
     CheckWatcher();
     CheckMayCrashTable();
     CheckPrecedence();
     CheckHang();
+    CheckCrashesHandedBack(crashes_before);
     CheckModeWords();
 }

@@ -54,6 +54,13 @@ void ReportSetCrashList(const CrashList *list, const char *path, bool retry);
 /// whatever retry says, since running it again is what ended the launch before.
 void ReportAddCrashed(const JournalRecord *crash);
 
+/// How many crashes this run has recorded so far, for a self-test to come back to.
+uint32_t ReportCrashedMark(void);
+
+/// Forgets the crashes recorded after @p mark: a self-test's own, which would otherwise skip a
+/// real case of that name for the rest of the run.
+void ReportCrashedRewind(uint32_t mark);
+
 /// Puts a case on the crash list and writes the file. False when it was there already, the list
 /// is full or the file could not be written.
 bool ReportCrashListAdd(const char *suite, const char *name);
