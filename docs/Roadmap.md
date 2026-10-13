@@ -1,0 +1,70 @@
+# The roadmap
+
+The suites are ordered by how much one case tells you when two machines disagree, each leaning on
+the ones above it. That order is the whole point: when a run comes back with forty failures, the
+first suite that failed is the only one worth reading, because everything below it was measured with
+a broken instrument. It is the order they run in and were built in; anything added later goes where
+its dependencies put it, not at the end.
+
+| suite | tier | what a failure points at |
+|---|---|---|
+| selfcheck | none, no hardware | the comparators themselves. Nothing below can be believed. |
+| support | none, no hardware | what is written and drawn around a verdict, never a verdict. |
+| reference | none, no hardware | the expected answers: the coverage rule, the blend arithmetic, the texel address. The judge, not the machine. |
+| cpu | exact | the emulator's translation of one processor instruction, the one the case names. In Eden: dynarmic's x64 backend (`src/dynarmic/src/dynarmic/backend/x64/`), the emitter or the soft-float fallback of that instruction. |
+| clear | exact | the render target's memory layout and the path that copies it back. Everything below draws into that same target. |
+| format | exact, ulp for floats | the render target format mapping for one format: its host format, its clear and its fragment output type. In an emulator: `video_core/surface.cpp` and `video_core/renderer_vulkan/maxwell_to_vk.cpp`, and the clear of an integer target. Inside or outside the quad tells a conversion from a coverage fault. |
+| raster | position for edges, exact for interiors | vertex fetch, the clip space to screen space transform, and the coverage rule. In an emulator: the viewport registers, the y direction, the half pixel offset, and the fill rule the host rasteriser is asked for. |
+| intmath | exact | the shader translator, bit for bit, and the delivery of the fragment's own coordinate. In an emulator: one wrongly decoded or untranslated instruction (`shader_recompiler/frontend/maxwell/translate/impl/`; the log names the instruction, the failing family names the shader), or an integer render target mapped to a normalised host format. |
+| blend | exact | the fixed function blend unit: the equation and factor registers, and the rounding on the way back to eight bits. |
+| depth | exact | the depth test: the depth target's format and layout, the depth range set up by the viewport, and the compare operation. |
+| texture | exact | the texture and sampler descriptors: the wrap mode and filter fields, and the block linear layout a sampled image is stored in. |
+| coherence | exact | a cache between two uses of the same memory. In an emulator: the texture cache not marking an image the graphics unit wrote as modified, or missing a processor write to one (`texture_cache/texture_cache.h`, `MarkModification`, `WriteMemory`); the buffer cache serving a uniform buffer the processor rewrote, or dropping an update pushed inside the list (`buffer_cache/buffer_cache.h`, `Maxwell3D::ProcessCBData`); the copy engine's writes not reaching the images it overlaps (`engines/maxwell_dma.cpp`), or a render target not flushed before the copy engine reads it; or two formats over one memory joined as a conversion rather than a view (`texture_cache/texture_cache.h`, `JoinImages`). The region two pixels that still hold region one's contents say which. |
+| fmath | units in the last place | the float side of the shader translator, and the transcendental unit behind it; for the edge cases, the minimum and maximum's NaN rule, denormal handling and the rounding modes. The only suite where two correct machines are allowed to differ, which is why it is last among the graphics suites. |
+| order | exact | the host side of the guest's wait for idle: a compute write not ordered before the vertex, index, indirect, uniform or storage read after it (`renderer_vulkan/vk_rasterizer.cpp`, `WaitForIdle`), or indirect arguments read from memory before the dispatch that wrote them finished; and the same after the full, fragments and tiles barriers (`engines/puller.cpp`, `RefCnt`; `FragmentBarrier`, `TiledCacheBarrier`). |
+| index | exact | the size an index buffer is bound with: a limit register read as one past the end drops the last index (`buffer_cache/buffer_cache.h`, `UpdateIndexBuffer`). |
+| instance | exact | when an instanced array draw happens and as which instance (`engines/draw_manager.cpp`): deferred past a state change, extra instances added to the next draw, or SUBSEQUENT not counted as the next instance. |
+| geometry | exact | the geometry and tessellation stages: points expanded or dropped, a patch's coverage and the levels reaching the evaluation stage; on a host without those stages, whatever the emulator does instead. |
+| bindless | exact | a texture reached through a handle at a dynamic index: the host descriptor array the translator builds for it, its size and how it is filled (`shader_recompiler/ir_opt/texture_pass.cpp`). |
+| astc | exact, either of two bytes | the emulator's ASTC decoder: weight and endpoint unquantization, the integer sequence, the partition hash, infill, dual plane, and the error colour for HDR modes and illegal blocks (`host_shaders/astc_decoder.comp`, `textures/astc.cpp`). |
+| eac | exact, either of two bytes | the EAC formats: their mapping to a host format and the decode on a host that has none (`texture_cache/format_lookup_table.cpp`, `surface.h`, `maxwell_to_vk.cpp`). |
+| etc2 | exact | the ETC2 colour formats: the decode on a host without ETC2 textures, mode by mode, and the punch-through rules (`maxwell_to_vk.cpp`, `texture_cache/util.cpp`, `ConvertImage`). |
+| bcn | exact | the BCn decode on a host without BCn textures, across the layers and the small levels of an array (`texture_cache/decode_bc.cpp`). |
+| zeta | exact | a depth texture's upload: 24-bit depth converted for a host without it and taken from the right bits (`vk_texture_cache.cpp`, `TransformBufferImageCopies`). |
+| swizzle | exact | the block linear unswizzle an emulator runs when a texture is first used, by texel size and block height (`textures/decoders.cpp`, `host_shaders/block_linear_unswizzle_2d.comp`). |
+| texel | exact | the offset a buffer texture's host view starts at, when the host's texel buffer alignment is coarser than the guest's (`vk_buffer_cache.cpp`, `Buffer::View`). |
+| stream | exact | uploads staged through a ring inside one list: a later draw's bytes handed to an earlier one when the ring wraps (`vk_staging_buffer_pool.cpp`, `GetStreamBuffer`), or an upload path that asks the host for far more memory than the guest data it moves. |
+| fill | exact | fill rate with and without depth; the time, not the verdict, is the point: a depth buffer the host cannot compress shows as the second case slowing against the first. |
+| ring | exact | a draw's descriptors taken from a ring after its geometry is bound: the ring's wait for the GPU submits the binds apart from the draw, which is lost (`renderer_vulkan/vk_descriptor_buffer.cpp`, the order of `vk_graphics_pipeline.cpp`, `ConfigureImpl`). |
+| occlusion | exact | a query bank reset inside a draw or clear's render pass: the pass ends and the draw or clear lands outside it (`renderer_vulkan/vk_query_cache.cpp`, `SamplesQueryBank::Reset`); or counts that are not the pixels drawn. |
+| drawtex | exact | the state DRAW_TEXTURE leaves bound: the next draw keeps the blit's pipeline or its viewport and scissor (`renderer_vulkan/blit_image.cpp`, `BlitColor`, and `vk_rasterizer.cpp`, `DrawTexture`). |
+| query | exact | the samples counter (a count scaled with the render target, `vk_query_cache.cpp`) and the render enable over values and reports (`query_cache.h`, `AccelerateHostConditionalRendering`; `maxwell_3d.cpp`, `ProcessQueryCondition`), draws and clears alike. |
+| dma | exact | copies of a buffer by the copy engine, and what copying data the graphics unit wrote costs (`buffer_cache/buffer_cache.h`, `DMACopy`). |
+| fs | exact | reads through the file system service: the cost per call and per byte, seeks, small files, and the edges of a file (`hle/service/filesystem`, `file_sys/vfs/vfs_real.cpp`, `common/fs/file.cpp`). |
+| audio | level | the audio renderer (`audio_core/renderer/`): the table the resampler takes for a ratio (`command/resample/resample.cpp`), a circular buffer sink's parameters and in-use check (`sink/sink_info_base.h`, `sink/circular_buffer_sink_info.cpp`), and the limiter's parameters (`effect/light_limiter.h`). |
+| nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
+| dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
+| bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
+| ssl | exact | the secure connection: its defaults and getters, the descriptor it hands back, verification, an imported certificate, the handshake, and a request and its answer (`hle/service/ssl/ssl.cpp`, `ssl_backend_openssl.cpp`). |
+| acc | exact | the account a signed in session reports and the id token it caches (`hle/service/acc/acc.cpp`, `IManagerForApplication`, `EnsureIdTokenCacheAsyncInterface`). |
+| friend | exact | the blocked list and the profiles a session fetches (`hle/service/friend/{friend,profile_query}.cpp`). |
+
+What comes next, in this order, each its own change with its own critic:
+
+- **the net family, sharper**: a rewrite whose destination has an address of its own, so the two
+  sfdnsres rewrite cases can tell a published rewrite from the session's loopback redirect (today
+  the fixture's destination is `localhost`, which the redirect also gives); and a verifying
+  handshake with a name the certificate does not carry, which must be refused.
+- **another emulator**: the same binary under Ryujinx, with its own keys, and the two reports diffed
+  against Eden's and a console's. Nothing in this program depends on the emulator it runs under, and
+  that run is what proves it.
+
+Two rules hold across all of them. Every case computes what it expects on the processor and checks
+every pixel, so there is no stored image anywhere and no machine's answer is the reference for
+another's. And every rule a case judges by, wherever it is more than one line of arithmetic, is
+implemented once in `source/` and pinned by the `reference` suite, which runs with no graphics
+device: `make -f host.mk host-run` proves the judge before a console or an emulator is involved.
+
+The picture a failing case leaves and the detailed mode that shows it are support, not suites.
+Neither decides anything, neither is compared to anything, and no run's answer changes if either is
+turned off; they sit in the `support` row only because that suite checks them.

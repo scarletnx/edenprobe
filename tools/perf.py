@@ -10,14 +10,14 @@
 
 A case's time is the "us" field on its line: microseconds the graphics unit was busy with it,
 the smallest of the samples one run took. One emulator process differs from the next by more
-than the samples inside it do, so a side is several runs, three by the README's method, and a
-case's time on a side is its median over them. Standard library only.
+than the samples inside it do, so a side is several runs, three by the method in
+docs/TimePerCase.md, and a case's time on a side is its median over them. Standard library only.
 """
 
 import json
 import sys
 
-# What a move has to clear to be listed (the README's "Time per case" has the figures). The
+# What a move has to clear to be listed (docs/TimePerCase.md has the figures). The
 # percent is the brief's 20. The floor and the unsteady rule are what keep noise out: without
 # the floor the percent lists the round-trip jitter of the quarter-millisecond cases, and without
 # the unsteady rule a side holding one fast emulator process lists the uploads. The unsteady
@@ -240,7 +240,7 @@ USAGE = """usage: perf.py [options] A.jsonl [A2.jsonl ...] -- [B.jsonl [B2.jsonl
 
 One side prints its per-suite table; two sides print the cases that moved, the cases too
 unsteady to compare, then the table. A side of several runs takes each case's median over them;
-three runs a side is the method the README measures.
+three runs a side is the method docs/TimePerCase.md measures.
 
   --threshold PERCENT  a move must exceed this share of side a's time (default %g)
   --floor US           and this many microseconds (default %d)

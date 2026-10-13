@@ -16,10 +16,10 @@ and the journal are read from there.
 
 A launch whose report has no summary line ended before the run did: it crashed, or was stopped at
 its time limit, which is what a hang looks like from here. The program keeps a journal on the card
-and goes on with the run after the case it ended inside (README, "When the program ends in the
-middle"), so the emulator is started again, up to N more times (default 16): every launch makes
-the run shorter by at least that case, and a launch that adds nothing to the journal but its own
-start ends the relaunching, since the next would do the same.
+and goes on with the run after the case it ended inside (docs/Crashes.md), so the emulator is
+started again, up to N more times (default 16): every launch makes the run shorter by at least
+that case, and a launch that adds nothing to the journal but its own start ends the relaunching,
+since the next would do the same.
 
 Each launch has SECONDS (default 60) before it is stopped, SIGTERM and then SIGKILL ten seconds
 later. A person stopping this script stops the emulator the same way and writes `stopped` into

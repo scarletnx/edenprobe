@@ -70,9 +70,9 @@ typedef enum {
     INTMATH_UNPACK_HALF2X16 = 23,
     /// Shifts by 31, 32 and 33, the count in a register. The language leaves a count of 32 or
     /// more undefined, so the rule is the console's: its compiler emits these as shifts without
-    /// the wrap flag (read out of the compiled shader, see the README), and such a shift clamps
-    /// the count to 32, so 32 and up shift everything out: nought, or the sign for a signed
-    /// right shift. That is PTX's definition of the same instructions.
+    /// the wrap flag (read out of the compiled shader, see docs/families/Graphics.md), and such a
+    /// shift clamps the count to 32, so 32 and up shift everything out: nought, or the sign for a
+    /// signed right shift. That is PTX's definition of the same instructions.
     INTMATH_SHIFT_LEFT_WIDE = 24,
     INTMATH_SHIFT_RIGHT_WIDE = 25,
     INTMATH_SHIFT_ARITHMETIC_WIDE = 26,

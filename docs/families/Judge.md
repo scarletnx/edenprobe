@@ -1,0 +1,71 @@
+# The judge
+
+Three suites that ask the machine nothing, run first and run in the host build too: nothing a
+family reports can be believed without them.
+
+- **selfcheck**, sixteen cases, no hardware involved. That two neighbouring floats measure one unit
+  apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
+  expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
+  units in the last place reach six representable values below a power of two and three above it.
+- **support**, one hundred and forty one cases, no hardware involved: what the program does around a
+  verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
+  detailed mode's store, screens and navigation, the start screen, the screen that asks whether to
+  go on with a run, the running screen and the listening screen, the mode file and its words, the
+  label and the folder it names, the `skip` result, the time a case reports (nineteen cases, see
+  [Time per case](../TimePerCase.md)), the journal, the crash list, the may-crash and hang tables
+  and what a launch decides from them (twenty five cases, see [When the program ends in the
+  middle](../Crashes.md)), and the last copy a device waits for before it closes, and the note a
+  late one leaves (eight cases). One case carries the whole idea: the diff picture is built from
+  what the judge decided pixel by pixel, not from comparing two images, so a pixel that differs and
+  was allowed to is not painted as a difference. Every line is the none tier, because none of it is
+  a claim about a machine.
+- **reference**, one hundred and eighty five cases, no hardware involved either: the other half of
+  the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
+  which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
+  projected from the very numbers the rasterisation cases hand the hardware, so it proves the
+  geometry they draw rather than restating it. Fifteen transcendental answers as bit patterns worked
+  out to fifty digits away from any C library, so a runtime that drifts moves an expected value on
+  its own machine and says so there, not inside a float case. It runs in both builds, because a
+  reference that answered differently on the two processors would be blamed on the graphics unit.
+  Among the rest:
+  - three cases on the blend table (the blend suite says why);
+  - seven on the format rules: the clear and drawn pixel of all sixty formats, worked out from each
+    format's name by a separate script, `tools/format-pixels.py` (it prints the table the test
+    holds, and shares no code with `formatref.c`); every format's fields against its pixel; the
+    half, small float and sRGB conversions inverted over every code; the quad covering exactly its
+    rectangle. One of these caught the emulator's processor rather than its graphics unit: under
+    Eden, `rint`, a single `frintx`, rounds 1024.5 to 1025 with the rounding mode at nearest, where
+    the architecture gives 1024, so the format reference rounds its halves by hand (the cpu suite
+    now checks that instruction itself);
+  - eleven on intmath: 58 answers at two pixels worked out with exact rationals away from this
+    program's code, and each rule against a second algorithm over the whole sweep;
+  - five on fmath: 54 answers worked out with exact rationals and sixty digit decimals, the float
+    judge's decisions one at a time, the answer the console never gives refused at every pixel where
+    it differs, where the edge operands sit, and a budget written down for every mode;
+  - twenty two on the net family's judge, `source/netref.c`: the net file, what each service is
+    expected to answer from it, and every format a service answers in, each fixture written out by
+    hand from the format rather than captured (the resolver's two serialisations, a certificate in
+    PEM and DER and whether it is self-signed, against bytes openssl printed, a handshake's two
+    certificate forms, an HTTP response head, a status document, a friend profile at the offsets the
+    guest reads, a bearer token's alphabet, a result code as the platform prints one), and what nsd,
+    sfdnsres, the sign-in wait, a picture url's `{size}` and a profile slot should be;
+  - eight on the cpu suite's answers, against numbers written by hand: the leading zero counts,
+    the two roundings, the saturating shifts, the conversions with 64 fraction bits, and the SM4
+    inputs from the standard's key and constants;
+  - eight on the raw 3D method words the index, instance, drawtex and query suites send, against
+    words worked out by hand from deko3d's command header layout;
+  - twenty one on the astc suite's answers: the ASTC reference decoder, `source/astcref.c`, held
+    block by block to hashes of what ARM's decoder (astcenc) makes of the same sixteen blocks, and
+    its weight table to values worked out by hand from the bit replication rule;
+  - four on the eac suite's answers, against values worked out by hand from the specification's
+    formula;
+  - sixteen on the etc2 suite's answers: the block builders held to the bytes the suite samples,
+    the ETC2 reference decoder, `source/etc2ref.c`, held block by block to hashes of what Mesa's
+    decoder (26.1.6) makes of the same ten blocks, and five texels worked out by hand;
+  - four on the bcn suite's layout, `source/bcnref.c`: where deko3d puts each level and layer of
+    a block linear array, against offsets worked out by hand from its layout rules, and the solid
+    BC4 block;
+  - ten on the audio family's answers: a tone's level read back from a recording, exact for a tone
+    with whole periods in the run and blind to every other such tone; the frames the recordings
+    are laid out in; the limiter's rule, held by hand to a steady input and to a sine; and the
+    signals the listening sequence plays.

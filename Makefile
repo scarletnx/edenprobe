@@ -29,7 +29,7 @@ APP_AUTHOR  := reden
 APP_VERSION := $(strip $(shell cat VERSION))
 APP_BUILD   := $(strip $(shell git describe --tags --always --dirty 2>/dev/null || echo unknown))
 # The commit alone, tags left out, with -dirty for uncommitted changes: what a run's folder is
-# named after (README, "Where a run leaves its report"), so two builds never share one.
+# named after (docs/Report.md, "Where a run leaves its report"), so two builds never share one.
 APP_HASH    := $(strip $(shell git describe --always --dirty --abbrev=7 --exclude='*' 2>/dev/null || echo unknown))
 APP_ICON    := icon.jpg
 

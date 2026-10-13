@@ -16,7 +16,7 @@ extern "C" {
 /// On the console a copy has landed by the time the queue is idle. An emulator at its fastest
 /// accuracy may signal first and write the pixels from a thread of its own later; closing the
 /// device before that write has landed took Eden's Android build down with the whole run
-/// (README, "Android"). So a device is closed only after one last copy, of a target cleared to
+/// (docs/Android.md). So a device is closed only after one last copy, of a target cleared to
 /// zero onto a slot filled with SETTLE_PRESET, has been seen to land: copies land in the order
 /// they were queued, so every earlier one has landed too. No libnx here, so it runs on the host.
 

@@ -22,7 +22,7 @@ extern "C" {
 /// and the verdict pass are the samples, nine of them, and a case's number is the smallest. The
 /// smallest because everything else on the machine only ever adds time to a sample: on a shared
 /// machine the minimum of nine agreed between runs far more often than the median did, and nine
-/// was where adding samples stopped helping. The measurement is in the README's "Time per case".
+/// was where adding samples stopped helping. The measurement is in docs/TimePerCase.md.
 #define PERF_WARMUPS 1u
 #define PERF_REHEARSALS 8u
 #define PERF_SAMPLES (PERF_REHEARSALS + 1u)

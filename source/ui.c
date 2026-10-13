@@ -223,7 +223,7 @@ static uint32_t SayFitted(const UiFrame *frame, uint32_t x, uint32_t y, const ui
 }
 
 /// The three colours the diff is made of, named on the screen. The person holding the pad is
-/// not holding the README, and red is the most important thing on this display.
+/// not holding the docs, and red is the most important thing on this display.
 static void DrawKey(const UiFrame *frame, uint32_t x, uint32_t y) {
     static const struct {
         PictureVerdict verdict;
