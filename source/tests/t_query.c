@@ -394,6 +394,13 @@ void RunQuery(void) {
                VALUES_APART, RAW_RENDER_IF_EQUAL, 0, 0, true, false);
     EnableCase(&q, "a full target clear under IF_NOT_EQUAL after 9600 and nought happens",
                VALUES_APART, RAW_RENDER_IF_NOT_EQUAL, 0, 0, true, true);
+    // The same clear over values the processor wrote, which no emulator has to resolve from a
+    // query: a clear that ignores the render enable fails here, one that only loses track of
+    // reports in the same list does not.
+    EnableCase(&q, "a full target clear under IF_EQUAL over two values that differ is skipped",
+               VALUES_PROCESSOR, RAW_RENDER_IF_EQUAL, 9600u, 9601u, true, false);
+    EnableCase(&q, "a full target clear under IF_EQUAL over two equal values happens",
+               VALUES_PROCESSOR, RAW_RENDER_IF_EQUAL, 9600u, 9600u, true, true);
 
     ConditionalNote(&q, "the value one, high word nought", VALUES_PROCESSOR, 1u);
     ConditionalNote(&q, "the value 2^32, low word nought", VALUES_PROCESSOR, high);
