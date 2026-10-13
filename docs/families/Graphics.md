@@ -242,17 +242,24 @@ The twenty eight drawing suites, clear to dma, in the order they run.
   one region along, so the target says which instances ran. In an emulator a failure points at
   `engines/draw_manager.cpp`, `DrawArrayInstanced`, `DrawDeferred`.
 
-- **geometry**, six cases. The two optional stages every other suite leaves out. A geometry shader
+- **geometry**, eight cases. The two optional stages every other suite leaves out. A geometry shader
   turns each of four points into an 8 by 8 square in the point's colour, or into nothing when the
   point's alpha is nought; a tessellation control and evaluation pair spreads a four point patch
-  over its corners' rectangle at level 4 and at level 7, the level taken from the patch and
-  handed back in the alpha of every pixel, which says whether the control stage's levels reached
-  the evaluation. Every edge is a pixel edge, so every pixel is exact. A host without geometry or
-  tessellation shaders has to emulate them to pass (Ryujinx runs them as compute there); an
-  emulator that assumes them leaves it to the driver, which gets a pipeline it cannot run
+  over its corners' rectangle at level 4 and at level 7, the level taken from the patch and handed
+  back in the alpha of every pixel, which says whether the control stage's levels reached the
+  evaluation. Every edge is a pixel edge, so every pixel is exact. A host without geometry or
+  tessellation shaders has to emulate them to pass (Ryujinx runs them as compute there); an emulator
+  that assumes them leaves it to the driver, which gets a pipeline it cannot run
   (`vulkan_device.cpp` lists `geometryShader` as mandatory and carries on without it). The two
-  geometry shader cases are in the may-crash table: the shader compiles to a PRET, which ends
-  Eden, and the fork before ECFE-2026-1163, inside the pipeline cache.
+  geometry shader cases are in the may-crash table: the shader compiles to a PRET, which ends Eden,
+  and the fork before ECFE-2026-1163, inside the pipeline cache. Two more run twins of the shaders
+  that need neither: `square_branch.geom` emits its square inside the test instead of after an early
+  return, which uam 1.1.0 compiles with SSY and SYNC rather than PRET and RET, over the layout with
+  two points hidden; `quad_color.tese` takes the alpha from the first corner's colour, which
+  `quad.tesc` passes on, instead of reading the level back, at level 4. A translator that lacks PRET
+  fails the first two and passes the geometry twin; one that cannot read the levels in the
+  evaluation stage fails the patches at 4 and 7 and passes the tessellation twin; one without the
+  stages fails all six that draw. The twins are not in the may-crash table.
 
 - **bindless**, five cases. A fragment shader picks one of 256 one-texel textures through a handle
   read from a uniform array at a dynamic index (ARB_bindless_texture, which uam compiles to the
@@ -289,16 +296,19 @@ The twenty eight drawing suites, clear to dma, in the order they run.
   host.
 
 - **etc2**, twelve cases. The ETC2 colour formats (the library's RGB_ETC2, RGB_PTA_ETC2 and
-  RGBA_ETC2), one 4x4 block each written by the processor and fetched texel by texel: an
-  individual, a flipped differential, a T mode, two H mode blocks (the first base the larger and
-  the smaller, which sets the distance index's last bit), a planar block, three punch-through
-  blocks (index 2 transparent in differential and T mode, and planar always opaque), and an RGBA
-  block whose 8-bit alpha reaches both clamps. Every block is built from its fields by
-  `source/etc2ref.c`, whose decoder says what each texel must be; the reference suite holds it to
-  Mesa's. ETC2 decodes to exact bytes, so the tier is exact. A host without ETC2 textures has to
-  decode them itself; in an emulator a failure points at whether it does
-  (`renderer_vulkan/maxwell_to_vk.cpp`, `vk_texture_cache.cpp`, `texture_cache/util.cpp`,
-  `ConvertImage`): an upload of the raw blocks shows bytes of block data.
+  RGBA_ETC2), one 4x4 block each written by the processor and fetched texel by texel: an individual,
+  a flipped differential, a T mode, two H mode blocks (the first base the larger and the smaller,
+  which sets the distance index's last bit), a planar block, three punch-through blocks (index 2
+  transparent in differential and T mode, and planar always opaque), and an RGBA block whose 8-bit
+  alpha reaches both clamps. Every block is built from its fields by `source/etc2ref.c`, whose
+  decoder says what each texel must be; the reference suite holds it to Mesa's. ETC2 decodes to
+  exact bytes, so the tier is exact. A host without ETC2 textures has to decode them itself; in an
+  emulator a failure points at whether it does (`renderer_vulkan/maxwell_to_vk.cpp`,
+  `vk_texture_cache.cpp`, `texture_cache/util.cpp`, `ConvertImage`): an upload of the raw blocks
+  shows bytes of block data. A failing case whose texels 0 and 1 are the block's own bytes (an RGB
+  format's alpha may read 255, from its swizzle) says so: the block was uploaded as it is and never
+  decoded, the way the order and coherence suites name their signatures. The reference suite checks
+  that every block's bytes read that way and that no block's colours do.
 
 - **bcn**, five cases. BC4 arrays whose levels or layers do not end on a block boundary: six
   layers with levels down to 1x1, the shape of every mipmapped cube map; two layers six texels
@@ -386,7 +396,7 @@ The twenty eight drawing suites, clear to dma, in the order they run.
   pipeline are each a case. An emulator that blits with a pipeline, a viewport and a scissor of
   its own behind its cache of what is bound draws the next quad with the blit's pipeline, or
   into the blit's rectangle. The layout is the emulators' and has not been checked on a console.
-- **query**, twenty three cases and three notes. The samples passed counter over quads of whole
+- **query**, twenty five cases and three notes. The samples passed counter over quads of whole
   pixels, exact: 9600 for a 32 by 300 quad, 11200 with a second quad of 1600, nought after a reset.
   The target is 320 rows tall, past the 288 an emulator that scales render targets starts at, so a
   run with scaling at 2x says whether a game is handed the console's count or four times it (Ryujinx
@@ -395,16 +405,63 @@ The twenty eight drawing suites, clear to dma, in the order they run.
   IF_NOT_EQUAL over two 64-bit values 16 bytes apart, written by the processor (equal with
   timestamps that differ, apart in the low word, apart only in the high word) and reported by the
   counter (the same count twice, a count and nought), in the same list after a wait for idle and in
-  a list that finished before, the same-list pair also over a full target clear. The processor's
-  values are plain memory to an emulator and the reports are queries it may be resolving at the wait
-  or may have left from the earlier submission, so the sets can disagree; in an emulator a failure
-  points at `query_cache/query_cache.h`, `AccelerateHostConditionalRendering`, and at
-  `vk_query_cache.cpp`, which renders unconditionally on some drivers and accuracies. CONDITIONAL,
-  which reads one address, gets three notes rather than cases (the value one, the value two to the
-  32, a report of 9600), since which of its bytes decide is not settled: a console run is what says.
+  a list that finished before, the same-list pair also over a full target clear, and a full target
+  clear under IF_EQUAL over the processor's values, apart and equal, which tells a clear that
+  ignores the render enable from reports an emulator loses track of. The processor's values are
+  plain memory to an emulator and the reports are queries it may be resolving at the wait or may
+  have left from the earlier submission, so the sets can disagree; in an emulator a failure points
+  at `query_cache/query_cache.h`, `AccelerateHostConditionalRendering`, and at `vk_query_cache.cpp`,
+  which renders unconditionally on some drivers and accuracies. CONDITIONAL, which reads one
+  address, gets three notes rather than cases (the value one, the value two to the 32, a report of
+  9600), since which of its bytes decide is not settled: a console run is what says.
 - **dma**, five cases. The copy engine copies a 64 KiB buffer 32 times in one list, first from
   words the processor wrote and then from words a dispatch wrote just before; every copy is
   judged word by word. The difference between the two times is what copying data the graphics
   unit wrote costs: an emulator that stops the processor until the graphics unit is idle on each
   such copy (Eden's buffer cache, `DMACopy`, with a fence setting that asks for it) pays it 32
   times in the second case. A single judged copy goes first and takes the first use.
+
+## What a console run settles
+
+Questions only a console answers, asked about the cases both emulators fail in this family; each
+case's expectation already follows the specification or the library, and the console says
+whether the machine does.
+
+- **Q1, etc2.** Do the ten blocks give exactly the specification's texels? Expected yes.
+- **Q2, zeta.** Does a Z24S8 word 0x00ff005a written by the processor sample as 1 (depth in the
+  top 24 bits, as the case expects) or 254 (the low 24)? And 0x80808080 as 128?
+- **Q3, query.** In one list, with a full barrier between the reports and the render enable, does
+  IF_EQUAL over 9600 and nought skip (the reports visible) or draw (the memset's nought read)? And
+  does a clear obey the render enable?
+- **Q4, geometry.** Does the patch cover exactly 8..56 by 8..56, with alpha 4 and 7?
+- **Q5, geometry.** Does the geometry shader make the four squares, and only two in the second case?
+- **Q6, query notes.** What CONDITIONAL does over the value one, over two to the 32 and over a
+  report of 9600 in the same list, which says which of its bytes decide.
+
+## Where reden falls short
+
+Read in reden at 75c12299a6; each gap is a case here that fails, and the new cases tell them apart.
+
+- **ETC2 colour formats are not decoded.** Without `textureCompressionETC2`
+  (`vulkan_common/vulkan_device.h:397-399`) the six ETC2 colour formats go to A8B8G8R8
+  (`renderer_vulkan/maxwell_to_vk.cpp:298`) with no decoder: `vk_texture_cache.cpp:1891` marks
+  only ASTC, BCn and EAC as converted, and `ConvertImage` (`texture_cache/util.cpp:926`) has a
+  branch for EAC (986) and none for ETC2. The etc2 cases fail with the block's own bytes, which
+  their detail now names.
+- **Z24S8 is uploaded as it is.** reden's own layout agrees with the zeta cases
+  (`texture_cache/format_lookup_table.cpp:154-157`, `vk_texture_cache.cpp:313-315`, R stencil and
+  G depth), but `maxwell_to_vk.cpp:241` maps the format to D24_UNORM_S8_UINT, a host without it
+  falls back to D32_SFLOAT_S8_UINT (`vulkan_device.cpp:51-55`, chosen at 122-123), and the upload
+  (`vk_texture_cache.cpp:2048`, `TransformBufferImageCopies` at 474) copies the words unconverted.
+- **The render enable over reports in the same list is ignored.** `maxwell_3d.cpp:515-518` turns
+  execution on whenever the rasterizer accelerates; with both operands still queries in the cache,
+  `vk_query_cache.cpp:1552-1560` ends host conditional rendering and draws and clears
+  unconditionally. Values from the processor, and reports from a list that finished, take the
+  software path and are right; the clear over the processor's values tells the two apart.
+- **PRET in the flow analysis.** `shader_recompiler/frontend/maxwell/control_flow.cpp:329-330`
+  throws on PRET, and the pipeline is dropped; `square.geom`'s early return compiles to one, and
+  `square_branch.geom`, which has none, separates this from the geometry stage.
+- **Reading the tessellation levels in the evaluation stage.**
+  `shader_recompiler/ir_opt/collect_shader_info_pass.cpp:69-71` throws on a non-generic patch, and
+  `quad.tese` reads `gl_TessLevelOuter[0]` (`TessellationLodLeft`, `frontend/ir/patch.h:11`);
+  `quad_color.tese`, which does not, separates this from the tessellation stages.

@@ -19,7 +19,7 @@ family reports can be believed without them.
   what the judge decided pixel by pixel, not from comparing two images, so a pixel that differs and
   was allowed to is not painted as a difference. Every line is the none tier, because none of it is
   a claim about a machine.
-- **reference**, two hundred and fifteen cases, no hardware involved either: the other half of
+- **reference**, two hundred and seventeen cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -59,9 +59,10 @@ family reports can be believed without them.
     its weight table to values worked out by hand from the bit replication rule;
   - four on the eac suite's answers, against values worked out by hand from the specification's
     formula;
-  - sixteen on the etc2 suite's answers: the block builders held to the bytes the suite samples,
+  - eighteen on the etc2 suite's answers: the block builders held to the bytes the suite samples,
     the ETC2 reference decoder, `source/etc2ref.c`, held block by block to hashes of what Mesa's
-    decoder (26.1.6) makes of the same ten blocks, and five texels worked out by hand;
+    decoder (26.1.6) makes of the same ten blocks, five texels worked out by hand, and the test
+    that names a block uploaded as it is, which every block's bytes meet and no block's colours do;
   - four on the bcn suite's layout, `source/bcnref.c`: where deko3d puts each level and layer of
     a block linear array, against offsets worked out by hand from its layout rules, and the solid
     BC4 block;

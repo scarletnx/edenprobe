@@ -136,7 +136,7 @@ already read, and a hold is not a press. Plus, minus and the other buttons do no
 screen, so they cannot quit the sequence.
 
 Every list comes round at either end. A direction held down acts again after twenty frames and then
-every four, so the reference suite's two hundred and fifteen cases do not take a press each; what
+every four, so the reference suite's two hundred and seventeen cases do not take a press each; what
 repeats is the direction pressed, whatever else is held, and only after a press counted past the
 first eight frames. Going back lands on the group or case that was open, and the view chosen with X
 stays from one drawing case to the next. A frame is composed on the processor only when something
