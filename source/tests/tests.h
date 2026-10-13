@@ -206,6 +206,10 @@ void RunReferenceNet(void);
 /// part of the reference suite.
 void RunReferenceAudio(void);
 
+/// The video family's structure, command words and expected outputs, held to
+/// tools/vic-expect.py: part of the reference suite.
+void RunReferenceVic(void);
+
 #ifdef __cplusplus
 }
 #endif
