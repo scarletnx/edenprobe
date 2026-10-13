@@ -20,6 +20,11 @@
 // nought. quad.tesc and quad.tese spread a four point patch over its corners' rectangle at a
 // level the patch carries, and hand the level they saw to the fragment in the alpha. Every edge
 // lands on a pixel edge, so every pixel is exact: inside, the colour; outside, the clear.
+//
+// square.geom's early return compiles to PRET and RET, and quad.tese reads the levels back, and a
+// translator can lack either and still have the stages. So each gets a twin that does neither,
+// square_branch.geom and quad_color.tese, and the twins' cases tell "no such stage" apart from
+// those two.
 
 static const char *const SUITE = "geometry";
 
@@ -32,8 +37,10 @@ typedef struct {
     DkShader vs;
     DkShader fs;
     DkShader gs;
+    DkShader gs_branch;
     DkShader tcs;
     DkShader tes;
+    DkShader tes_color;
 } GeometryContext;
 
 typedef struct {
@@ -119,7 +126,8 @@ static void Unbind(GeometryContext *g) {
 
 /// Four points, one per quadrant, each at the centre of an 8 by 8 square; @p shown says which
 /// get a square, and the others go in with an alpha of nought.
-static void SquaresCase(GeometryContext *g, const char *name, const bool shown[POINTS]) {
+static void SquaresCase(GeometryContext *g, const char *name, const DkShader *gs_shader,
+                        const bool shown[POINTS]) {
     if (!ReportStart(SUITE, name)) {
         return;
     }
@@ -141,7 +149,7 @@ static void SquaresCase(GeometryContext *g, const char *name, const bool shown[P
     GpuBeginPass(&g->gpu);
     bool ok = GpuBindTriangleState(&g->gpu, &g->vs, &g->fs, points, POINTS);
     if (ok) {
-        const DkShader *const gs[] = { &g->gs };
+        const DkShader *const gs[] = { gs_shader };
         dkCmdBufBindShaders(g->gpu.cmdbuf, DkStageFlag_Geometry, gs, 1);
         dkCmdBufDraw(g->gpu.cmdbuf, DkPrimitive_Points, POINTS, 1, 0, 0);
         Unbind(g);
@@ -151,7 +159,8 @@ static void SquaresCase(GeometryContext *g, const char *name, const bool shown[P
 }
 
 /// A patch over the rectangle from (8,8) to (56,56), tessellated at @p level.
-static void PatchCase(GeometryContext *g, const char *name, uint32_t level) {
+static void PatchCase(GeometryContext *g, const char *name, const DkShader *tes_shader,
+                      uint32_t level) {
     if (!ReportStart(SUITE, name)) {
         return;
     }
@@ -165,7 +174,7 @@ static void PatchCase(GeometryContext *g, const char *name, uint32_t level) {
     GpuBeginPass(&g->gpu);
     bool ok = GpuBindTriangleState(&g->gpu, &g->vs, &g->fs, corners, 4);
     if (ok) {
-        const DkShader *const stages[] = { &g->tcs, &g->tes };
+        const DkShader *const stages[] = { &g->tcs, tes_shader };
         dkCmdBufBindShaders(g->gpu.cmdbuf, DkStageFlag_TessCtrl | DkStageFlag_TessEval, stages,
                             2);
         dkCmdBufSetPatchSize(g->gpu.cmdbuf, 4);
@@ -202,7 +211,11 @@ void RunGeometry(void) {
         GpuLoadShader(&g.gpu, &g.gs, ShaderData(SHADER_SQUARE_GEOM),
                       ShaderSize(SHADER_SQUARE_GEOM)) &&
         GpuLoadShader(&g.gpu, &g.tcs, ShaderData(SHADER_QUAD_TESC), ShaderSize(SHADER_QUAD_TESC)) &&
-        GpuLoadShader(&g.gpu, &g.tes, ShaderData(SHADER_QUAD_TESE), ShaderSize(SHADER_QUAD_TESE));
+        GpuLoadShader(&g.gpu, &g.tes, ShaderData(SHADER_QUAD_TESE), ShaderSize(SHADER_QUAD_TESE)) &&
+        GpuLoadShader(&g.gpu, &g.gs_branch, ShaderData(SHADER_SQUARE_BRANCH_GEOM),
+                      ShaderSize(SHADER_SQUARE_BRANCH_GEOM)) &&
+        GpuLoadShader(&g.gpu, &g.tes_color, ShaderData(SHADER_QUAD_COLOR_TESE),
+                      ShaderSize(SHADER_QUAD_COLOR_TESE));
     CHECK_TRUE(SUITE, "the geometry and tessellation shaders load", CHECK_NONE, loaded, "%s",
                g.gpu.failure);
     if (!loaded) {
@@ -212,9 +225,14 @@ void RunGeometry(void) {
 
     static const bool all[POINTS] = { true, true, true, true };
     static const bool some[POINTS] = { true, false, false, true };
-    SquaresCase(&g, "a geometry shader turns each of four points into its 8 by 8 square", all);
-    SquaresCase(&g, "a point the geometry shader emits nothing for draws nothing", some);
-    PatchCase(&g, "a patch tessellated at level 4 covers its rectangle, and says 4", 4u);
-    PatchCase(&g, "the same patch at level 7 covers the same rectangle, and says 7", 7u);
+    SquaresCase(&g, "a geometry shader turns each of four points into its 8 by 8 square", &g.gs,
+                all);
+    SquaresCase(&g, "a point the geometry shader emits nothing for draws nothing", &g.gs, some);
+    PatchCase(&g, "a patch tessellated at level 4 covers its rectangle, and says 4", &g.tes, 4u);
+    PatchCase(&g, "the same patch at level 7 covers the same rectangle, and says 7", &g.tes, 7u);
+    SquaresCase(&g, "a geometry shader with no early return squares the shown points only",
+                &g.gs_branch, some);
+    PatchCase(&g, "a patch whose evaluation stage reads no level covers its rectangle at 4",
+              &g.tes_color, 4u);
     GpuClose(&g.gpu);
 }
