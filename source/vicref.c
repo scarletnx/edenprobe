@@ -3,6 +3,7 @@
 
 #include "vicref.h"
 
+#include <stdio.h>
 #include <string.h>
 
 // Bit positions in the configuration structure, from libdrm's vic40.h: each group starts at its
@@ -602,4 +603,126 @@ VicRules VicCaseRules(const VicCase *c, uint32_t index) {
         }
     }
     return rules;
+}
+
+// ---- the judge
+
+void VicJudge(const VicCase *c, const uint8_t (*got)[VIC_OUTPUT_MAX],
+              uint8_t (*expected)[VIC_OUTPUT_MAX], VicVerdict *verdict) {
+    memset(verdict, 0, sizeof(*verdict));
+    verdict->wrong = UINT32_MAX;
+    verdict->untouched = true;
+    for (uint32_t j = 0; j < c->job_count; ++j) {
+        for (size_t i = 0; i < VIC_OUTPUT_MAX && verdict->untouched; ++i) {
+            verdict->untouched = got[j][i] == VIC_FILL;
+        }
+    }
+    const uint32_t count = VicCaseCombinations(c);
+    for (uint32_t k = 0; k < count; ++k) {
+        uint32_t wrong = 0, job = 0;
+        size_t at = 0;
+        for (uint32_t j = 0; j < c->job_count; ++j) {
+            memset(expected[j], VIC_FILL, VIC_OUTPUT_MAX);
+            VicModel(&c->jobs[j], VicCaseRules(c, k), expected[j]);
+            for (size_t i = 0; i < VIC_OUTPUT_MAX; ++i) {
+                if (got[j][i] != expected[j][i] && wrong++ == 0u) {
+                    job = j;
+                    at = i;
+                }
+            }
+        }
+        if (wrong == 0u) {
+            verdict->fits |= 1u << k;
+        } else if (verdict->fits == 0u && wrong < verdict->wrong) {
+            verdict->wrong = wrong, verdict->shown = k, verdict->job = job, verdict->at = at;
+        }
+    }
+    verdict->passed = verdict->fits != 0u;
+    if (verdict->passed) {
+        verdict->wrong = 0;
+        verdict->shown = (uint32_t)__builtin_ctz(verdict->fits);
+    }
+    // The buffers end up holding the last combination tried; put back the one shown.
+    for (uint32_t j = 0; j < c->job_count; ++j) {
+        memset(expected[j], VIC_FILL, VIC_OUTPUT_MAX);
+        VicModel(&c->jobs[j], VicCaseRules(c, verdict->shown), expected[j]);
+    }
+}
+
+/// Per question of @p c, which answers the combinations in @p fits give: bit 0 A, bit 1 B.
+static uint8_t Seen(const VicCase *c, uint32_t fits, uint32_t q) {
+    uint8_t seen = 0;
+    for (uint32_t k = 0; k < VicCaseCombinations(c); ++k) {
+        if ((fits >> k) & 1u) {
+            seen |= (uint8_t)(((k >> q) & 1u) ? 2u : 1u);
+        }
+    }
+    return seen;
+}
+
+static size_t AnswerText(const VicCase *c, uint32_t fits, char *out, size_t out_size) {
+    out[0] = '\0';
+    for (uint32_t q = 0; q < c->question_count; ++q) {
+        const uint8_t seen = Seen(c, fits, q);
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "%s%s %s", used > 0u ? ", " : "",
+                 VicQuestionName(c->questions[q]),
+                 seen == 1u ? "A" : seen == 2u ? "B" : "either");
+    }
+    return strlen(out);
+}
+
+size_t VicDetail(const VicCase *c, const VicVerdict *verdict, const uint8_t (*got)[VIC_OUTPUT_MAX],
+                 const uint8_t (*expected)[VIC_OUTPUT_MAX], char *out, size_t out_size) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    char answers[160];
+    if (verdict->passed) {
+        AnswerText(c, verdict->fits, answers, sizeof(answers));
+        snprintf(out, out_size, "%s%s", c->question_count > 0u ? "fits " : "", answers);
+        return strlen(out);
+    }
+    char under[180] = "";
+    if (c->question_count > 0u) {
+        AnswerText(c, 1u << verdict->shown, answers, sizeof(answers));
+        snprintf(under, sizeof(under), " (%s)", answers);
+    }
+    const size_t pitch =
+        VicOutputIsNv12(&c->jobs[verdict->job]) ? VIC_LUMA_STRIDE : VIC_RGBA_PITCH;
+    snprintf(out, out_size,
+             "%s%u bytes wrong under the closest answers%s, first in job %u at byte %u (row %u, "
+             "byte %u of it): 0x%02x, expected 0x%02x",
+             verdict->untouched ? "nothing was written, every byte is still 0xEE; " : "",
+             (unsigned)verdict->wrong, under, (unsigned)(verdict->job + 1u),
+             (unsigned)verdict->at, (unsigned)(verdict->at / pitch),
+             (unsigned)(verdict->at % pitch), got[verdict->job][verdict->at],
+             expected[verdict->job][verdict->at]);
+    return strlen(out);
+}
+
+void VicSettle(const VicCase *c, uint32_t fits, uint8_t settled[VIC_QUESTIONS]) {
+    for (uint32_t q = 0; q < c->question_count; ++q) {
+        const uint8_t seen = Seen(c, fits, q);
+        if (seen != 3u) {
+            settled[c->questions[q]] |= seen;
+        }
+    }
+}
+
+size_t VicSettled(const uint8_t settled[VIC_QUESTIONS], char *out, size_t out_size) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    for (uint32_t q = 0; q < VIC_QUESTIONS; ++q) {
+        if (settled[q] == 0u) {
+            continue;
+        }
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "%s%s %s", used > 0u ? ", " : "",
+                 VicQuestionName((VicQuestion)q),
+                 settled[q] == 1u ? "A" : settled[q] == 2u ? "B" : "A and B, cases disagree");
+    }
+    return strlen(out);
 }

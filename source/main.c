@@ -109,6 +109,8 @@ static const Step STEPS[] = {
     { "query", RunQuery, MODE_FAMILY_GRAPHICS, true, true },
     { "dma", RunDma, MODE_FAMILY_GRAPHICS, true, true },
     { "fs", RunFs, MODE_FAMILY_FS, true, true },
+    // Untimed: one job per case is the point, and the time a job takes is not.
+    { "vic", RunVic, MODE_FAMILY_VIDEO, false, true },
     // Before the net family, whose cases can wait out timeouts. Untimed: its cases wait for
     // sound to play, and a rehearsal would only play it again.
     { "audio", RunAudio, MODE_FAMILY_AUDIO, false, true },

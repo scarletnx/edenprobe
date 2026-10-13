@@ -186,6 +186,11 @@ void RunDma(void);
 /// Every byte is checked; the times are the point.
 void RunFs(void);
 
+/// The video family: the video image compositor given NV12 input the processor wrote, one job per
+/// case, every output byte judged against vicref.c's model under each answer to the open
+/// questions.
+void RunVic(void);
+
 /// The audio family: the audio renderer's sample rate conversion, circular buffer sink and
 /// limiter, judged by recording what it rendered through its own aux effect and sink.
 void RunAudio(void);

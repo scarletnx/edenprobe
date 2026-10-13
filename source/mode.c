@@ -17,6 +17,7 @@ static const struct {
     { "cpu", MODE_FAMILY_CPU },
     { "graphics", MODE_FAMILY_GRAPHICS },
     { "fs", MODE_FAMILY_FS },
+    { "video", MODE_FAMILY_VIDEO },
     { "audio", MODE_FAMILY_AUDIO },
     { "net", MODE_FAMILY_NET },
 };
@@ -404,6 +405,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { mode->no_timing, "notime" },
         { mode->retry, "retry" },
         { mode->stress, "stress" },
+        { (mode->families_named & MODE_FAMILY_VIDEO) != 0u, "video" },
     };
     for (size_t i = 0; i < sizeof(WORDS) / sizeof(WORDS[0]); ++i) {
         if (!WORDS[i].on) {

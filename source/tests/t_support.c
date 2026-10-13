@@ -900,6 +900,10 @@ static void CheckLaunchAndMode(void) {
         { "quick listen audio", false, false, MODE_FAMILY_AUDIO, 0, MODE_FAMILY_AUDIO },
         { "listen cpu", true, false, MODE_FAMILY_CPU, 0, MODE_FAMILY_CPU | MODE_FAMILY_AUDIO },
         { "audios listens", true, false, 0, 2, MODE_FAMILIES_DEFAULT },
+        { "quick video", false, false, MODE_FAMILY_VIDEO, 0, MODE_FAMILY_VIDEO },
+        { "VIDEO fs", true, false, MODE_FAMILY_VIDEO | MODE_FAMILY_FS, 0,
+          MODE_FAMILY_VIDEO | MODE_FAMILY_FS },
+        { "videos", true, false, 0, 1, MODE_FAMILIES_DEFAULT },
     };
     uint32_t wrong = 0;
     size_t first_wrong = 0;
@@ -950,8 +954,8 @@ static void CheckLaunchAndMode(void) {
     ModeDescribe(net_said, sizeof(net_said), &net_only, MODE_FAMILIES_PRESENT);
     const bool net_said_right =
         MODE_FAMILIES_PRESENT ==
-            (MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS | MODE_FAMILY_AUDIO |
-             MODE_FAMILY_NET) &&
+            (MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS | MODE_FAMILY_VIDEO |
+             MODE_FAMILY_AUDIO | MODE_FAMILY_NET) &&
         strcmp(net_said,
                "mode: quick, from the mode file; pictures of failures only; families net") == 0;
     const RunMode flood = ModeFromText(

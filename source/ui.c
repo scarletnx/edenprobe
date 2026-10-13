@@ -286,7 +286,8 @@ static const struct {
     { "occlusion", UI_FAMILY_GRAPHICS }, { "drawtex", UI_FAMILY_GRAPHICS },
     { "geometry", UI_FAMILY_GRAPHICS },
     { "query", UI_FAMILY_GRAPHICS },  { "dma", UI_FAMILY_GRAPHICS },
-    { "fs", UI_FAMILY_FS },           { "audio", UI_FAMILY_AUDIO },
+    { "fs", UI_FAMILY_FS },           { "vic", UI_FAMILY_VIDEO },
+    { "audio", UI_FAMILY_AUDIO },
     { "nifm", UI_FAMILY_NET },
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
     { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },
@@ -312,6 +313,8 @@ const char *UiFamilyName(UiFamily family) {
         return "graphics";
     case UI_FAMILY_FS:
         return "fs";
+    case UI_FAMILY_VIDEO:
+        return "video";
     case UI_FAMILY_AUDIO:
         return "audio";
     case UI_FAMILY_NET:
@@ -1471,8 +1474,10 @@ RunMode UiStartMode(const UiStartState *state, RunMode from_file, uint32_t prese
     const uint32_t families = state->families & UI_START_FAMILIES & present;
     const bool families_changed = families != file_families || state->listen != from_file.listen;
     if (families_changed) {
-        // Named whole, cpu with them, so even a run of nothing but cpu has a word to keep.
-        mode.families_named = families | MODE_FAMILY_CPU;
+        // Named whole, cpu with them, so even a run of nothing but cpu has a word to keep; a
+        // family the screen has no row for stays as the file named it.
+        mode.families_named =
+            families | MODE_FAMILY_CPU | (from_file.families_named & ~UI_START_FAMILIES);
         mode.listen = state->listen;
     }
     const bool timing_changed = state->no_timing != from_file.no_timing;

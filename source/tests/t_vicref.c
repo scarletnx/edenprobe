@@ -296,9 +296,111 @@ static void CheckModel(void) {
     }
 }
 
+static uint8_t judged[VIC_JOBS_MAX][VIC_OUTPUT_MAX];
+static uint8_t scratch[VIC_JOBS_MAX][VIC_OUTPUT_MAX];
+
+/// What a case's model leaves under combination @p k, as if the engine had left it.
+static void Machine(const VicCase *c, uint32_t k) {
+    for (uint32_t j = 0; j < c->job_count; ++j) {
+        memset(judged[j], VIC_FILL, VIC_OUTPUT_MAX);
+        VicModel(&c->jobs[j], VicCaseRules(c, k), judged[j]);
+    }
+}
+
+static const VicCase *Named(const char *name) {
+    for (size_t i = 0; i < VicCaseCount(); ++i) {
+        if (strcmp(VicCaseAt(i)->name, name) == 0) {
+            return VicCaseAt(i);
+        }
+    }
+    return VicCaseAt(0);
+}
+
+static void Judge(const VicCase *c, VicVerdict *verdict, char *detail, size_t detail_size) {
+    VicJudge(c, (const uint8_t(*)[VIC_OUTPUT_MAX])judged, scratch, verdict);
+    VicDetail(c, verdict, (const uint8_t(*)[VIC_OUTPUT_MAX])judged,
+              (const uint8_t(*)[VIC_OUTPUT_MAX])scratch, detail, detail_size);
+}
+
+// The console's half of the family judges what the engine left with these, so they are held
+// here to outputs made to order: each case's own model, nothing written, one byte off.
+static void CheckJudge(void) {
+    VicVerdict verdict;
+    char detail[400];
+    uint32_t refused = 0;
+    const char *first = "none";
+    for (size_t i = 0; i < VicCaseCount(); ++i) {
+        const VicCase *const c = VicCaseAt(i);
+        for (uint32_t k = 0; k < VicCaseCombinations(c); ++k) {
+            Machine(c, k);
+            Judge(c, &verdict, detail, sizeof(detail));
+            if ((!verdict.passed || ((verdict.fits >> k) & 1u) == 0u) && refused++ == 0u) {
+                first = c->name;
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "vic: the judge passes each case's own model under each of its answers",
+               CHECK_NONE, refused == 0u, "%u refused, the first in %s", (unsigned)refused,
+               first);
+
+    const VicCase *const passthrough = Named("vic_passthrough");
+    const VicCase *const nv12 = Named("vic_nv12_out");
+    const VicCase *const shift = Named("vic_matrix_shift");
+    Machine(passthrough, 1u);
+    char swapped[96];
+    Judge(passthrough, &verdict, swapped, sizeof(swapped));
+    Machine(nv12, 0u);
+    char plain[96];
+    Judge(nv12, &verdict, plain, sizeof(plain));
+    Machine(shift, 0u); // Q9 cannot tell its two answers apart here
+    char either[96];
+    Judge(shift, &verdict, either, sizeof(either));
+    CHECK_TRUE(SUITE, "vic: a pass says which answers fit, and either where both do", CHECK_NONE,
+               strcmp(swapped, "fits Q11 B") == 0 && plain[0] == '\0' &&
+                   strcmp(either, "fits Q3 A, Q9 either") == 0,
+               "\"%s\", \"%s\", \"%s\"", swapped, plain, either);
+
+    for (uint32_t j = 0; j < VIC_JOBS_MAX; ++j) {
+        memset(judged[j], VIC_FILL, VIC_OUTPUT_MAX);
+    }
+    Judge(passthrough, &verdict, detail, sizeof(detail));
+    static const char NOTHING[] = "nothing was written, every byte is still 0xEE; ";
+    const bool untouched = !verdict.passed && verdict.untouched &&
+                           strncmp(detail, NOTHING, sizeof(NOTHING) - 1u) == 0;
+    Machine(passthrough, 0u);
+    judged[0][3u * VIC_RGBA_PITCH + 5u * 4u + 1u] ^= 0x01u;
+    char one[400];
+    Judge(passthrough, &verdict, one, sizeof(one));
+    const bool named = !verdict.passed && !verdict.untouched && verdict.wrong == 1u &&
+                       verdict.job == 0u && verdict.at == 3u * VIC_RGBA_PITCH + 21u &&
+                       strstr(one, "1 bytes wrong under the closest answers (Q11 A), first in job "
+                                   "1 at byte 3093 (row 3, byte 21 of it): 0x5b, expected 0x5a") !=
+                           NULL;
+    CHECK_TRUE(SUITE, "vic: a failure names the first wrong byte, or that nothing was written",
+               CHECK_NONE, untouched && named, "untouched \"%.80s\"; one byte off \"%.200s\"",
+               detail, one);
+
+    uint8_t settled[VIC_QUESTIONS] = {0};
+    char said[160];
+    VicSettled(settled, said, sizeof(said));
+    const bool nothing = said[0] == '\0';
+    VicSettle(passthrough, 1u, settled);                    // Q11 A
+    VicSettle(Named("vic_chroma_order"), 0xFu, settled);    // every answer fits: settles nothing
+    VicSettle(Named("vic_background"), 2u, settled);        // Q7 B
+    VicSettled(settled, said, sizeof(said));
+    const bool agreed = strcmp(said, "Q7 B, Q11 A") == 0;
+    VicSettle(Named("vic_source_crop"), 1u, settled);       // Q7 A, Q11 A
+    VicSettled(settled, said, sizeof(said));
+    CHECK_TRUE(SUITE, "vic: the run's note adds up the answers and names a disagreement",
+               CHECK_NONE,
+               nothing && agreed && strcmp(said, "Q7 A and B, cases disagree, Q11 A") == 0,
+               "\"%s\"", said);
+}
+
 void RunReferenceVic(void) {
     CheckMatrix();
     CheckStructure();
     CheckCommands();
     CheckModel();
+    CheckJudge();
 }

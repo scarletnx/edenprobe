@@ -154,6 +154,39 @@ typedef struct {
 size_t VicCommands(uint32_t *words, size_t max, const VicAddresses *at, uint32_t slots,
                    bool nv12_out, uint32_t syncpt);
 
+/// What the judge made of a case's outputs.
+typedef struct {
+    bool passed;
+    /// Bit k: combination k of the case's answers explains every byte of every job.
+    uint32_t fits;
+    /// The combination the expected buffers hold now: the first that fits, or the one with the
+    /// fewest wrong bytes, and how many, and the first of them.
+    uint32_t shown;
+    uint32_t wrong;
+    uint32_t job;
+    size_t at;
+    /// Every byte of every job still VIC_FILL: the engine wrote nothing.
+    bool untouched;
+} VicVerdict;
+
+/// Judges @p got, one VIC_OUTPUT_MAX buffer per job, against the model under every
+/// combination of the case's answers, over each whole buffer. @p expected is scratch of the
+/// same shape, left holding the model under the combination the verdict shows.
+void VicJudge(const VicCase *c, const uint8_t (*got)[VIC_OUTPUT_MAX],
+              uint8_t (*expected)[VIC_OUTPUT_MAX], VicVerdict *verdict);
+
+/// The line's detail: on a pass the answers that fit ("fits Q9 either, Q11 A", or nothing for
+/// a case with no open question), on a failure the wrong bytes under the closest answers and
+/// the first of them, and whether the engine wrote anything at all.
+size_t VicDetail(const VicCase *c, const VicVerdict *verdict, const uint8_t (*got)[VIC_OUTPUT_MAX],
+                 const uint8_t (*expected)[VIC_OUTPUT_MAX], char *out, size_t out_size);
+
+/// Adds what a passing case settled to @p settled, bit 0 for an A and bit 1 for a B per
+/// question, and says it all as text: "Q8 A, Q11 A", a question two cases answered apart
+/// marked so. Nothing for a run that settled nothing.
+void VicSettle(const VicCase *c, uint32_t fits, uint8_t settled[VIC_QUESTIONS]);
+size_t VicSettled(const uint8_t settled[VIC_QUESTIONS], char *out, size_t out_size);
+
 /// FNV-1a over @p size bytes, continuing from @p hash (2166136261 to start).
 uint32_t VicHash(uint32_t hash, const uint8_t *data, size_t size);
 #define VIC_HASH_START 2166136261u

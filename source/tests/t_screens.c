@@ -447,10 +447,11 @@ static void CheckFamilies(void) {
         { "fill", UI_FAMILY_GRAPHICS },     { "ring", UI_FAMILY_GRAPHICS },
         { "occlusion", UI_FAMILY_GRAPHICS }, { "drawtex", UI_FAMILY_GRAPHICS },
         { "query", UI_FAMILY_GRAPHICS },    { "dma", UI_FAMILY_GRAPHICS },
-        { "fs", UI_FAMILY_FS },             { "audio", UI_FAMILY_AUDIO },
-        { "nifm", UI_FAMILY_NET },          { "dns", UI_FAMILY_NET },
-        { "bsd", UI_FAMILY_NET },           { "ssl", UI_FAMILY_NET },
-        { "acc", UI_FAMILY_NET },           { "friend", UI_FAMILY_NET },
+        { "fs", UI_FAMILY_FS },             { "vic", UI_FAMILY_VIDEO },
+        { "audio", UI_FAMILY_AUDIO },       { "nifm", UI_FAMILY_NET },
+        { "dns", UI_FAMILY_NET },           { "bsd", UI_FAMILY_NET },
+        { "ssl", UI_FAMILY_NET },           { "acc", UI_FAMILY_NET },
+        { "friend", UI_FAMILY_NET },
     };
     const size_t count = sizeof(SUITES) / sizeof(SUITES[0]);
     uint32_t wrong = 0;
@@ -461,7 +462,7 @@ static void CheckFamilies(void) {
         }
     }
     CHECK_TRUE(SUITE, "every suite a run reports is shown under its own family", CHECK_NONE,
-               wrong == 0u && count == 40u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
+               wrong == 0u && count == 41u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
                    UiFamilyOf(NULL) == UI_FAMILY_OTHER,
                "%u of %u suites under the wrong family, the first %s", (unsigned)wrong,
                (unsigned)count, first);
@@ -1493,6 +1494,23 @@ static void CheckStartMenu(Fixture *f) {
                (int)left.quick, (int)left.detailed, (int)risky.fatal, (int)risky.fatal_by_screen,
                (int)risky.chosen_on_screen, (int)kept.saved_by_screen, heard.label, key_heard,
                (int)quiet_audio, said);
+
+    // The video family has no row: a file that names it keeps it whatever the screen changes.
+    const RunMode video_file = ModeFromText("video net");
+    const UiStartState video_state =
+        StartChoose(UiStartOpen(&video_file, MODE_FAMILIES_PRESENT), UI_START_ROW_FS, &info);
+    const RunMode video_mode = UiStartMode(&video_state, video_file, MODE_FAMILIES_PRESENT);
+    const uint32_t video_run = ModeFamiliesToRun(&video_mode, MODE_FAMILIES_PRESENT);
+    char key_video[128];
+    ModeKey(key_video, sizeof(key_video), &video_mode);
+    CHECK_TRUE(SUITE, "the start screen keeps the video family the file names, which has no row",
+               CHECK_NONE,
+               video_mode.chosen_on_screen &&
+                   video_run ==
+                       (MODE_FAMILY_CPU | MODE_FAMILY_FS | MODE_FAMILY_NET | MODE_FAMILY_VIDEO) &&
+                   strcmp(key_video, "cpu fs net video") == 0 &&
+                   (MODE_FAMILIES_DEFAULT & MODE_FAMILY_VIDEO) == 0u,
+               "families %x, words \"%s\"", (unsigned)video_run, key_video);
 
     // The words the screen saves and the ones the journal keeps read back as the same run.
     char file_words[256];
