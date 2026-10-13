@@ -1970,6 +1970,7 @@ static void CheckListen(Fixture *f) {
     UiCompose(&frame, &f->run, UiStart(&f->run), NULL);
     const uint32_t results_header = CountLit(&frame, 8u, 24u);
     UiComposeListen(&frame, UI_LISTEN_A1, 0.0, 0.0);
+    DumpFrame(&frame, "12-listening");
     const uint32_t listen_header = CountLit(&frame, 8u, 24u);
     const uint32_t listen_second = CountLit(&frame, 30u, 46u);
     uint32_t same = 0;
@@ -1987,6 +1988,36 @@ static void CheckListen(Fixture *f) {
         spilled += f->pixels[b] != 0xA5 ? 1u : 0u;
     }
     const bool shouted = CountLit(&small, 0u, 8u) > 0u;
+
+    // The bar of the sequence's steps, where the running screen draws its own and in its
+    // colours: the steps done in the passed colour and the one playing in the dim one.
+    static const uint8_t DIM_COLOUR[3] = { 0x88, 0x90, 0xA0 };
+    const uint32_t bar = UI_PROGRESS_BAR_TOP;
+    const uint32_t bar_end = bar + UI_PROGRESS_BAR_HEIGHT;
+    const uint32_t width = FRAME_WIDTH - 64u;
+    const uint32_t n = UI_LISTEN_CLOSING + 1u;
+    UiComposeListen(&frame, UI_LISTEN_A1, 0.0, 0.0);
+    const uint32_t done = CountColour(&frame, 0, bar, FRAME_WIDTH, bar_end, PASSED);
+    const uint32_t playing = CountColour(&frame, 0, bar, FRAME_WIDTH, bar_end, DIM_COLOUR);
+    const uint32_t step_line = CountLit(&frame, UI_LIST_TOP, UI_LIST_TOP + 16u);
+    UiComposeListen(&frame, UI_LISTEN_OPENING, 0.0, 0.0);
+    const uint32_t opening = CountColour(&frame, 0, bar, FRAME_WIDTH, bar_end, PASSED);
+    UiComposeListen(&frame, UI_LISTEN_CLOSING, 0.0, 0.0);
+    const uint32_t closing = CountColour(&frame, 0, bar, FRAME_WIDTH, bar_end, PASSED);
+    const bool bar_right =
+        done == (width * 2u / n) * UI_PROGRESS_BAR_HEIGHT &&
+        playing == (width * 3u / n - width * 2u / n) * UI_PROGRESS_BAR_HEIGHT &&
+        opening == 0u && closing == (width * (n - 1u) / n) * UI_PROGRESS_BAR_HEIGHT &&
+        step_line > 100u;
+    CHECK_TRUE(SUITE, "the listening screen shows its steps done in a bar, as the running screen",
+               CHECK_NONE, bar_right,
+               "done %u (want %u), playing %u, at the opening %u, at the closing %u (want %u), "
+               "step line %u",
+               (unsigned)done, (unsigned)((width * 2u / n) * UI_PROGRESS_BAR_HEIGHT),
+               (unsigned)playing, (unsigned)opening, (unsigned)closing,
+               (unsigned)((width * (n - 1u) / n) * UI_PROGRESS_BAR_HEIGHT),
+               (unsigned)step_line);
+
     CHECK_TRUE(SUITE, "the listening screen leaves the countdown its rows and names its buttons",
                CHECK_NONE, crowded == 0u && unlabelled == 0u && blank == 0u && same == 0u &&
                                spilled == 0u && shouted && bare_header == 0u &&

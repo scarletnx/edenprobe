@@ -599,9 +599,10 @@ UiListenScreen UiListenNext(UiListenScreen screen);
 /// closing notes end the sequence.
 UiListenScreen UiListenSkip(UiListenScreen screen);
 
-/// Draws @p screen over the whole frame, in the results screens' header, second line and
-/// button line. @p left and @p right are the recording's peaks, read on part b's two echoes
-/// and ignored on every other screen.
+/// Draws @p screen over the whole frame in the running screen's layout, which the sequence
+/// comes between: the part on the top row, the step of the sequence with its bar of the steps
+/// done, what to listen for below it, the buttons at the foot. @p left and @p right are the
+/// recording's peaks, read on part b's two echoes and ignored on every other screen.
 void UiComposeListen(const UiFrame *frame, UiListenScreen screen, double left, double right);
 
 #ifdef __cplusplus

@@ -71,10 +71,12 @@ LISTEN` line as each part starts.
   beep mode 0, high beep mode 1. Where the mode byte is read, mode 1 is about 7 dB louder; where it
   is not, the four sound the same.
 
-The screen shows the same things while they play: the part and its name, the take, and what to
-listen for. Y repeats that take. X skips to the next part, from the opening notes on to part a
-and from a part on to the next, and from the closing notes it ends the sequence. With no press
-the sequence plays straight through, and the `EDENPROBE LISTEN` lines are unchanged.
+The screen shows the same things while they play, laid out as the running screen that comes before
+and after it: the part and its name on the top row, then the step of the sequence (`step 3 of 16`)
+with the take, a bar of the steps done in the running screen's colours, and what to listen for. Y
+repeats that take. X skips to the next part, from the opening notes on to part a and from a part on
+to the next, and from the closing notes it ends the sequence. With no press the sequence plays
+straight through, and the `EDENPROBE LISTEN` lines are unchanged.
 
 The recording only holds the phrase whole when the renderer runs at the speed of the sound it
 plays. With the emulator's output engine set to null it renders as fast as it can, the ring wraps

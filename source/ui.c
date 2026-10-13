@@ -1844,6 +1844,20 @@ size_t UiElapsedWords(char *out, size_t out_size, uint64_t ns) {
     return strlen(out);
 }
 
+/// The steps done and the one under way, in proportion, across the frame below the step line:
+/// the running screen's bar, which the listening screen draws too.
+static void DrawStepsBar(const UiFrame *frame, uint32_t step, uint32_t steps) {
+    const uint32_t width = frame->width - 2u * MARGIN;
+    FillRect(frame, MARGIN, UI_PROGRESS_BAR_TOP, width, UI_PROGRESS_BAR_HEIGHT, BORDER);
+    if (steps > 0u && step > 0u) {
+        const uint32_t done = (uint32_t)((uint64_t)width * (step - 1u) / steps);
+        const uint32_t under_way = (uint32_t)((uint64_t)width * step / steps) - done;
+        FillRect(frame, MARGIN, UI_PROGRESS_BAR_TOP, done, UI_PROGRESS_BAR_HEIGHT, PASSED);
+        FillRect(frame, MARGIN + done, UI_PROGRESS_BAR_TOP, under_way, UI_PROGRESS_BAR_HEIGHT,
+                 DIM);
+    }
+}
+
 void UiComposeProgress(const UiFrame *frame, const UiProgress *progress) {
     if (frame == NULL || frame->pixels == NULL || progress == NULL) {
         return;
@@ -1868,16 +1882,7 @@ void UiComposeProgress(const UiFrame *frame, const UiProgress *progress) {
              progress->step_name != NULL ? progress->step_name : "");
     SayFitted(frame, MARGIN, UI_LIST_TOP, TEXT, text);
 
-    // The steps done, and the one under way, in proportion.
-    const uint32_t width = frame->width - 2u * MARGIN;
-    FillRect(frame, MARGIN, UI_PROGRESS_BAR_TOP, width, UI_PROGRESS_BAR_HEIGHT, BORDER);
-    if (progress->steps > 0u && step > 0u) {
-        const uint32_t done = (uint32_t)((uint64_t)width * (step - 1u) / progress->steps);
-        const uint32_t under_way = (uint32_t)((uint64_t)width * step / progress->steps) - done;
-        FillRect(frame, MARGIN, UI_PROGRESS_BAR_TOP, done, UI_PROGRESS_BAR_HEIGHT, PASSED);
-        FillRect(frame, MARGIN + done, UI_PROGRESS_BAR_TOP, under_way, UI_PROGRESS_BAR_HEIGHT,
-                 DIM);
-    }
+    DrawStepsBar(frame, step, progress->steps);
 
     uint32_t y = UI_PROGRESS_BAR_TOP + UI_PROGRESS_BAR_HEIGHT + 16u;
     if (UiProgressPassWords(text, sizeof(text), progress->pass, progress->passes) > 0u) {
@@ -2050,19 +2055,32 @@ void UiComposeListen(const UiFrame *frame, UiListenScreen screen, double left, d
     UiListenCopy text;
     UiListenCopyOf(screen, left, right, &text, guide, sizeof(guide));
 
-    // The same header as a results screen: one short word at the margin on the top row, the
-    // name in the slot a verdict leaves, the take on the second row, then a rule and the body
-    // where a list would start. This screen decides no verdict, so the word is not a result
-    // colour.
-    const char *const word = text.mark != NULL ? text.mark : "listen";
-    Say(frame, MARGIN, 8, TEXT, word);
-    SayFitted(frame, MARGIN + 6u * GLYPH, 8, DIM, text.name);
-    SayFitted(frame, MARGIN, 30, TEXT, text.take);
-    if (frame->width > 2u * MARGIN) {
-        FillRect(frame, MARGIN, 56u, frame->width - 2u * MARGIN, 1u, BORDER);
+    // The running screen's layout, which comes before and after it: the word and what is
+    // playing on the top row, a second row in the dim colour, the step and its bar where a list
+    // would start, and what to listen for below the bar.
+    Say(frame, MARGIN, 8, TEXT, "listening");
+    char line[200];
+    if (text.mark != NULL) {
+        snprintf(line, sizeof(line), "part %s: %s", text.mark, text.name);
+    } else {
+        snprintf(line, sizeof(line), "%s", screen == UI_LISTEN_OPENING ? "before the parts"
+                                                                       : "after the parts");
     }
-    const uint32_t room =
-        frame->height > UI_LIST_TOP + FOOT ? (frame->height - UI_LIST_TOP - FOOT) / LINE : 1u;
-    TextWrapped(frame, MARGIN, UI_LIST_TOP, BIG, LINE, TEXT, text.guide, Columns(frame), room);
+    SayFitted(frame, MARGIN + 11u * GLYPH, 8, DIM, line);
+    SayFitted(frame, MARGIN, 30, DIM,
+              "about 40 seconds of sound to hear, before the audio suite's cases");
+
+    const uint32_t steps = UI_LISTEN_CLOSING + 1u;
+    const uint32_t step = screen < steps ? (uint32_t)screen + 1u : steps;
+    snprintf(line, sizeof(line), "step %u of %u: %s", (unsigned)step, (unsigned)steps,
+             text.take);
+    SayFitted(frame, MARGIN, UI_LIST_TOP, TEXT, line);
+    DrawStepsBar(frame, step, steps);
+
+    const uint32_t y = UI_PROGRESS_BAR_TOP + UI_PROGRESS_BAR_HEIGHT + 16u;
+    Say(frame, MARGIN, y, DIM, "listen for");
+    const uint32_t top = y + LINE;
+    const uint32_t room = frame->height > top + FOOT ? (frame->height - top - FOOT) / LINE : 1u;
+    TextWrapped(frame, MARGIN, top, BIG, LINE, TEXT, text.guide, Columns(frame), room);
     DrawButtons(frame, text.buttons);
 }
