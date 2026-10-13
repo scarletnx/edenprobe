@@ -2,7 +2,7 @@
 
 Forty one suites, in the order they run: the judge, then the processor, then the graphics family,
 then the fs family, then the video family and the audio family when a word asks for them, then the
-net family. A run is 846 cases: 778 for the judge, the processor and the graphics family, 15 for the
+net family. A run is 849 cases: 781 for the judge, the processor and the graphics family, 15 for the
 fs family, 53 for the net family; the video family adds twenty when named, the audio family six
 when named or with `listen`, the mode word `stress` adds one, and `fatal` runs the cases the
 may-crash table names, which are otherwise skipped. The order, and

@@ -7,13 +7,13 @@ family reports can be believed without them.
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and forty two cases, no hardware involved: what the program does around a
-  verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
+- **support**, one hundred and forty five cases, no hardware involved: what the program does around
+  a verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
   detailed mode's store, screens and navigation, the start screen, the screen that asks whether to
   go on with a run, the running screen and the listening screen, the mode file and its words, the
   label and the folder it names, the `skip` result, the time a case reports (nineteen cases, see
   [Time per case](../TimePerCase.md)), the journal, the crash list, the may-crash and hang tables
-  and what a launch decides from them (twenty five cases, see [When the program ends in the
+  and what a launch decides from them (twenty seven cases, see [When the program ends in the
   middle](../Crashes.md)), and the last copy a device waits for before it closes, and the note a
   late one leaves (eight cases). One case carries the whole idea: the diff picture is built from
   what the judge decided pixel by pixel, not from comparing two images, so a pixel that differs and
