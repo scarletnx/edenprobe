@@ -300,7 +300,7 @@ void ReportRecordFill(ReportRecord *record, const char *suite, const char *name,
                       const char *tier, ReportResult result, const char *detail,
                       int32_t picture);
 
-/// The most cases kept. A full run is under five hundred; past this the screens say how many
+/// The most cases kept. A full run is about eight hundred; past this the screens say how many
 /// they are missing, and the report itself says nothing about it.
 #define REPORT_MAX_RECORDS 4096
 

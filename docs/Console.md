@@ -25,8 +25,8 @@ fs, audio and net (nifm to friend). Three screens, one inside the other:
   failed before it read anything back, opens on its whole name and its whole detail.
 
 The pictures answer what a verdict cannot, whether a failure looks like a rendering fault or like
-the judge being wrong; the rest is for finding the case that failed in a run of five hundred without
-a computer beside the console.
+the judge being wrong; the rest is for finding the case that failed in a run of eight hundred
+without a computer beside the console.
 
 **Quick** is what a script wants: every suite, both channels, and the program exits, in about six to
 seven seconds under eden-cli (6.4 to 7.3 in most runs at a load of 4 to 9, emulator start included),
@@ -49,7 +49,7 @@ The screens hold every case the report recorded, kept in memory as its line went
 reader of the line gets it back, plus the pictures the judge looked at. Nothing is read back from
 the memory card, so a green run and a run that wrote nothing are both worth looking at, and `images`
 changes what is on the card, not on the screen. A quick run keeps and allocates nothing for any of
-it. The store holds 4096 cases, eight times a full run; a run past that, or one that ran out of
+it. The store holds 4096 cases, five times a full run; a run past that, or one that ran out of
 memory keeping them, says on the overview how many of the report's cases the screens hold.
 
 The order is the safeguard: the viewer refuses to start while a report is open, so both modes leave

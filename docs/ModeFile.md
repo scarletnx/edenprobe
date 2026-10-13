@@ -28,7 +28,7 @@ Families choose what runs beyond the judge, which always runs because nothing a 
 be believed without it, and beyond the cpu suite, which needs no device and runs in every mode. None
 named means every family this build has but audio, which makes sound; a named family this build
 lacks is listed in the mode line and skipped, so a file written for a later build is reported, not
-refused. `net` alone runs the judge and the six net suites, which is what [the
+refused. `net` alone runs the judge, cpu and the six net suites, which is what [the
 fixture](families/Net.md#the-fixture) writes. Any other word is reported in the mode line, quoted
 and counted, and ignored: a typo costs a line in the report, never the run.
 
