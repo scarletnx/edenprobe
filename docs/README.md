@@ -10,6 +10,7 @@ leaves. The [README](../README.md) at the root says what edenprobe is.
   - **[The processor](./families/Cpu.md)** - the cpu suite
   - **[Graphics](./families/Graphics.md)** - the drawing suites, clear to dma
   - **[fs](./families/Fs.md)** - reads through the file system service
+  - **[Video](./families/Video.md)** - the VIC: the job, the nineteen cases, the open questions
   - **[Audio](./families/Audio.md)** - the audio renderer, and the listening sequence
   - **[Net](./families/Net.md)** - nifm to friend, the net file and the fixture
 

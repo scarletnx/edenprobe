@@ -105,8 +105,8 @@ static void RunCase(const VicCase *c, const char *name) {
     ReportCase(SUITE, name, CHECK_EXACT, verdict.passed, detail);
 }
 
-/// One note for the other side of the handback: what the passing cases said about each open
-/// question, and any question two cases answered apart.
+/// One note that sums up the family for whoever compares two runs: what the passing cases said
+/// about each open question, and any question two cases answered apart.
 static void NoteSettled(void) {
     char text[REPORT_NOTE_MAX - 32];
     if (VicSettled(settled, text, sizeof(text)) > 0u) {

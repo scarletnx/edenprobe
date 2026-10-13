@@ -10,7 +10,7 @@ suite holds the C model to the hashes this prints, so a mistake would have to be
 same way, to pass.
 
   tools/vic-expect.py          the tables, the BT.601 colours, and whether they agree with the
-                               handback's table
+                               table the cases were asked with
   tools/vic-expect.py --c      the C table source/tests/t_vicref.c holds
 """
 
@@ -345,7 +345,8 @@ def model(j, rules):
                 sy = s["source"][1] + y - dt
                 luma, chroma = s["image"]
                 yv = luma[sy * LUMA_STRIDE + sx]
-                pair = chroma[(sy // 2) * LUMA_STRIDE + (sx // 2) * 2: (sy // 2) * LUMA_STRIDE + (sx // 2) * 2 + 2]
+                at = (sy // 2) * LUMA_STRIDE + (sx // 2) * 2
+                pair = chroma[at:at + 2]
                 u_even = rules["Q11"] == "A"  # format 68 reads U from the even byte
                 if s["format"] == FORMAT_UV_N420 and rules["Q8"] == "A":
                     u_even = not u_even  # 67 the other way round from 68
@@ -354,8 +355,9 @@ def model(j, rules):
                 low, high = s["clamp_low"], s["clamp_high"]
                 alpha = s["planar_alpha"]
                 if s["matrix"] is not None:
-                    rgb = [matrix_channel(s["matrix"], r, yuv, s["matrix_shift"], rules["Q3"] == "B",
-                                          rules["Q9"] == "B") for r in range(3)]
+                    rgb = [matrix_channel(s["matrix"], r, yuv, s["matrix_shift"],
+                                          rules["Q3"] == "B", rules["Q9"] == "B")
+                           for r in range(3)]
                     clamp = True
                 else:
                     rgb = list(yuv)
@@ -437,8 +439,8 @@ FAKE_IOVAS = {"config": 0x00100000, "out_luma": 0x00105000, "out_chroma": 0x0010
               "chroma1": 0x00104000}
 FAKE_SYNCPT = 33
 
-# The handback's table for vic_matrix_601: YUV in, then R, G, B truncated and rounded.
-HANDBACK_601 = [
+# The table vic_matrix_601 was asked with: YUV in, then R, G, B truncated and rounded.
+ASKED_601 = [
     ((235, 128, 128), (254, 254, 254), (255, 255, 255)),
     ((16, 128, 128), (0, 0, 0), (0, 0, 0)),
     ((126, 128, 128), (128, 128, 128), (128, 128, 128)),
@@ -465,13 +467,13 @@ def print_report():
     print()
     print("BT.601 (S12.8, shift 0, constant after the shift, >> 8, clamp 0..1023, >> 2):")
     agree = True
-    for yuv, trunc, rnd in HANDBACK_601:
+    for yuv, trunc, rnd in ASKED_601:
         a, b = bt601(yuv, False), bt601(yuv, True)
         same = a == trunc and b == rnd
         agree = agree and same
         print("  YUV %3d %3d %3d  truncated %3d %3d %3d  rounded %3d %3d %3d  %s" %
-              (yuv + a + b + ("as the handback" if same else "NOT the handback's",)))
-    print("the handback's vic_matrix_601 table: %s" % ("matches" if agree else "DIFFERS"))
+              (yuv + a + b + ("as asked" if same else "NOT as asked",)))
+    print("the table vic_matrix_601 was asked with: %s" % ("matches" if agree else "DIFFERS"))
     print("vic_matrix_shift (126, 128, 128): shift before the constant %s, after it %s" %
           (shift_case(False), shift_case(True)))
     print()

@@ -1,10 +1,11 @@
 # What it checks today
 
-Forty suites, in the order they run: the judge, then the processor, then the graphics family, then
-the fs family, then the audio family when a word asks for it, then the net family. A run is 809
-cases: 741 for the judge, the processor and the graphics family, 15 for the fs family, 53 for the
-net family; the audio family adds six when named or with `listen`, the mode word `stress` adds one,
-and `fatal` runs the cases the may-crash table names, which are otherwise skipped. The order, and
+Forty one suites, in the order they run: the judge, then the processor, then the graphics family,
+then the fs family, then the video family and the audio family when a word asks for them, then the
+net family. A run is 840 cases: 772 for the judge, the processor and the graphics family, 15 for the
+fs family, 53 for the net family; the video family adds twenty when named, the audio family six
+when named or with `listen`, the mode word `stress` adds one, and `fatal` runs the cases the
+may-crash table names, which are otherwise skipped. The order, and
 what a failure in each suite points at, is in [The roadmap](../Roadmap.md). A case that ends the
 program costs that case and not the rest of the run: see [When the program ends in the
 middle](../Crashes.md).
@@ -13,6 +14,7 @@ middle](../Crashes.md).
 - **[The processor](./Cpu.md)** - cpu
 - **[Graphics](./Graphics.md)** - the twenty eight drawing suites, clear to dma
 - **[fs](./Fs.md)** - reads through the file system service
+- **[Video](./Video.md)** - the video image compositor, on input the processor wrote
 - **[Audio](./Audio.md)** - the audio renderer, and the listening sequence
 - **[Net](./Net.md)** - nifm, dns, bsd, ssl, acc and friend, the net file and the fixture
 

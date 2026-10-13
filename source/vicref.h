@@ -44,9 +44,9 @@ enum {
     VIC_FORMAT_Y8_V8U8_N420 = 68,
 };
 
-/// The open questions, numbered as the handback numbers them. Q1 has one answer in every case
-/// (no matrix copies Y, U and V into R, G and B), so it is a rule and not a choice; Q11 is new:
-/// which byte of a chroma pair format 68 reads U from.
+/// The open questions, numbered as the cases were asked with them. Q1 has one answer in every
+/// case (no matrix copies Y, U and V into R, G and B), so it is a rule and not a choice; Q11 is
+/// new: which byte of a chroma pair format 68 reads U from.
 typedef enum {
     VIC_Q2,  ///< X8B8G8R8's fourth byte: A the alpha, B 255
     VIC_Q3,  ///< the matrix shift: A before the constant column, B after
@@ -100,7 +100,7 @@ typedef struct {
 } VicJob;
 
 typedef struct {
-    const char *name;  ///< the handback's name for it
+    const char *name;  ///< the name it was asked for by
     const char *title; ///< what it checks, for the line
     uint32_t job_count;
     VicJob jobs[VIC_JOBS_MAX];

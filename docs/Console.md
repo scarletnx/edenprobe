@@ -6,7 +6,7 @@ One binary, two ways to run it, and a file on the memory card that chooses.
 screen. Every suite runs, both report channels get every line, the summary is counted and the report
 is closed, and only then does the run go on the screen, a group at a time. A group is a suite,
 gathered under its family: the judge (selfcheck, support, reference), cpu, graphics (clear to dma),
-fs, audio and net (nifm to friend). Three screens, one inside the other:
+fs, video (vic), audio and net (nifm to friend). Three screens, one inside the other:
 
 - **The overview** comes first, on the first group that failed. Its heading carries the run's counts
   and names the groups that failed, as many as fit. Below it, every group under its family with its
@@ -49,8 +49,8 @@ The screens hold every case the report recorded, kept in memory as its line went
 reader of the line gets it back, plus the pictures the judge looked at. Nothing is read back from
 the memory card, so a green run and a run that wrote nothing are both worth looking at, and `images`
 changes what is on the card, not on the screen. A quick run keeps and allocates nothing for any of
-it. The store holds 4096 cases, five times a full run; a run past that, or one that ran out of
-memory keeping them, says on the overview how many of the report's cases the screens hold.
+it. The store holds 4096 cases, almost five times a full run; a run past that, or one that ran out
+of memory keeping them, says on the overview how many of the report's cases the screens hold.
 
 The order is the safeguard: the viewer refuses to start while a report is open, so both modes leave
 the same verdicts and the same images, line for line. The report differs only in the note near the
@@ -136,7 +136,7 @@ already read, and a hold is not a press. Plus, minus and the other buttons do no
 screen, so they cannot quit the sequence.
 
 Every list comes round at either end. A direction held down acts again after twenty frames and then
-every four, so the reference suite's hundred and eighty five cases do not take a press each; what
+every four, so the reference suite's two hundred and fifteen cases do not take a press each; what
 repeats is the direction pressed, whatever else is held, and only after a press counted past the
 first eight frames. Going back lands on the group or case that was open, and the view chosen with X
 stays from one drawing case to the next. A frame is composed on the processor only when something

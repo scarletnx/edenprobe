@@ -29,8 +29,8 @@ class PinnedTable(unittest.TestCase):
             vic_expect.print_c()
         self.assertEqual(held(), printed.getvalue())
 
-    def test_the_handbacks_bt601_table(self):
-        for yuv, trunc, rnd in vic_expect.HANDBACK_601:
+    def test_the_bt601_table_asked_for(self):
+        for yuv, trunc, rnd in vic_expect.ASKED_601:
             self.assertEqual(vic_expect.bt601(yuv, False), trunc, yuv)
             self.assertEqual(vic_expect.bt601(yuv, True), rnd, yuv)
 

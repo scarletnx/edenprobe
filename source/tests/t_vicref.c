@@ -98,7 +98,8 @@ static uint8_t Byte(int32_t ten, uint16_t low, uint16_t high) {
 }
 
 static void CheckMatrix(void) {
-    // The handback's table: YUV in, R, G and B truncated, then with 128 added before the shift.
+    // The table the case was asked with: YUV in, R, G and B truncated, then with 128 added
+    // before the shift.
     static const uint8_t TABLE[6][9] = {
         {235, 128, 128, 254, 254, 254, 255, 255, 255},
         {16, 128, 128, 0, 0, 0, 0, 0, 0},
@@ -125,7 +126,7 @@ static void CheckMatrix(void) {
             }
         }
     }
-    CHECK_TRUE(SUITE, "vic: the BT.601 colours, truncated and rounded, are the handback's table",
+    CHECK_TRUE(SUITE, "vic: the BT.601 colours, truncated and rounded, are the table asked for",
                CHECK_NONE, wrong == 0u && strcmp(c->name, "vic_matrix_601") == 0,
                "%u of 36 channels differ; first %s", (unsigned)wrong, first);
 

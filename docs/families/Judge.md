@@ -7,7 +7,7 @@ family reports can be believed without them.
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and forty one cases, no hardware involved: what the program does around a
+- **support**, one hundred and forty two cases, no hardware involved: what the program does around a
   verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
   detailed mode's store, screens and navigation, the start screen, the screen that asks whether to
   go on with a run, the running screen and the listening screen, the mode file and its words, the
@@ -19,7 +19,7 @@ family reports can be believed without them.
   what the judge decided pixel by pixel, not from comparing two images, so a pixel that differs and
   was allowed to is not painted as a difference. Every line is the none tier, because none of it is
   a claim about a machine.
-- **reference**, one hundred and eighty five cases, no hardware involved either: the other half of
+- **reference**, two hundred and fifteen cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -68,4 +68,8 @@ family reports can be believed without them.
   - ten on the audio family's answers: a tone's level read back from a recording, exact for a tone
     with whole periods in the run and blind to every other such tone; the frames the recordings
     are laid out in; the limiter's rule, held by hand to a steady input and to a sine; and the
-    signals the listening sequence plays.
+    signals the listening sequence plays;
+  - thirty on the video family's judge, `source/vicref.c`, held to `tools/vic-expect.py`: the
+    BT.601 colours, the shift's two orders and the clamp by value, the configuration structure
+    word by word and by hash, the command words, every case's output under each combination of
+    its answers, and the judge on outputs made to order (see [The video family](Video.md)).
