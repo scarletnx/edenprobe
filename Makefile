@@ -5,7 +5,7 @@
 # of files, and every flag here is one this suite needs.
 
 ifeq ($(strip $(DEVKITPRO)),)
-$(error Set DEVKITPRO first, e.g. export DEVKITPRO=$$HOME/devkitpro)
+$(error Set DEVKITPRO first, e.g. export DEVKITPRO=/opt/devkitpro)
 endif
 
 TARGET   := edenprobe

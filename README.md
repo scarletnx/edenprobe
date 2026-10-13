@@ -765,14 +765,14 @@ sdmc:/edenprobe/
   mode              the mode file: a person's, read by every build
   net               what the net family is pointed at
   crashes           the crash list: this machine's, shared by every build
-  last-run          the folder the latest launch reported in, e.g. runs/b7172fc_phone
+  last-run          the folder the latest launch reported in, e.g. runs/5fd6ec1_phone
   fs/               the fs family's files, written once
   runs/
-    b7172fc/        a build, by the hash of its commit
+    5fd6ec1/        a build, by the hash of its commit
       report.jsonl
       images/       the pictures of the failing cases
       journal       where the run is, for the launch after a crash
-    b7172fc_phone/  the same build with label=phone in the mode file
+    5fd6ec1_phone/  the same build with label=phone in the mode file
     9e1c2a4-dirty/  a build of a tree with uncommitted changes
 ```
 
@@ -1206,7 +1206,7 @@ already read, and a hold is not a press. Plus, minus and the other buttons do no
 screen, so they cannot quit the sequence.
 
 Every list comes round at either end. A direction held down acts again after twenty frames and then
-every four, so the reference suite's hundred and eighteen cases do not take a press each; what
+every four, so the reference suite's hundred and eighty five cases do not take a press each; what
 repeats is the direction pressed, whatever else is held, and only after a press counted past the
 first eight frames. Going back lands on the group or case that was open, and the view chosen with X
 stays from one drawing case to the next. A frame is composed on the processor only when something
@@ -1346,7 +1346,7 @@ menu after it ends.
 
 The version is the one line of `VERSION`, semantic (`0.1.0` was the first), and a tag `v<version>`
 on `main` marks each. Every report opens with a note naming it and the build, as git describes the
-tree: `edenprobe 0.1.0 (9632b63) starting`, or `-dirty` when uncommitted changes were built, and
+tree: `edenprobe 0.1.0 (dd94263) starting`, or `-dirty` when uncommitted changes were built, and
 the report sits in a folder named after that commit (see "Where a run leaves its report"). Two
 reports are worth diffing only when that line agrees, or when the difference between the builds is
 what is being measured. The version moves when what a case asks or how it judges changes: a new
@@ -1362,7 +1362,7 @@ needs neither drawing tool.
 For the console, with the toolchain installed:
 
 ```sh
-export DEVKITPRO=$HOME/devkitpro
+export DEVKITPRO=/opt/devkitpro
 make
 ```
 
@@ -1381,8 +1381,8 @@ along with what is written and drawn around a verdict: the picture writer agains
 parses back, the screens and the navigation between them against frames composed in ordinary memory
 from a fixture shaped like a real run, the store the screens read, the mode file's words, and the
 time a case reports. Last it runs the tests of the tools, `tools/perf.py`, `tools/run.py` (with a
-script standing in for the emulator, crashing, hanging and finishing as each test asks) and
-`tools/validate.py`, which need Python 3 and nothing else.
+script standing in for the emulator, crashing, hanging and finishing as each test asks),
+`tools/validate.py` and `tools/astc-blocks.py`, which need Python 3 and nothing else.
 
 To look at the screens without a console, name an existing directory in `EDENPROBE_FRAMES`:
 
@@ -1396,8 +1396,9 @@ net case's detail page, a net group, the start screen with its menu, the screen 
 to go on with a run and the running screen; `magick 1-overview.pam 1-overview.png` makes a PNG of one.
 The frames are never read, so they change no verdict.
 
-Commit messages have a convention too: `edenprobe: what changed`, one to three lines of intent, one
-Signed-off-by that is also the author and the committer, ASCII, no merges.
+Commit messages have a convention too: `edenprobe: what changed`, one to three lines of intent, a
+`Change-Id` (the hook writes one when there is none), one Signed-off-by that is also the author and
+the committer, ASCII, no merges.
 `git config core.hooksPath hooks` once per clone turns the check on; `sh hooks/test-commit-msg.sh`
 shows what it accepts and `--history <range>` runs it over existing commits.
 

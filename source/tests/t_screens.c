@@ -29,7 +29,7 @@ static const uint8_t SKIPPED[3] = { 0xE8, 0xB0, 0x40 };
 static const uint8_t SELECTED[3] = { 0x28, 0x2E, 0x3C };
 static const uint8_t CRASHED[3] = { 0xC0, 0x78, 0xF0 };
 
-// The shape of a real run: every suite with the counts a quick run of main 2b74917 reported,
+// The shape of a real run: every suite with the counts a quick run of main 39b6920 reported,
 // with two failures put into intmath and one into ssl. Real names where a frame shows them.
 static const char *const CLEAR_NAMES[] = {
     "graphics device opens",       "clear to opaque red",         "clear to transparent cyan",
