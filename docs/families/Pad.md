@@ -1,14 +1,16 @@
 # The pad family
 
-What a game receives from a controller in a person's hands. The screen names one thing at a time, a
-person does it, and the line says what arrived: the same controller on two machines gives two
-reports that compare line by line. Only the word `pad` runs it (see [The mode
+What a game receives from a controller in a person's hands, and from the touch screen. The screen
+names one thing at a time, a person does it, and the line says what arrived: the same controller on
+two machines gives two reports that compare line by line. Only the word `pad` runs it (see [The mode
 file](../ModeFile.md)), or its row on the start screen, since it waits for a person; it runs right
 after the processor, so nobody waits for the families that need no one.
 
 - **pad**, twenty six cases. The first is the controller answering; the sixteen buttons; the
   controller they came from; the eight player slots and the handheld; each controller in turn; the
   sticks let go and pushed to their edges; and a vibration felt or not.
+- **touch**, nine cases, after the controller's: targets at the corners and the middle, two fingers,
+  a drag and its lift. See [The touch suite](Touch.md).
 
 ## The screen
 
@@ -18,7 +20,9 @@ held, by the names below, both sticks' values with a box each that follows the s
 connected with their styles. The prompt before stays at the foot in its result's colour, so a person
 sees what came of a press before the next one. Home and Capture are left out: the system takes them.
 A question is answered on the d-pad, up for yes and down for no, never on A or B, which are what the
-family asks about.
+family asks about, or with a tap on the yes or no box the screen puts at its bottom right while the
+question waits; the line then says `yes, tapped` or `no, tapped`. A prompt for a button takes
+nothing from the touch screen.
 
 The screen decides nothing: every verdict is taken from the bits the suite read, and a machine with
 no screen runs the prompts with only the log, where `EDENPROBE PAD prompt n of 26: ...` names each.

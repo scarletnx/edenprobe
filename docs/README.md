@@ -8,6 +8,9 @@ leaves. The [README](../README.md) at the root says what edenprobe is.
 - **[What it checks today](./families/README.md)**
   - **[The judge](./families/Judge.md)** - selfcheck, support and reference
   - **[The processor](./families/Cpu.md)** - the cpu suite
+  - **[Pad](./families/Pad.md)** - a controller in a person's hands, button by button
+  - **[The touch suite](./families/Touch.md)** - targets, two fingers, a drag; what Eden makes of a
+    mouse
   - **[Graphics](./families/Graphics.md)** - the drawing suites, clear to blit2d
   - **[The blit2d suite](./families/Blit2d.md)** - the 2D engine's scaled copy, read raw and by
     copy, and Q1 and Q2

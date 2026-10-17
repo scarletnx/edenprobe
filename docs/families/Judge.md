@@ -7,10 +7,11 @@ family reports can be believed without them.
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and forty seven cases, no hardware involved: what the program does around
+- **support**, one hundred and fifty two cases, no hardware involved: what the program does around
   a verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
   detailed mode's store, screens and navigation, the start screen, the screen that asks whether to
-  go on with a run, the running screen, the listening screen and the pad screen, the mode file and
+  go on with a run, the running screen, the listening screen, the pad screen and the touch suite's,
+  a tap on each of them and the touch bar's boxes, the mode file and
   its words, the label and the folder it names, the `skip` result, the time a case reports (nineteen
   cases, see [Time per case](../TimePerCase.md)), the journal, the crash list, the may-crash and
   hang tables and what a launch decides from them (twenty seven cases, see [When the program ends in
@@ -20,7 +21,7 @@ family reports can be believed without them.
   was allowed to is not painted as a difference. Every line is the none tier, because none of it is
   a claim about a machine. On a computer (`make -f host.mk host-run`) the suite has one case more: a
   backward seek that drops a buffered line, which needs the C library's own stream buffer.
-- **reference**, two hundred and seventy six cases, no hardware involved either: the other half of
+- **reference**, two hundred and eighty three cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -87,6 +88,10 @@ family reports can be believed without them.
   - fourteen on the pad family's rules, `source/padref.c`: the prompts, what a press is and when a
     prompt runs out, the stick distances, edges and their shape, the styles and ids, the slots and
     each controller's press, against answers worked out by hand (see [The pad family](Pad.md));
+  - seven on the touch suite's rules, `source/touchref.c`, on states made to order: the prompts and
+    targets, a prompt waiting out a finger already down, the first prompt's four outcomes, a tap
+    within 48 pixels, two ids for two fingers, a drag's direction and id, the lift, and the note
+    (see [The touch suite](Touch.md));
   - eight on the kernel family's judge, `source/schedref.c`, on traces made to order: what each
     case leaves with the scheduler's rules and without each of them, and the answers to Q1 to Q3
     (see [The kernel family](Kernel.md));

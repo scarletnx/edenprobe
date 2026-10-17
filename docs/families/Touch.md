@@ -9,8 +9,8 @@ pad row of the start screen runs it: it needs a person too.
   corner and in the middle; two fingers at once; a finger dragged left to right; and the lift after
   the drag. One note gives the diameters and angles that arrived.
 
-The program's own screens take touch as well as the buttons: see [Looking at it on the
-console](../Console.md#touch).
+The program's own screens take touch as well as the buttons: see Touch in [Looking at it on the
+console](../Console.md).
 
 ## The screen
 
@@ -83,7 +83,8 @@ Lines of rEden 75c12299a6 (`src/`); read, not run.
   command line frontend scales against the whole window instead, with no bars taken off
   (`yuzu_cmd/emu_window/emu_window_sdl3.cpp:99-109`), so a window that is not 16 by 9 shifts every
   touch; and a click on its last column or row comes out at 1280 or 720, which the touch resource
-  then drops as off the screen (`hid_core/resources/touch_screen/touch_screen_resource.cpp:473-484`).
+  then drops as off the screen
+  (`hid_core/resources/touch_screen/touch_screen_resource.cpp:473-484`).
 - **G3, the ids.** A touch takes the first free slot and reports the slot as its id
   (`emulated_console.cpp:213-256`, the id at `:254`): the mouse is always id 0, and a second finger
   comes only from a touch screen, the Android frontend, or a touch from button map

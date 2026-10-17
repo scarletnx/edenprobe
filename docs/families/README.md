@@ -1,10 +1,10 @@
 # What it checks today
 
-Forty six suites, in the order they run: the judge, then the processor, then the pad family when a
+Forty seven suites, in the order they run: the judge, then the processor, then the pad family when a
 word asks for it, then the graphics family, then the fs family, then the kernel, display, video and
-audio families when a word asks for them, then the net family. A run is 921 cases: 853 for the
+audio families when a word asks for them, then the net family. A run is 933 cases: 865 for the
 judge, the processor and the graphics family, 15 for the fs family, 53 for the net family; the pad
-family adds twenty six when named, the kernel family seven, the display family four, the video
+family adds thirty five when named, the kernel family seven, the display family four, the video
 family twenty seven, the audio family twelve when named or with `listen`, the mode word `stress`
 adds one, and `fatal` runs the cases the may-crash table names, which are otherwise skipped. The
 order, and what a failure in each suite points at, is in [The roadmap](../Roadmap.md). A case that
@@ -13,7 +13,8 @@ middle](../Crashes.md).
 
 - **[The judge](./Judge.md)** - selfcheck, support and reference, no hardware involved
 - **[The processor](./Cpu.md)** - cpu
-- **[Pad](./Pad.md)** - what a game receives from a controller in a person's hands
+- **[Pad](./Pad.md)** - what a game receives from a controller in a person's hands, and from the
+  touch screen ([the touch suite](./Touch.md))
 - **[Graphics](./Graphics.md)** - the twenty nine drawing suites, clear to blit2d ([the blit2d
   suite](./Blit2d.md) has a page of its own)
 - **[fs](./Fs.md)** - reads through the file system service

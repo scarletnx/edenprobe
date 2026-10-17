@@ -5,9 +5,9 @@ One binary, two ways to run it, and a file on the memory card that chooses.
 **Detailed** is the default, because whoever starts this on a console is standing in front of the
 screen. Every suite runs, both report channels get every line, the summary is counted and the report
 is closed, and only then does the run go on the screen, a group at a time. A group is a suite,
-gathered under its family: the judge (selfcheck, support, reference), cpu, pad, graphics (clear to
-blit2d), fs, kernel (sched), display (binder), video (vic, nvdec), audio and net (nifm to friend).
-Three screens, one inside the other:
+gathered under its family: the judge (selfcheck, support, reference), cpu, pad (pad, touch),
+graphics (clear to blit2d), fs, kernel (sched), display (binder), video (vic, nvdec), audio and net
+(nifm to friend). Three screens, one inside the other:
 
 - **The overview** comes first, on the first group that failed. Its heading carries the run's counts
   and names the groups that failed, as many as fit. Below it, every group under its family with its
@@ -64,8 +64,8 @@ cursor walks its rows, each starting as the mode file leaves it:
 
 | row | what it turns |
 |---|---|
-| begin the run | where the cursor starts: A here begins the run, as plus or minus does from any row |
-| graphics, fs, audio, net, pad | the families, each on or off; the judge and the cpu suite run whatever is chosen, and pad, which waits for a person, right after cpu (see [The pad family](families/Pad.md)) |
+| begin the run | where the cursor starts: A here begins the run, as plus or minus does from any row, or the begin box at the bottom right |
+| graphics, fs, audio, net, pad | the families, each on or off; the judge and the cpu suite run whatever is chosen, and pad, the controller then the touch screen, which waits for a person, right after cpu (see [The pad family](families/Pad.md)) |
 | listen | the listening sequence before the audio suite (see [The audio family](families/Audio.md)); turning it on turns audio on, turning audio off turns it off |
 | quick | leave when the report closes, with no results screens |
 | notime | each drawing suite once, with no timing passes |
@@ -138,11 +138,31 @@ screen, so they cannot quit the sequence.
 
 The pad family's screen is up while its prompts run. Every button is what it asks about, so none of
 them does anything there but answer: a prompt for a button takes whatever arrives, a question takes
-up for yes and down for no on the d-pad, and nothing quits it; each prompt runs out by itself.
+up for yes and down for no on the d-pad, or a tap on its yes or no box, and nothing quits it; each
+prompt runs out by itself. The touch suite's screen takes no tap but the ones it measures.
 
 Every list comes round at either end. A direction held down acts again after twenty frames and then
-every four, so the reference suite's two hundred and sixty nine cases do not take a press each; what
-repeats is the direction pressed, whatever else is held, and only after a press counted past the
-first eight frames. Going back lands on the group or case that was open, and the view chosen with X
-stays from one drawing case to the next. A frame is composed on the processor only when something
-moved or the countdown ticked, so a still screen costs an emulated machine nothing.
+every four, so the reference suite's two hundred and eighty three cases do not take a press each;
+what repeats is the direction pressed, whatever else is held, and only after a press counted past
+the first eight frames. Going back lands on the group or case that was open, and the view chosen
+with X stays from one drawing case to the next. A frame is composed on the processor only when
+something moved or the countdown ticked, so a still screen costs an emulated machine nothing.
+
+**Touch.** Held in the hands, every screen above takes the touch screen as well as the buttons, and
+the buttons do what they did. A tap is one finger put down and lifted again: it counts when it is
+lifted, and only if it went down and came up on the same row or the same box, so a finger that
+slides off a row chooses nothing. A tap on a row moves the cursor there; a tap on the row the cursor
+is on does what A does there: on the start screen it turns the row, or on begin the run begins; on
+the screen that asks whether to go on it takes that choice; on the overview it opens the group, and
+in a group the case. A row is as tall as a line of text, about two millimetres, so a tap that lands
+on the next row only moves the cursor, which the second tap then shows is wrong before anything is
+chosen. A bar of boxes at the bottom right holds what has no row: begin on the start screen, quit
+on the overview, back in a group, and on a case prev, next, view (when it kept pictures) and back.
+The countdown and the button line stop short of the bar. A list longer than the screen keeps the
+cursor in its middle, so tapping the last row shown walks it along. The first eight frames are not
+a tap, as they are not a press; a finger already on the screen when a screen opens counts only once
+lifted and put down again; a second finger makes a touch no tap; and a finger put down keeps a
+screen as a press does. The decisions are `source/ui.c`'s (`UiTouchStep`, `UiStartTap`,
+`UiResumeTap`, `UiTapStep`, `UiPadTap`), which the support suite checks; `source/viewer.c` only
+reads the touch screen. A docked console's touch screen is off, and the buttons are the only way
+there.
