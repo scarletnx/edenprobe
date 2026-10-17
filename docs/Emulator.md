@@ -64,9 +64,14 @@ run then waits out its first screen, nobody being there). Set `backend=0` under 
 `sdl2-config.ini` of an `XDG` of its own, then:
 
 ```sh
-Xvfb :79 -screen 0 1280x720x24 -nolisten tcp &
-DISPLAY=:79 make run MODE="quick audio" XDG=/somewhere/xvfb-xdg
+Xvfb -displayfd 1 -screen 0 1280x720x24 -nolisten tcp > display &   # it picks a free number
+while [ ! -s display ]; do sleep 0.2; done
+DISPLAY=:$(cat display) make run MODE="quick audio" XDG=/somewhere/xvfb-xdg
+kill %1
 ```
+
+Let the server pick the number: another program's private server may hold the one you would
+choose, and a run started on it puts the window on that program's screen.
 
 The graphics family is not for this: its cases want a real rendering backend, as the next paragraph
 says.
