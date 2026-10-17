@@ -26,6 +26,7 @@ leaves. The [README](../README.md) at the root says what edenprobe is.
 ## Running it
 
 - **[Building](./Build.md)** - the NRO, the host build, the frames and the commit hook
+- **[Releases](./Releases.md)** - the nightly and the versions, and how the CI publishes them
 - **[Running it under an emulator](./Emulator.md)** - `make run`
 - **[Running it on Android](./Android.md)**
 - **[Looking at it on the console](./Console.md)** - the two modes, the screens and the buttons

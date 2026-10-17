@@ -40,6 +40,10 @@ emulator again after a crash, and its last line names the report. More in
 [Building](docs/Build.md), [Running it under an emulator](docs/Emulator.md) and
 [Running it on Android](docs/Android.md).
 
+Without building it: the newest nightly is always at
+`https://github.com/scarletnx/edenprobe/releases/download/nightly/edenprobe.nro`, and each version
+has a release; [Releases](docs/Releases.md) says how the CI makes them.
+
 ## Documentation
 
 What each suite checks, the report, the screens, the mode file, the times and what happens when
