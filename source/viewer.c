@@ -607,6 +607,31 @@ bool ViewerPadShow(const UiPadScreen *shown) {
     return true;
 }
 
+bool ViewerTouchShow(const UiTouchScreen *shown) {
+    if (shown == NULL) {
+        return false;
+    }
+    if (!pad_open) {
+        const bool was_open = screen_open;
+        if (!OpenScreen()) {
+            return false;
+        }
+        pad_opened_screen = !was_open;
+        pad_open = true;
+    }
+    uint32_t stride = 0;
+    uint8_t *const pixels = (uint8_t *)framebufferBegin(&screen, &stride);
+    if (pixels == NULL) {
+        return false;
+    }
+    if (stride >= SCREEN_WIDTH * 4u) {
+        const UiFrame frame = { pixels, SCREEN_WIDTH, SCREEN_HEIGHT, stride };
+        UiComposeTouch(&frame, shown);
+    }
+    framebufferEnd(&screen);
+    return true;
+}
+
 void ViewerPadClose(void) {
     if (pad_open && pad_opened_screen) {
         CloseScreen();

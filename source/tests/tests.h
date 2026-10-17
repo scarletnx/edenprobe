@@ -222,6 +222,13 @@ void RunPad(void);
 /// The line the pad screen carries at its top: the program and its build.
 void PadSetHeading(const char *heading);
 
+/// The pad family's touch screen: targets at the corners and the middle, two fingers, a drag and
+/// its lift, every line saying what arrived; judged by touchref.c.
+void RunTouch(void);
+
+/// The same line on the touch screen.
+void TouchSetHeading(const char *heading);
+
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not
 /// name, or a service this program cannot open, is skipped with the reason and counted apart.
@@ -242,6 +249,10 @@ void RunReferenceVic(void);
 /// The pad family's prompts, presses and verdicts, against answers worked out by hand: part of
 /// the reference suite.
 void RunReferencePad(void);
+
+/// The touch suite's prompts, watch and verdicts on states made to order: part of the reference
+/// suite.
+void RunReferenceTouch(void);
 /// The vendored MD5 against RFC 1321's test suite: part of the reference suite.
 void RunReferenceMd5(void);
 

@@ -2370,6 +2370,7 @@ void RunReference(void) {
     RunReferenceAudio();
     RunReferenceVic();
     RunReferencePad();
+    RunReferenceTouch();
     RunReferenceMd5();
     RunReferenceVp9();
     RunReferenceSched();

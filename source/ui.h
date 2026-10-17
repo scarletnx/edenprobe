@@ -727,6 +727,44 @@ void UiComposePad(const UiFrame *frame, const UiPadScreen *screen);
 PadAnswer UiPadTap(const UiTap *tap, uint32_t frame_width, uint32_t frame_height,
                    bool asks_yes_no);
 
+/// The touch suite's screen: the prompt, the marks to aim at, and a square where each finger on
+/// the screen is now, so a person sees where the machine puts their touch. It decides no verdict:
+/// the suite judges from the states it read.
+typedef struct {
+    const char *heading;
+    /// The prompt's number, from 1, and how many there are.
+    uint32_t prompt;
+    uint32_t prompts;
+    const char *big;
+    const char *how;
+    /// Where the prompt is: waiting with the seconds left, done.
+    const char *state;
+    /// The marks: none, a target, or the drag's two ends, at frame pixels.
+    uint32_t marks;
+    uint32_t mark_x[2];
+    uint32_t mark_y[2];
+    /// The fingers on the screen now, at most four drawn.
+    uint32_t touches;
+    uint32_t touch_x[4];
+    uint32_t touch_y[4];
+    /// What arrives now, as a sentence.
+    const char *now;
+    /// The prompt before, what it asked and what came of it; NULL before the first.
+    const char *last;
+    ReportResult last_result;
+} UiTouchScreen;
+
+/// A mark's ring, around its middle.
+#define UI_TOUCH_MARK_RADIUS 28u
+
+/// Where the prompt's words start down the frame and where its live lines do: the words sit
+/// between the top targets and the middle one, the live lines between the middle one and the
+/// drag's row, so nothing written covers a mark.
+#define UI_TOUCH_WORDS_TOP 150u
+#define UI_TOUCH_LIVE_TOP 420u
+
+void UiComposeTouch(const UiFrame *frame, const UiTouchScreen *screen);
+
 #ifdef __cplusplus
 }
 #endif

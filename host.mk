@@ -14,7 +14,7 @@ HOSTSRC  := source/report.c source/journal.c source/maycrash.c source/hang.c sou
             source/settle.c \
             source/rawref.c source/astcref.c source/astcblocks.c source/eacref.c \
             source/etc2ref.c source/etc2blocks.c source/bcnref.c source/audioref.c source/vicref.c \
-            source/padref.c \
+            source/padref.c source/touchref.c \
             source/md5.c source/vp9jobs.c source/vp9ref.c \
             source/schedref.c source/binderref.c source/blit2dref.c \
             source/tests/t_selfcheck.c source/tests/t_support.c source/tests/t_screens.c \
@@ -22,7 +22,7 @@ HOSTSRC  := source/report.c source/journal.c source/maycrash.c source/hang.c sou
             source/tests/t_cpuref.c source/tests/t_rawref.c source/tests/t_astcref.c \
             source/tests/t_eacref.c source/tests/t_journal.c source/tests/t_etc2ref.c \
             source/tests/t_bcnref.c source/tests/t_audioref.c source/tests/t_vicref.c \
-            source/tests/t_padref.c \
+            source/tests/t_padref.c source/tests/t_touchref.c \
             source/tests/t_md5ref.c source/tests/t_vp9ref.c \
             source/tests/t_schedref.c source/tests/t_binderref.c source/tests/t_blit2dref.c \
             source/host_main.c

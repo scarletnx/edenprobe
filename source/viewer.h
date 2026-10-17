@@ -110,6 +110,10 @@ bool ViewerPadShow(const UiPadScreen *screen);
 /// suite both read it.
 void ViewerTouchInit(void);
 
+/// Draws the touch suite's screen the same way, into the same framebuffer; ViewerPadClose ends
+/// it too.
+bool ViewerTouchShow(const UiTouchScreen *screen);
+
 /// Ends the pad screen, and closes the framebuffer only when the first ViewerPadShow opened it.
 /// The running screen keeps off the framebuffer while the pad screen is up. Safe when it never
 /// opened.

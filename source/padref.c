@@ -60,13 +60,13 @@ static const PadPrompt PROMPTS[] = {
       "R stick", "push the right stick to its edge and turn it slowly round, for 3 seconds", 0u,
       0.0f },
     { "a vibration at half amplitude is felt", PAD_ASK_VIBRATION, "feel it?",
-      "the controller vibrates at half strength for a second. felt it? up: yes, down: no", 0u,
-      0.5f },
+      "the controller vibrates at half strength for a second. felt it? up: yes, down: no, or tap",
+      0u, 0.5f },
     { "a vibration at full amplitude is felt", PAD_ASK_VIBRATION, "feel it?",
-      "the controller vibrates at full strength for a second. felt it? up: yes, down: no", 0u,
-      1.0f },
+      "the controller vibrates at full strength for a second. felt it? up: yes, down: no, or tap",
+      0u, 1.0f },
     { "a vibration sent nought stops", PAD_ASK_STOPPED, "stopped?",
-      "did that vibration stop when its second ran out? up: yes, down: no", 0u, 0.0f },
+      "did that vibration stop when its second ran out? up: yes, down: no, or tap", 0u, 0.0f },
 };
 
 size_t PadPromptCount(void) {

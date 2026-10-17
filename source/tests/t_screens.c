@@ -9,6 +9,7 @@
 #include "../padref.h"
 #include "../picture.h"
 #include "../report.h"
+#include "../touchref.h"
 #include "../ui.h"
 #include "tests.h"
 
@@ -449,7 +450,7 @@ static void CheckFamilies(void) {
     } SUITES[] = {
         { "selfcheck", UI_FAMILY_JUDGE },   { "support", UI_FAMILY_JUDGE },
         { "reference", UI_FAMILY_JUDGE },   { "cpu", UI_FAMILY_CPU },
-        { "pad", UI_FAMILY_PAD },
+        { "pad", UI_FAMILY_PAD },           { "touch", UI_FAMILY_PAD },
         { "clear", UI_FAMILY_GRAPHICS },    { "format", UI_FAMILY_GRAPHICS },
         { "raster", UI_FAMILY_GRAPHICS },   { "intmath", UI_FAMILY_GRAPHICS },
         { "blend", UI_FAMILY_GRAPHICS },    { "depth", UI_FAMILY_GRAPHICS },
@@ -482,7 +483,7 @@ static void CheckFamilies(void) {
         }
     }
     CHECK_TRUE(SUITE, "every suite a run reports is shown under its own family", CHECK_NONE,
-               wrong == 0u && count == 46u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
+               wrong == 0u && count == 47u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
                    UiFamilyOf(NULL) == UI_FAMILY_OTHER,
                "%u of %u suites under the wrong family, the first %s", (unsigned)wrong,
                (unsigned)count, first);
@@ -2373,6 +2374,82 @@ static void CheckTouch(Fixture *f) {
                !quiet, asking, answers);
 }
 
+/// The touch suite's screen: every target drawn at the point touchref.c names, nothing written
+/// over one, the drag's two ends on its row, and a square where each finger is.
+static void CheckTouchScreen(Fixture *f) {
+    const UiFrame frame = { f->pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
+    static const uint8_t AMBER[3] = { 0xE8, 0xB0, 0x40 };
+    UiTouchScreen screen;
+    memset(&screen, 0, sizeof(screen));
+    screen.heading = "edenprobe 0.3.0 (test)";
+    screen.prompts = (uint32_t)TouchPromptCount();
+    screen.state = "waiting: 9 s left";
+    screen.now =
+        "touching now: 1, id 0 at (1184,624), 90 by 90, angle 0, and words to fill the line";
+    screen.last = "lifted at (96,96), +0 +0 from the target at (96,96): 0 pixels off, within 48; "
+                  "came down at (90,90), id 3, 2 states";
+    screen.last_result = REPORT_PASS;
+    uint32_t missing = 0;
+    uint32_t covered = 0;
+    uint32_t targets = 0;
+    for (size_t i = 0; i < TouchPromptCount(); ++i) {
+        const TouchPrompt *const p = TouchPromptAt(i);
+        if (p->ask != TOUCH_ASK_TARGET) {
+            continue;
+        }
+        ++targets;
+        screen.prompt = (uint32_t)i + 1u;
+        screen.big = p->big;
+        screen.how = p->how;
+        screen.marks = 1u;
+        screen.mark_x[0] = p->x;
+        screen.mark_y[0] = p->y;
+        UiComposeTouch(&frame, &screen);
+        if (targets == 1u) {
+            DumpFrame(&frame, "22-touch-target");
+        }
+        // The ring and the cross are there, and inside the tolerance nothing else is.
+        const uint32_t r = UI_TOUCH_MARK_RADIUS + 8u;
+        missing += CountColour(&frame, p->x - r, p->y - r, p->x + r, p->y + r, AMBER) < 300u;
+        const uint32_t lit = CountLitIn(&frame, p->x - TOUCH_TOLERANCE, p->y - TOUCH_TOLERANCE,
+                                        p->x + TOUCH_TOLERANCE, p->y + TOUCH_TOLERANCE);
+        const uint32_t amber = CountColour(&frame, p->x - TOUCH_TOLERANCE,
+                                           p->y - TOUCH_TOLERANCE, p->x + TOUCH_TOLERANCE,
+                                           p->y + TOUCH_TOLERANCE, AMBER);
+        covered += lit != amber;
+    }
+    // The drag: two marks on its row and the row between them; two fingers drawn as squares.
+    screen.big = "drag";
+    screen.how = TouchPromptAt(7)->how;
+    screen.marks = 2u;
+    screen.mark_x[0] = TOUCH_DRAG_FROM_X;
+    screen.mark_x[1] = TOUCH_DRAG_TO_X;
+    screen.mark_y[0] = TOUCH_DRAG_Y;
+    screen.mark_y[1] = TOUCH_DRAG_Y;
+    screen.touches = 2u;
+    screen.touch_x[0] = 400u;
+    screen.touch_y[0] = 300u;
+    screen.touch_x[1] = 900u;
+    screen.touch_y[1] = 300u;
+    UiComposeTouch(&frame, &screen);
+    DumpFrame(&frame, "23-touch-drag");
+    const uint32_t ends = CountColour(&frame, TOUCH_DRAG_FROM_X - 40u, TOUCH_DRAG_Y - 40u,
+                                      TOUCH_DRAG_FROM_X + 40u, TOUCH_DRAG_Y + 40u, AMBER) +
+                          CountColour(&frame, TOUCH_DRAG_TO_X - 40u, TOUCH_DRAG_Y - 40u,
+                                      TOUCH_DRAG_TO_X + 40u, TOUCH_DRAG_Y + 40u, AMBER);
+    const uint32_t row = CountLitIn(&frame, 640u, TOUCH_DRAG_Y, 641u, TOUCH_DRAG_Y + 2u);
+    const uint32_t fingers = CountColour(&frame, 394u, 294u, 406u, 306u, PASSED) +
+                             CountColour(&frame, 894u, 294u, 906u, 306u, PASSED);
+    UiComposeTouch(&frame, NULL);
+    CHECK_TRUE(SUITE, "the touch screen draws each target where its case aims and writes over none",
+               CHECK_NONE,
+               targets == 5u && missing == 0u && covered == 0u && ends > 600u && row == 2u &&
+                   fingers == 288u,
+               "%u targets, %u missing, %u written over; drag ends %u, row %u; fingers %u",
+               (unsigned)targets, (unsigned)missing, (unsigned)covered, (unsigned)ends,
+               (unsigned)row, (unsigned)fingers);
+}
+
 void RunSupportScreens(void) {
     Fixture *const f = (Fixture *)calloc(1, sizeof(Fixture));
     if (f == NULL) {
@@ -2391,6 +2468,7 @@ void RunSupportScreens(void) {
     CheckListen(f);
     CheckPad(f);
     CheckTouch(f);
+    CheckTouchScreen(f);
     CheckScreens(f);
     CheckOverflow(f);
     CheckEdges(f);

@@ -382,7 +382,7 @@ static const struct {
 } FAMILIES[] = {
     { "selfcheck", UI_FAMILY_JUDGE }, { "support", UI_FAMILY_JUDGE },
     { "reference", UI_FAMILY_JUDGE }, { "cpu", UI_FAMILY_CPU },
-    { "pad", UI_FAMILY_PAD },
+    { "pad", UI_FAMILY_PAD },         { "touch", UI_FAMILY_PAD },
     { "clear", UI_FAMILY_GRAPHICS },  { "format", UI_FAMILY_GRAPHICS },
     { "raster", UI_FAMILY_GRAPHICS }, { "intmath", UI_FAMILY_GRAPHICS },
     { "blend", UI_FAMILY_GRAPHICS },  { "depth", UI_FAMILY_GRAPHICS },
@@ -1754,7 +1754,7 @@ static const struct {
     { "audio", "the audio renderer, nearly silent" },
     { "listen", "about 40 s of sound to hear, before the audio suite" },
     { "net", "the online services, against sdmc:/edenprobe/net" },
-    { "pad", "press what the screen names, first thing: needs a person" },
+    { "pad", "the controller, then the touch screen: needs a person" },
     { "quick", "leave when the report closes, with no results screens" },
     { "notime", "each drawing suite once, with no timing passes" },
     { "may crash", NULL },
@@ -2452,6 +2452,90 @@ void UiComposePad(const UiFrame *frame, const UiPadScreen *screen) {
         static const char *const ANSWERS[2] = { "yes", "no" };
         DrawTouchBar(frame, ANSWERS, 2u);
     }
+}
+
+/// A ring with a cross through it, centred on @p x, @p y.
+static void DrawMark(const UiFrame *frame, uint32_t x, uint32_t y, const uint8_t colour[4]) {
+    const int32_t r = (int32_t)UI_TOUCH_MARK_RADIUS;
+    for (int32_t dy = -r; dy <= r; ++dy) {
+        for (int32_t dx = -r; dx <= r; ++dx) {
+            const int32_t d2 = dx * dx + dy * dy;
+            if (d2 <= r * r && d2 >= (r - 3) * (r - 3) && (int32_t)x + dx >= 0 &&
+                (int32_t)y + dy >= 0) {
+                PutPixel(frame, (uint32_t)((int32_t)x + dx), (uint32_t)((int32_t)y + dy), colour);
+            }
+        }
+    }
+    const uint32_t arm = UI_TOUCH_MARK_RADIUS + 8u;
+    if (x >= arm && y >= arm) {
+        FillRect(frame, x - arm, y - 1u, 2u * arm, 2u, colour);
+        FillRect(frame, x - 1u, y - arm, 2u, 2u * arm, colour);
+    }
+}
+
+void UiComposeTouch(const UiFrame *frame, const UiTouchScreen *screen) {
+    if (frame == NULL || frame->pixels == NULL || screen == NULL) {
+        return;
+    }
+    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
+        UiText(frame, 0, 0, 1, TEXT, "frame too small");
+        return;
+    }
+    Say(frame, MARGIN, 8, TEXT, "touch");
+    SayFitted(frame, MARGIN + 7u * GLYPH, 8, DIM,
+              screen->heading != NULL ? screen->heading : "edenprobe");
+    char line[200];
+    const uint32_t prompt = screen->prompt < screen->prompts ? screen->prompt : screen->prompts;
+    snprintf(line, sizeof(line), "prompt %u of %u: touch what the screen asks; nothing for 10 s "
+                                 "skips it",
+             (unsigned)prompt, (unsigned)screen->prompts);
+    SayFitted(frame, MARGIN, 30, DIM, line);
+
+    // Between the top targets and the middle one.
+    uint32_t y = UI_TOUCH_WORDS_TOP;
+    const char *const big = screen->big != NULL ? screen->big : "";
+    uint32_t scale = 8u;
+    while (scale > BIG && (uint32_t)strlen(big) * CELL * scale > frame->width - 2u * MARGIN) {
+        --scale;
+    }
+    UiText(frame, MARGIN, y, scale, TEXT, big);
+    y += CELL * 8u + 16u;
+    y += TextWrapped(frame, MARGIN, y, BIG, LINE, TEXT, screen->how, Columns(frame), 2u) * LINE;
+    if (screen->state != NULL) {
+        SayFitted(frame, MARGIN, y + 4u, DIM, screen->state);
+    }
+
+    // Between the middle target and the drag's row.
+    if (screen->now != NULL) {
+        SayFitted(frame, MARGIN, UI_TOUCH_LIVE_TOP, DIM, screen->now);
+    }
+    if (screen->last != NULL) {
+        const uint32_t last = UI_TOUCH_LIVE_TOP + LINE + 12u;
+        const uint32_t x = Say(frame, MARGIN, last, DIM, "before: ");
+        TextWrapped(frame, x, last, BIG, LINE, ResultColour(screen->last_result), screen->last,
+                    (frame->width - MARGIN - x) / GLYPH, 2u);
+    }
+
+    const uint32_t marks = screen->marks < 2u ? screen->marks : 2u;
+    if (marks == 2u) {
+        // The drag's row, from one end to the other.
+        const uint32_t from = screen->mark_x[0] < screen->mark_x[1] ? screen->mark_x[0]
+                                                                     : screen->mark_x[1];
+        const uint32_t to = screen->mark_x[0] < screen->mark_x[1] ? screen->mark_x[1]
+                                                                   : screen->mark_x[0];
+        FillRect(frame, from, screen->mark_y[0], to - from, 2u, BORDER);
+    }
+    for (uint32_t i = 0; i < marks; ++i) {
+        DrawMark(frame, screen->mark_x[i], screen->mark_y[i], SKIPPED);
+    }
+    const uint32_t touches = screen->touches < 4u ? screen->touches : 4u;
+    for (uint32_t i = 0; i < touches; ++i) {
+        const uint32_t tx = screen->touch_x[i] > 6u ? screen->touch_x[i] - 6u : 0u;
+        const uint32_t ty = screen->touch_y[i] > 6u ? screen->touch_y[i] - 6u : 0u;
+        FillRect(frame, tx, ty, 12u, 12u, PASSED);
+    }
+    DrawButtons(frame, "lift every finger between prompts; a docked console's touch screen is off");
 }
 
 PadAnswer UiPadTap(const UiTap *tap, uint32_t frame_width, uint32_t frame_height,
