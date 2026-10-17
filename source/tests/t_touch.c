@@ -313,7 +313,11 @@ void RunTouch(void) {
     unavailable[0] = '\0';
     memset(&screen, 0, sizeof(screen));
     TouchShapeReset(&shape);
-    ViewerTouchInit();
+    uint32_t refused = 0;
+    if (!ViewerTouchInit(&refused)) {
+        snprintf(unavailable, sizeof(unavailable),
+                 "the touch screen could not be activated (result 0x%08x)", (unsigned)refused);
+    }
 
     const size_t count = TouchPromptCount();
     uint32_t unanswered = 0;

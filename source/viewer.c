@@ -7,6 +7,7 @@
 
 #include <switch.h>
 
+#include "gpu.h"
 #include "mode.h"
 #include "perf.h"
 #include "picture.h"
@@ -69,22 +70,27 @@ static void ReadPad(PadState *pad) {
 
 // The touch screen, read the way libnx's hid.h describes: activated once, then the latest state
 // each frame. Only the count and the first finger's place go to ui.c, which decides the rest.
+static bool touch_tried;
 static bool touch_ready;
+static uint32_t touch_result;
 
-void ViewerTouchInit(void) {
-    // Once for the program: libnx ends the program on a failed activation, so it is asked no more
-    // often than it must be.
-    if (!touch_ready) {
-        hidInitializeTouchScreen();
-        touch_ready = true;
+bool ViewerTouchInit(uint32_t *result) {
+    // Once for the program, and guarded: libnx ends the program on a failed activation.
+    if (!touch_tried) {
+        touch_tried = true;
+        touch_ready = AbortGuarded(hidInitializeTouchScreen, &touch_result);
     }
+    if (result != NULL) {
+        *result = touch_result;
+    }
+    return touch_ready;
 }
 
 static UiTouchEvent ReadTouch(UiTouch *touch, uint32_t frame_index, UiTap *tap) {
-    ViewerTouchInit();
     HidTouchScreenState state;
     memset(&state, 0, sizeof(state));
-    const bool read = hidGetTouchScreenStates(&state, 1) > 0u && state.count > 0;
+    const bool read = ViewerTouchInit(NULL) && hidGetTouchScreenStates(&state, 1) > 0u &&
+                      state.count > 0;
     return UiTouchStep(touch, read ? (uint32_t)state.count : 0u, read ? state.touches[0].x : 0u,
                        read ? state.touches[0].y : 0u, frame_index, tap);
 }

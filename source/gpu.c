@@ -55,6 +55,19 @@ void NX_NORETURN __wrap_diagAbortWithResult(Result result) {
     __real_diagAbortWithResult(result);
 }
 
+bool AbortGuarded(void (*call)(void), uint32_t *result) {
+    if (setjmp(open_failure) != 0) {
+        if (result != NULL) {
+            *result = (uint32_t)open_failure_result;
+        }
+        return false;
+    }
+    open_failure_armed = true;
+    call();
+    open_failure_armed = false;
+    return true;
+}
+
 /// Records why the context is unusable and hands back the answer GpuOpenSpec owes its caller.
 static bool Fail(GpuContext *gpu, const char *text) {
     snprintf(gpu->failure, sizeof(gpu->failure), "%s", text);

@@ -107,8 +107,10 @@ void ViewerListenClose(void);
 bool ViewerPadShow(const UiPadScreen *screen);
 
 /// Activates the touch screen for the program, the first time only; the screens and the touch
-/// suite both read it.
-void ViewerTouchInit(void);
+/// suite both read it. False when the machine refused, with the result it gave in @p result (may
+/// be NULL): libnx would end the program there, and is not let to, so a machine with no touch
+/// screen still gets its run with the buttons alone.
+bool ViewerTouchInit(uint32_t *result);
 
 /// Draws the touch suite's screen the same way, into the same framebuffer; ViewerPadClose ends
 /// it too.

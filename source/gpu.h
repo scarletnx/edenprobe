@@ -112,6 +112,12 @@ void GpuSpecDefaults(GpuSpec *spec, uint32_t width, uint32_t height);
 /// should produce a report saying exactly that, not a silent crash with no line in the log.
 bool GpuOpenSpec(GpuContext *gpu, const GpuSpec *spec);
 
+/// Calls @p call with the runtime's abort turned into a return, as GpuOpenSpec has it while it
+/// builds: false, with the result the abort was given in @p result, when @p call aborted. For the
+/// libnx calls that end the program on a failure a machine may legitimately have, such as a touch
+/// screen it does not emulate.
+bool AbortGuarded(void (*call)(void), uint32_t *result);
+
 /// Brings up a device, a queue and a @p width by @p height RGBA8 render target, and nothing
 /// else. The shape the clear suite has always asked for.
 bool GpuOpen(GpuContext *gpu, uint32_t width, uint32_t height);
