@@ -24,10 +24,11 @@ APP_TITLE   := edenprobe
 APP_AUTHOR  := reden
 # The version is the one line of VERSION (semantic: a tag v<VERSION> on main marks each one);
 # the build id is what git says about the tree, so a report names the exact source it came
-# from. Both reach the program as macros and open every report. The cover, icon.jpg, is drawn
+# from, described from the version tags alone: the nightlies' tags would otherwise name it.
+# Both reach the program as macros and open every report. The cover, icon.jpg, is drawn
 # from static/icon.svg by `make icon` (rsvg-convert and magick, not needed for a build).
 APP_VERSION := $(strip $(shell cat VERSION))
-APP_BUILD   := $(strip $(shell git describe --tags --always --dirty 2>/dev/null || echo unknown))
+APP_BUILD   := $(strip $(shell git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo unknown))
 # The commit alone, tags left out, with -dirty for uncommitted changes: what a run's folder is
 # named after (docs/Report.md, "Where a run leaves its report"), so two builds never share one.
 APP_HASH    := $(strip $(shell git describe --always --dirty --abbrev=7 --exclude='*' 2>/dev/null || echo unknown))
