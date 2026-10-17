@@ -10,6 +10,8 @@ leaves. The [README](../README.md) at the root says what edenprobe is.
   - **[The processor](./families/Cpu.md)** - the cpu suite
   - **[Graphics](./families/Graphics.md)** - the drawing suites, clear to dma
   - **[fs](./families/Fs.md)** - reads through the file system service
+  - **[Kernel](./families/Kernel.md)** - the scheduler: six cases with a watchdog, Q1 to Q3
+  - **[Display](./families/Display.md)** - transaction 17, the buffer history, Q1
   - **[Video](./families/Video.md)** - the VIC: the job, the nineteen cases, the open questions
   - **[The nvdec suite](./families/Nvdec.md)** - VP9 through the decode engine: six libvpx vectors
     by MD5, and Q1 to Q5

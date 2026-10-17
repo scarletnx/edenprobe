@@ -58,3 +58,8 @@
   and `source/md5.h`, vendored unchanged under a header that says where they came from. The
   devkitPro portlibs have no MD5 to link instead. The reference suite holds it to RFC 1321's test
   suite, whole and in pieces, and to a million a's.
+- **libnx's display and kernel sources**, https://github.com/switchbrew/libnx (ISC): read for how
+  `viCreateLayer` makes a managed layer, how a window and its framebuffer are made and torn down,
+  and how `Mutex` blocks in `svcArbitrateLock` with its owner marked. `source/tests/t_binder.c`
+  serialises transaction 17 as `parcelTransact` (`display/parcel.c`) serialises a parcel, so it can
+  keep the whole reply.

@@ -5,8 +5,9 @@ One binary, two ways to run it, and a file on the memory card that chooses.
 **Detailed** is the default, because whoever starts this on a console is standing in front of the
 screen. Every suite runs, both report channels get every line, the summary is counted and the report
 is closed, and only then does the run go on the screen, a group at a time. A group is a suite,
-gathered under its family: the judge (selfcheck, support, reference), cpu, graphics (clear to dma),
-fs, video (vic, nvdec), audio and net (nifm to friend). Three screens, one inside the other:
+gathered under its family: the judge (selfcheck, support, reference), cpu, pad, graphics (clear to
+dma), fs, kernel (sched), display (binder), video (vic, nvdec), audio and net (nifm to friend).
+Three screens, one inside the other:
 
 - **The overview** comes first, on the first group that failed. Its heading carries the run's counts
   and names the groups that failed, as many as fit. Below it, every group under its family with its
@@ -140,7 +141,7 @@ them does anything there but answer: a prompt for a button takes whatever arrive
 up for yes and down for no on the d-pad, and nothing quits it; each prompt runs out by itself.
 
 Every list comes round at either end. A direction held down acts again after twenty frames and then
-every four, so the reference suite's two hundred and forty cases do not take a press each; what
+every four, so the reference suite's two hundred and sixty nine cases do not take a press each; what
 repeats is the direction pressed, whatever else is held, and only after a press counted past the
 first eight frames. Going back lands on the group or case that was open, and the view chosen with X
 stays from one drawing case to the next. A frame is composed on the processor only when something

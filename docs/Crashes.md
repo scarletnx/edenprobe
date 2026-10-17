@@ -97,17 +97,17 @@ screen cannot turn `hang` on. A case that ended the program in this run is still
 this record such a crash themselves and take it back before they end, so the run they sit in
 never skips the real case as `crashed` (a support case checks that they do).
 
-**Where a crash can be pinned.** Every case of the cpu, graphics, fs, video, audio and net families
-says it starts before any of its work, which is what lets a launch skip it: the start and the skip
-come before the first instruction, list or service call the case makes. A case judged from another's
-work (two halves of one readback, a request asked about again, a token read twice) is skipped as
-`depends` when that one does not run. The judge's cases ask the machine nothing but ordinary
-arithmetic and are journaled only as they end. What runs between two cases belongs to none: a suite
-reopening its device after a fault, blend's two probe notes, the net family opening a service or
-waiting for the sign-in, the audio family opening the renderer or playing the listening sequence. A
-crash there costs the rest of that step, which keeps what it reported and is not run again, and the
-launch says so in a note. A case that reports a verdict without having said it started, where it had
-to, is a bug in this program, and a `bookkeeping:` note says which.
+**Where a crash can be pinned.** Every case of the cpu, graphics, fs, kernel, display, video, audio
+and net families says it starts before any of its work, which is what lets a launch skip it: the
+start and the skip come before the first instruction, list or service call the case makes. A case
+judged from another's work (two halves of one readback, a request asked about again, a token read
+twice) is skipped as `depends` when that one does not run. The judge's cases ask the machine nothing
+but ordinary arithmetic and are journaled only as they end. What runs between two cases belongs to
+none: a suite reopening its device after a fault, blend's two probe notes, the net family opening a
+service or waiting for the sign-in, the audio family opening the renderer or playing the listening
+sequence. A crash there costs the rest of that step, which keeps what it reported and is not run
+again, and the launch says so in a note. A case that reports a verdict without having said it
+started, where it had to, is a bug in this program, and a `bookkeeping:` note says which.
 
 **What it costs.** Two lines for each case in each pass, and a drawing suite runs ten passes: a run
 of 670 cases writes 7228 lines, 474 kilobytes, none of them inside a timed interval, which is only

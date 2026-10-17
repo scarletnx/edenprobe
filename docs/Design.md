@@ -21,7 +21,8 @@ Which tier a case uses is a claim about the hardware, and it belongs in the case
   integer arithmetic, bit patterns moved around. A float shader never qualifies, however tidy the
   numbers look on one machine.
 - **Units in the last place.** For float work, with the budget stated per case.
-- **Position.** The right answer, possibly a pixel or two away, for rasterisation coverage.
+- **Position.** The right answer, possibly a pixel or two away, for rasterisation coverage; and
+  the order threads ran in, where which came first is the verdict and the time it took is not.
 - **Level.** A level measured over a stretch of sound, within a fraction of the expected one
   stated per case: for the audio family, where two correct renderers differ in rounding and in
   their filters' taps.
