@@ -46,11 +46,13 @@ $(HOSTOUT): $(HOSTOBJ)
 
 # Twice, the second from somewhere else on purpose: a path built relative to the working
 # directory works from here and nowhere else, and the suite has to be able to notice that. Then
-# the report tools, which read what the binary wrote and have tests of their own.
+# the report tools, which read what the binary wrote and have tests of their own, and the CI's
+# scripts in .github/scripts, against a fake GitHub and a fake Discord.
 host-run: $(HOSTOUT)
 	./$(HOSTOUT)
 	cd / && exec $(CURDIR)/$(HOSTOUT)
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .github/scripts
 
 host-clean:
 	rm -rf build-host

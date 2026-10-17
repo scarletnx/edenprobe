@@ -1,0 +1,119 @@
+# SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*'] # a version's release (publish.yml)
+  pull_request:
+  workflow_dispatch:
+
+# Jobs only read the repository. A push to main that builds becomes a nightly, a version tag a release: publish.yml
+# does it once this workflow ends. A pull request's NRO stays its run's artifact, linked from it (links below)
+permissions:
+  contents: read
+
+jobs:
+  # The NRO in devkitPro's container, pinned by its tag and its digest so every build uses one toolchain:
+  # devkitA64 r29.2 (GCC 15.2), libnx 4.12.0, deko3d 0.5.0, uam 1.1.0, switch-tools 1.13.1. A newer image is a
+  # change of its own, its build checked like any other
+  nro:
+    name: NRO (devkitA64)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    container: devkitpro/devkita64:20260219@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEVKITPRO: /opt/devkitpro
+      # the commit built: a pull request's head, else the commit pushed
+      SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Name the commit
+        id: commit
+        run: echo "short=${SHA::7}" >> "$GITHUB_OUTPUT"
+      # The commit itself, not a pull request's merge with main: the NRO names the commit it was built from (git
+      # describe, docs/Versions.md), and a report from it names that commit. Its whole history, for the version tags
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
+      # The container's root reads a checkout the runner's user owns, which git refuses: the build would name itself
+      # "unknown"
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      # A version's tag names the VERSION it is built with: the NRO says that version, the release the tag's
+      - name: Check the tag against VERSION
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(cat VERSION)
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "::error::$GITHUB_REF_NAME is tagged, VERSION says $version"; exit 1; }
+      - name: Build the NRO
+        run: make -j"$(nproc)"
+      # The build names this commit, clean, described from a version tag or alone: what a report opens with and the
+      # folder it sits in, so a report can be matched with its source
+      - name: Check the NRO names its commit
+        run: |
+          cat build/version.h
+          hash=$(sed -n 's/^#define EDENPROBE_HASH "\(.*\)"$/\1/p' build/version.h)
+          build=$(sed -n 's/^#define EDENPROBE_BUILD "\(.*\)"$/\1/p' build/version.h)
+          case $hash in
+            ''|*-dirty|unknown) echo "::error::the build names its commit \"$hash\""; exit 1 ;;
+          esac
+          [ "${SHA#"$hash"}" != "$SHA" ] || { echo "::error::the build names $hash, not $SHA"; exit 1; }
+          case $build in
+            "$hash"|v[0-9]*-g"$hash") ;;
+            v[0-9]*) [ "$(git rev-parse -q --verify "refs/tags/$build^{commit}")" = "$SHA" ] ||
+                { echo "::error::the build calls itself $build, a tag not on $SHA"; exit 1; } ;;
+            *) echo "::error::the build calls itself \"$build\", not from a version tag or $hash"; exit 1 ;;
+          esac
+      - name: Name the NRO after its commit
+        run: cp edenprobe.nro "edenprobe-${{ steps.commit.outputs.short }}.nro"
+      # Not zipped: the artifact is the NRO itself, named after it
+      - uses: actions/upload-artifact@v7
+        with:
+          path: edenprobe-${{ steps.commit.outputs.short }}.nro
+          archive: false
+          if-no-files-found: error
+
+  # The judge, the screens and the tools' tests on the machine itself (docs/Build.md), and the tests of
+  # .github/scripts: a nightly is published only when they pass
+  host:
+    name: Host tests
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Run them
+        run: make -f host.mk -j"$(nproc)" host-run
+
+  # A pull request's NRO, linked from a comment on it that each run rewrites, as soon as it is built
+  # (.github/scripts/pr-builds.sh). A pull request from a fork gets a token that may not write, so it gets none
+  links:
+    name: Links to the builds
+    if: >-
+      !cancelled() && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    needs: nro
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts/pr-builds.sh
+          sparse-checkout-cone-mode: false
+      - name: Link the builds from the pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEEDS: ${{ toJSON(needs) }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: .github/scripts/pr-builds.sh "$GITHUB_REPOSITORY" "$PR" "$GITHUB_RUN_ID" "$SHA"
