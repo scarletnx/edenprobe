@@ -27,6 +27,9 @@ script standing in for the emulator, crashing, hanging and finishing as each tes
 (each against the table its reference cases hold) and `tools/vp9-jobs.py` (the nvdec suite's jobs
 checked against the frames they carry, with neither FFmpeg nor the vectors), which need Python 3
 and nothing else. Writing those jobs again needs both: see [The nvdec suite](families/Nvdec.md).
+Then the tests of the CI's scripts in `.github/scripts`, against a fake GitHub and a fake Discord,
+which also want git, and bash and jq for the one that comments on a pull request (without those
+two its tests are skipped, and say so).
 
 To look at the screens without a console, name an existing directory in `EDENPROBE_FRAMES`:
 
