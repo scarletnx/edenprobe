@@ -186,6 +186,10 @@ void RunDma(void);
 /// Every byte is checked; the times are the point.
 void RunFs(void);
 
+/// The kernel family: the scheduler's priority inheritance, preemption and migration, threads of
+/// chosen priorities on one core with a watchdog on another, judged by schedref.c.
+void RunSched(void);
+
 /// The video family: the video image compositor given NV12 input the processor wrote, one job per
 /// case, every output byte judged against vicref.c's model under each answer to the open
 /// questions.
@@ -236,6 +240,8 @@ void RunReferenceMd5(void);
 /// the surface reading against nvtegra's own walk, and the verdicts on reads made to order. Part
 /// of the reference suite.
 void RunReferenceVp9(void);
+/// The kernel family's judge on traces made to order: part of the reference suite.
+void RunReferenceSched(void);
 
 #ifdef __cplusplus
 }

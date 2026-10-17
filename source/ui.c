@@ -288,8 +288,8 @@ static const struct {
     { "occlusion", UI_FAMILY_GRAPHICS }, { "drawtex", UI_FAMILY_GRAPHICS },
     { "geometry", UI_FAMILY_GRAPHICS },
     { "query", UI_FAMILY_GRAPHICS },  { "dma", UI_FAMILY_GRAPHICS },
-    { "fs", UI_FAMILY_FS },           { "vic", UI_FAMILY_VIDEO },
-    { "nvdec", UI_FAMILY_VIDEO },
+    { "fs", UI_FAMILY_FS },           { "sched", UI_FAMILY_KERNEL },
+    { "vic", UI_FAMILY_VIDEO },       { "nvdec", UI_FAMILY_VIDEO },
     { "audio", UI_FAMILY_AUDIO },
     { "nifm", UI_FAMILY_NET },
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
@@ -318,6 +318,8 @@ const char *UiFamilyName(UiFamily family) {
         return "graphics";
     case UI_FAMILY_FS:
         return "fs";
+    case UI_FAMILY_KERNEL:
+        return "kernel";
     case UI_FAMILY_VIDEO:
         return "video";
     case UI_FAMILY_AUDIO:

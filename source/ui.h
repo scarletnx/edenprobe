@@ -65,6 +65,7 @@ typedef enum {
     UI_FAMILY_PAD,
     UI_FAMILY_GRAPHICS,
     UI_FAMILY_FS,
+    UI_FAMILY_KERNEL,
     UI_FAMILY_VIDEO,
     UI_FAMILY_AUDIO,
     UI_FAMILY_NET,
@@ -75,7 +76,7 @@ typedef enum {
 UiFamily UiFamilyOf(const char *suite);
 const char *UiFamilyName(UiFamily family);
 
-/// The most groups and cases the screens index. A run has up to 41 suites and about eight
+/// The most groups and cases the screens index. A run has up to 42 suites and about eight
 /// hundred cases; what does not fit is counted and the overview says so. Under 255, which marks
 /// a case with no group while the index is built.
 #define UI_MAX_GROUPS 64u

@@ -112,6 +112,8 @@ static const Step STEPS[] = {
     { "query", RunQuery, MODE_FAMILY_GRAPHICS, true, true },
     { "dma", RunDma, MODE_FAMILY_GRAPHICS, true, true },
     { "fs", RunFs, MODE_FAMILY_FS, true, true },
+    // Untimed: what a case judges is the order its threads ran in, and each waits on purpose.
+    { "sched", RunSched, MODE_FAMILY_KERNEL, false, true },
     // Untimed: one job per case is the point, and the time a job takes is not.
     { "vic", RunVic, MODE_FAMILY_VIDEO, false, true },
     // Untimed too: a case runs a job per frame, and what the line judges is every image.

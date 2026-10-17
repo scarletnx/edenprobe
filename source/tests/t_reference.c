@@ -2372,4 +2372,5 @@ void RunReference(void) {
     RunReferencePad();
     RunReferenceMd5();
     RunReferenceVp9();
+    RunReferenceSched();
 }
