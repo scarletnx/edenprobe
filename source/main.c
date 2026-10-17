@@ -111,6 +111,7 @@ static const Step STEPS[] = {
     { "drawtex", RunDrawtex, MODE_FAMILY_GRAPHICS, true, true },
     { "query", RunQuery, MODE_FAMILY_GRAPHICS, true, true },
     { "dma", RunDma, MODE_FAMILY_GRAPHICS, true, true },
+    { "blit2d", RunBlit2d, MODE_FAMILY_GRAPHICS, true, true },
     { "fs", RunFs, MODE_FAMILY_FS, true, true },
     // Untimed: what a case judges is the order its threads ran in, and each waits on purpose.
     { "sched", RunSched, MODE_FAMILY_KERNEL, false, true },

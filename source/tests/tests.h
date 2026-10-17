@@ -181,6 +181,11 @@ void RunQuery(void);
 /// then from words a dispatch wrote; every copy judged, the difference in time is the point.
 void RunDma(void);
 
+/// The 2D engine copying a block linear source at half and two thirds size into a window of a
+/// block linear destination, by raw methods, with each origin; every pixel judged in the raw
+/// bytes and in a copy to buffer, against blit2dref.c's images under each answer.
+void RunBlit2d(void);
+
 /// Reads from the memory card through FsFile, in the patterns a game reads its files: sequential
 /// in five block sizes, random, backwards, the same place again, many small files, and the edges.
 /// Every byte is checked; the times are the point.

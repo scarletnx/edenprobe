@@ -288,6 +288,7 @@ static const struct {
     { "occlusion", UI_FAMILY_GRAPHICS }, { "drawtex", UI_FAMILY_GRAPHICS },
     { "geometry", UI_FAMILY_GRAPHICS },
     { "query", UI_FAMILY_GRAPHICS },  { "dma", UI_FAMILY_GRAPHICS },
+    { "blit2d", UI_FAMILY_GRAPHICS },
     { "fs", UI_FAMILY_FS },           { "sched", UI_FAMILY_KERNEL },
     { "binder", UI_FAMILY_DISPLAY },
     { "vic", UI_FAMILY_VIDEO },       { "nvdec", UI_FAMILY_VIDEO },
@@ -1535,7 +1536,7 @@ static const struct {
     const char *what;
 } START_ROWS[UI_START_ROWS] = {
     { "begin the run", "A here, or plus from any row" },
-    { "graphics", "the drawing suites, clear to dma" },
+    { "graphics", "the drawing suites, clear to blit2d" },
     { "fs", "reads from the memory card, timed" },
     { "audio", "the audio renderer, nearly silent" },
     { "listen", "about 40 s of sound to hear, before the audio suite" },

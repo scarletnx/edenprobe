@@ -120,8 +120,176 @@ static void CheckWords(void) {
                (unsigned)(at < want ? PINNED_WORDS_CORNER_2_3[at] : 0u));
 }
 
+// Reads made to order: the raw bytes block linear, the copy to buffer in rows, each from a rule.
+static uint8_t raw_read[BLIT2D_DST_BYTES];
+static uint8_t rows_read[BLIT2D_DST_BYTES];
+static char said[1024];
+
+static void PutWord(uint8_t *at, uint32_t word) {
+    for (uint32_t i = 0; i < 4u; ++i) {
+        at[i] = (uint8_t)(word >> (8u * i));
+    }
+}
+
+static void SetPixel(uint32_t x, uint32_t y, uint32_t word, bool to_raw, bool to_rows) {
+    if (to_raw) {
+        PutWord(raw_read + Blit2dDstOffset(x, y), word);
+    }
+    if (to_rows) {
+        PutWord(rows_read + ((size_t)y * BLIT2D_DST_WIDTH + x) * 4u, word);
+    }
+}
+
+/// Both reads as the combination @p answers leaves them, or only the fill for -1.
+static void Reads(const Blit2dCase *c, int32_t raw_answers, int32_t rows_answers) {
+    for (uint32_t y = 0; y < BLIT2D_DST_HEIGHT; ++y) {
+        for (uint32_t x = 0; x < BLIT2D_DST_WIDTH; ++x) {
+            SetPixel(x, y,
+                     raw_answers < 0 ? BLIT2D_FILL_WORD : Blit2dWant(c, (uint32_t)raw_answers, x, y),
+                     true, false);
+            SetPixel(x, y,
+                     rows_answers < 0 ? BLIT2D_FILL_WORD
+                                      : Blit2dWant(c, (uint32_t)rows_answers, x, y),
+                     false, true);
+        }
+    }
+}
+
+static bool Judge(const Blit2dCase *c, Blit2dVerdict *v) {
+    Blit2dJudge(c, raw_read, rows_read, v);
+    Blit2dDetail(c, v, raw_read, rows_read, said, sizeof(said));
+    return v->passed;
+}
+
+static void CheckPasses(void) {
+    Blit2dVerdict v;
+    uint32_t wrong = 0;
+    char first[600] = "";
+    // Each case under the table's answers, then the 1.5 pair under Eden's rectangle.
+    static const struct {
+        Blit2dCaseId id;
+        uint32_t answers;
+        uint32_t fits;
+        const char *starts;
+    } WANT[] = {
+        { BLIT2D_CORNER_HALF, 0u, 0x5u, "fits Q1 A: raw MD5 84fd46bdbeba5e70f758996dd896cf84, "
+                                         "all 189 right and nothing outside" },
+        { BLIT2D_CENTER_HALF, 0u, 0x5u, "fits Q1 A: raw MD5 1654028909d43464ff4556fbf1802371" },
+        { BLIT2D_CORNER_2_3, 0u, 0x1u, "fits Q1 A, Q2 A: raw MD5 3ee33409edbf6bf600caa6435dccd6ea" },
+        { BLIT2D_CENTER_2_3, 0u, 0x1u, "fits Q1 A, Q2 A: raw MD5 6560d24df99ce3fb20477313332d5d18" },
+        { BLIT2D_CORNER_2_3, BLIT2D_Q2_B, 0xCu, "fits Q1 either, Q2 B: raw MD5 "
+                                                 "ff261b6480a54b7fd8b2ff3479cb7352" },
+        { BLIT2D_CENTER_HALF, BLIT2D_Q1_B, 0xAu, "fits Q1 B: raw MD5 "
+                                                  "84fd46bdbeba5e70f758996dd896cf84" },
+    };
+    for (uint32_t i = 0; i < sizeof(WANT) / sizeof(WANT[0]); ++i) {
+        const Blit2dCase *const c = Blit2dCaseAt(WANT[i].id);
+        Reads(c, (int32_t)WANT[i].answers, (int32_t)WANT[i].answers);
+        const bool passed = Judge(c, &v);
+        if ((!passed || v.fits != WANT[i].fits || strstr(said, WANT[i].starts) != said) &&
+            wrong++ == 0u) {
+            snprintf(first, sizeof(first), "%s answers %u: passed %d, fits 0x%x: \"%.400s\"",
+                     c->name, (unsigned)WANT[i].answers, passed, (unsigned)v.fits, said);
+        }
+    }
+    CHECK_TRUE(SUITE, "blit2d: a case passes on any answer's image and its line names the answers",
+               CHECK_NONE, wrong == 0u, "%u of 6 differ; first %.480s", (unsigned)wrong, first);
+}
+
+static void CheckEden(void) {
+    // What Eden is read to do with the 1.5 corner case: the copy to buffer holds its rectangle,
+    // the raw bytes are still the fill.
+    const Blit2dCase *const c = Blit2dCaseAt(BLIT2D_CORNER_2_3);
+    Blit2dVerdict v;
+    Reads(c, -1, (int32_t)BLIT2D_Q2_B);
+    const bool passed = Judge(c, &v);
+    const bool untouched = v.raw.untouched && !v.buffer.untouched;
+    const bool named =
+        strstr(said, "raw MD5 85a0bd9e5c984f5d1786e9309dd7930e; raw: the destination as filled, "
+                     "nothing written; copy to buffer: fits Q1 either, Q2 B, 189 of 189 right, "
+                     "nothing outside the window changed; counted against Q1 A, Q2 B") == said;
+    char eden_said[600];
+    snprintf(eden_said, sizeof(eden_said), "%.590s", said);
+    // The other way round, and one of the window's pixels left as the fill in both reads.
+    Reads(c, 0, 0);
+    SetPixel(BLIT2D_WIN_X + 3u, BLIT2D_WIN_Y + 5u, BLIT2D_FILL_WORD, true, true);
+    const bool hole = !Judge(c, &v) && v.fits == 0u &&
+                      strstr(said, "raw: no answer's image, 188 of 189 right, first wrong (8,8) "
+                                   "0xeeeeeeee, the fill, wanted texel (4,7)") != NULL;
+    CHECK_TRUE(SUITE, "blit2d: the copy kept in a cache fails on the raw read, with both named",
+               CHECK_NONE, !passed && untouched && named && hole,
+               "passed %d, untouched %d, named %d, hole %d: \"%.210s\"; \"%.210s\"", passed,
+               untouched, named, hole,
+               eden_said, said);
+}
+
+static void CheckOutside(void) {
+    // A copy that writes the whole 16 byte run the window starts in: pixel 4 of row 3 gets the
+    // texel pixel 5 has, in the raw bytes only.
+    const Blit2dCase *const c = Blit2dCaseAt(BLIT2D_CORNER_HALF);
+    Blit2dVerdict v;
+    Reads(c, 0, 0);
+    SetPixel(BLIT2D_WIN_X - 1u, BLIT2D_WIN_Y, Blit2dSourceTexel(0, 0), true, false);
+    const bool run = !Judge(c, &v) && v.raw.outside == 1u && v.buffer.outside == 0u &&
+                     strstr(said, "raw: no answer's image, 189 of 189 right, 1 of 835 outside the "
+                                  "window changed; x texels 0 2 4 6 8 10 12 14, y texels 0 2 4 6 "
+                                  "8 10 12 14; copy to buffer: fits Q1 A, 189 of 189 right") != NULL;
+    char run_said[600];
+    snprintf(run_said, sizeof(run_said), "%.590s", said);
+    // A third rule, texel 2i + 2: no answer explains it, so its texels are on the line.
+    for (uint32_t j = 0; j < BLIT2D_WIN_HEIGHT; ++j) {
+        for (uint32_t i = 0; i < BLIT2D_WIN_WIDTH; ++i) {
+            SetPixel(BLIT2D_WIN_X + i, BLIT2D_WIN_Y + j, Blit2dSourceTexel(2u * i + 2u, 2u * j),
+                     true, true);
+        }
+    }
+    const bool third = !Judge(c, &v) && v.fits == 0u && v.raw.right == 0u &&
+                       strstr(said, "first wrong (5,3) 0x10000002, texel (2,0), wanted texel "
+                                    "(0,0)") != NULL &&
+                       strstr(said, "copy to buffer: no answer's image, 0 of 189 right") != NULL &&
+                       strstr(said, "x texels 2 4 6 8 10 12 14 16, y texels 0 2 4 6 8 10 12 14; "
+                                    "counted against Q1 A") != NULL;
+    CHECK_TRUE(SUITE, "blit2d: a write outside the window and a third rule fail with their texels",
+               CHECK_NONE, run && third, "run %d \"%.230s\"; third %d \"%.230s\"", run,
+               run_said, third, said);
+}
+
+static void CheckNote(void) {
+    char note[REPORT_NOTE_MAX];
+    // The table's answers everywhere.
+    const uint32_t table[BLIT2D_CASES] = { 0x5u, 0x5u, 0x1u, 0x1u };
+    const uint32_t none[BLIT2D_CASES] = { 0u, 0u, 0u, 0u };
+    const bool a = Blit2dNote(table, table, note, sizeof(note)) &&
+                   strcmp(note, "blit2d: the passing cases answer Q1 A, Q2 A") == 0;
+    char a_said[REPORT_NOTE_MAX];
+    snprintf(a_said, sizeof(a_said), "%s", note);
+    // Texel n du from both origins: the corner cases fit A, the centre cases B.
+    const uint32_t corner[BLIT2D_CASES] = { 0x5u, 0xAu, 0x1u, 0x2u };
+    const bool neither = Blit2dNote(corner, corner, note, sizeof(note)) &&
+                         strcmp(note, "blit2d: the passing cases answer Q1 neither, both origins "
+                                      "sample at n du, Q2 A") == 0;
+    char neither_said[REPORT_NOTE_MAX];
+    snprintf(neither_said, sizeof(neither_said), "%s", note);
+    // Eden as read: every raw read the fill, every copy to buffer its rectangle.
+    const uint32_t eden[BLIT2D_CASES] = { 0x5u, 0x5u, 0xCu, 0xCu };
+    const bool cache = Blit2dNote(none, eden, note, sizeof(note)) &&
+                       strcmp(note, "blit2d: no case passed; the copies to buffer answer Q1 A, "
+                                    "Q2 B") == 0;
+    char cache_said[REPORT_NOTE_MAX];
+    snprintf(cache_said, sizeof(cache_said), "%s", note);
+    const bool silent = !Blit2dNote(none, none, note, sizeof(note));
+    CHECK_TRUE(SUITE, "blit2d: the note says Q1 and Q2 from passing cases, else from the copies",
+               CHECK_NONE, a && neither && cache && silent,
+               "\"%.150s\"; \"%.150s\"; \"%.150s\"; silent %d", a_said, neither_said,
+               cache_said, silent);
+}
+
 void RunReferenceBlit2d(void) {
     CheckSource();
     CheckImages();
     CheckWords();
+    CheckPasses();
+    CheckEden();
+    CheckOutside();
+    CheckNote();
 }

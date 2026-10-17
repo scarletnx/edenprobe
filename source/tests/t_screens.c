@@ -449,6 +449,7 @@ static void CheckFamilies(void) {
         { "fill", UI_FAMILY_GRAPHICS },     { "ring", UI_FAMILY_GRAPHICS },
         { "occlusion", UI_FAMILY_GRAPHICS }, { "drawtex", UI_FAMILY_GRAPHICS },
         { "query", UI_FAMILY_GRAPHICS },    { "dma", UI_FAMILY_GRAPHICS },
+        { "blit2d", UI_FAMILY_GRAPHICS },
         { "fs", UI_FAMILY_FS },             { "sched", UI_FAMILY_KERNEL },
         { "binder", UI_FAMILY_DISPLAY },
         { "vic", UI_FAMILY_VIDEO },         { "nvdec", UI_FAMILY_VIDEO },
@@ -466,7 +467,7 @@ static void CheckFamilies(void) {
         }
     }
     CHECK_TRUE(SUITE, "every suite a run reports is shown under its own family", CHECK_NONE,
-               wrong == 0u && count == 45u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
+               wrong == 0u && count == 46u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
                    UiFamilyOf(NULL) == UI_FAMILY_OTHER,
                "%u of %u suites under the wrong family, the first %s", (unsigned)wrong,
                (unsigned)count, first);

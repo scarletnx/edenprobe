@@ -111,6 +111,51 @@ void Blit2dMd5Hex(const void *bytes, size_t size, char out[33]);
 /// twelve words that launch. Returns BLIT2D_WORDS.
 size_t Blit2dRawWords(const Blit2dCase *c, uint64_t src_iova, uint64_t dst_iova, uint32_t *out);
 
+/// The word pixel @p x, @p y of the destination holds after the copy under @p answers.
+uint32_t Blit2dWant(const Blit2dCase *c, uint32_t answers, uint32_t x, uint32_t y);
+
+/// One read of the destination, judged against every combination of answers.
+typedef struct {
+    uint32_t fits;      ///< bit k: combination k explains every pixel of this read
+    bool untouched;     ///< every pixel is still the fill
+    uint32_t right;     ///< window pixels as the shown combination has them
+    uint32_t outside;   ///< pixels outside the window that are not the fill
+    bool wrong;         ///< a window pixel differs; the first, row by row, follows
+    uint32_t wrong_x, wrong_y, wrong_got, wrong_want;
+} Blit2dRead;
+
+/// Both reads: the processor's of the raw bytes, and the copy engine's into rows.
+typedef struct {
+    Blit2dRead raw, buffer;
+    uint32_t fits;  ///< combinations that explain both
+    /// The combination the counts are against: the first that explains both, or else the
+    /// buffer, or else the raw bytes, or else the table's, Q1 A and Q2 A.
+    uint32_t shown;
+    bool passed;    ///< some combination explains both reads
+} Blit2dVerdict;
+
+/// The word of pixel @p x, @p y in a raw read (block linear, BLIT2D_DST_BYTES) or in a read
+/// into rows (64 pixels of four bytes each).
+uint32_t Blit2dRawPixel(const uint8_t *raw, uint32_t x, uint32_t y);
+uint32_t Blit2dBufferPixel(const uint8_t *buffer, uint32_t x, uint32_t y);
+
+/// Judges both reads. Neither is changed.
+void Blit2dJudge(const Blit2dCase *c, const uint8_t *raw, const uint8_t *buffer,
+                 Blit2dVerdict *out);
+
+/// The case's line: on a pass the answers that fit, the raw MD5, the counts; on a failure, per
+/// read, what it holds, how much of the window is right, the first wrong pixel with the texel
+/// it is, what changed outside, and for a read no answer explains the first eight texels of x
+/// and of y it took.
+void Blit2dDetail(const Blit2dCase *c, const Blit2dVerdict *v, const uint8_t *raw,
+                  const uint8_t *buffer, char *out, size_t size);
+
+/// The note after the suite, from what each case's reads fit (@p fits, both reads; @p buffer
+/// the copy to buffer alone): Q1 and Q2 as the passing cases answer them, and then as the
+/// copies to buffer of the failing ones do. False with nothing written when no case answered.
+bool Blit2dNote(const uint32_t fits[BLIT2D_CASES], const uint32_t buffer[BLIT2D_CASES],
+                char *out, size_t size);
+
 #ifdef __cplusplus
 }
 #endif
