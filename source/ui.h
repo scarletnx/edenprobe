@@ -62,6 +62,7 @@ typedef enum {
 typedef enum {
     UI_FAMILY_JUDGE,
     UI_FAMILY_CPU,
+    UI_FAMILY_PAD,
     UI_FAMILY_GRAPHICS,
     UI_FAMILY_FS,
     UI_FAMILY_VIDEO,
@@ -273,7 +274,8 @@ void UiCompose(const UiFrame *frame, const UiRun *run, UiState state,
 
 /// The families the screen offers a row each; cpu always runs, so it has none.
 #define UI_START_FAMILIES                                                                          \
-    ((uint32_t)(MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS | MODE_FAMILY_AUDIO | MODE_FAMILY_NET))
+    ((uint32_t)(MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS | MODE_FAMILY_AUDIO | MODE_FAMILY_NET |      \
+                MODE_FAMILY_PAD))
 
 typedef struct {
     /// The first line: the program and its build.
@@ -300,6 +302,7 @@ typedef enum {
     UI_START_ROW_AUDIO,
     UI_START_ROW_LISTEN,
     UI_START_ROW_NET,
+    UI_START_ROW_PAD,
     UI_START_ROW_QUICK,
     UI_START_ROW_NOTIME,
     UI_START_ROW_MAY_CRASH,
@@ -604,6 +607,38 @@ UiListenScreen UiListenSkip(UiListenScreen screen);
 /// done, what to listen for below it, the buttons at the foot. @p left and @p right are the
 /// recording's peaks, read on part b's two echoes and ignored on every other screen.
 void UiComposeListen(const UiFrame *frame, UiListenScreen screen, double left, double right);
+
+/// The pad family's screen, up while its prompts run: the prompt large, what to do under it, and
+/// what the controller sends right now, so a person sees a press arrive. Like the listening
+/// screen it comes while the report is open, and it decides no verdict: the suite judges from
+/// the bits it read, never from what was drawn.
+typedef struct {
+    const char *heading;
+    /// The prompt's number, from 1, and how many there are.
+    uint32_t prompt;
+    uint32_t prompts;
+    /// The prompt large, and the sentence under it.
+    const char *big;
+    const char *how;
+    /// Where the prompt is: waiting with the seconds left, measuring, done.
+    const char *state;
+    /// The buttons held now, in the service's bits, and both sticks.
+    uint64_t held;
+    int32_t left_x;
+    int32_t left_y;
+    int32_t right_x;
+    int32_t right_y;
+    /// The controllers connected, as their ids and styles.
+    const char *controllers;
+    /// The prompt before, what it asked and what came of it; NULL before the first.
+    const char *last;
+    ReportResult last_result;
+} UiPadScreen;
+
+/// How many times the cell the prompt is drawn at, when it fits across the frame.
+#define UI_PAD_BIG 12u
+
+void UiComposePad(const UiFrame *frame, const UiPadScreen *screen);
 
 #ifdef __cplusplus
 }

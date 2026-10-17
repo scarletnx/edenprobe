@@ -39,6 +39,7 @@ since a machine that was never asked has agreed with nothing:
 | `not configured` | the net file does not name what it needs: a session, a server, a rewrite, an account, a certificate |
 | `unavailable` | a service or a resource this program cannot have here |
 | `depends` | a case before it did not leave what it needs: it did not run, failed, or gave nothing to ask about |
+| `unanswered` | it asked a person, and nothing was pressed in time: the pad family's prompts |
 
 The summary counts crashes on their own: `skipped` is every skip but the ones whose reason is
 `crashed`, which `crashed` counts, so the four numbers add up to the case lines. The runner's

@@ -198,6 +198,13 @@ void RunAudio(void);
 /// Plays the listening sequence before the audio family's cases (the mode word `listen`).
 void AudioSetListen(bool on);
 
+/// The pad family: a person presses each button the screen names, lets go of the sticks, pushes
+/// them to their edges and says whether a vibration was felt; every line says what arrived.
+void RunPad(void);
+
+/// The line the pad screen carries at its top: the program and its build.
+void PadSetHeading(const char *heading);
+
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not
 /// name, or a service this program cannot open, is skipped with the reason and counted apart.
@@ -214,6 +221,10 @@ void RunReferenceAudio(void);
 /// The video family's structure, command words and expected outputs, held to
 /// tools/vic-expect.py: part of the reference suite.
 void RunReferenceVic(void);
+
+/// The pad family's prompts, presses and verdicts, against answers worked out by hand: part of
+/// the reference suite.
+void RunReferencePad(void);
 
 #ifdef __cplusplus
 }

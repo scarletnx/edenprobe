@@ -924,6 +924,7 @@ static void CheckDecisions(void) {
                        strcmp(ReportReasonWord(REPORT_REASON_UNAVAILABLE), "unavailable") == 0 &&
                        strcmp(ReportReasonWord(REPORT_REASON_DEPENDS), "depends") == 0 &&
                        strcmp(ReportReasonWord(REPORT_REASON_HANG), "hangs") == 0 &&
+                       strcmp(ReportReasonWord(REPORT_REASON_UNANSWERED), "unanswered") == 0 &&
                        strcmp(ReportReasonWord(REPORT_REASON_COUNT), "unavailable") == 0;
     CHECK_TRUE(SUITE, "a case that ended this run is skipped even under retry", CHECK_NONE,
                !crashed_runs && handed_back,

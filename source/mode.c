@@ -15,6 +15,7 @@ static const struct {
     uint32_t family;
 } FAMILIES[] = {
     { "cpu", MODE_FAMILY_CPU },
+    { "pad", MODE_FAMILY_PAD },
     { "graphics", MODE_FAMILY_GRAPHICS },
     { "fs", MODE_FAMILY_FS },
     { "video", MODE_FAMILY_VIDEO },
@@ -403,6 +404,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { mode->listen, "listen" },
         { (mode->families_named & MODE_FAMILY_NET) != 0u, "net" },
         { mode->no_timing, "notime" },
+        { (mode->families_named & MODE_FAMILY_PAD) != 0u, "pad" },
         { mode->retry, "retry" },
         { mode->stress, "stress" },
         { (mode->families_named & MODE_FAMILY_VIDEO) != 0u, "video" },

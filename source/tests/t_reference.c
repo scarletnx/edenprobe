@@ -2369,4 +2369,5 @@ void RunReference(void) {
     RunReferenceBcn();
     RunReferenceAudio();
     RunReferenceVic();
+    RunReferencePad();
 }

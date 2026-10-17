@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "font8x8.h"
+#include "padref.h"
 #include "ui.h"
 
 // The margin all four sides keep, and the gap between two panels. One number, because the
@@ -271,6 +272,7 @@ static const struct {
 } FAMILIES[] = {
     { "selfcheck", UI_FAMILY_JUDGE }, { "support", UI_FAMILY_JUDGE },
     { "reference", UI_FAMILY_JUDGE }, { "cpu", UI_FAMILY_CPU },
+    { "pad", UI_FAMILY_PAD },
     { "clear", UI_FAMILY_GRAPHICS },  { "format", UI_FAMILY_GRAPHICS },
     { "raster", UI_FAMILY_GRAPHICS }, { "intmath", UI_FAMILY_GRAPHICS },
     { "blend", UI_FAMILY_GRAPHICS },  { "depth", UI_FAMILY_GRAPHICS },
@@ -309,6 +311,8 @@ const char *UiFamilyName(UiFamily family) {
         return "judge";
     case UI_FAMILY_CPU:
         return "cpu";
+    case UI_FAMILY_PAD:
+        return "pad";
     case UI_FAMILY_GRAPHICS:
         return "graphics";
     case UI_FAMILY_FS:
@@ -1340,6 +1344,8 @@ static uint32_t RowFamily(uint32_t row) {
         return MODE_FAMILY_AUDIO;
     case UI_START_ROW_NET:
         return MODE_FAMILY_NET;
+    case UI_START_ROW_PAD:
+        return MODE_FAMILY_PAD;
     default:
         return 0u;
     }
@@ -1366,6 +1372,7 @@ static bool RowOn(const UiStartState *state, uint32_t row) {
     case UI_START_ROW_FS:
     case UI_START_ROW_AUDIO:
     case UI_START_ROW_NET:
+    case UI_START_ROW_PAD:
         return (state->families & RowFamily(row)) != 0u;
     case UI_START_ROW_LISTEN:
         return state->listen;
@@ -1392,6 +1399,7 @@ static void Toggle(UiStartState *state, const UiStartInfo *info, uint32_t row) {
     case UI_START_ROW_GRAPHICS:
     case UI_START_ROW_FS:
     case UI_START_ROW_NET:
+    case UI_START_ROW_PAD:
         state->families ^= RowFamily(row);
         break;
     case UI_START_ROW_AUDIO:
@@ -1526,6 +1534,7 @@ static const struct {
     { "audio", "the audio renderer, nearly silent" },
     { "listen", "about 40 s of sound to hear, before the audio suite" },
     { "net", "the online services, against sdmc:/edenprobe/net" },
+    { "pad", "press what the screen names, first thing: needs a person" },
     { "quick", "leave when the report closes, with no results screens" },
     { "notime", "each drawing suite once, with no timing passes" },
     { "may crash", NULL },
@@ -2083,4 +2092,93 @@ void UiComposeListen(const UiFrame *frame, UiListenScreen screen, double left, d
     const uint32_t room = frame->height > top + FOOT ? (frame->height - top - FOOT) / LINE : 1u;
     TextWrapped(frame, MARGIN, top, BIG, LINE, TEXT, text.guide, Columns(frame), room);
     DrawButtons(frame, text.buttons);
+}
+
+// The pad screen's two stick boxes, side by side at the right of the live lines: each stick's
+// square of travel, with a mark where it is now.
+#define PAD_BOX 112u
+#define PAD_MARK 8u
+
+static void DrawStickBox(const UiFrame *frame, uint32_t x, uint32_t y, const char *label,
+                         int32_t stick_x, int32_t stick_y) {
+    FillRect(frame, x, y, PAD_BOX, PAD_BOX, BORDER);
+    FillRect(frame, x + 2u, y + 2u, PAD_BOX - 4u, PAD_BOX - 4u, BACKGROUND);
+    FillRect(frame, x + PAD_BOX / 2u, y + 2u, 1u, PAD_BOX - 4u, SELECTED);
+    FillRect(frame, x + 2u, y + PAD_BOX / 2u, PAD_BOX - 4u, 1u, SELECTED);
+    // Up on the stick is up on the screen, which is the other way from the rows.
+    const int64_t span = (int64_t)(PAD_BOX - PAD_MARK);
+    int64_t cx = ((int64_t)stick_x + PAD_STICK_FULL) * span / (2 * PAD_STICK_FULL);
+    int64_t cy = ((int64_t)PAD_STICK_FULL - stick_y) * span / (2 * PAD_STICK_FULL);
+    cx = cx < 0 ? 0 : cx > span ? span : cx;
+    cy = cy < 0 ? 0 : cy > span ? span : cy;
+    FillRect(frame, x + (uint32_t)cx, y + (uint32_t)cy, PAD_MARK, PAD_MARK, TEXT);
+    Say(frame, x, y + PAD_BOX + 4u, DIM, label);
+}
+
+void UiComposePad(const UiFrame *frame, const UiPadScreen *screen) {
+    if (frame == NULL || frame->pixels == NULL || screen == NULL) {
+        return;
+    }
+    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
+        UiText(frame, 0, 0, 1, TEXT, "frame too small");
+        return;
+    }
+    // The running screen's layout, as the listening screen keeps it: the word and the program on
+    // the top row, a dim second row, the prompt and its bar where a list would start.
+    Say(frame, MARGIN, 8, TEXT, "controller");
+    SayFitted(frame, MARGIN + 12u * GLYPH, 8, DIM,
+              screen->heading != NULL ? screen->heading : "edenprobe");
+    SayFitted(frame, MARGIN, 30, DIM,
+              "press what the screen asks; nothing for 10 s skips the prompt");
+
+    char line[200];
+    const uint32_t prompt = screen->prompt < screen->prompts ? screen->prompt : screen->prompts;
+    snprintf(line, sizeof(line), "prompt %u of %u", (unsigned)prompt, (unsigned)screen->prompts);
+    SayFitted(frame, MARGIN, UI_LIST_TOP, TEXT, line);
+    DrawStepsBar(frame, prompt, screen->prompts);
+
+    // Large enough to read from a sofa: twelve times the cell, as long as it fits across.
+    uint32_t y = UI_PROGRESS_BAR_TOP + UI_PROGRESS_BAR_HEIGHT + 24u;
+    const char *const big = screen->big != NULL ? screen->big : "";
+    const uint32_t room = frame->width - 2u * MARGIN;
+    uint32_t scale = UI_PAD_BIG;
+    while (scale > BIG && (uint32_t)strlen(big) * CELL * scale > room) {
+        --scale;
+    }
+    UiText(frame, MARGIN, y, scale, TEXT, big);
+    y += CELL * UI_PAD_BIG + 16u;
+    y += TextWrapped(frame, MARGIN, y, BIG, LINE, TEXT, screen->how, Columns(frame), 2u) * LINE;
+    if (screen->state != NULL) {
+        SayFitted(frame, MARGIN, y + 4u, DIM, screen->state);
+    }
+
+    // What the controller sends now, in the bits the suite reads, beside the two sticks.
+    const uint32_t live = y + 2u * LINE + 8u;
+    const uint32_t boxes = frame->width - MARGIN - 2u * PAD_BOX - 24u;
+    char held[160];
+    PadButtonWords(held, sizeof(held), screen->held);
+    snprintf(line, sizeof(line), "held: %s", held);
+    TextWrapped(frame, MARGIN, live, BIG, LINE, TEXT, line, (boxes - MARGIN) / GLYPH, 2u);
+    snprintf(line, sizeof(line), "left stick  x %6d  y %6d", (int)screen->left_x,
+             (int)screen->left_y);
+    Say(frame, MARGIN, live + 2u * LINE, DIM, line);
+    snprintf(line, sizeof(line), "right stick x %6d  y %6d", (int)screen->right_x,
+             (int)screen->right_y);
+    Say(frame, MARGIN, live + 3u * LINE, DIM, line);
+    snprintf(line, sizeof(line), "connected: %s",
+             screen->controllers != NULL ? screen->controllers : "nothing");
+    TextWrapped(frame, MARGIN, live + 4u * LINE, BIG, LINE, DIM, line, (boxes - MARGIN) / GLYPH,
+                2u);
+    DrawStickBox(frame, boxes, live, "left", screen->left_x, screen->left_y);
+    DrawStickBox(frame, boxes + PAD_BOX + 24u, live, "right", screen->right_x, screen->right_y);
+
+    if (screen->last != NULL) {
+        const uint32_t last = live + PAD_BOX + 2u * LINE;
+        const uint32_t x = Say(frame, MARGIN, last, DIM, "before: ");
+        TextWrapped(frame, x, last, BIG, LINE, ResultColour(screen->last_result), screen->last,
+                    (frame->width - MARGIN - x) / GLYPH, 2u);
+    }
+    DrawButtons(frame, "Home and Capture are left out: the system takes them. A question is "
+                       "answered with up for yes and down for no on the d-pad.");
 }

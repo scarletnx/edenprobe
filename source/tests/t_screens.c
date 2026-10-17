@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "../check.h"
+#include "../padref.h"
 #include "../picture.h"
 #include "../report.h"
 #include "../ui.h"
@@ -433,6 +434,7 @@ static void CheckFamilies(void) {
     } SUITES[] = {
         { "selfcheck", UI_FAMILY_JUDGE },   { "support", UI_FAMILY_JUDGE },
         { "reference", UI_FAMILY_JUDGE },   { "cpu", UI_FAMILY_CPU },
+        { "pad", UI_FAMILY_PAD },
         { "clear", UI_FAMILY_GRAPHICS },    { "format", UI_FAMILY_GRAPHICS },
         { "raster", UI_FAMILY_GRAPHICS },   { "intmath", UI_FAMILY_GRAPHICS },
         { "blend", UI_FAMILY_GRAPHICS },    { "depth", UI_FAMILY_GRAPHICS },
@@ -462,7 +464,7 @@ static void CheckFamilies(void) {
         }
     }
     CHECK_TRUE(SUITE, "every suite a run reports is shown under its own family", CHECK_NONE,
-               wrong == 0u && count == 41u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
+               wrong == 0u && count == 42u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
                    UiFamilyOf(NULL) == UI_FAMILY_OTHER,
                "%u of %u suites under the wrong family, the first %s", (unsigned)wrong,
                (unsigned)count, first);
@@ -2029,6 +2031,114 @@ static void CheckListen(Fixture *f) {
                (unsigned)listen_header, (unsigned)listen_second);
 }
 
+/// The pad family's screen: its rows where the running screen has them, the prompt large, the
+/// live state and the sticks' boxes following the values, the prompt before in its result's
+/// colour, and nothing drawn past a small frame. And its row on the start screen, which turns the
+/// family that only runs when named.
+static void CheckPad(Fixture *f) {
+    const UiFrame frame = { f->pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
+    UiPadScreen screen;
+    memset(&screen, 0, sizeof(screen));
+    screen.heading = "edenprobe 0.3.0 (test)";
+    screen.prompt = 1u;
+    screen.prompts = (uint32_t)PadPromptCount();
+    screen.big = PadPromptAt(0)->big;
+    screen.how = PadPromptAt(0)->how;
+    screen.state = "waiting: 9 s left";
+    screen.controllers = "No1 FullKey";
+    UiComposePad(&frame, &screen);
+    DumpFrame(&frame, "20-pad-first");
+    const uint32_t first = HashRows(&frame, 100u, 300u);
+    const uint32_t header = CountLit(&frame, 8u, 24u);
+    const uint32_t second = CountLit(&frame, 30u, 46u);
+    const uint32_t big_top = UI_PROGRESS_BAR_TOP + UI_PROGRESS_BAR_HEIGHT + 24u;
+    const uint32_t big = CountLit(&frame, big_top, big_top + 8u * UI_PAD_BIG);
+    const uint32_t foot = CountLit(&frame, FRAME_HEIGHT - 14u, FRAME_HEIGHT - 6u);
+    const uint32_t before_none = CountColour(&frame, 0, 0, FRAME_WIDTH, FRAME_HEIGHT, FAILED);
+
+    // The same prompt with the stick moved and a failure before it.
+    static const uint8_t MARK[3] = { 0xE0, 0xE4, 0xEC };
+    const uint32_t box_x = FRAME_WIDTH - 32u - 2u * 112u - 24u;
+    uint32_t box_y = 0;
+    for (uint32_t y = big_top; y < FRAME_HEIGHT && box_y == 0u; ++y) {
+        const uint8_t *const p = UiPixel(&frame, box_x + 20u, y);
+        box_y = p != NULL && p[0] == 0x50 && p[1] == 0x58 && p[2] == 0x68 ? y : 0u;
+    }
+    const uint32_t centre = CountColour(&frame, box_x + 52u, box_y + 52u, box_x + 60u,
+                                        box_y + 60u, MARK);
+    screen.left_x = PAD_STICK_FULL;
+    screen.left_y = PAD_STICK_FULL;
+    screen.prompt = 2u;
+    screen.last = "asked for A, arrived B";
+    screen.last_result = REPORT_FAIL;
+    screen.held = PAD_A | PAD_ZR;
+    UiComposePad(&frame, &screen);
+    DumpFrame(&frame, "21-pad-moved");
+    const uint32_t corner = CountColour(&frame, box_x + 104u - 8u, box_y + 2u, box_x + 110u,
+                                        box_y + 12u, MARK);
+    const uint32_t centre_after = CountColour(&frame, box_x + 52u, box_y + 52u, box_x + 60u,
+                                              box_y + 60u, MARK);
+    const uint32_t before_failed =
+        CountColour(&frame, 0, box_y + 112u, FRAME_WIDTH, FRAME_HEIGHT - 20u, FAILED);
+    const uint32_t bar_done =
+        CountColour(&frame, 0, UI_PROGRESS_BAR_TOP, FRAME_WIDTH,
+                    UI_PROGRESS_BAR_TOP + UI_PROGRESS_BAR_HEIGHT, PASSED);
+    const uint32_t width = FRAME_WIDTH - 64u;
+    const bool bar_right = bar_done == (width * 1u / screen.prompts) * UI_PROGRESS_BAR_HEIGHT;
+
+    // A word too long for eight times the cell comes down a size rather than off the frame.
+    screen.big = "a prompt far too long to sit at the largest size";
+    UiComposePad(&frame, &screen);
+    const uint32_t right_edge = CountLit(&frame, UI_PROGRESS_BAR_TOP + 24u,
+                                         UI_PROGRESS_BAR_TOP + 120u);
+    const UiFrame small = { f->pixels, 24u, 100u, 24u * 4u };
+    const size_t used = (size_t)small.pitch * small.height;
+    memset(f->pixels + used, 0xA5, 64u);
+    UiComposePad(&small, &screen);
+    uint32_t spilled = 0;
+    for (size_t b = used; b < used + 64u; ++b) {
+        spilled += f->pixels[b] != 0xA5 ? 1u : 0u;
+    }
+    UiComposePad(&frame, NULL);
+    CHECK_TRUE(SUITE, "the pad screen shows the prompt large, what the controller sends and the "
+                      "prompt before in its colour",
+               CHECK_NONE,
+               header > 40u && second > 40u && big > 1500u && foot > 100u && before_none == 0u &&
+                   box_y > 0u && centre > 0u && corner > 0u && centre_after == 0u &&
+                   before_failed > 100u && bar_right && first != HashRows(&frame, 100u, 300u) &&
+                   right_edge > 0u && spilled == 0u,
+               "header %u second %u big %u foot %u red before %u; box at %u, centre %u corner %u "
+               "after %u; red after %u; bar %u; long %u; spilled %u",
+               (unsigned)header, (unsigned)second, (unsigned)big, (unsigned)foot,
+               (unsigned)before_none, (unsigned)box_y, (unsigned)centre, (unsigned)corner,
+               (unsigned)centre_after, (unsigned)before_failed, (unsigned)bar_done,
+               (unsigned)right_edge, (unsigned)spilled);
+
+    // The family only runs when named, on the screen as in the file.
+    UiStartInfo info;
+    memset(&info, 0, sizeof(info));
+    info.families_present = MODE_FAMILIES_PRESENT;
+    const UiStartState plain = StartFrom(NULL);
+    const UiStartState pad = StartChoose(plain, UI_START_ROW_PAD, &info);
+    const RunMode chosen = UiStartMode(&pad, ModeFromText(NULL), MODE_FAMILIES_PRESENT);
+    char key[128];
+    ModeKey(key, sizeof(key), &chosen);
+    const RunMode named = ModeFromText("quick pad");
+    char key_named[128];
+    ModeKey(key_named, sizeof(key_named), &named);
+    CHECK_TRUE(SUITE, "the pad family runs only when named, and the start screen has its row",
+               CHECK_NONE,
+               (plain.families & MODE_FAMILY_PAD) == 0u &&
+                   (pad.families & MODE_FAMILY_PAD) != 0u &&
+                   (ModeFamiliesToRun(&chosen, MODE_FAMILIES_PRESENT) & MODE_FAMILY_PAD) != 0u &&
+                   strstr(key, "pad") != NULL && strcmp(key_named, "pad") == 0 &&
+                   ModeFamiliesToRun(&named, MODE_FAMILIES_PRESENT) == MODE_FAMILY_PAD &&
+                   UiFamilyOf("pad") == UI_FAMILY_PAD &&
+                   strcmp(UiFamilyName(UI_FAMILY_PAD), "pad") == 0,
+               "plain %x, row %x, key \"%s\", named \"%s\"", (unsigned)plain.families,
+               (unsigned)pad.families, key, key_named);
+}
+
 void RunSupportScreens(void) {
     Fixture *const f = (Fixture *)calloc(1, sizeof(Fixture));
     if (f == NULL) {
@@ -2045,6 +2155,7 @@ void RunSupportScreens(void) {
     CheckNavigation(f);
     CheckButtons();
     CheckListen(f);
+    CheckPad(f);
     CheckScreens(f);
     CheckOverflow(f);
     CheckEdges(f);

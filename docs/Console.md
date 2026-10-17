@@ -64,7 +64,7 @@ cursor walks its rows, each starting as the mode file leaves it:
 | row | what it turns |
 |---|---|
 | begin the run | where the cursor starts: A here begins the run, as plus or minus does from any row |
-| graphics, fs, audio, net | the families, each on or off; the judge and the cpu suite run whatever is chosen |
+| graphics, fs, audio, net, pad | the families, each on or off; the judge and the cpu suite run whatever is chosen, and pad, which waits for a person, right after cpu (see [The pad family](families/Pad.md)) |
 | listen | the listening sequence before the audio suite (see [The audio family](families/Audio.md)); turning it on turns audio on, turning audio off turns it off |
 | quick | leave when the report closes, with no results screens |
 | notime | each drawing suite once, with no timing passes |
@@ -134,6 +134,10 @@ the results screens: Y is unused there, and X cycles pictures only on a case, wh
 during the sequence; the start screen has closed before any suite runs. A hold of X at launch was
 already read, and a hold is not a press. Plus, minus and the other buttons do nothing on this
 screen, so they cannot quit the sequence.
+
+The pad family's screen is up while its prompts run. Every button is what it asks about, so none of
+them does anything there but answer: a prompt for a button takes whatever arrives, a question takes
+up for yes and down for no on the d-pad, and nothing quits it; each prompt runs out by itself.
 
 Every list comes round at either end. A direction held down acts again after twenty frames and then
 every four, so the reference suite's two hundred and twenty cases do not take a press each; what

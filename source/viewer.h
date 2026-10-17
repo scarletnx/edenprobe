@@ -101,6 +101,16 @@ ViewerListenAction ViewerListenPoll(void);
 /// frame stays up while they run. Safe when the screen never opened.
 void ViewerListenClose(void);
 
+/// Draws the pad family's screen into the program's one framebuffer, which the first call opens
+/// unless a screen before it did. False when there is no screen: the suite then runs its prompts
+/// with nothing to show them, and a person has only the log.
+bool ViewerPadShow(const UiPadScreen *screen);
+
+/// Ends the pad screen, and closes the framebuffer only when the first ViewerPadShow opened it.
+/// The running screen keeps off the framebuffer while the pad screen is up. Safe when it never
+/// opened.
+void ViewerPadClose(void);
+
 #ifdef __cplusplus
 }
 #endif

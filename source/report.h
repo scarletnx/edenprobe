@@ -149,6 +149,8 @@ typedef enum {
     /// In the hang table, and the mode word `hang` did not ask. Retry does not run it:
     /// running it again is what hangs the launch.
     REPORT_REASON_HANG,
+    /// It asked a person, and nobody answered in time.
+    REPORT_REASON_UNANSWERED,
     REPORT_REASON_COUNT,
 } ReportReason;
 

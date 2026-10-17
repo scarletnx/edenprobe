@@ -355,12 +355,13 @@ static bool progress_drawn_once;
 static char progress_suite[REPORT_KEPT_SUITE];
 static char progress_name[REPORT_KEPT_NAME];
 
-// The listening sequence's screen is up from its first frame to its close, and the running
-// screen keeps off it; declared here, set below.
+// The listening sequence's screen and the pad screen are each up from their first frame to their
+// close, and the running screen keeps off them; declared here, set below.
 static bool listen_open;
+static bool pad_open;
 
 static void ProgressDraw(bool step_began) {
-    if (!progress_on || !screen_open || listen_open) {
+    if (!progress_on || !screen_open || listen_open || pad_open) {
         return;
     }
     const uint64_t now = armGetSystemTick();
@@ -529,4 +530,41 @@ void ViewerListenClose(void) {
     listen_tried = true;
     listen_pad_ready = false;
     listen_drawn = false;
+}
+
+// The pad family's screen, drawn by its suite; it leaves the framebuffer as it found it, as the
+// listening screen does.
+static bool pad_opened_screen;
+
+bool ViewerPadShow(const UiPadScreen *shown) {
+    if (shown == NULL) {
+        return false;
+    }
+    if (!pad_open) {
+        const bool was_open = screen_open;
+        if (!OpenScreen()) {
+            return false;
+        }
+        pad_opened_screen = !was_open;
+        pad_open = true;
+    }
+    uint32_t stride = 0;
+    uint8_t *const pixels = (uint8_t *)framebufferBegin(&screen, &stride);
+    if (pixels == NULL) {
+        return false;
+    }
+    if (stride >= SCREEN_WIDTH * 4u) {
+        const UiFrame frame = { pixels, SCREEN_WIDTH, SCREEN_HEIGHT, stride };
+        UiComposePad(&frame, shown);
+    }
+    framebufferEnd(&screen);
+    return true;
+}
+
+void ViewerPadClose(void) {
+    if (pad_open && pad_opened_screen) {
+        CloseScreen();
+    }
+    pad_open = false;
+    pad_opened_screen = false;
 }

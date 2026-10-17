@@ -47,6 +47,8 @@ extern "C" {
 ///             makes sound, so it runs only when named or with `listen`.
 ///   video     another: the video image compositor, given input the processor wrote. It runs
 ///             only when named until a console has shown its jobs never hang.
+///   pad       another: a person presses each button the screen names and the run records what
+///             arrived. It waits for a person, so it runs only when named.
 ///   net       another: the online services, nifm to friend, against the backend the file
 ///             sdmc:/edenprobe/net names (see netref.h).
 ///
@@ -57,7 +59,7 @@ extern "C" {
 /// in the mode line, and the run goes in the folder with no label.
 ///
 /// Families choose which suites beyond the judge run. None named means every family this build
-/// has but audio and video. The judge itself (selfcheck, support, reference) always runs,
+/// has but audio, video and pad. The judge itself (selfcheck, support, reference) always runs,
 /// because no verdict below it can be believed without it, and so does cpu, which needs no
 /// device. Any other word is reported and ignored, never fatal: a file with a typo in it still
 /// gets a run, and a line in the report saying what was not understood.
@@ -70,16 +72,17 @@ enum {
     MODE_FAMILY_FS = 1u << 3,
     MODE_FAMILY_AUDIO = 1u << 4,
     MODE_FAMILY_VIDEO = 1u << 5,
+    MODE_FAMILY_PAD = 1u << 6,
 };
 
 /// The families this build carries. A family named in the file and missing here is reported,
 /// not run.
 #define MODE_FAMILIES_PRESENT                                                                     \
-    ((uint32_t)(MODE_FAMILY_CPU | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS | MODE_FAMILY_VIDEO |    \
-                MODE_FAMILY_AUDIO | MODE_FAMILY_NET))
+    ((uint32_t)(MODE_FAMILY_CPU | MODE_FAMILY_PAD | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS |      \
+                MODE_FAMILY_VIDEO | MODE_FAMILY_AUDIO | MODE_FAMILY_NET))
 
 /// The families that run only when a word asks for them.
-#define MODE_FAMILIES_ASKED ((uint32_t)(MODE_FAMILY_AUDIO | MODE_FAMILY_VIDEO))
+#define MODE_FAMILIES_ASKED ((uint32_t)(MODE_FAMILY_AUDIO | MODE_FAMILY_VIDEO | MODE_FAMILY_PAD))
 
 /// What runs when the file names no family.
 #define MODE_FAMILIES_DEFAULT ((uint32_t)(MODE_FAMILIES_PRESENT & ~MODE_FAMILIES_ASKED))

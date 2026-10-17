@@ -80,6 +80,9 @@ static const Step STEPS[] = {
     { "support", RunSupportSteps, 0, false, false },
     { "reference", RunReference, 0, false, false },
     { "cpu", RunCpu, 0, false, true },
+    // Right after the processor, which takes seconds: a person sits in front of this one, and
+    // should not wait for the families that need nobody. Untimed: a person's press is the point.
+    { "pad", RunPad, MODE_FAMILY_PAD, false, true },
     { "clear", RunClear, MODE_FAMILY_GRAPHICS, true, true },
     { "format", RunFormat, MODE_FAMILY_GRAPHICS, true, true },
     { "raster", RunRaster, MODE_FAMILY_GRAPHICS, true, true },
@@ -446,6 +449,7 @@ int main(int argc, char **argv) {
     }
     static char running[96];
     snprintf(running, sizeof(running), "edenprobe %s (%s)", EDENPROBE_VERSION, EDENPROBE_BUILD);
+    PadSetHeading(running);
     if (!mode.no_progress) {
         ViewerProgressBegin(running, run_directory, steps, !mode.detailed, mode.detailed);
     }

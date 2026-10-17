@@ -685,7 +685,7 @@ static void EndCase(const char *suite, const char *name, CheckTier tier, bool pa
 }
 
 static const char *const REASON_WORDS[REPORT_REASON_COUNT] = {
-    "crashed", "may crash", "not configured", "unavailable", "depends", "hangs",
+    "crashed", "may crash", "not configured", "unavailable", "depends", "hangs", "unanswered",
 };
 
 const char *ReportReasonWord(ReportReason reason) {

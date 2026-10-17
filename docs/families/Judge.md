@@ -7,20 +7,20 @@ family reports can be believed without them.
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and forty five cases, no hardware involved: what the program does around
+- **support**, one hundred and forty seven cases, no hardware involved: what the program does around
   a verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
   detailed mode's store, screens and navigation, the start screen, the screen that asks whether to
-  go on with a run, the running screen and the listening screen, the mode file and its words, the
-  label and the folder it names, the `skip` result, the time a case reports (nineteen cases, see
-  [Time per case](../TimePerCase.md)), the journal, the crash list, the may-crash and hang tables
-  and what a launch decides from them (twenty seven cases, see [When the program ends in the
-  middle](../Crashes.md)), and the last copy a device waits for before it closes, and the note a
+  go on with a run, the running screen, the listening screen and the pad screen, the mode file and
+  its words, the label and the folder it names, the `skip` result, the time a case reports (nineteen
+  cases, see [Time per case](../TimePerCase.md)), the journal, the crash list, the may-crash and
+  hang tables and what a launch decides from them (twenty seven cases, see [When the program ends in
+  the middle](../Crashes.md)), and the last copy a device waits for before it closes, and the note a
   late one leaves (eight cases). One case carries the whole idea: the diff picture is built from
   what the judge decided pixel by pixel, not from comparing two images, so a pixel that differs and
   was allowed to is not painted as a difference. Every line is the none tier, because none of it is
-  a claim about a machine. On a computer (`make -f host.mk host-run`) the suite has one case more:
-  a backward seek that drops a buffered line, which needs the C library's own stream buffer.
-- **reference**, two hundred and twenty cases, no hardware involved either: the other half of
+  a claim about a machine. On a computer (`make -f host.mk host-run`) the suite has one case more: a
+  backward seek that drops a buffered line, which needs the C library's own stream buffer.
+- **reference**, two hundred and thirty four cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -75,4 +75,7 @@ family reports can be believed without them.
   - thirty on the video family's judge, `source/vicref.c`, held to `tools/vic-expect.py`: the
     BT.601 colours, the shift's two orders and the clamp by value, the configuration structure
     word by word and by hash, the command words, every case's output under each combination of
-    its answers, and the judge on outputs made to order (see [The video family](Video.md)).
+    its answers, and the judge on outputs made to order (see [The video family](Video.md));
+  - fourteen on the pad family's rules, `source/padref.c`: the prompts, what a press is and when a
+    prompt runs out, the stick distances, edges and their shape, the styles and ids, the slots and
+    each controller's press, against answers worked out by hand (see [The pad family](Pad.md)).
