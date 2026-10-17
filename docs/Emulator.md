@@ -55,6 +55,22 @@ writes no file, so the start screen and the results come up, each counting down 
 the program leaves by itself, which is the way to see them from here. `XDG` moves the whole tree:
 `make run XDG=/elsewhere` starts from an empty card there.
 
+**On a display nobody is using.** A closed window stops the emulator, and the run then says the
+launch exited 0 inside whatever case was running, which reads like a crash and is not one; a run
+nobody needs to watch can go on a private X server instead, where no window comes up. Under Xvfb the
+Vulkan backend finds no queue that can present and the emulator stops before the program starts; the
+OpenGL one runs on the software rasteriser, which the audio and pad families were run with (a pad
+run then waits out its first screen, nobody being there). Set `backend=0` under `[Renderer]` in the
+`sdl2-config.ini` of an `XDG` of its own, then:
+
+```sh
+Xvfb :79 -screen 0 1280x720x24 -nolisten tcp &
+DISPLAY=:79 make run MODE="quick audio" XDG=/somewhere/xvfb-xdg
+```
+
+The graphics family is not for this: its cases want a real rendering backend, as the next paragraph
+says.
+
 The run needs a real rendering backend. On a null or headless backend the selfcheck cases still
 report and the device still opens, then every drawing case fails with every pixel reading zero,
 because a backend that draws nothing is doing exactly as asked: a property of the run, not a defect
