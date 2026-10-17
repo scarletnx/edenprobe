@@ -559,29 +559,41 @@ static void Actual(char *out, size_t out_size) {
              (double)value.freq_high);
 }
 
-/// Up for yes, down for no, within the prompt's ten seconds.
-static Asked AskYesNo(PadAnswer *answer) {
+/// Up for yes, down for no, or a tap on the bar's yes or no, within the prompt's ten seconds.
+static Asked AskYesNo(PadAnswer *answer, bool *by_touch) {
     *answer = PAD_ANSWER_NONE;
+    *by_touch = false;
     int slot = -1;
     uint64_t before = ReadPads(&slot);
     const uint64_t began = Now();
+    ViewerPadTapBegin();
+    screen.asks_yes_no = true;
+    Asked asked = ASKED_UNANSWERED;
     for (;;) {
         if (!appletMainLoop()) {
-            return ASKED_CLOSED;
+            asked = ASKED_CLOSED;
+            break;
         }
         const uint64_t held = ReadPads(&slot);
         *answer = PadAnswerOf(PadEdges(before, held));
         before = held;
+        if (*answer == PAD_ANSWER_NONE) {
+            *answer = ViewerPadTap();
+            *by_touch = *answer != PAD_ANSWER_NONE;
+        }
         if (*answer != PAD_ANSWER_NONE) {
-            return ASKED_ANSWERED;
+            asked = ASKED_ANSWERED;
+            break;
         }
         if (Now() - began >= PAD_PROMPT_NANOSECONDS) {
-            return ASKED_UNANSWERED;
+            break;
         }
-        SecondsLeft("up: yes, down: no", began, PAD_PROMPT_NANOSECONDS);
+        SecondsLeft("up: yes, down: no, or tap", began, PAD_PROMPT_NANOSECONDS);
         Draw(held, false);
         svcSleepThread(FRAME_NANOSECONDS);
     }
+    screen.asks_yes_no = false;
+    return asked;
 }
 
 // What the last vibration left: the value held while it ran, for the stopped case's line.
@@ -622,24 +634,24 @@ static Asked AskVibration(size_t index, const PadPrompt *prompt) {
         Actual(after_stop, sizeof(after_stop));
     }
     PadAnswer answer = PAD_ANSWER_NONE;
-    const Asked asked = AskYesNo(&answer);
+    bool by_touch = false;
+    const Asked asked = AskYesNo(&answer, &by_touch);
     if (asked == ASKED_CLOSED) {
         return ASKED_CLOSED;
     }
     if (asked == ASKED_UNANSWERED) {
         ReportSkip(SUITE, prompt->name, REPORT_REASON_UNANSWERED,
-                   "neither up nor down was pressed within 10 s");
+                   "neither up nor down was pressed, nor yes or no tapped, within 10 s");
         Linger(REPORT_SKIP, "%s: no answer", prompt->big);
     return ASKED_UNANSWERED;
     }
     const bool yes = answer == PAD_ANSWER_YES;
     char detail[300];
+    const char *const said = by_touch ? (yes ? "yes, tapped" : "no, tapped") : yes ? "yes" : "no";
     if (prompt->ask == PAD_ASK_VIBRATION) {
-        snprintf(detail, sizeof(detail), "felt: %s; while it ran %s", yes ? "yes" : "no",
-                 held_value);
+        snprintf(detail, sizeof(detail), "felt: %s; while it ran %s", said, held_value);
     } else {
-        snprintf(detail, sizeof(detail), "stopped: %s; after nought %s", yes ? "yes" : "no",
-                 after_stop);
+        snprintf(detail, sizeof(detail), "stopped: %s; after nought %s", said, after_stop);
     }
     ReportCase(SUITE, prompt->name, CHECK_LEVEL, yes, detail);
     Linger(yes ? REPORT_PASS : REPORT_FAIL, "%s", detail);

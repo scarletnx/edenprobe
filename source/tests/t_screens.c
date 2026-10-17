@@ -320,6 +320,21 @@ static uint32_t CountLit(const UiFrame *frame, uint32_t y0, uint32_t y1) {
     return lit;
 }
 
+/// Pixels other than the background inside a rectangle.
+static uint32_t CountLitIn(const UiFrame *frame, uint32_t x0, uint32_t y0, uint32_t x1,
+                           uint32_t y1) {
+    uint32_t lit = 0;
+    for (uint32_t y = y0; y < y1; ++y) {
+        for (uint32_t x = x0; x < x1; ++x) {
+            const uint8_t *const pixel = UiPixel(frame, x, y);
+            if (pixel != NULL && memcmp(pixel, BACKGROUND, 3u) != 0) {
+                ++lit;
+            }
+        }
+    }
+    return lit;
+}
+
 /// Lines of text between two rows: runs of rows with something drawn in them.
 static uint32_t TextLines(const UiFrame *frame, uint32_t y0, uint32_t y1) {
     uint32_t lines = 0;
@@ -1075,6 +1090,7 @@ static void CheckScreens(Fixture *f) {
     };
     uint32_t crowded = 0;
     uint32_t unlabelled = 0;
+    uint32_t barless = 0;
     for (size_t i = 0; i < sizeof(SCREENS) / sizeof(SCREENS[0]); ++i) {
         UiState at = UiStart(run);
         at.level = SCREENS[i].level;
@@ -1084,13 +1100,21 @@ static void CheckScreens(Fixture *f) {
                        : 0u;
         at.view = SCREENS[i].view;
         UiCompose(&frame, run, at, UiOpenPicture(run, at) >= 0 ? &f->picture : NULL);
-        crowded += CountLit(&frame, FRAME_HEIGHT - 31u, FRAME_HEIGHT - 15u) > 0u ? 1u : 0u;
-        unlabelled += CountLit(&frame, FRAME_HEIGHT - 14u, FRAME_HEIGHT - 6u) > 100u ? 0u : 1u;
+        // Left of the touch bar, which sits over the foot at the right.
+        const uint32_t right = UiFootRight(FRAME_WIDTH);
+        crowded += CountLitIn(&frame, 0, FRAME_HEIGHT - 31u, right, FRAME_HEIGHT - 15u) > 0u;
+        unlabelled +=
+            CountLitIn(&frame, 0, FRAME_HEIGHT - 14u, right, FRAME_HEIGHT - 6u) > 100u ? 0u : 1u;
+        const UiRect box = UiTouchBox(FRAME_WIDTH, FRAME_HEIGHT, 1u, 0u);
+        barless += CountColour(&frame, box.x + 1u, box.y + 1u, box.x + box.width - 1u,
+                               box.y + box.height - 1u, SELECTED) > 100u
+                       ? 0u
+                       : 1u;
     }
     CHECK_TRUE(SUITE, "every screen leaves the countdown its rows and names its buttons",
-               CHECK_NONE, crowded == 0u && unlabelled == 0u,
-               "%u screens drew into the countdown's rows, %u had no button line",
-               (unsigned)crowded, (unsigned)unlabelled);
+               CHECK_NONE, crowded == 0u && unlabelled == 0u && barless == 0u,
+               "%u screens drew into the countdown's rows, %u had no button line, %u no touch bar",
+               (unsigned)crowded, (unsigned)unlabelled, (unsigned)barless);
 }
 
 /// The corners a real run does not reach: a frame smaller than the console's, a group of hundreds
@@ -2146,6 +2170,209 @@ static void CheckPad(Fixture *f) {
                (unsigned)pad.families, key, key_named);
 }
 
+static UiTap TapAt(uint32_t x, uint32_t y) {
+    const UiTap tap = { x, y, x, y };
+    return tap;
+}
+
+/// The middle of box @p index of a bar of @p count.
+static UiTap TapBox(uint32_t count, uint32_t index) {
+    const UiRect box = UiTouchBox(FRAME_WIDTH, FRAME_HEIGHT, count, index);
+    return TapAt(box.x + box.width / 2u, box.y + box.height / 2u);
+}
+
+/// Whether box @p index of a bar of @p count is drawn whole: the band inside it above its word,
+/// every pixel of it in the cursor row's colour, and its word under that.
+static bool BoxDrawn(const UiFrame *frame, uint32_t count, uint32_t index) {
+    const UiRect box = UiTouchBox(frame->width, frame->height, count, index);
+    const uint32_t word = box.y + (box.height - 16u) / 2u;
+    return box.width > 0u &&
+           CountColour(frame, box.x + 1u, box.y + 1u, box.x + box.width - 1u, word, SELECTED) ==
+               (box.width - 2u) * (word - box.y - 1u) &&
+           CountLitIn(frame, box.x + 1u, word, box.x + box.width - 1u, word + 16u) >
+               (box.width - 2u) * 16u / 2u;
+}
+
+/// Touch: a tap is one finger that went down after the settling frames and came up again, a row
+/// tapped is the cursor's and then chosen, and each box does what its word says.
+static void CheckTouch(Fixture *f) {
+    // The finger, frame by frame.
+    UiTouch touch;
+    UiTap tap = { 0, 0, 0, 0 };
+    UiTouchReset(&touch);
+    const bool held_at_open = UiTouchStep(&touch, 1u, 50u, 50u, 0u, &tap) == UI_TOUCH_NONE &&
+                              UiTouchStep(&touch, 0u, 0u, 0u, 1u, &tap) == UI_TOUCH_NONE;
+    const bool settling = UiTouchStep(&touch, 1u, 50u, 50u, UI_SETTLING_FRAMES - 1u, &tap) ==
+                              UI_TOUCH_NONE &&
+                          UiTouchStep(&touch, 0u, 0u, 0u, UI_SETTLING_FRAMES, &tap) ==
+                              UI_TOUCH_NONE;
+    const UiTouchEvent began = UiTouchStep(&touch, 1u, 100u, 200u, UI_SETTLING_FRAMES, &tap);
+    const UiTouchEvent moved = UiTouchStep(&touch, 1u, 110u, 205u, UI_SETTLING_FRAMES, &tap);
+    const UiTouchEvent lifted = UiTouchStep(&touch, 0u, 0u, 0u, UI_SETTLING_FRAMES, &tap);
+    const bool one = began == UI_TOUCH_BEGAN && moved == UI_TOUCH_NONE &&
+                     lifted == UI_TOUCH_TAP && tap.x0 == 100u && tap.y0 == 200u &&
+                     tap.x1 == 110u && tap.y1 == 205u;
+    // A second finger, joining or there from the start, makes it no tap.
+    const bool two = UiTouchStep(&touch, 1u, 10u, 10u, 20u, &tap) == UI_TOUCH_BEGAN &&
+                     UiTouchStep(&touch, 2u, 10u, 10u, 21u, &tap) == UI_TOUCH_NONE &&
+                     UiTouchStep(&touch, 1u, 10u, 10u, 22u, &tap) == UI_TOUCH_NONE &&
+                     UiTouchStep(&touch, 0u, 0u, 0u, 23u, &tap) == UI_TOUCH_NONE &&
+                     UiTouchStep(&touch, 2u, 10u, 10u, 24u, &tap) == UI_TOUCH_NONE &&
+                     UiTouchStep(&touch, 0u, 0u, 0u, 25u, &tap) == UI_TOUCH_NONE;
+    CHECK_TRUE(SUITE, "a tap is one finger down after the screen settled, counted when lifted",
+               CHECK_NONE, held_at_open && settling && one && two,
+               "held at open %d, settling %d, one %d (began %d moved %d lifted %d at %u,%u to "
+               "%u,%u), two fingers %d",
+               held_at_open, settling, one, (int)began, (int)moved, (int)lifted,
+               (unsigned)tap.x0, (unsigned)tap.y0, (unsigned)tap.x1, (unsigned)tap.y1, two);
+
+    // The start screen: a row, the same row again to choose it, the box to begin.
+    UiStartInfo info;
+    memset(&info, 0, sizeof(info));
+    info.heading = "edenprobe 0.3.0 (test)";
+    info.families_present = MODE_FAMILIES_PRESENT;
+    const uint32_t row_y = UiStartRowTop(UI_START_ROW_GRAPHICS) + UI_ROW_HEIGHT / 2u;
+    const UiStartState plain = StartFrom(NULL);
+    UiTap graphics = TapAt(300u, row_y);
+    const UiStartState moved_to = UiStartTap(plain, &graphics, FRAME_WIDTH, FRAME_HEIGHT, &info);
+    const UiStartState chosen = UiStartTap(moved_to, &graphics, FRAME_WIDTH, FRAME_HEIGHT, &info);
+    UiTap slid = { 300u, row_y, 300u, row_y + UI_ROW_HEIGHT };
+    const UiStartState slid_off = UiStartTap(moved_to, &slid, FRAME_WIDTH, FRAME_HEIGHT, &info);
+    UiTap heading = TapAt(300u, 12u);
+    const UiStartState off_rows = UiStartTap(plain, &heading, FRAME_WIDTH, FRAME_HEIGHT, &info);
+    UiTap begin_row = TapAt(300u, UiStartRowTop(UI_START_ROW_BEGIN) + 4u);
+    const UiStartState begun_row = UiStartTap(plain, &begin_row, FRAME_WIDTH, FRAME_HEIGHT, &info);
+    UiTap begin_box = TapBox(1u, 0u);
+    const UiStartState begun_box =
+        UiStartTap(moved_to, &begin_box, FRAME_WIDTH, FRAME_HEIGHT, &info);
+    const bool start =
+        moved_to.cursor == UI_START_ROW_GRAPHICS && moved_to.families == plain.families &&
+        moved_to.changed && (chosen.families & MODE_FAMILY_GRAPHICS) == 0u &&
+        (plain.families & MODE_FAMILY_GRAPHICS) != 0u && slid_off.families == moved_to.families &&
+        slid_off.cursor == moved_to.cursor && off_rows.cursor == plain.cursor &&
+        !off_rows.begun && begun_row.begun && begun_box.begun &&
+        (begun_box.families & MODE_FAMILY_GRAPHICS) != 0u;
+    const UiFrame frame = { f->pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
+    UiComposeStart(&frame, &info, plain, 7u);
+    const bool start_bar = BoxDrawn(&frame, 1u, 0u);
+
+    // The resume screen: a choice, then the same choice to take it.
+    UiTap over = TapAt(300u, UiResumeRowTop(UI_RESUME_START_OVER) + UI_ROW_HEIGHT);
+    const UiResumeState resume_moved = UiResumeTap(UiResumeOpen(), &over, FRAME_WIDTH,
+                                                   FRAME_HEIGHT);
+    const UiResumeState resume_taken = UiResumeTap(resume_moved, &over, FRAME_WIDTH, FRAME_HEIGHT);
+    UiTap go_on = TapAt(300u, UiResumeRowTop(UI_RESUME_GO_ON) + 4u);
+    const UiResumeState resume_on = UiResumeTap(UiResumeOpen(), &go_on, FRAME_WIDTH, FRAME_HEIGHT);
+    const bool resume = resume_moved.cursor == UI_RESUME_START_OVER && !resume_moved.decided &&
+                        resume_taken.decided && resume_taken.start_over && resume_on.decided &&
+                        !resume_on.start_over;
+    CHECK_TRUE(SUITE, "on the start and resume screens a tapped row is the cursor's, then chosen",
+               CHECK_NONE, start && start_bar && resume,
+               "start: cursor %u families %x, again %x, slid %x, heading %u, begin row %d box %d, "
+               "bar drawn %d; resume: %u %d, again %d %d, go on %d %d",
+               (unsigned)moved_to.cursor, (unsigned)moved_to.families, (unsigned)chosen.families,
+               (unsigned)slid_off.families, (unsigned)off_rows.cursor, begun_row.begun,
+               begun_box.begun, start_bar, (unsigned)resume_moved.cursor, resume_moved.decided,
+               resume_taken.decided, resume_taken.start_over, resume_on.decided,
+               resume_on.start_over);
+
+    // The results: a group's row, again to open it, a case's row, again to open it, then the
+    // case after, back, back and quit, each from the bar.
+    const UiRun *const run = &f->run;
+    UiState state = UiStart(run);
+    const uint32_t rows = UiListRows(UI_LEVEL_OVERVIEW, FRAME_HEIGHT);
+    const uint32_t total = UiOverviewRow(run, run->group_count - 1u) + 1u;
+    const uint32_t first = UiListFirst(UiOverviewRow(run, state.group), total, rows);
+    const uint32_t ssl = GroupNamed(run, "ssl");
+    const uint32_t ssl_y = UI_LIST_TOP + (UiOverviewRow(run, ssl) - first) * UI_ROW_HEIGHT + 10u;
+    UiTap on_ssl = TapAt(400u, ssl_y);
+    const UiState on_group = UiTapStep(state, &on_ssl, run, FRAME_WIDTH, FRAME_HEIGHT);
+    const UiState opened = UiTapStep(on_group, &on_ssl, run, FRAME_WIDTH, FRAME_HEIGHT);
+    // The family heading above the first group, the list's top row with the cursor on that group,
+    // is not a group.
+    UiState top = state;
+    top.group = 0u;
+    UiTap on_heading = TapAt(400u, UI_LIST_TOP + UI_ROW_HEIGHT / 2u);
+    const UiState headed = UiTapStep(top, &on_heading, run, FRAME_WIDTH, FRAME_HEIGHT);
+    const uint32_t named = CaseNamed(run, ssl, FAILS_IN_SSL);
+    const uint32_t other = named > 0u ? named - 1u : named + 1u;
+    const uint32_t case_first = UiListFirst(opened.index, run->groups[ssl].count,
+                                            UiListRows(UI_LEVEL_GROUP, FRAME_HEIGHT));
+    UiTap on_case = TapAt(400u, UI_LIST_TOP + (other - case_first) * UI_ROW_HEIGHT + 10u);
+    const UiState on_other = UiTapStep(opened, &on_case, run, FRAME_WIDTH, FRAME_HEIGHT);
+    const UiState in_case = UiTapStep(on_other, &on_case, run, FRAME_WIDTH, FRAME_HEIGHT);
+    UiCompose(&frame, run, in_case, NULL);
+    const bool case_bar = BoxDrawn(&frame, 3u, 0u) && BoxDrawn(&frame, 3u, 2u);
+    UiTap next = TapBox(3u, 1u);
+    const UiState after = UiTapStep(in_case, &next, run, FRAME_WIDTH, FRAME_HEIGHT);
+    UiTap back = TapBox(3u, 2u);
+    const UiState backed = UiTapStep(after, &back, run, FRAME_WIDTH, FRAME_HEIGHT);
+    UiCompose(&frame, run, backed, NULL);
+    UiComposeCountdown(&frame, 9u);
+    const bool group_bar = BoxDrawn(&frame, 1u, 0u);
+    UiTap one_box = TapBox(1u, 0u);
+    const UiState overview = UiTapStep(backed, &one_box, run, FRAME_WIDTH, FRAME_HEIGHT);
+    const UiState quit = UiTapStep(overview, &one_box, run, FRAME_WIDTH, FRAME_HEIGHT);
+    const bool walk = on_group.group == ssl && on_group.level == UI_LEVEL_OVERVIEW &&
+                      on_group.changed && opened.level == UI_LEVEL_GROUP &&
+                      opened.group == ssl && headed.group == 0u && UiOverviewRow(run, 0u) == 1u &&
+                      headed.level == UI_LEVEL_OVERVIEW && on_other.index == other &&
+                      on_other.level == UI_LEVEL_GROUP && in_case.level == UI_LEVEL_CASE &&
+                      in_case.index == other && after.index == other + 1u &&
+                      backed.level == UI_LEVEL_GROUP && overview.level == UI_LEVEL_OVERVIEW &&
+                      !overview.quit && quit.quit;
+
+    // A drawing case has a fourth box, for the view, and it turns the view.
+    const uint32_t pictures = GroupNamed(run, "intmath");
+    UiState drawn = UiStart(run);
+    drawn.level = UI_LEVEL_CASE;
+    drawn.group = pictures;
+    drawn.index = CaseNamed(run, pictures, FAILS_WITH_PICTURE);
+    UiCompose(&frame, run, drawn, &f->picture);
+    const bool four = BoxDrawn(&frame, 4u, 0u) && BoxDrawn(&frame, 4u, 3u);
+    UiTap view = TapBox(4u, 2u);
+    const UiState turned = UiTapStep(drawn, &view, run, FRAME_WIDTH, FRAME_HEIGHT);
+    const UiFrame tiny = { f->pixels, 320u, 200u, 320u * 4u };
+    const UiState small = UiTapStep(drawn, &view, run, tiny.width, tiny.height);
+    CHECK_TRUE(SUITE, "on the results a tapped row is the cursor's, then opened; the bar's boxes "
+                      "do what they say",
+               CHECK_NONE,
+               walk && case_bar && group_bar && four && turned.view == UI_VIEW_GOT &&
+                   small.view == drawn.view,
+               "group %u (ssl %u) level %d, opened %d; heading %u; case %u (wanted %u), opened "
+               "%d; next %u; back %d, %d; quit %d; bars %d %d %d; view %d; small frame %d",
+               (unsigned)on_group.group, (unsigned)ssl, (int)on_group.level, (int)opened.level,
+               (unsigned)headed.group, (unsigned)on_other.index, (unsigned)other,
+               (int)in_case.level, (unsigned)after.index, (int)backed.level,
+               (int)overview.level, quit.quit, case_bar, group_bar, four, (int)turned.view,
+               (int)small.view);
+
+    // The pad screen: yes and no on the bar while a question waits, and nothing otherwise.
+    UiPadScreen pad;
+    memset(&pad, 0, sizeof(pad));
+    pad.heading = "edenprobe 0.3.0 (test)";
+    pad.prompt = 1u;
+    pad.prompts = 2u;
+    pad.big = "felt?";
+    pad.how = "did the controller vibrate?";
+    UiComposePad(&frame, &pad);
+    const bool quiet = !BoxDrawn(&frame, 2u, 0u) && !BoxDrawn(&frame, 2u, 1u);
+    pad.asks_yes_no = true;
+    UiComposePad(&frame, &pad);
+    const bool asking = BoxDrawn(&frame, 2u, 0u) && BoxDrawn(&frame, 2u, 1u);
+    UiTap yes = TapBox(2u, 0u);
+    UiTap no = TapBox(2u, 1u);
+    UiTap middle = TapAt(FRAME_WIDTH / 2u, FRAME_HEIGHT / 2u);
+    const bool answers =
+        UiPadTap(&yes, FRAME_WIDTH, FRAME_HEIGHT, true) == PAD_ANSWER_YES &&
+        UiPadTap(&no, FRAME_WIDTH, FRAME_HEIGHT, true) == PAD_ANSWER_NO &&
+        UiPadTap(&middle, FRAME_WIDTH, FRAME_HEIGHT, true) == PAD_ANSWER_NONE &&
+        UiPadTap(&yes, FRAME_WIDTH, FRAME_HEIGHT, false) == PAD_ANSWER_NONE;
+    CHECK_TRUE(SUITE, "the pad screen's question takes yes or no on the bar, and only then",
+               CHECK_NONE, quiet && asking && answers, "bar before %d, while asking %d, answers %d",
+               !quiet, asking, answers);
+}
+
 void RunSupportScreens(void) {
     Fixture *const f = (Fixture *)calloc(1, sizeof(Fixture));
     if (f == NULL) {
@@ -2163,6 +2390,7 @@ void RunSupportScreens(void) {
     CheckButtons();
     CheckListen(f);
     CheckPad(f);
+    CheckTouch(f);
     CheckScreens(f);
     CheckOverflow(f);
     CheckEdges(f);

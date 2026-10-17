@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "mode.h"
+#include "padref.h"
 #include "picture.h"
 #include "report.h"
 
@@ -238,6 +239,76 @@ typedef struct {
 /// mask the pad reports as held before anyone touched it never scrolls anything.
 uint32_t UiRepeatButtons(UiRepeat *repeat, uint32_t held, uint32_t down, uint32_t frame_index);
 
+/// Touch, on every screen the program draws for a person. A tap is one finger put down after the
+/// screen has settled and lifted again, and it counts when it is lifted, only if the place it
+/// went down and the place it was lifted are the same row or the same box. A tap on a row moves
+/// the cursor there; a tap on the row the cursor is on does what A does there. The boxes of the
+/// touch bar, at the bottom right, do what their buttons do. The buttons are unchanged. Every
+/// decision is here, where the host build checks it; the display only reads the touch screen.
+
+/// A rectangle of the frame.
+typedef struct {
+    uint32_t x;
+    uint32_t y;
+    uint32_t width;
+    uint32_t height;
+} UiRect;
+
+/// Where a tap went down and where it was last seen before it was lifted.
+typedef struct {
+    uint32_t x0;
+    uint32_t y0;
+    uint32_t x1;
+    uint32_t y1;
+} UiTap;
+
+/// The finger being followed, from one frame to the next.
+typedef struct {
+    /// Something was on the screen last frame.
+    bool down;
+    /// It is the start of a tap: one finger, down after the settling frames.
+    bool armed;
+    UiTap tap;
+} UiTouch;
+
+typedef enum {
+    UI_TOUCH_NONE,
+    /// A finger that can be a tap has just gone down, which keeps a screen as a press does.
+    UI_TOUCH_BEGAN,
+    /// A tap has ended; it is in the step's @p tap.
+    UI_TOUCH_TAP,
+} UiTouchEvent;
+
+/// Starts following as if a finger were already down that is not a tap: one on the screen when
+/// a screen opens, or when a question is put, counts only once it is lifted and put down again.
+void UiTouchReset(UiTouch *touch);
+
+/// One frame of the touch screen: @p count fingers on it, the first at @p x, @p y. Nothing while
+/// the screen settles, as for the buttons; a second finger makes the touch not a tap.
+UiTouchEvent UiTouchStep(UiTouch *touch, uint32_t count, uint32_t x, uint32_t y,
+                         uint32_t frame_index, UiTap *tap);
+
+/// The touch bar: up to UI_TOUCH_BOXES boxes along the bottom right of the frame, over the foot.
+#define UI_TOUCH_BOX_WIDTH 88u
+#define UI_TOUCH_BOX_HEIGHT 28u
+#define UI_TOUCH_BOX_GAP 8u
+#define UI_TOUCH_BOXES 4u
+#define UI_TOUCH_BAR_WIDTH                                                                         \
+    (UI_TOUCH_BOXES * UI_TOUCH_BOX_WIDTH + (UI_TOUCH_BOXES - 1u) * UI_TOUCH_BOX_GAP)
+
+/// Box @p index, from the left, of a bar of @p count; all zeros for a frame the screens do not
+/// lay out on, or a box that is not there.
+UiRect UiTouchBox(uint32_t frame_width, uint32_t frame_height, uint32_t count, uint32_t index);
+
+/// Where the countdown and the button line stop, so the widest bar never covers them.
+uint32_t UiFootRight(uint32_t frame_width);
+
+/// The results screens' touch: rows as above; the bar holds quit on the overview, back on a
+/// group, and the case before, the case after, the view (when the case kept pictures) and back on
+/// a case.
+UiState UiTapStep(UiState state, const UiTap *tap, const UiRun *run, uint32_t frame_width,
+                  uint32_t frame_height);
+
 /// Where the screens open: the overview, on the first group that failed if the run had one,
 /// since that is what anyone starting it came to look at.
 UiState UiStart(const UiRun *run);
@@ -369,6 +440,10 @@ enum {
 UiStartState UiStartStep(UiStartState state, uint32_t pressed, uint32_t frame_index,
                          const UiStartInfo *info);
 
+/// One tap: a row, then the same row again to do what A does there; the bar's one box begins.
+UiStartState UiStartTap(UiStartState state, const UiTap *tap, uint32_t frame_width,
+                        uint32_t frame_height, const UiStartInfo *info);
+
 /// How long the start screen waits for a person before it begins with what the file said: a
 /// detailed run nobody attends must not wait for ever, and any press keeps the screen.
 #define UI_START_NANOSECONDS 10000000000ull
@@ -443,6 +518,10 @@ UiResumeState UiResumeOpen(void);
 /// round; choose takes the row under it. A choice in the same edge as a move does nothing: a pad
 /// that connects late reports every button it holds as one edge, and that is nobody choosing.
 UiResumeState UiResumeStep(UiResumeState state, uint32_t pressed, uint32_t frame_index);
+
+/// One tap: a choice, then the same choice again to take it.
+UiResumeState UiResumeTap(UiResumeState state, const UiTap *tap, uint32_t frame_width,
+                          uint32_t frame_height);
 
 /// How long the screen waits for a person before it goes on with the run.
 #define UI_RESUME_NANOSECONDS 10000000000ull
@@ -635,12 +714,18 @@ typedef struct {
     /// The prompt before, what it asked and what came of it; NULL before the first.
     const char *last;
     ReportResult last_result;
+    /// A yes or no question waits: the touch bar holds yes and no.
+    bool asks_yes_no;
 } UiPadScreen;
 
 /// How many times the cell the prompt is drawn at, when it fits across the frame.
 #define UI_PAD_BIG 12u
 
 void UiComposePad(const UiFrame *frame, const UiPadScreen *screen);
+
+/// The answer a tap on the pad screen's bar gives while a question waits, or none.
+PadAnswer UiPadTap(const UiTap *tap, uint32_t frame_width, uint32_t frame_height,
+                   bool asks_yes_no);
 
 #ifdef __cplusplus
 }

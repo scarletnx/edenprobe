@@ -67,6 +67,28 @@ static void ReadPad(PadState *pad) {
     padUpdate(pad);
 }
 
+// The touch screen, read the way libnx's hid.h describes: activated once, then the latest state
+// each frame. Only the count and the first finger's place go to ui.c, which decides the rest.
+static bool touch_ready;
+
+void ViewerTouchInit(void) {
+    // Once for the program: libnx ends the program on a failed activation, so it is asked no more
+    // often than it must be.
+    if (!touch_ready) {
+        hidInitializeTouchScreen();
+        touch_ready = true;
+    }
+}
+
+static UiTouchEvent ReadTouch(UiTouch *touch, uint32_t frame_index, UiTap *tap) {
+    ViewerTouchInit();
+    HidTouchScreenState state;
+    memset(&state, 0, sizeof(state));
+    const bool read = hidGetTouchScreenStates(&state, 1) > 0u && state.count > 0;
+    return UiTouchStep(touch, read ? (uint32_t)state.count : 0u, read ? state.touches[0].x : 0u,
+                       read ? state.touches[0].y : 0u, frame_index, tap);
+}
+
 RunMode ViewerModeFromFile(const char *mode_path) {
     // One byte past the limit, which is how a longer file is told apart from one exactly as
     // long, and which says whether the last word read runs on. Static, because it is four
@@ -169,6 +191,8 @@ bool ViewerStartScreen(const UiStartInfo *info, const RunMode *from_file, UiStar
     }
     PadState pad;
     ReadPad(&pad);
+    UiTouch touch;
+    UiTouchReset(&touch);
     const uint64_t opened = armGetSystemTick();
     bool pressed = false;
     uint32_t shown_left = UINT32_MAX;
@@ -180,6 +204,12 @@ bool ViewerStartScreen(const UiStartInfo *info, const RunMode *from_file, UiStar
             pressed = true;
         }
         state = UiStartStep(state, StartButtonsFrom(down), frames_seen, info);
+        UiTap tap;
+        const UiTouchEvent touched = ReadTouch(&touch, frames_seen, &tap);
+        pressed = pressed || touched != UI_TOUCH_NONE;
+        if (touched == UI_TOUCH_TAP) {
+            state = UiStartTap(state, &tap, SCREEN_WIDTH, SCREEN_HEIGHT, info);
+        }
         if (frames_seen < UI_SETTLING_FRAMES) {
             ++frames_seen;
         }
@@ -229,6 +259,8 @@ bool ViewerResumeScreen(const UiResumeInfo *info, bool *start_over) {
     }
     PadState pad;
     ReadPad(&pad);
+    UiTouch touch;
+    UiTouchReset(&touch);
     UiResumeState state = UiResumeOpen();
     const uint64_t opened = armGetSystemTick();
     bool pressed = false;
@@ -241,6 +273,12 @@ bool ViewerResumeScreen(const UiResumeInfo *info, bool *start_over) {
             pressed = true;
         }
         state = UiResumeStep(state, ResumeButtonsFrom(down), frames_seen);
+        UiTap tap;
+        const UiTouchEvent touched = ReadTouch(&touch, frames_seen, &tap);
+        pressed = pressed || touched != UI_TOUCH_NONE;
+        if (touched == UI_TOUCH_TAP) {
+            state = UiResumeTap(state, &tap, SCREEN_WIDTH, SCREEN_HEIGHT);
+        }
         if (frames_seen < UI_SETTLING_FRAMES) {
             ++frames_seen;
         }
@@ -288,6 +326,8 @@ ViewerEnd ViewerRun(void) {
 
     PadState pad;
     ReadPad(&pad);
+    UiTouch touch;
+    UiTouchReset(&touch);
     UiState state = UiStart(&run);
     UiRepeat repeat = { 0, 0 };
 
@@ -311,6 +351,9 @@ ViewerEnd ViewerRun(void) {
             UiRepeatButtons(&repeat, ButtonsFrom(padGetButtons(&pad)), ButtonsFrom(down),
                             frames_seen);
         const UiInput input = UiInputFromButtons(buttons, frames_seen);
+        UiTap tap;
+        const UiTouchEvent touched = ReadTouch(&touch, frames_seen, &tap);
+        pressed = pressed || touched != UI_TOUCH_NONE;
         if (frames_seen < UI_SETTLING_FRAMES) {
             ++frames_seen;
         }
@@ -321,6 +364,9 @@ ViewerEnd ViewerRun(void) {
         }
         const uint32_t left = UiUnattendedSecondsLeft(elapsed, pressed);
         state = UiStep(state, input, &run);
+        if (touched == UI_TOUCH_TAP) {
+            state = UiTapStep(state, &tap, &run, SCREEN_WIDTH, SCREEN_HEIGHT);
+        }
         if (state.changed || left != shown_left) {
             uint32_t stride = 0;
             UiFrame frame = { (uint8_t *)framebufferBegin(&screen, &stride), SCREEN_WIDTH,
@@ -567,4 +613,20 @@ void ViewerPadClose(void) {
     }
     pad_open = false;
     pad_opened_screen = false;
+}
+
+// A yes or no question on the pad screen, answered on its touch bar.
+static UiTouch pad_touch;
+
+void ViewerPadTapBegin(void) {
+    UiTouchReset(&pad_touch);
+}
+
+PadAnswer ViewerPadTap(void) {
+    UiTap tap;
+    // The screen settled long before a question: what keeps an old finger out is the reset.
+    if (ReadTouch(&pad_touch, UI_SETTLING_FRAMES, &tap) != UI_TOUCH_TAP) {
+        return PAD_ANSWER_NONE;
+    }
+    return UiPadTap(&tap, SCREEN_WIDTH, SCREEN_HEIGHT, true);
 }

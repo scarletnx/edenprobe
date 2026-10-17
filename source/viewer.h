@@ -106,10 +106,22 @@ void ViewerListenClose(void);
 /// with nothing to show them, and a person has only the log.
 bool ViewerPadShow(const UiPadScreen *screen);
 
+/// Activates the touch screen for the program, the first time only; the screens and the touch
+/// suite both read it.
+void ViewerTouchInit(void);
+
 /// Ends the pad screen, and closes the framebuffer only when the first ViewerPadShow opened it.
 /// The running screen keeps off the framebuffer while the pad screen is up. Safe when it never
 /// opened.
 void ViewerPadClose(void);
+
+/// Starts listening for a yes or no tap on the pad screen's bar: a finger already on the screen
+/// counts only once it is lifted and put down again.
+void ViewerPadTapBegin(void);
+
+/// One look at the touch screen while a question waits: the answer a tap on the bar has just
+/// given, or none.
+PadAnswer ViewerPadTap(void);
 
 #ifdef __cplusplus
 }

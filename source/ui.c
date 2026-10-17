@@ -245,9 +245,119 @@ static void DrawKey(const UiFrame *frame, uint32_t x, uint32_t y) {
     }
 }
 
-/// What the buttons do on this screen, on the frame's last line.
+uint32_t UiFootRight(uint32_t frame_width) {
+    return frame_width > MARGIN + UI_TOUCH_BAR_WIDTH + 2u * CELL + MARGIN
+               ? frame_width - MARGIN - UI_TOUCH_BAR_WIDTH - 2u * CELL
+               : MARGIN;
+}
+
+/// What the buttons do on this screen, on the frame's last line, stopping short of the touch bar.
 static void DrawButtons(const UiFrame *frame, const char *text) {
-    UiText(frame, MARGIN, frame->height > 14u ? frame->height - 14u : 0u, 1, DIM, text);
+    char fitted[200];
+    Fit(fitted, sizeof(fitted), text, (UiFootRight(frame->width) - MARGIN) / CELL);
+    UiText(frame, MARGIN, frame->height > 14u ? frame->height - 14u : 0u, 1, DIM, fitted);
+}
+
+UiRect UiTouchBox(uint32_t frame_width, uint32_t frame_height, uint32_t count, uint32_t index) {
+    const UiRect none = { 0, 0, 0, 0 };
+    if (frame_width < UI_MIN_WIDTH || frame_height < UI_MIN_HEIGHT || count == 0u ||
+        count > UI_TOUCH_BOXES || index >= count) {
+        return none;
+    }
+    const uint32_t span = count * UI_TOUCH_BOX_WIDTH + (count - 1u) * UI_TOUCH_BOX_GAP;
+    // Over the foot: the countdown's line and the button line, which both stop short of it.
+    const uint32_t x =
+        frame_width - MARGIN - span + index * (UI_TOUCH_BOX_WIDTH + UI_TOUCH_BOX_GAP);
+    const UiRect box = { x, frame_height - UI_TOUCH_BOX_HEIGHT - 2u, UI_TOUCH_BOX_WIDTH,
+                         UI_TOUCH_BOX_HEIGHT };
+    return box;
+}
+
+/// The bar's boxes with their words, which say what a tap on each does.
+static void DrawTouchBar(const UiFrame *frame, const char *const *labels, uint32_t count) {
+    for (uint32_t i = 0; i < count; ++i) {
+        const UiRect box = UiTouchBox(frame->width, frame->height, count, i);
+        if (box.width == 0u) {
+            return;
+        }
+        FillRect(frame, box.x, box.y, box.width, box.height, BORDER);
+        FillRect(frame, box.x + 1u, box.y + 1u, box.width - 2u, box.height - 2u, SELECTED);
+        const uint32_t text = (uint32_t)strlen(labels[i]) * GLYPH;
+        UiText(frame, box.x + (box.width > text ? (box.width - text) / 2u : 0u),
+               box.y + (box.height - GLYPH) / 2u, BIG, TEXT, labels[i]);
+    }
+}
+
+static bool Inside(UiRect rect, uint32_t x, uint32_t y) {
+    return rect.width > 0u && x >= rect.x && x - rect.x < rect.width && y >= rect.y &&
+           y - rect.y < rect.height;
+}
+
+/// The box of a bar of @p count both ends of @p tap are in, or UINT32_MAX.
+static uint32_t TapBox(const UiTap *tap, uint32_t width, uint32_t height, uint32_t count) {
+    for (uint32_t i = 0; i < count; ++i) {
+        const UiRect box = UiTouchBox(width, height, count, i);
+        if (Inside(box, tap->x0, tap->y0) && Inside(box, tap->x1, tap->y1)) {
+            return i;
+        }
+    }
+    return UINT32_MAX;
+}
+
+/// The row of a list of @p rows, @p step apart from @p top, under @p x, @p y, or UINT32_MAX. Its
+/// width is the band the cursor's row is drawn in.
+static uint32_t RowAt(uint32_t width, uint32_t top, uint32_t step, uint32_t rows, uint32_t x,
+                      uint32_t y) {
+    if (x < MARGIN / 2u || x >= width - MARGIN / 2u || y < top) {
+        return UINT32_MAX;
+    }
+    const uint32_t row = (y - top) / step;
+    return row < rows ? row : UINT32_MAX;
+}
+
+/// The one row both ends of @p tap are on, or UINT32_MAX.
+static uint32_t TapRow(const UiTap *tap, uint32_t width, uint32_t top, uint32_t step,
+                       uint32_t rows) {
+    const uint32_t row = RowAt(width, top, step, rows, tap->x0, tap->y0);
+    return row == RowAt(width, top, step, rows, tap->x1, tap->y1) ? row : UINT32_MAX;
+}
+
+void UiTouchReset(UiTouch *touch) {
+    if (touch != NULL) {
+        memset(touch, 0, sizeof(*touch));
+        touch->down = true;
+    }
+}
+
+UiTouchEvent UiTouchStep(UiTouch *touch, uint32_t count, uint32_t x, uint32_t y,
+                         uint32_t frame_index, UiTap *tap) {
+    if (touch == NULL) {
+        return UI_TOUCH_NONE;
+    }
+    if (count == 0u) {
+        // Lifted: the release frame carries no position, so the tap ends where it was last seen.
+        const bool tapped = touch->down && touch->armed;
+        if (tapped && tap != NULL) {
+            *tap = touch->tap;
+        }
+        touch->down = false;
+        touch->armed = false;
+        return tapped ? UI_TOUCH_TAP : UI_TOUCH_NONE;
+    }
+    if (!touch->down) {
+        touch->down = true;
+        touch->armed = count == 1u && frame_index >= UI_SETTLING_FRAMES;
+        const UiTap at = { x, y, x, y };
+        touch->tap = at;
+        return touch->armed ? UI_TOUCH_BEGAN : UI_TOUCH_NONE;
+    }
+    if (count > 1u) {
+        touch->armed = false;
+    } else {
+        touch->tap.x1 = x;
+        touch->tap.y1 = y;
+    }
+    return UI_TOUCH_NONE;
 }
 
 static const char *ViewLabel(UiView view) {
@@ -649,6 +759,102 @@ UiState UiStep(UiState state, UiInput input, const UiRun *run) {
     return next;
 }
 
+/// The results screen's touch bar where @p state is: its words, left to right, and the input
+/// each box gives. Composing and tapping both ask here, so a box does what it says.
+static uint32_t ResultsBar(const UiRun *run, UiState state, const char **labels,
+                           UiInput *inputs) {
+    uint32_t count = 0;
+    if (run == NULL || run->group_count == 0u || state.level == UI_LEVEL_OVERVIEW) {
+        labels[count] = "quit";
+        inputs[count++] = UI_INPUT_QUIT;
+    } else if (state.level == UI_LEVEL_GROUP) {
+        labels[count] = "back";
+        inputs[count++] = UI_INPUT_BACK;
+    } else {
+        labels[count] = "prev";
+        inputs[count++] = UI_INPUT_LEFT;
+        labels[count] = "next";
+        inputs[count++] = UI_INPUT_RIGHT;
+        const ReportRecord *const record = UiCaseAt(run, state.group, state.index);
+        if (record != NULL && record->picture >= 0) {
+            labels[count] = "view";
+            inputs[count++] = UI_INPUT_CYCLE_VIEW;
+        }
+        labels[count] = "back";
+        inputs[count++] = UI_INPUT_BACK;
+    }
+    return count;
+}
+
+/// The group on overview row @p line, or UINT32_MAX for a family's heading.
+static uint32_t GroupOnRow(const UiRun *run, uint32_t line) {
+    for (uint32_t g = 0; g < run->group_count; ++g) {
+        if (UiOverviewRow(run, g) == line) {
+            return g;
+        }
+    }
+    return UINT32_MAX;
+}
+
+UiState UiTapStep(UiState state, const UiTap *tap, const UiRun *run, uint32_t frame_width,
+                  uint32_t frame_height) {
+    if (tap == NULL || frame_width < UI_MIN_WIDTH || frame_height < UI_MIN_HEIGHT) {
+        return state;
+    }
+    const char *labels[UI_TOUCH_BOXES];
+    UiInput inputs[UI_TOUCH_BOXES];
+    const uint32_t count = ResultsBar(run, state, labels, inputs);
+    const uint32_t box = TapBox(tap, frame_width, frame_height, count);
+    if (box != UINT32_MAX) {
+        return UiStep(state, inputs[box], run);
+    }
+    if (run == NULL || run->group_count == 0u) {
+        return state;
+    }
+    // The list as the screen drew it, which is from the cursor alone.
+    UiState next = state;
+    if (next.group >= run->group_count) {
+        next.group = run->group_count - 1u;
+    }
+    const uint32_t cases = run->groups[next.group].count;
+    if (next.index >= cases) {
+        next.index = cases - 1u;
+    }
+    if (next.level == UI_LEVEL_OVERVIEW) {
+        const uint32_t rows = UiListRows(UI_LEVEL_OVERVIEW, frame_height);
+        const uint32_t total = UiOverviewRow(run, run->group_count - 1u) + 1u;
+        const uint32_t first = UiListFirst(UiOverviewRow(run, next.group), total, rows);
+        const uint32_t shown = total - first < rows ? total - first : rows;
+        const uint32_t row = TapRow(tap, frame_width, UI_LIST_TOP, UI_ROW_HEIGHT, shown);
+        const uint32_t group = row != UINT32_MAX ? GroupOnRow(run, first + row) : UINT32_MAX;
+        if (group == UINT32_MAX) {
+            return state;
+        }
+        if (group == next.group) {
+            return UiStep(next, UI_INPUT_OPEN, run);
+        }
+        next.group = group;
+        next.changed = true;
+        return next;
+    }
+    if (next.level == UI_LEVEL_GROUP) {
+        const uint32_t rows = UiListRows(UI_LEVEL_GROUP, frame_height);
+        const uint32_t first = UiListFirst(next.index, cases, rows);
+        const uint32_t shown = cases - first < rows ? cases - first : rows;
+        const uint32_t row = TapRow(tap, frame_width, UI_LIST_TOP, UI_ROW_HEIGHT, shown);
+        if (row == UINT32_MAX) {
+            return state;
+        }
+        if (first + row == next.index) {
+            return UiStep(next, UI_INPUT_OPEN, run);
+        }
+        next.index = first + row;
+        next.changed = true;
+        return next;
+    }
+    return state;
+}
+
 UiInput UiInputFromButtons(uint32_t buttons, uint32_t frame_index) {
     if (frame_index < UI_SETTLING_FRAMES) {
         return UI_INPUT_NONE;
@@ -1021,8 +1227,8 @@ static void ComposeOverview(const UiFrame *frame, const UiRun *run, UiState stat
     const uint32_t below = frame->height - FOOT - PREVIEW_LINES * LINE;
     FillRect(frame, MARGIN, below - 8u, frame->width - 2u * MARGIN, 1u, BORDER);
     ComposePreview(frame, run, state.group, below);
-    DrawButtons(frame, "up/down group   left/right family   A open   R or ZR next group that "
-                       "failed   L or ZL previous one   plus quit");
+    DrawButtons(frame, "up/down group  left/right family  A open  R/ZR, L/ZL failed groups  plus "
+                       "quit  tap a row, twice opens");
 }
 
 static void ComposeGroup(const UiFrame *frame, const UiRun *run, UiState state) {
@@ -1086,8 +1292,8 @@ static void ComposeGroup(const UiFrame *frame, const UiRun *run, UiState state) 
                                                   : "A opens it on a page of its own";
     Say(frame, MARGIN, below + (DETAIL_LINES - 1u) * LINE, DIM, hint);
 
-    DrawButtons(frame, "up/down case   left/right group   A open   B back   R or ZR next "
-                       "failure   L or ZL previous failure   plus quit");
+    DrawButtons(frame, "up/down case  left/right group  A open  B back  R/ZR, L/ZL failures  plus "
+                       "quit  tap a row, twice opens");
 }
 
 /// The case's pictures, laid out as the detailed mode always has: the three side by side or
@@ -1150,8 +1356,8 @@ static void ComposePictures(const UiFrame *frame, const PictureRecord *record,
         UiText(frame, MARGIN, detail_y, 2, DIM, NoDetail(line->result));
     }
 
-    DrawButtons(frame, "left/right or up/down case   X view   R or ZR next failure   L or ZL "
-                       "previous failure   B back   plus quit");
+    DrawButtons(frame, "left/right or up/down case  X view  R/ZR next failure  L/ZL previous "
+                       "failure  B back  plus quit");
 }
 
 /// A case with no pictures, as a page: its whole name and its whole detail.
@@ -1179,8 +1385,8 @@ static void ComposeDetail(const UiFrame *frame, const UiGroup *group, const Repo
     if (group->family == UI_FAMILY_GRAPHICS && line->picture < 0) {
         Say(frame, MARGIN, y + 8u, DIM, "no pictures were kept for this case");
     }
-    DrawButtons(frame, "left/right or up/down case   R or ZR next failure   L or ZL previous "
-                       "failure   B back   plus quit");
+    DrawButtons(frame, "left/right or up/down case  R/ZR next failure  L/ZL previous failure  B "
+                       "back  plus quit");
 }
 
 static void ComposeCase(const UiFrame *frame, const UiRun *run, UiState state,
@@ -1242,6 +1448,9 @@ void UiCompose(const UiFrame *frame, const UiRun *run, UiState state,
             Say(frame, MARGIN, MARGIN + LINE + 4u, DIM, text);
         }
         DrawButtons(frame, "plus quit");
+        const char *labels[UI_TOUCH_BOXES];
+        UiInput inputs[UI_TOUCH_BOXES];
+        DrawTouchBar(frame, labels, ResultsBar(run, state, labels, inputs));
         return;
     }
     // A state from anywhere is drawn as the navigation would have left it, never read past the
@@ -1263,6 +1472,9 @@ void UiCompose(const UiFrame *frame, const UiRun *run, UiState state,
         ComposeCase(frame, run, state, picture);
         break;
     }
+    const char *labels[UI_TOUCH_BOXES];
+    UiInput inputs[UI_TOUCH_BOXES];
+    DrawTouchBar(frame, labels, ResultsBar(run, state, labels, inputs));
 }
 
 bool UiWaitsForPad(uint32_t frame_index, bool connected) {
@@ -1288,13 +1500,14 @@ void UiComposeCountdown(const UiFrame *frame, uint32_t seconds_left) {
     // Between the last line anything above can reach, which stops 32 rows from the bottom, and
     // the button line, which starts 14 from it, so neither is ever drawn over.
     const uint32_t y = frame->height - 28u;
-    FillRect(frame, 0, y - 2u, frame->width, 12u, BACKGROUND);
+    FillRect(frame, 0, y - 2u, UiFootRight(frame->width), 12u, BACKGROUND);
     if (seconds_left == 0u) {
         return;
     }
     char line[96];
     snprintf(line, sizeof(line),
-             "nothing pressed yet: this screen closes by itself in %u s, any button keeps it",
+             "nothing pressed yet: this screen closes by itself in %u s, a button or a touch "
+             "keeps it",
              (unsigned)seconds_left);
     UiText(frame, MARGIN, y, 1, FAILED, line);
 }
@@ -1535,7 +1748,7 @@ static const struct {
     const char *name;
     const char *what;
 } START_ROWS[UI_START_ROWS] = {
-    { "begin the run", "A here, or plus from any row" },
+    { "begin the run", "A here, plus from any row, or tap begin" },
     { "graphics", "the drawing suites, clear to blit2d" },
     { "fs", "reads from the memory card, timed" },
     { "audio", "the audio renderer, nearly silent" },
@@ -1685,13 +1898,40 @@ void UiComposeStart(const UiFrame *frame, const UiStartInfo *info, UiStartState 
     if (seconds_left > 0u) {
         char line[128];
         snprintf(line, sizeof(line),
-                 "nothing pressed yet: the run begins in %u s as the mode file says, any button "
-                 "keeps this",
+                 "nothing pressed yet: the run begins in %u s as the mode file says, a button or a "
+                 "touch keeps this",
                  (unsigned)seconds_left);
         UiText(frame, MARGIN, countdown, 1, FAILED, line);
     }
-    DrawButtons(frame, "up/down move   A choose, or begin on its row   plus begin   Y may crash   "
-                       "X crash list");
+    DrawButtons(frame, "up/down move  A choose, begin on its row  plus begin  Y may crash  X crash "
+                       "list  tap a row twice");
+    static const char *const BEGIN[1] = { "begin" };
+    DrawTouchBar(frame, BEGIN, 1u);
+}
+
+UiStartState UiStartTap(UiStartState state, const UiTap *tap, uint32_t frame_width,
+                        uint32_t frame_height, const UiStartInfo *info) {
+    if (tap == NULL || info == NULL || state.begun || frame_width < UI_MIN_WIDTH ||
+        frame_height < UI_MIN_HEIGHT) {
+        return state;
+    }
+    if (TapBox(tap, frame_width, frame_height, 1u) == 0u) {
+        state.begun = true;
+        state.changed = true;
+        return state;
+    }
+    const uint32_t row =
+        TapRow(tap, frame_width, UiStartRowTop(0), UI_ROW_HEIGHT, UI_START_ROWS);
+    if (row == UINT32_MAX) {
+        return state;
+    }
+    if (row != state.cursor) {
+        state.cursor = row;
+        state.changed = true;
+        return state;
+    }
+    // Past the settling frames: the tap itself already waited for them.
+    return UiStartStep(state, UI_START_SELECT, UI_SETTLING_FRAMES, info);
 }
 
 UiResumeState UiResumeOpen(void) {
@@ -1793,11 +2033,31 @@ void UiComposeResume(const UiFrame *frame, const UiResumeInfo *info, UiResumeSta
     FillRect(frame, 0, countdown - 2u, frame->width, 12u, BACKGROUND);
     if (seconds_left > 0u) {
         snprintf(text, sizeof(text),
-                 "nothing pressed yet: the run goes on in %u s, any button keeps this screen",
+                 "nothing pressed yet: the run goes on in %u s, a button or a touch keeps this "
+                 "screen",
                  (unsigned)seconds_left);
         UiText(frame, MARGIN, countdown, 1, FAILED, text);
     }
-    DrawButtons(frame, "up/down choose   A confirm");
+    DrawButtons(frame, "up/down choose   A confirm   tap a choice twice");
+}
+
+UiResumeState UiResumeTap(UiResumeState state, const UiTap *tap, uint32_t frame_width,
+                          uint32_t frame_height) {
+    if (tap == NULL || state.decided || frame_width < UI_MIN_WIDTH ||
+        frame_height < UI_MIN_HEIGHT) {
+        return state;
+    }
+    const uint32_t row =
+        TapRow(tap, frame_width, UiResumeRowTop(0), 2u * LINE, UI_RESUME_CHOICES);
+    if (row == UINT32_MAX) {
+        return state;
+    }
+    if (row != state.cursor) {
+        state.cursor = row;
+        state.changed = true;
+        return state;
+    }
+    return UiResumeStep(state, UI_RESUME_CHOOSE, UI_SETTLING_FRAMES);
 }
 
 bool UiProgressDue(bool drawn_before, uint64_t drawn_ns, uint64_t now_ns, bool step_began) {
@@ -2186,6 +2446,19 @@ void UiComposePad(const UiFrame *frame, const UiPadScreen *screen) {
         TextWrapped(frame, x, last, BIG, LINE, ResultColour(screen->last_result), screen->last,
                     (frame->width - MARGIN - x) / GLYPH, 2u);
     }
-    DrawButtons(frame, "Home and Capture are left out: the system takes them. A question is "
-                       "answered with up for yes and down for no on the d-pad.");
+    DrawButtons(frame, "Home and Capture are left out: the system takes them. A question: up "
+                       "for yes, down for no, or tap");
+    if (screen->asks_yes_no) {
+        static const char *const ANSWERS[2] = { "yes", "no" };
+        DrawTouchBar(frame, ANSWERS, 2u);
+    }
+}
+
+PadAnswer UiPadTap(const UiTap *tap, uint32_t frame_width, uint32_t frame_height,
+                   bool asks_yes_no) {
+    if (tap == NULL || !asks_yes_no) {
+        return PAD_ANSWER_NONE;
+    }
+    const uint32_t box = TapBox(tap, frame_width, frame_height, 2u);
+    return box == 0u ? PAD_ANSWER_YES : box == 1u ? PAD_ANSWER_NO : PAD_ANSWER_NONE;
 }
