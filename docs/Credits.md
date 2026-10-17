@@ -16,7 +16,14 @@
   `source/maxwell/command.h` does, with the method numbers of `source/maxwell/engine_3d.def`
   (deko3d 350f2b0, zlib licence). The order suite's pattern, a dispatch, a primitives barrier and
   a draw of what it wrote, is switch-examples' `deko_examples/source/Example09_SimpleCompute.cpp`
-  and `sinewave.glsl`, which `order_copy.comp.glsl` follows in shape.
+  and `sinewave.glsl`, which `order_copy.comp.glsl` follows in shape. `source/blit2dref.c` writes
+  the 2D class's methods with the numbers of `source/maxwell/engine_2d.def`, on the subchannel
+  `source/maxwell/helpers.h` names for it, in the order `source/maxwell/gpu_transfer.cpp`
+  (`Blit2DEngine`) writes the library's own blits.
+- **NVIDIA's open-gpu-doc**, https://github.com/NVIDIA/open-gpu-doc (MIT, copyright 2003-2004
+  NVIDIA Corporation, in the header itself): `tools/blit2d-expect.py` takes the 2D class's method
+  offsets from `classes/twod/cl902d.h` (9fdf5c4), to check the C's words against a second source.
+  None of its text is copied.
 
 - **astcenc**, https://github.com/ARM-software/astc-encoder (Apache 2.0): ARM's reference ASTC
   codec. None of its code is in this repository; `source/astcblocks.c` carries hashes of what its

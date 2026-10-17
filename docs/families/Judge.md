@@ -20,7 +20,7 @@ family reports can be believed without them.
   was allowed to is not painted as a difference. Every line is the none tier, because none of it is
   a claim about a machine. On a computer (`make -f host.mk host-run`) the suite has one case more: a
   backward seek that drops a buffered line, which needs the C library's own stream buffer.
-- **reference**, two hundred and sixty nine cases, no hardware involved either: the other half of
+- **reference**, two hundred and seventy six cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -92,4 +92,8 @@ family reports can be believed without them.
     (see [The kernel family](Kernel.md));
   - three on the display family's judge, `source/binderref.c`, on reply parcels built word by word:
     reden's two layouts, replies in neither, and the cases' frames and requests (see [The display
-    family](Display.md)).
+    family](Display.md));
+  - seven on the blit2d suite's model and judge, `source/blit2dref.c`, held to
+    `tools/blit2d-expect.py`: the source, the filled destination, every case's image under each
+    combination of answers and the 2D engine's words, then the verdicts on reads made to order (see
+    [The blit2d suite](Blit2d.md)).

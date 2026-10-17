@@ -1,6 +1,6 @@
 # The graphics family
 
-The twenty eight drawing suites, clear to dma, in the order they run.
+The twenty nine drawing suites, clear to blit2d, in the order they run.
 
 - **clear**, five cases, on the graphics unit: whether the device came up (no tier, it compares
   nothing), and four that clear a 64 by 64 RGBA8 target and copy all 4096 pixels back. Three cover
@@ -420,6 +420,11 @@ The twenty eight drawing suites, clear to dma, in the order they run.
   unit wrote costs: an emulator that stops the processor until the graphics unit is idle on each
   such copy (Eden's buffer cache, `DMACopy`, with a fence setting that asks for it) pays it 32
   times in the second case. A single judged copy goes first and takes the first use.
+- **blit2d**, five cases. The 2D engine, by raw methods, copies a block linear source at half and
+  at two thirds size, from each sample origin, into a 21 by 9 window of a block linear destination
+  whose rows start and end inside a gob's 16 byte runs. Every pixel is judged twice, in the raw
+  bytes the processor reads and in a copy to buffer, against the image each answer to two open
+  questions gives. See [The blit2d suite](Blit2d.md).
 
 ## What a console run settles
 
@@ -437,6 +442,10 @@ whether the machine does.
 - **Q5, geometry.** Does the geometry shader make the four squares, and only two in the second case?
 - **Q6, query notes.** What CONDITIONAL does over the value one, over two to the 32 and over a
   report of 9600 in the same list, which says which of its bytes decide.
+
+The blit2d suite asks two questions of its own, which texel each origin samples when the copy
+scales and how a fraction in the scale is stepped; they are on [its page](Blit2d.md), as its Q1
+and Q2.
 
 ## Where reden falls short
 
@@ -465,3 +474,9 @@ Read in reden at 75c12299a6; each gap is a case here that fails, and the new cas
   `shader_recompiler/ir_opt/collect_shader_info_pass.cpp:69-71` throws on a non-generic patch, and
   `quad.tese` reads `gl_TessLevelOuter[0]` (`TessellationLodLeft`, `frontend/ir/patch.h:11`);
   `quad_color.tese`, which does not, separates this from the tessellation stages.
+- **The 2D engine's scaled copy stays in the texture cache.** `engines/fermi_2d.cpp:84-88` and
+  `:112-115` send any copy with a scale to `AccelerateSurfaceCopy`, which draws it into the cache's
+  image of the destination, and nothing writes that image back to memory before the processor
+  reads it (`texture_cache/texture_cache.h:712-713`, `engines/maxwell_3d.cpp:588-592`): the
+  blit2d cases fail on the raw read and pass on the copy to buffer. See [The blit2d
+  suite](Blit2d.md).
