@@ -225,6 +225,8 @@ void RunReferenceVic(void);
 /// The pad family's prompts, presses and verdicts, against answers worked out by hand: part of
 /// the reference suite.
 void RunReferencePad(void);
+/// The vendored MD5 against RFC 1321's test suite: part of the reference suite.
+void RunReferenceMd5(void);
 
 #ifdef __cplusplus
 }

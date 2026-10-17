@@ -42,3 +42,8 @@
   (`prepare_frame_setup`, `update_probs`, `init_probs`, `set_tile_sizes`, the prediction mode
   order), sizes surfaces as its `hwcontext_nvtegra.c` allocates them, and takes the structures'
   offsets from `nvdec_drv.h`.
+- **MD5**, Alexander Peslyak (Solar Designer), 2001, public domain,
+  https://openwall.info/wiki/people/solar/software/public-domain-source-code/md5: `source/md5.c`
+  and `source/md5.h`, vendored unchanged under a header that says where they came from. The
+  devkitPro portlibs have no MD5 to link instead. The reference suite holds it to RFC 1321's test
+  suite, whole and in pieces, and to a million a's.
