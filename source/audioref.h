@@ -56,6 +56,11 @@ typedef struct {
     double input_gain;
     double output_gain;
     unsigned lookahead;
+    /// The second answer to what mode 0 does: the threshold times not one over the detector
+    /// but 2 - a(2 - a r0), r0 the detector's reciprocal estimated to 1/512 and rounded to
+    /// 1/256, which is the two Newton steps Eden takes (light_limiter.cpp:94-96). Near 2 - a
+    /// rather than 1/a, so the gain drops far below the rule just past the threshold.
+    int two_step;
 } AudioRefLimiter;
 
 /// Runs the rule over @p count samples of @p in, writing the output as fractions of full scale.
@@ -68,6 +73,14 @@ double AudioRefLimitedLevel(const AudioRefLimiter *limiter, double amplitude, do
 
 /// Whether @p got is within @p fraction of @p want.
 int AudioRefWithin(double got, double want, double fraction);
+
+/// Which answer a level the limiter's mode 0 gave is: "the rule" within 5% of @p rule, "the
+/// two-step reciprocal" within 5% of @p two_step, otherwise "neither". For the note a console
+/// run answers the question with.
+const char *AudioRefModeZeroReading(double level, double rule, double two_step);
+
+/// The detector's reciprocal as the two-step answer estimates it before its two steps.
+double AudioRefReciprocalEstimate(double a);
 
 /// A level as decibels against @p reference, for the lines a person reads.
 double AudioRefDecibels(double level, double reference);

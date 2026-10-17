@@ -127,6 +127,23 @@ void AudioRefChannel32(const int32_t *frames, size_t frame_count, unsigned chann
     }
 }
 
+double AudioRefReciprocalEstimate(double a) {
+    const int32_t q = (int32_t)(a * 512.0);
+    const double r = 1.0 / (((double)q + 0.5) / 512.0);
+    const int32_t s = (int32_t)(256.0 * r + 0.5);
+    return (double)s / 256.0;
+}
+
+const char *AudioRefModeZeroReading(double level, double rule, double two_step) {
+    if (AudioRefWithin(level, rule, 0.05)) {
+        return "the rule";
+    }
+    if (AudioRefWithin(level, two_step, 0.05)) {
+        return "the two-step reciprocal";
+    }
+    return "neither";
+}
+
 void AudioRefLimit(const AudioRefLimiter *limiter, const int16_t *in, size_t count, double *out) {
     double detector = 0.0;
     double gain = 1.0;
@@ -144,8 +161,15 @@ void AudioRefLimit(const AudioRefLimiter *limiter, const int16_t *in, size_t cou
         const double rectified = fabs(sample);
         detector += (rectified - detector) *
                     (rectified > detector ? limiter->attack : limiter->release);
-        const double target =
-            detector > limiter->threshold ? limiter->threshold / detector : 1.0;
+        double target = 1.0;
+        if (detector > limiter->threshold) {
+            if (limiter->two_step) {
+                const double r0 = AudioRefReciprocalEstimate(detector);
+                target = limiter->threshold * (2.0 - detector * (2.0 - detector * r0));
+            } else {
+                target = limiter->threshold / detector;
+            }
+        }
         gain += (target - gain) * (target < gain ? limiter->attack : limiter->release);
         out[n] = line[at] * gain * limiter->output_gain;
         line[at] = sample;

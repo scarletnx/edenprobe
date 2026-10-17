@@ -228,13 +228,21 @@ static void CaseLimiter(void) {
         };
         const double expected =
             AudioRefLimitedLevel(&rule, amplitude, 1000.0, SETTLE, 40u * AUDIO_FRAME);
+        AudioRefLimiter two_step = rule;
+        two_step.two_step = 1;
+        const double stepped =
+            AudioRefLimitedLevel(&two_step, amplitude, 1000.0, SETTLE, 40u * AUDIO_FRAME);
         Case(LIMITER_MODE1, AudioRefWithin(mode1, expected, 0.02),
              "1 kHz at %.2f, threshold 0.1: came out at %.4f, the rule gives %.4f (%+.2f dB); in "
              "mode 0 it came out at %.4f",
              amplitude, mode1, expected, AudioRefDecibels(mode1, expected), mode0);
+        // Mode 0 has two answers and no console has said which: the note says which one this
+        // machine's level is.
         ReportNote("audio: the limiter in mode 0 brought 1 kHz at %.2f to %.4f and in mode 1 to "
-                   "%.4f; the rule, threshold over the detector, gives %.4f",
-                   amplitude, mode0, mode1, expected);
+                   "%.4f; the rule, threshold over the detector, gives %.4f, the two-step "
+                   "reciprocal %.4f; mode 0 here is %s",
+                   amplitude, mode0, mode1, expected, stepped,
+                   AudioRefModeZeroReading(mode0, expected, stepped));
     }
 }
 

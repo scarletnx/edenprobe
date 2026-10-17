@@ -51,6 +51,17 @@ to 2% (Eden's mode 1 is a reciprocal estimate; Ryujinx divides), and that the co
 conversion quality and runs a limiter at revision 4. A console that ignored the quality would pass
 the resampler cases all the same, since its default quality passes 11 kHz at a ratio of one.
 
+Mode 0 has two answers, and no console has given one. Either the rule, the threshold over the
+detector, as in mode 1: 0.157 for the case's tone. Or the threshold times 2 - a(2 - a r0), r0 the
+detector's reciprocal estimated to 1/512 and rounded to 1/256: the two Newton steps Eden takes
+(rEden 75c12299a6, `audio_core/renderer/command/effect/light_limiter.cpp:59` for the estimate,
+`:94-96` for the steps). They converge on 2 - a rather than on 1/a, so the gain falls far below the
+rule as soon as the detector passes the threshold (at 0.1001 it is 0.190 where the rule gives
+0.999), and the tone comes out at 0.046, 10.7 dB under mode 1. `source/audioref.c` models both, the
+reference suite pins them to values worked out apart, and the audio suite's note ends with which one
+this machine's mode 0 is: `the rule`, `the two-step reciprocal` or `neither`. A console that says
+the rule makes Eden's two lines one Newton step, r = r0 (2 - a r0).
+
 ## The listening sequence
 
 **The listening sequence** (`listen` in the mode file, or the listen row of the start screen) is

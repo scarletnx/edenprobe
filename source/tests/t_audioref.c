@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "../audioref.h"
 #include "../check.h"
@@ -169,4 +170,34 @@ void RunReferenceAudio(void) {
                start_hz > 1800.0 && start_hz < 2400.0 && end_hz > 14000.0 && end_hz < 16500.0,
                "starts near %.0f Hz and ends near %.0f Hz, expected 2000 and 16000", start_hz,
                end_hz);
+
+    // Mode 0's second answer, its estimate and its two steps, against values worked out by
+    // hand: at a detector of 0.159 the steps give 1.8408 where one over it is 6.2893.
+    const double estimate = AudioRefReciprocalEstimate(0.159);
+    const double stepped = 2.0 - 0.159 * (2.0 - 0.159 * estimate);
+    CHECK_TRUE(SUITE, "audio: the two-step reciprocal's estimate and its steps", CHECK_NONE,
+               estimate == 6.28125 && fabs(stepped - 1.840796) < 1e-6 &&
+                   AudioRefReciprocalEstimate(0.1001) == 9.94140625 &&
+                   AudioRefReciprocalEstimate(0.3) == 3.3359375 &&
+                   AudioRefReciprocalEstimate(0.5) == 1.99609375,
+               "estimate %.8f, stepped %.6f", estimate, stepped);
+
+    // The audio suite's mode 0 case, 1 kHz at 0.25 through threshold 0.1 at rates of a
+    // hundredth: the rule gives 0.1574 and the two-step reciprocal 0.0460, worked out apart in
+    // Python with the same tone, rule and measure.
+    AudioRefLimiter rule = {
+        .threshold = 0.1, .attack = 0.01, .release = 0.01,
+        .input_gain = 1.0, .output_gain = 1.0, .lookahead = 48u,
+    };
+    const double by_rule = AudioRefLimitedLevel(&rule, 0.25, 1000.0, 24000u, 40u * AUDIO_FRAME);
+    rule.two_step = 1;
+    const double by_steps = AudioRefLimitedLevel(&rule, 0.25, 1000.0, 24000u, 40u * AUDIO_FRAME);
+    CHECK_TRUE(SUITE, "audio: mode 0's two answers are the rule's level and the two-step one",
+               CHECK_NONE,
+               fabs(by_rule - 0.1574) < 5e-4 && fabs(by_steps - 0.0460) < 5e-4 &&
+                   strcmp(AudioRefModeZeroReading(0.0461, by_rule, by_steps),
+                          "the two-step reciprocal") == 0 &&
+                   strcmp(AudioRefModeZeroReading(0.1560, by_rule, by_steps), "the rule") == 0 &&
+                   strcmp(AudioRefModeZeroReading(0.1000, by_rule, by_steps), "neither") == 0,
+               "rule %.4f, two-step %.4f", by_rule, by_steps);
 }
