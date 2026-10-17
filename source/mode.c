@@ -19,6 +19,7 @@ static const struct {
     { "graphics", MODE_FAMILY_GRAPHICS },
     { "fs", MODE_FAMILY_FS },
     { "kernel", MODE_FAMILY_KERNEL },
+    { "display", MODE_FAMILY_DISPLAY },
     { "video", MODE_FAMILY_VIDEO },
     { "audio", MODE_FAMILY_AUDIO },
     { "net", MODE_FAMILY_NET },
@@ -397,6 +398,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
     } WORDS[] = {
         { (mode->families_named & MODE_FAMILY_AUDIO) != 0u, "audio" },
         { (mode->families_named & MODE_FAMILY_CPU) != 0u, "cpu" },
+        { (mode->families_named & MODE_FAMILY_DISPLAY) != 0u, "display" },
         { mode->fatal, "fatal" },
         { (mode->families_named & MODE_FAMILY_FS) != 0u, "fs" },
         { (mode->families_named & MODE_FAMILY_GRAPHICS) != 0u, "graphics" },

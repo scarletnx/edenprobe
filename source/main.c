@@ -114,6 +114,9 @@ static const Step STEPS[] = {
     { "fs", RunFs, MODE_FAMILY_FS, true, true },
     // Untimed: what a case judges is the order its threads ran in, and each waits on purpose.
     { "sched", RunSched, MODE_FAMILY_KERNEL, false, true },
+    // After every drawing suite: under Eden a graphics device made after a framebuffer was
+    // closed never finished its first submit, and each case here closes one of its own.
+    { "binder", RunBinder, MODE_FAMILY_DISPLAY, false, true },
     // Untimed: one job per case is the point, and the time a job takes is not.
     { "vic", RunVic, MODE_FAMILY_VIDEO, false, true },
     // Untimed too: a case runs a job per frame, and what the line judges is every image.

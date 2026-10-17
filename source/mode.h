@@ -45,6 +45,8 @@ extern "C" {
 ///   fs        another: reads from the memory card through the file system service, timed.
 ///   audio     another: the audio renderer, recorded through its own effects and sinks. It
 ///             makes sound, so it runs only when named or with `listen`.
+///   display   another: the display service's buffer producer, on a layer of its own. It runs only
+///             when named until a console has shown what it answers.
 ///   kernel    another: the kernel's scheduler, threads of chosen priorities and cores with a
 ///             watchdog. It runs only when named until a console has shown its cases never hang.
 ///   video     another: the video image compositor, given input the processor wrote, and the
@@ -62,10 +64,10 @@ extern "C" {
 /// in the mode line, and the run goes in the folder with no label.
 ///
 /// Families choose which suites beyond the judge run. None named means every family this build
-/// has but audio, kernel, pad and video. The judge itself (selfcheck, support, reference)
-/// always runs, because no verdict below it can be believed without it, and so does cpu, which
-/// needs no device. Any other word is reported and ignored, never fatal: a file with a typo in
-/// it still gets a run, and a line in the report saying what was not understood.
+/// has but audio, display, kernel, pad and video. The judge itself (selfcheck, support,
+/// reference) always runs, because no verdict below it can be believed without it, and so does
+/// cpu, which needs no device. Any other word is reported and ignored, never fatal: a file with
+/// a typo in it still gets a run, and a line in the report saying what was not understood.
 
 /// The suite families, one bit each.
 enum {
@@ -77,17 +79,20 @@ enum {
     MODE_FAMILY_VIDEO = 1u << 5,
     MODE_FAMILY_PAD = 1u << 6,
     MODE_FAMILY_KERNEL = 1u << 7,
+    MODE_FAMILY_DISPLAY = 1u << 8,
 };
 
 /// The families this build carries. A family named in the file and missing here is reported,
 /// not run.
 #define MODE_FAMILIES_PRESENT                                                                     \
     ((uint32_t)(MODE_FAMILY_CPU | MODE_FAMILY_PAD | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS |      \
-                MODE_FAMILY_KERNEL | MODE_FAMILY_VIDEO | MODE_FAMILY_AUDIO | MODE_FAMILY_NET))
+                MODE_FAMILY_KERNEL | MODE_FAMILY_DISPLAY | MODE_FAMILY_VIDEO |                     \
+                MODE_FAMILY_AUDIO | MODE_FAMILY_NET))
 
 /// The families that run only when a word asks for them.
 #define MODE_FAMILIES_ASKED                                                                       \
-    ((uint32_t)(MODE_FAMILY_AUDIO | MODE_FAMILY_KERNEL | MODE_FAMILY_VIDEO | MODE_FAMILY_PAD))
+    ((uint32_t)(MODE_FAMILY_AUDIO | MODE_FAMILY_DISPLAY | MODE_FAMILY_KERNEL | MODE_FAMILY_VIDEO | \
+                MODE_FAMILY_PAD))
 
 /// What runs when the file names no family.
 #define MODE_FAMILIES_DEFAULT ((uint32_t)(MODE_FAMILIES_PRESENT & ~MODE_FAMILIES_ASKED))

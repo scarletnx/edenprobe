@@ -171,7 +171,7 @@ void ReportSkip(const char *suite, const char *name, ReportReason reason, const 
 /// Its skip line is then already written, and the caller does none of the case's work and
 /// reports nothing more for it. True, and the journal says on the card that the case started,
 /// so a launch after the program ends inside it knows which case to skip. Every case of the
-/// cpu, graphics, fs, kernel, video, audio and net families starts this way; the judge's cases ask the
+/// cpu, graphics, fs, kernel, display, video, audio and net families starts this way; the judge's cases ask the
 /// machine nothing but ordinary arithmetic, and are only journaled when they end.
 bool ReportStart(const char *suite, const char *name);
 

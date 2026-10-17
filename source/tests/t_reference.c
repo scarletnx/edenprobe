@@ -2373,4 +2373,5 @@ void RunReference(void) {
     RunReferenceMd5();
     RunReferenceVp9();
     RunReferenceSched();
+    RunReferenceBinder();
 }

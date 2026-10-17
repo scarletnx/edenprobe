@@ -190,6 +190,10 @@ void RunFs(void);
 /// chosen priorities on one core with a watchdog on another, judged by schedref.c.
 void RunSched(void);
 
+/// The display family: the buffer producer of a layer of its own, asked for its buffer history
+/// after a number of frames, the raw reply judged by binderref.c.
+void RunBinder(void);
+
 /// The video family: the video image compositor given NV12 input the processor wrote, one job per
 /// case, every output byte judged against vicref.c's model under each answer to the open
 /// questions.
@@ -242,6 +246,9 @@ void RunReferenceMd5(void);
 void RunReferenceVp9(void);
 /// The kernel family's judge on traces made to order: part of the reference suite.
 void RunReferenceSched(void);
+
+/// The display family's judge on replies made to order: part of the reference suite.
+void RunReferenceBinder(void);
 
 #ifdef __cplusplus
 }
