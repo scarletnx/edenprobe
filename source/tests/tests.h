@@ -250,6 +250,10 @@ void RunReferenceSched(void);
 /// The display family's judge on replies made to order: part of the reference suite.
 void RunReferenceBinder(void);
 
+/// The blit2d suite's model and command words, held to tools/blit2d-expect.py: part of the
+/// reference suite.
+void RunReferenceBlit2d(void);
+
 #ifdef __cplusplus
 }
 #endif

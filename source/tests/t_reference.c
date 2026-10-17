@@ -2374,4 +2374,5 @@ void RunReference(void) {
     RunReferenceVp9();
     RunReferenceSched();
     RunReferenceBinder();
+    RunReferenceBlit2d();
 }
