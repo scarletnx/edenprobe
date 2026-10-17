@@ -1,12 +1,12 @@
 # What it checks today
 
-Forty two suites, in the order they run: the judge, then the processor, then the pad family when a
+Forty three suites, in the order they run: the judge, then the processor, then the pad family when a
 word asks for it, then the graphics family, then the fs family, then the video family and the audio
-family when a word asks for them, then the net family. A run is 878 cases: 810 for the judge, the
+family when a word asks for them, then the net family. A run is 898 cases: 830 for the judge, the
 processor and the graphics family, 15 for the fs family, 53 for the net family; the pad family adds
-twenty six when named, the video family twenty, the audio family twelve when named or with `listen`,
-the mode word `stress` adds one, and `fatal` runs the cases the may-crash table names, which are
-otherwise skipped. The order, and what a failure in each suite points at, is in [The
+twenty six when named, the video family twenty seven, the audio family twelve when named or with
+`listen`, the mode word `stress` adds one, and `fatal` runs the cases the may-crash table names,
+which are otherwise skipped. The order, and what a failure in each suite points at, is in [The
 roadmap](../Roadmap.md). A case that ends the program costs that case and not the rest of the run:
 see [When the program ends in the middle](../Crashes.md).
 
@@ -15,7 +15,8 @@ see [When the program ends in the middle](../Crashes.md).
 - **[Pad](./Pad.md)** - what a game receives from a controller in a person's hands
 - **[Graphics](./Graphics.md)** - the twenty eight drawing suites, clear to dma
 - **[fs](./Fs.md)** - reads through the file system service
-- **[Video](./Video.md)** - the video image compositor, on input the processor wrote
+- **[Video](./Video.md)** - the video image compositor, on input the processor wrote, and the
+  decoder, on VP9 jobs built from libvpx's test vectors ([the nvdec suite](./Nvdec.md))
 - **[Audio](./Audio.md)** - the audio renderer, and the listening sequence
 - **[Net](./Net.md)** - nifm, dns, bsd, ssl, acc and friend, the net file and the fixture
 

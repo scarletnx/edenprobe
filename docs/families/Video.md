@@ -2,13 +2,16 @@
 
 The video image compositor, the VIC, is the engine that converts, scales and composites video
 frames. The family hands it input the processor wrote, not frames the decoder made, and reads back
-what it left byte by byte. Only the word `video` runs it (see [The mode file](../ModeFile.md)),
-since no console has yet shown that its jobs never hang; the start screen has no row for it, and a
-file that names it keeps it whatever the screen changes.
+what it left byte by byte; the decoder has a suite of its own, [nvdec](Nvdec.md). Only the word
+`video` runs the family (see [The mode file](../ModeFile.md)), since no console has yet shown that
+its jobs never hang; the start screen has no row for it, and a file that names it keeps it whatever
+the screen changes.
 
 - **vic**, twenty cases. One says the channel opened and the buffer was mapped (none tier); the
   nineteen after it each run one job, or a few, and judge every byte of the output. If the channel
-  does not open, the nineteen are skipped as `depends`.
+  does not open, the nineteen are skipped as `depends`. The rest of this page is about it.
+- **nvdec**, seven cases: the video decode engine on VP9 jobs built from six of libvpx's test
+  vectors, every image hashed against libvpx's list. See [The nvdec suite](Nvdec.md).
 
 ## How a job is handed over
 

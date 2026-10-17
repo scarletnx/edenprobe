@@ -20,7 +20,7 @@ family reports can be believed without them.
   was allowed to is not painted as a difference. Every line is the none tier, because none of it is
   a claim about a machine. On a computer (`make -f host.mk host-run`) the suite has one case more: a
   backward seek that drops a buffered line, which needs the C library's own stream buffer.
-- **reference**, two hundred and thirty eight cases, no hardware involved either: the other half of
+- **reference**, two hundred and fifty eight cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -78,6 +78,12 @@ family reports can be believed without them.
     BT.601 colours, the shift's two orders and the clamp by value, the configuration structure
     word by word and by hash, the command words, every case's output under each combination of
     its answers, and the judge on outputs made to order (see [The video family](Video.md));
+  - eight on the MD5 the nvdec suite hashes its images with, `source/md5.c`: RFC 1321's test suite,
+    each message whole and in pieces that straddle its blocks, and a million a's;
+  - twelve on the nvdec suite's jobs and judge, `source/vp9ref.c` and `source/vp9jobs.c`: the jobs
+    fit the buffer, the patches rebuild the tables `tools/vp9-jobs.py` wrote, the command words by
+    hand, the block linear reading against nvtegra's own copy walk, and the verdicts on reads made
+    to order (see [The nvdec suite](Nvdec.md));
   - fourteen on the pad family's rules, `source/padref.c`: the prompts, what a press is and when a
     prompt runs out, the stick distances, edges and their shape, the styles and ids, the slots and
     each controller's press, against answers worked out by hand (see [The pad family](Pad.md)).

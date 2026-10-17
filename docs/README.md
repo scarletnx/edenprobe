@@ -11,6 +11,8 @@ leaves. The [README](../README.md) at the root says what edenprobe is.
   - **[Graphics](./families/Graphics.md)** - the drawing suites, clear to dma
   - **[fs](./families/Fs.md)** - reads through the file system service
   - **[Video](./families/Video.md)** - the VIC: the job, the nineteen cases, the open questions
+  - **[The nvdec suite](./families/Nvdec.md)** - VP9 through the decode engine: six libvpx vectors
+    by MD5, and Q1 to Q5
   - **[Audio](./families/Audio.md)** - the audio renderer, and the listening sequence
   - **[Net](./families/Net.md)** - nifm to friend, the net file and the fixture
 
@@ -34,4 +36,5 @@ leaves. The [README](../README.md) at the root says what edenprobe is.
 
 ## Credits
 
-- **[Credits](./Credits.md)** - what comes from switch-examples, libnx, deko3d and astcenc
+- **[Credits](./Credits.md)** - what comes from switch-examples, libnx, deko3d, astcenc, libvpx's
+  test vectors, FFmpeg, nvtegra and a public domain MD5

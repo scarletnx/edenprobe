@@ -22,7 +22,7 @@ not a letter between them.
 | `audio` | the audio family: the renderer's resampler, circular buffer sink and limiter, recorded through its own effect and sink; only when named, since it makes sound, most of it at a gain of nought |
 | `listen` | the listening sequence before the audio family's cases, and the audio family with it: about 40 seconds of sound meant to be heard; see [The audio family](families/Audio.md) |
 | `pad` | the pad family: a person presses each button the screen names, by its label, then the sticks and a vibration; only when named, since it waits for a person; see [The pad family](families/Pad.md) |
-| `video` | the video family: the video image compositor given input the processor wrote, one job per case; only when named, until a console has run it, and the start screen has no row for it; see [The video family](families/Video.md) |
+| `video` | the video family: the video image compositor given input the processor wrote, one job per case, and the decoder given VP9 jobs built from libvpx's test vectors, one job per frame; only when named, until a console has run it, and the start screen has no row for it; see [The video family](families/Video.md) and [the nvdec suite](families/Nvdec.md) |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
 | `label=<name>` | not a word: the run's folder gets `_<name>` after the build's hash, to keep apart runs of one build under two emulators; see [Where a run leaves its report](Report.md#where-a-run-leaves-its-report) |
 
@@ -47,7 +47,7 @@ For example:
 | `listen` | every family but video, the listening sequence just before the audio suite, then the result screens |
 | `quick listen audio` | the judge, cpu, the listening sequence and the audio suite, then exit |
 | `quick fs` | the judge, cpu and the fs suite, then exit |
-| `quick video` | the judge, cpu and the vic suite, then exit: what a console run of the video family wants |
+| `quick video` | the judge, cpu, the vic suite and the nvdec suite, then exit: what a console run of the video family wants |
 | `quick pad` | the judge, cpu and the pad suite with a person in front of it, then exit |
 
 The first 4096 bytes of the file are read. A longer file is read that far and the mode line says

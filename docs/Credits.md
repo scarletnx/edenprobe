@@ -37,11 +37,22 @@
   `decode_frame_header` does, keeping the same fields stale, so its setup matches the one built
   from that state. The compressed header is read after the VP9 specification (v0.6, 6.3 and 9.2).
 - **nvtegra**, the homebrew FFmpeg backend for the console (averne, ffmpeg-devel, May 2024,
-  GPL-2.0-or-later, with NVIDIA's `nvdec_drv.h` and `clc5b0.h` under MIT): `tools/vp9-jobs.py`
-  fills the VP9 picture setup and probability table field by field the way `nvtegra_vp9.c` does
-  (`prepare_frame_setup`, `update_probs`, `init_probs`, `set_tile_sizes`, the prediction mode
-  order), sizes surfaces as its `hwcontext_nvtegra.c` allocates them, and takes the structures'
-  offsets from `nvdec_drv.h`.
+  GPL-2.0-or-later, with NVIDIA's `nvdec_drv.h` and `clc5b0.h` under MIT). Read: the patches for
+  the ioctls, the hardware definitions, the common code, the hwcontext and its clock scaling, the
+  common decode code and the VP9 hwaccel. Followed: `tools/vp9-jobs.py` fills the VP9 picture setup
+  and probability table field by field the way `nvtegra_vp9.c` does (`prepare_frame_setup`,
+  `update_probs`, `init_probs`, `set_tile_sizes`, the prediction mode order), but for the two
+  chroma quantizer bytes, which follow NVIDIA's names (see [The nvdec suite](families/Nvdec.md),
+  Q4); `source/vp9ref.c` lays out the buffers with the sizes of its `decode_init` and orders the
+  command words as its `prepare_cmdbuf` does, and surfaces are sized and read block linear as its
+  `hwcontext_nvtegra.c` allocates and copies them; `source/nvdec.c` opens the channel as its
+  device init does on the console (the submit timeout, the clock asked of the multimedia service
+  at module 5 and at the official driver's highest value). The structures' offsets come from
+  `nvdec_drv.h` and the methods' from `clc5b0.h`, both checked against reden's `codec_types.h`
+  and `nvdec_common.h`.
+- **The VP9 bitstream specification**, v0.6 (the WebM Project): the compressed header (6.3), the
+  boolean decoder (9.2) and the update rules `tools/vp9-jobs.py` reads it with, and the superframe
+  index (Annex B).
 - **MD5**, Alexander Peslyak (Solar Designer), 2001, public domain,
   https://openwall.info/wiki/people/solar/software/public-domain-source-code/md5: `source/md5.c`
   and `source/md5.h`, vendored unchanged under a header that says where they came from. The
