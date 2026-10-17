@@ -191,6 +191,10 @@ void RunFs(void);
 /// questions.
 void RunVic(void);
 
+/// The video family's decoder: VP9 jobs built from libvpx's test vectors, one per frame, every
+/// image read back off its surface and hashed against libvpx's list.
+void RunNvdec(void);
+
 /// The audio family: the audio renderer's sample rate conversion, circular buffer sink and
 /// limiter, judged by recording what it rendered through its own aux effect and sink.
 void RunAudio(void);
@@ -227,6 +231,11 @@ void RunReferenceVic(void);
 void RunReferencePad(void);
 /// The vendored MD5 against RFC 1321's test suite: part of the reference suite.
 void RunReferenceMd5(void);
+
+/// The nvdec suite's jobs and judge: the tables rebuilt from their patches, the command words,
+/// the surface reading against nvtegra's own walk, and the verdicts on reads made to order. Part
+/// of the reference suite.
+void RunReferenceVp9(void);
 
 #ifdef __cplusplus
 }

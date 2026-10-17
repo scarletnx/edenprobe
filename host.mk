@@ -15,14 +15,14 @@ HOSTSRC  := source/report.c source/journal.c source/maycrash.c source/hang.c sou
             source/rawref.c source/astcref.c source/astcblocks.c source/eacref.c \
             source/etc2ref.c source/etc2blocks.c source/bcnref.c source/audioref.c source/vicref.c \
             source/padref.c \
-            source/md5.c \
+            source/md5.c source/vp9jobs.c source/vp9ref.c \
             source/tests/t_selfcheck.c source/tests/t_support.c source/tests/t_screens.c \
             source/tests/t_perf.c source/tests/t_settle.c source/tests/t_reference.c source/tests/t_netref.c \
             source/tests/t_cpuref.c source/tests/t_rawref.c source/tests/t_astcref.c \
             source/tests/t_eacref.c source/tests/t_journal.c source/tests/t_etc2ref.c \
             source/tests/t_bcnref.c source/tests/t_audioref.c source/tests/t_vicref.c \
             source/tests/t_padref.c \
-            source/tests/t_md5ref.c \
+            source/tests/t_md5ref.c source/tests/t_vp9ref.c \
             source/host_main.c
 
 # One object per source, so the -MMD below has somewhere to put its dependency files. Without

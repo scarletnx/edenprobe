@@ -289,6 +289,7 @@ static const struct {
     { "geometry", UI_FAMILY_GRAPHICS },
     { "query", UI_FAMILY_GRAPHICS },  { "dma", UI_FAMILY_GRAPHICS },
     { "fs", UI_FAMILY_FS },           { "vic", UI_FAMILY_VIDEO },
+    { "nvdec", UI_FAMILY_VIDEO },
     { "audio", UI_FAMILY_AUDIO },
     { "nifm", UI_FAMILY_NET },
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },

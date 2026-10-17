@@ -45,8 +45,9 @@ extern "C" {
 ///   fs        another: reads from the memory card through the file system service, timed.
 ///   audio     another: the audio renderer, recorded through its own effects and sinks. It
 ///             makes sound, so it runs only when named or with `listen`.
-///   video     another: the video image compositor, given input the processor wrote. It runs
-///             only when named until a console has shown its jobs never hang.
+///   video     another: the video image compositor, given input the processor wrote, and the
+///             decoder, given VP9 jobs built from libvpx's test vectors. It runs only when
+///             named until a console has shown its jobs never hang.
 ///   pad       another: a person presses each button the screen names and the run records what
 ///             arrived. It waits for a person, so it runs only when named.
 ///   net       another: the online services, nifm to friend, against the backend the file
