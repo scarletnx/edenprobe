@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Publish builds
+
+# The NRO as a release (.github/scripts/publish-builds.py, docs/Releases.md): a push to main whose Build run passed
+# becomes the prerelease nightly-<date>-<commit>, the newest 30 kept, and the prerelease "nightly" takes its files, so
+# .../releases/download/nightly/edenprobe.nro is always the newest; a version tag (v...) whose run passed becomes that
+# version's release, the latest. A pull request's NRO is not published: it stays its run's artifact. Nothing of a pull
+# request runs here: the checkout is main's. The secrets: DISCORD_WEBHOOK_RELEASES and DISCORD_WEBHOOK_NIGHTLY are the
+# channels' webhooks (without one, nothing is posted there and the run says so)
+on:
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+
+permissions:
+  contents: write # the releases and their tags, and the cards' branch (discord-cards)
+  actions: read # the Build run's artifact
+
+jobs:
+  publish:
+    name: Publish the NRO
+    # a pull request's run has nothing for it
+    if: github.event.workflow_run.event == 'push'
+    # One at a time for main's nightlies and each version: the nightlies are counted. A group holds one waiting job,
+    # which a newer one replaces: the newer build is the one to publish
+    concurrency:
+      group: publish-${{ github.event.workflow_run.head_branch }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PYTHONUNBUFFERED: '1' # each line in the log as it happens
+      DISCORD_WEBHOOK_RELEASES: ${{ secrets.DISCORD_WEBHOOK_RELEASES }}
+      DISCORD_WEBHOOK_NIGHTLY: ${{ secrets.DISCORD_WEBHOOK_NIGHTLY }}
+    steps:
+      # main's scripts, and its history and tags for the changes the notes list
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - name: Find the build to publish
+        id: plan
+        run: python3 .github/scripts/publish-builds.py plan --repo "$GITHUB_REPOSITORY"
+      # By its name, as the build job uploaded it, into a folder of its own
+      - name: Download the NRO
+        if: steps.plan.outputs.run
+        uses: actions/download-artifact@v8
+        with:
+          name: edenprobe-${{ steps.plan.outputs.short }}.nro
+          path: artifacts/edenprobe-${{ steps.plan.outputs.short }}.nro
+          run-id: ${{ steps.plan.outputs.run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish it
+        if: steps.plan.outputs.run
+        env:
+          KIND: ${{ steps.plan.outputs.kind }}
+          RUN: ${{ steps.plan.outputs.run }}
+          SHA: ${{ steps.plan.outputs.sha }}
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          python3 .github/scripts/publish-builds.py publish --repo "$GITHUB_REPOSITORY" --kind "$KIND" --run "$RUN" \
+            --sha "$SHA" ${TAG:+--tag "$TAG"} --artifacts artifacts --checkout .
