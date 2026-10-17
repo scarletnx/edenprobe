@@ -171,6 +171,67 @@ void RunReferenceAudio(void) {
                "starts near %.0f Hz and ends near %.0f Hz, expected 2000 and 16000", start_hz,
                end_hz);
 
+    // The conversion's tables by their formula, against values the renderer's own tables hold
+    // (a few of each, as units of 1/32768): within two units, as the fit is.
+    static const struct {
+        unsigned taps;
+        double ratio;
+        unsigned index;
+        int value;
+    } TABLED[] = {
+        { 4u, 1.0, 0u, -68 },    { 4u, 1.0, 1u, 32639 },  { 4u, 1.0, 2u, 69 },
+        { 4u, 1.0, 3u, -5 },     { 4u, 1.0, 256u, -1459 }, { 4u, 1.0, 257u, 17787 },
+        { 4u, 1.0, 258u, 18151 }, { 4u, 1.0, 259u, -1495 }, { 4u, 2.0, 0u, 6600 },
+        { 4u, 2.0, 1u, 19426 },  { 4u, 2.0, 2u, 6722 },   { 4u, 2.0, 3u, 3 },
+        { 4u, 1.2, 0u, 3195 },   { 4u, 1.2, 1u, 26287 },  { 4u, 1.2, 2u, 3329 },
+        { 4u, 1.2, 3u, -32 },    { 8u, 1.0, 0u, -12 },    { 8u, 1.0, 3u, 32767 },
+        { 8u, 1.0, 4u, 81 },     { 8u, 1.0, 7u, 0 },      { 8u, 1.0, 512u, -207 },
+        { 8u, 1.0, 515u, 19809 }, { 8u, 2.0, 0u, -582 },  { 8u, 2.0, 3u, 16386 },
+        { 8u, 2.0, 4u, 8833 },   { 8u, 2.0, 7u, 0 },
+    };
+    static double filter[128u * 8u];
+    unsigned wrong = 0;
+    int first_got = 0;
+    int first_want = 0;
+    for (size_t i = 0; i < sizeof(TABLED) / sizeof(TABLED[0]); ++i) {
+        AudioRefResampleTable(TABLED[i].taps, TABLED[i].ratio, filter);
+        const int got = (int)lround(filter[TABLED[i].index] * 32768.0);
+        if (abs(got - TABLED[i].value) > 2 && wrong++ == 0u) {
+            first_got = got;
+            first_want = TABLED[i].value;
+        }
+    }
+    CHECK_TRUE(SUITE, "audio: the conversion tables' formula gives the renderer's values",
+               CHECK_NONE, wrong == 0u && !AudioRefResampleTable(6u, 1.0, filter),
+               "%u values off by more than 2, the first %d where the table holds %d", wrong,
+               first_got, first_want);
+
+    // A tone through each quality at three ratios, one per table: the levels a separate Python
+    // model of the same tables, phases and measure gives.
+    static const struct {
+        unsigned taps;
+        double ratio;
+        double hz;
+        double level;
+    } THROUGH[] = {
+        { 4u, 0.5, 10000.0, 0.3359 }, { 4u, 1.25, 15000.0, 0.3850 }, { 4u, 2.0, 18000.0, 0.3742 },
+        { 8u, 0.5, 10000.0, 0.4023 }, { 8u, 1.25, 15000.0, 0.4533 }, { 8u, 2.0, 18000.0, 0.3693 },
+    };
+    unsigned off = 0;
+    double off_got = 0.0;
+    double off_want = 0.0;
+    for (size_t i = 0; i < sizeof(THROUGH) / sizeof(THROUGH[0]); ++i) {
+        const double got =
+            AudioRefResampledLevel(THROUGH[i].taps, THROUGH[i].ratio, THROUGH[i].hz, 0.5);
+        if (fabs(got - THROUGH[i].level) > 5e-4 && off++ == 0u) {
+            off_got = got;
+            off_want = THROUGH[i].level;
+        }
+    }
+    CHECK_TRUE(SUITE, "audio: a tone keeps the level the conversion's table gives it",
+               CHECK_NONE, off == 0u, "%u levels off, the first %.4f where %.4f is expected", off,
+               off_got, off_want);
+
     // Mode 0's second answer, its estimate and its two steps, against values worked out by
     // hand: at a detector of 0.159 the steps give 1.8408 where one over it is 6.2893.
     const double estimate = AudioRefReciprocalEstimate(0.159);

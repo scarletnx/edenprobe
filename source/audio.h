@@ -56,6 +56,10 @@ void AudioSync(const void *address, size_t bytes);
 /// @p mix at @p left and @p right.
 void AudioPlay(unsigned voice, const int16_t *data, size_t samples, bool loop,
                AudioQuality quality, unsigned mix, float left, float right);
+/// The same at @p rate samples a second: the renderer converts it to the output rate, with the
+/// table the ratio and the quality pick.
+void AudioPlayAt(unsigned voice, const int16_t *data, size_t samples, bool loop,
+                 AudioQuality quality, unsigned mix, float left, float right, uint32_t rate);
 void AudioStop(unsigned voice);
 /// Whether the buffer a voice was started on has ended; a looping one never does.
 bool AudioVoiceDone(unsigned voice);

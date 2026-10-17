@@ -569,6 +569,11 @@ void AudioClose(void) {
 
 void AudioPlay(unsigned voice, const int16_t *data, size_t samples, bool loop,
                AudioQuality quality, unsigned mix, float left, float right) {
+    AudioPlayAt(voice, data, samples, loop, quality, mix, left, right, AUDIO_RATE);
+}
+
+void AudioPlayAt(unsigned voice, const int16_t *data, size_t samples, bool loop,
+                 AudioQuality quality, unsigned mix, float left, float right, uint32_t rate) {
     VoiceIn *v = &r.voices[voice];
     ResourceIn *resource = &r.resources[voice];
     memset(v, 0, sizeof(*v));
@@ -578,7 +583,7 @@ void AudioPlay(unsigned voice, const int16_t *data, size_t samples, bool loop,
     v->in_use = 1;
     v->play_state = 0; // started
     v->format = 2;     // 16-bit
-    v->sample_rate = AUDIO_RATE;
+    v->sample_rate = rate;
     v->sort_order = (int32_t)voice;
     v->channel_count = 1;
     v->pitch = 1.0f;

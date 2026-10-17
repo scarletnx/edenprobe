@@ -20,7 +20,7 @@ family reports can be believed without them.
   was allowed to is not painted as a difference. Every line is the none tier, because none of it is
   a claim about a machine. On a computer (`make -f host.mk host-run`) the suite has one case more: a
   backward seek that drops a buffered line, which needs the C library's own stream buffer.
-- **reference**, two hundred and thirty six cases, no hardware involved either: the other half of
+- **reference**, two hundred and thirty eight cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -68,11 +68,12 @@ family reports can be believed without them.
   - four on the bcn suite's layout, `source/bcnref.c`: where deko3d puts each level and layer of
     a block linear array, against offsets worked out by hand from its layout rules, and the solid
     BC4 block;
-  - twelve on the audio family's answers: a tone's level read back from a recording, exact for a
+  - fourteen on the audio family's answers: a tone's level read back from a recording, exact for a
     tone with whole periods in the run and blind to every other such tone; the frames the
     recordings are laid out in; the limiter's rule, held by hand to a steady input and to a sine,
-    and mode 0's second answer, the two-step reciprocal, held to values worked out apart; and the
-    signals the listening sequence plays;
+    and mode 0's second answer, the two-step reciprocal, held to values worked out apart; the
+    conversion tables' formula, held to values the renderer's own tables hold, and the level a tone
+    keeps through each, held to a separate model; and the signals the listening sequence plays;
   - thirty on the video family's judge, `source/vicref.c`, held to `tools/vic-expect.py`: the
     BT.601 colours, the shift's two orders and the clamp by value, the configuration structure
     word by word and by hash, the command words, every case's output under each combination of

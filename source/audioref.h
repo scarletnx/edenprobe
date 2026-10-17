@@ -21,6 +21,9 @@ extern "C" {
 /// raised cosine at each end, so it starts and stops without a click; 0 for none.
 void AudioRefTone(int16_t *out, size_t count, double hz, double amplitude, size_t fade);
 
+/// AudioRefTone for a voice played at @p rate samples a second rather than the output rate.
+void AudioRefToneAt(int16_t *out, size_t count, double hz, double amplitude, double rate);
+
 /// White noise at @p amplitude of full scale, the same samples on every machine for one seed.
 void AudioRefNoise(int16_t *out, size_t count, double amplitude, uint32_t seed, size_t fade);
 
@@ -81,6 +84,23 @@ const char *AudioRefModeZeroReading(double level, double rule, double two_step);
 
 /// The detector's reciprocal as the two-step answer estimates it before its two steps.
 double AudioRefReciprocalEstimate(double a);
+
+/// The sample rate conversion's filter for a ratio (the voice's rate over the output's): 128
+/// phases of @p taps each, 4 at default quality and 8 at high, as fractions of one. Each table
+/// is a windowed sinc of three constants, a Hamming or Kaiser window, which gives every value
+/// of the renderer's own tables to 1 or 2 units of 1/32768. The ratio picks the table: up to 1,
+/// below 1.3, or above. @p out holds 128 * @p taps values. False for any other tap count.
+int AudioRefResampleTable(unsigned taps, double ratio, double *out);
+
+/// The level a tone of @p hz at @p amplitude keeps when a voice at @p ratio times the output
+/// rate is converted with AudioRefResampleTable's filter, stepped the way the renderer steps
+/// it: a 15-bit fraction, its top 7 bits the phase.
+double AudioRefResampledLevel(unsigned taps, double ratio, double hz, double amplitude);
+
+/// The same with the table @p table_ratio picks: what a renderer that took the wrong table for
+/// the ratio would give.
+double AudioRefResampledLevelWith(unsigned taps, double table_ratio, double ratio, double hz,
+                                  double amplitude);
 
 /// A level as decibels against @p reference, for the lines a person reads.
 double AudioRefDecibels(double level, double reference);

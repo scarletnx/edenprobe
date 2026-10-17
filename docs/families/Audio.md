@@ -7,10 +7,12 @@ reaches the speakers at a gain of nought records the resampler and the limiter, 
 buffer sink records the final mix. Only a word runs it, `audio` or `listen`, since it makes sound;
 see below.
 
-- **audio**, six cases. An 11 kHz voice at the output rate keeps its level at high quality, and at
-  default quality; a stereo circular buffer sink comes into use and records the final mix, the left
-  channel first and the right second; a tone through the limiter switched off keeps its level, and
-  in mode 1 comes out at the level of the limiter's rule, the threshold over the detector.
+- **audio**, twelve cases. An 11 kHz voice at the output rate keeps its level at high quality, and
+  at default quality; a voice at half, 1.25 times and twice the output rate keeps the level its
+  quality's conversion table gives, three ratios at each of the two qualities; a stereo circular
+  buffer sink comes into use and records the final mix, the left channel first and the right second;
+  a tone through the limiter switched off keeps its level, and in mode 1 comes out at the level of
+  the limiter's rule, the threshold over the detector.
 
 ## How it asks the renderer
 
@@ -23,12 +25,13 @@ buffers feeding the final mix at a gain the family sets, with a limiter and then
 it. The aux records the submix's first two buffers into a ring the program reads, and returns into
 the other two, which go nowhere.
 
-Every tone loops over a whole second and fills each 240-sample frame with whole periods (1 kHz,
-1.6 kHz, 11 kHz), so once it has played 100 frames, every frame of a 40-frame ring holds the same
-steady wave, which can be read in any order and even while the renderer writes it. A level is one
-bin of a Fourier transform over the ring (`source/audioref.c`, pinned by the reference suite). The
-resampler and limiter cases play into the submix at a gain of nought and are silent; the circular
-buffer sink records the final mix, so its case plays at 0.005 of full scale, 46 dB down.
+Every tone loops over a whole second and fills each 240-sample frame with whole periods (1 kHz, 1.6
+kHz, 11 kHz; the voices at other rates loop over 48000 of their own samples, whole periods too, and
+come out at 10, 15 and 18 kHz), so once it has played 100 frames, every frame of a 40-frame ring
+holds the same steady wave, which can be read in any order and even while the renderer writes it. A
+level is one bin of a Fourier transform over the ring (`source/audioref.c`, pinned by the reference
+suite). The resampler and limiter cases play into the submix at a gain of nought and are silent; the
+circular buffer sink records the final mix, so its case plays at 0.005 of full scale, 46 dB down.
 
 What each case catches, with Eden's numbers (reden `d304ea4164` against its audio fix branch):
 
@@ -45,6 +48,33 @@ What each case catches, with Eden's numbers (reden `d304ea4164` against its audi
   a renderer that keeps the detector in 15 fractional bits drops the small steps near the average
   and lands 9% above the rule, which is not what this case asks. The limiter switched off is the
   control, and a note gives the level mode 0 reached.
+
+**Through each table.** The renderer converts a voice to the output rate with one of three
+tables per quality, picked by the ratio, the voice's rate over the output's: up to 1, below 1.3,
+and above; 128 phases of 4 taps at default quality, of 8 at high. Each table is a windowed sinc of
+three constants (the cut-off, a gain, and a Hamming window or a Kaiser one with its beta), found by
+fitting the renderer's own tables: the six give every value to one unit of 1/32768, two in one
+table (`source/audioref.c`, `AudioRefResampleTable`, its constants and the values it is held to in
+the reference suite). With the tables the level of any tone at any ratio is a number to work out:
+the family plays one tone per table and expects its level within 3%, and each line names what the
+other two tables would give, so a renderer that picks the wrong table for a ratio is named by the
+level it reached. The six were chosen where the three tables part by 10% or more; a renderer with
+one table for every ratio fails four of them, whichever table it is.
+
+| quality | ratio | tone | its table gives | the others give |
+|---|---|---|---|---|
+| default | 0.5 | 10 kHz | 0.3359 | 0.2270, 0.1065 |
+| default | 1.25 | 15 kHz | 0.3850 | 0.4593, 0.2977 |
+| default | 2 | 18 kHz | 0.3742 | 0.4981, 0.4396 |
+| high | 0.5 | 10 kHz | 0.4023 | 0.1689, 0.0175 |
+| high | 1.25 | 15 kHz | 0.4533 | 0.4997, 0.2503 |
+| high | 2 | 18 kHz | 0.3693 | 0.4995, 0.4914 |
+
+All six are at 0.5 of full scale. The model steps the phase as the renderer does, a 15-bit
+fraction whose top 7 bits pick the phase (rEden 75c12299a6,
+`audio_core/renderer/command/resample/resample.cpp:293` and `:843`; the table by ratio at
+`:281-286` and `:831-836`). Under Eden all six came out at their table's level to the fourth
+decimal, which is the model checked against a renderer that holds those tables.
 
 What rests on reasoning rather than on a console run: that the console's mode 1 follows the rule
 to 2% (Eden's mode 1 is a reciprocal estimate; Ryujinx divides), and that the console honours the

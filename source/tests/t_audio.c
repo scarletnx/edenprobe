@@ -37,6 +37,30 @@ static const char *const RESAMPLE_HIGH =
     "an 11 kHz voice at the output rate keeps its level at high quality";
 static const char *const RESAMPLE_DEFAULT =
     "an 11 kHz voice at the output rate keeps its level at default quality";
+// A tone at another rate through each quality, one ratio for each of its three tables.
+typedef struct {
+    const char *name;
+    AudioQuality quality;
+    unsigned taps;
+    double ratio;
+    double hz;
+} ThroughTable;
+
+static const ThroughTable THROUGH_TABLES[] = {
+    { "a 10 kHz voice at half the output rate keeps the level default quality's table gives",
+      AUDIO_QUALITY_DEFAULT, 4u, 0.5, 10000.0 },
+    { "a 15 kHz voice at 1.25 times the output rate keeps the level default quality's table gives",
+      AUDIO_QUALITY_DEFAULT, 4u, 1.25, 15000.0 },
+    { "an 18 kHz voice at twice the output rate keeps the level default quality's table gives",
+      AUDIO_QUALITY_DEFAULT, 4u, 2.0, 18000.0 },
+    { "a 10 kHz voice at half the output rate keeps the level high quality's table gives",
+      AUDIO_QUALITY_HIGH, 8u, 0.5, 10000.0 },
+    { "a 15 kHz voice at 1.25 times the output rate keeps the level high quality's table gives",
+      AUDIO_QUALITY_HIGH, 8u, 1.25, 15000.0 },
+    { "an 18 kHz voice at twice the output rate keeps the level high quality's table gives",
+      AUDIO_QUALITY_HIGH, 8u, 2.0, 18000.0 },
+};
+
 static const char *const CIRCULAR_USE =
     "a stereo circular buffer sink comes into use and records the final mix";
 static const char *const CIRCULAR_CHANNELS =
@@ -89,8 +113,8 @@ static int16_t recorded[40 * AUDIO_FRAME];
 
 /// Loops @p tone on voice 0 into the submix's buffer 0 until the aux ring holds nothing else,
 /// and gives the level at @p hz in what the aux recorded; -1 when the renderer stopped first.
-static double SubmixLevel(const int16_t *tone, double hz, AudioQuality quality) {
-    AudioPlay(0, tone, LOOP, true, quality, AUDIO_SUBMIX, 1.0f, 0.0f);
+static double SubmixLevelAt(const int16_t *tone, double hz, AudioQuality quality, uint32_t rate) {
+    AudioPlayAt(0, tone, LOOP, true, quality, AUDIO_SUBMIX, 1.0f, 0.0f, rate);
     const bool played = PlayUntil(0, SETTLE, 5000u);
     size_t frames = 0;
     const int32_t *ring = AudioCaptureRing(&frames);
@@ -99,6 +123,10 @@ static double SubmixLevel(const int16_t *tone, double hz, AudioQuality quality) 
     AudioStop(0);
     AudioStep();
     return played ? level : -1.0;
+}
+
+static double SubmixLevel(const int16_t *tone, double hz, AudioQuality quality) {
+    return SubmixLevelAt(tone, hz, quality, AUDIO_RATE);
 }
 
 /// Both cases of a pair skipped for want of room in the renderer's memory pool.
@@ -134,6 +162,39 @@ static void CaseResampler(void) {
          "11 kHz at 0.5 of full scale came out at %.4f (%+.2f dB), at high quality %.4f; a "
          "renderer that takes the smoothing table at a ratio of one gives about 0.41",
          normal, AudioRefDecibels(normal, 0.5), high);
+}
+
+/// Each table's response, which the formula gives for any tone at any ratio: the tone the case
+/// plays at the voice's rate is whole periods in the loop, and whole periods in a frame of the
+/// output, so the capture can be read in any order.
+static void CaseThroughTables(void) {
+    const size_t count = sizeof(THROUGH_TABLES) / sizeof(THROUGH_TABLES[0]);
+    int16_t *tone = AudioAlloc(LOOP);
+    if (tone == NULL) {
+        for (size_t i = 0; i < count; ++i) {
+            ReportSkip(SUITE, THROUGH_TABLES[i].name, REPORT_REASON_UNAVAILABLE,
+                       "no room in the renderer's memory pool");
+        }
+        return;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        const ThroughTable *const c = &THROUGH_TABLES[i];
+        if (!ReportStart(SUITE, c->name)) {
+            continue;
+        }
+        const double rate = c->ratio * AUDIO_RATE;
+        AudioRefToneAt(tone, LOOP, c->hz, 0.5, rate);
+        AudioSync(tone, LOOP * sizeof(int16_t));
+        const double got = SubmixLevelAt(tone, c->hz, c->quality, (uint32_t)rate);
+        const double want = AudioRefResampledLevel(c->taps, c->ratio, c->hz, 0.5);
+        Case(c->name, AudioRefWithin(got, want, 0.03),
+             "came out at %.4f, its table gives %.4f (%+.2f dB); the tables for a ratio up to 1, "
+             "below 1.3 and above give %.4f, %.4f and %.4f",
+             got, want, AudioRefDecibels(got, want),
+             AudioRefResampledLevelWith(c->taps, 1.0, c->ratio, c->hz, 0.5),
+             AudioRefResampledLevelWith(c->taps, 1.2, c->ratio, c->hz, 0.5),
+             AudioRefResampledLevelWith(c->taps, 2.0, c->ratio, c->hz, 0.5));
+    }
 }
 
 static void CaseCircular(void) {
@@ -718,6 +779,7 @@ void RunAudio(void) {
     }
     AudioCapture(true);
     CaseResampler();
+    CaseThroughTables();
     CaseCircular();
     CaseLimiter();
     AudioCapture(false);

@@ -39,6 +39,12 @@ static int16_t Sample(double value) {
     return (int16_t)scaled;
 }
 
+void AudioRefToneAt(int16_t *out, size_t count, double hz, double amplitude, double rate) {
+    for (size_t n = 0; n < count; ++n) {
+        out[n] = Sample(amplitude * sin(2.0 * PI * fmod(hz * (double)n, rate) / rate));
+    }
+}
+
 void AudioRefTone(int16_t *out, size_t count, double hz, double amplitude, size_t fade) {
     for (size_t n = 0; n < count; ++n) {
         out[n] = Sample(amplitude * sin(Phase(hz, n)) * Envelope(n, count, fade));
@@ -214,4 +220,95 @@ double AudioRefPeak16(const int16_t *x, size_t count) {
         }
     }
     return (double)peak / FULL_SCALE;
+}
+
+/// The zeroth modified Bessel function of the first kind, by its series.
+static double BesselI0(double x) {
+    double sum = 1.0;
+    double term = 1.0;
+    for (int k = 1; k < 64 && term > 1e-17 * sum; ++k) {
+        term *= (x / (2.0 * k)) * (x / (2.0 * k));
+        sum += term;
+    }
+    return sum;
+}
+
+int AudioRefResampleTable(unsigned taps, double ratio, double *out) {
+    // fc, gain, and the Kaiser beta or 0 for Hamming, for up to 1, below 1.3, and above, fitted
+    // to the renderer's tables by least squares over their Q15 values.
+    static const double FOUR[3][3] = {
+        { 0.999998, 32640.38, 0.0 }, { 0.752909, 34914.86, 7.02743 }, { 0.499991, 38852.97, 0.0 },
+    };
+    static const double EIGHT[3][3] = {
+        { 1024.0 / 1023.0, 32735.86, 5.9 },
+        { 0.75 * 1024.0 / 1023.0, 32787.99, 5.9 },
+        { 0.5 * 1024.0 / 1023.0, 32740.59, 5.9 },
+    };
+    if (out == NULL || (taps != 4u && taps != 8u)) {
+        return 0;
+    }
+    const unsigned band = ratio <= 1.0 ? 0u : ratio < 1.3 ? 1u : 2u;
+    const double *const c = taps == 4u ? FOUR[band] : EIGHT[band];
+    const double points = 128.0 * taps;
+    for (unsigned p = 0; p < 128u; ++p) {
+        for (unsigned k = 0; k < taps; ++k) {
+            // Phase p, tap k: the prototype's point 128k + 127 - p, so the last phase is the
+            // first one reversed.
+            const double n = 128.0 * k + 127.0 - p;
+            const double t = (n - (points - 1.0) / 2.0) / 128.0;
+            const double x = c[0] * t;
+            const double sinc = x == 0.0 ? 1.0 : sin(PI * x) / (PI * x);
+            double w;
+            if (c[2] == 0.0) {
+                w = 0.54 - 0.46 * cos(2.0 * PI * n / (points - 1.0));
+            } else {
+                const double u = 2.0 * n / (points - 1.0) - 1.0;
+                w = BesselI0(c[2] * sqrt(fmax(0.0, 1.0 - u * u))) / BesselI0(c[2]);
+            }
+            out[p * taps + k] = floor(c[1] * c[0] * sinc * w + 0.5) / FULL_SCALE;
+        }
+    }
+    return 1;
+}
+
+double AudioRefResampledLevel(unsigned taps, double ratio, double hz, double amplitude) {
+    return AudioRefResampledLevelWith(taps, ratio, ratio, hz, amplitude);
+}
+
+double AudioRefResampledLevelWith(unsigned taps, double table_ratio, double ratio, double hz,
+                                  double amplitude) {
+    static double table[128u * 8u];
+    if (!AudioRefResampleTable(taps, table_ratio, table)) {
+        return -1.0;
+    }
+    const size_t settle = 2400u;
+    const size_t window = 21600u;
+    const size_t outputs = settle + window;
+    const size_t inputs = (size_t)ceil((double)outputs * ratio) + taps + 4u;
+    int16_t *in = malloc(inputs * sizeof(int16_t));
+    double *out = malloc(window * sizeof(double));
+    double level = -1.0;
+    if (in != NULL && out != NULL) {
+        AudioRefToneAt(in, inputs, hz, amplitude, ratio * AUDIO_RATE);
+        const uint32_t step = (uint32_t)(ratio * 32768.0);
+        uint32_t fraction = 0;
+        size_t read = 0;
+        for (size_t i = 0; i < outputs; ++i) {
+            const unsigned phase = (fraction >> 8) & 127u;
+            double sum = 0.0;
+            for (unsigned k = 0; k < taps; ++k) {
+                sum += (double)in[read + k] * table[phase * taps + k];
+            }
+            if (i >= settle) {
+                out[i - settle] = sum / FULL_SCALE;
+            }
+            fraction += step;
+            read += fraction >> 15;
+            fraction &= 0x7FFFu;
+        }
+        level = Level(out, window, hz, 2);
+    }
+    free(in);
+    free(out);
+    return level;
 }
