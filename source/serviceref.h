@@ -161,6 +161,13 @@ extern "C" {
 #define SERVICE_TZ_CHUNK 16u
 #define SERVICE_TZ_ASKS 128u
 
+/// time refusing a write a session may not make: PermissionDenied, Time (116) 1 (reden
+/// `psc/time/errors.h`).
+#define SERVICE_TIME_DENIED SERVICE_RESULT(116, 1)
+/// The writes each time-perm case asks of time:u, in the order its line names them.
+#define SERVICE_TIME_CLOCK_WRITES 4u
+#define SERVICE_TIME_SETTING_WRITES 3u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -260,6 +267,8 @@ typedef enum {
     SERVICE_TZ_LIST,    ///< time-zone: as many names listed as counted, the device's among them
     SERVICE_TZ_UPDATED, ///< time-zone: the device's location comes with when it was set
     SERVICE_TZ_BACK,    ///< time-zone: a local date turned back gives the time it came from
+    SERVICE_TIME_PERM_CLOCKS,   ///< time-perm: time:u may not set a clock
+    SERVICE_TIME_PERM_SETTINGS, ///< time-perm: time:u may not set correction, offset or location
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -1019,6 +1028,24 @@ typedef struct {
     char version[0x11];
 } ServiceTzBack;
 bool ServiceJudgeTzBack(const ServiceTzBack *seen, char *out, size_t out_size);
+
+/// Writes time:u was asked to make, each with what it answered, and whether what they would have
+/// changed reads the same after (a clock within two seconds of its first reading, a setting as it
+/// was). Passes when every write is refused as SERVICE_TIME_DENIED and nothing changed: reden's
+/// time:u may write no clock, no setting and no location (`glue/glue.cpp`, its setup info all
+/// nought, and the checks in `psc/time/system_clock.cpp`, `steady_clock.cpp`, `static.cpp` and
+/// `glue/time/time_zone.cpp`).
+typedef struct {
+    uint32_t count;
+    uint32_t rc[SERVICE_TIME_CLOCK_WRITES];
+    bool same;
+} ServiceTimeWrites;
+/// The clocks: SetCurrentTime (1) and SetSystemClockContext (3) on the user clock, SetCurrentTime
+/// on the network clock, and the steady clock's SetTestOffset (3).
+bool ServiceJudgeTimeClocks(const ServiceTimeWrites *seen, char *out, size_t out_size);
+/// The settings: SetStandardUserSystemClockAutomaticCorrectionEnabled (101),
+/// SetStandardSteadyClockInternalOffset (50) and the time zone service's SetDeviceLocationName (1).
+bool ServiceJudgeTimeSettings(const ServiceTimeWrites *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

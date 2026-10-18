@@ -2680,6 +2680,90 @@ static void RunTimeZone(void) {
     serviceClose(&timesrv);
 }
 
+// ---------------------------------------------------------------------------------------------
+// time-perm
+
+/// time:u, the time service an application has, asked to write what only the system may: a
+/// clock, the clock settings and the device's location. Each write asks for what is there
+/// already, so a machine that takes it changes nothing a later suite reads.
+static void RunTimePerm(void) {
+    char detail[480];
+    Service timesrv, user, network, steady, zones;
+    memset(&timesrv, 0, sizeof(timesrv));
+    memset(&user, 0, sizeof(user));
+    memset(&network, 0, sizeof(network));
+    memset(&steady, 0, sizeof(steady));
+    memset(&zones, 0, sizeof(zones));
+    Result rc = smGetService(&timesrv, "time:u");
+    if (R_SUCCEEDED(rc)) {
+        rc = serviceDispatch(&timesrv, 0, .out_num_objects = 1, .out_objects = &user, );
+    }
+    if (R_SUCCEEDED(rc)) {
+        rc = serviceDispatch(&timesrv, 1, .out_num_objects = 1, .out_objects = &network, );
+    }
+    if (R_SUCCEEDED(rc)) {
+        rc = serviceDispatch(&timesrv, 2, .out_num_objects = 1, .out_objects = &steady, );
+    }
+    if (R_SUCCEEDED(rc)) {
+        rc = serviceDispatch(&timesrv, 3, .out_num_objects = 1, .out_objects = &zones, );
+    }
+    if (R_FAILED(rc)) {
+        Skip(SERVICE_TIME_PERM_CLOCKS, REPORT_REASON_UNAVAILABLE,
+             "time:u handed out no clocks (0x%x)", (unsigned)rc);
+        Skip(SERVICE_TIME_PERM_SETTINGS, REPORT_REASON_UNAVAILABLE,
+             "time:u handed out no clocks (0x%x)", (unsigned)rc);
+    } else {
+        if (Start(SERVICE_TIME_PERM_CLOCKS)) {
+            ServiceTimeWrites seen;
+            memset(&seen, 0, sizeof(seen));
+            seen.count = SERVICE_TIME_CLOCK_WRITES;
+            s64 before = 0, after = 0, network_now = 0, offset = 0;
+            TimeSystemClockContext context;
+            memset(&context, 0, sizeof(context));
+            const uint32_t read_rc = serviceDispatchOut(&user, 0, before);
+            serviceDispatchOut(&user, 2, context);
+            serviceDispatchOut(&network, 0, network_now);
+            serviceDispatchOut(&steady, 2, offset);
+            seen.rc[0] = serviceDispatchIn(&user, 1, before);
+            seen.rc[1] = serviceDispatchIn(&user, 3, context);
+            seen.rc[2] = serviceDispatchIn(&network, 1, network_now);
+            seen.rc[3] = serviceDispatchIn(&steady, 3, offset);
+            const uint32_t after_rc = serviceDispatchOut(&user, 0, after);
+            seen.same = read_rc == 0u && after_rc == 0u && after >= before && after - before <= 2;
+            const bool passed = ServiceJudgeTimeClocks(&seen, detail, sizeof(detail));
+            Report(SERVICE_TIME_PERM_CLOCKS, CHECK_EXACT, passed, detail);
+        }
+        if (Start(SERVICE_TIME_PERM_SETTINGS)) {
+            ServiceTimeWrites seen;
+            memset(&seen, 0, sizeof(seen));
+            seen.count = SERVICE_TIME_SETTING_WRITES;
+            u8 automatic = 0xEEu, automatic_after = 0xEEu;
+            TimeLocationName name, name_after;
+            memset(&name, 0, sizeof(name));
+            memset(&name_after, 0, sizeof(name_after));
+            const uint32_t automatic_rc = serviceDispatchOut(&timesrv, 100, automatic);
+            const uint32_t name_rc = serviceDispatchOut(&zones, 0, name);
+            const u8 same_automatic = automatic & 1u;
+            seen.rc[0] = serviceDispatchIn(&timesrv, 101, same_automatic);
+            const s64 no_offset = 0;
+            seen.rc[1] = serviceDispatchIn(&timesrv, 50, no_offset);
+            seen.rc[2] = serviceDispatchIn(&zones, 1, name);
+            const uint32_t automatic_after_rc = serviceDispatchOut(&timesrv, 100, automatic_after);
+            const uint32_t name_after_rc = serviceDispatchOut(&zones, 0, name_after);
+            seen.same = automatic_rc == 0u && name_rc == 0u && automatic_after_rc == 0u &&
+                        name_after_rc == 0u && (automatic_after & 1u) == same_automatic &&
+                        memcmp(&name, &name_after, sizeof(name)) == 0;
+            const bool passed = ServiceJudgeTimeSettings(&seen, detail, sizeof(detail));
+            Report(SERVICE_TIME_PERM_SETTINGS, CHECK_EXACT, passed, detail);
+        }
+    }
+    serviceClose(&zones);
+    serviceClose(&steady);
+    serviceClose(&network);
+    serviceClose(&user);
+    serviceClose(&timesrv);
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -2714,4 +2798,5 @@ void RunService(void) {
     RunAmLock();
     RunSetSys();
     RunTimeZone();
+    RunTimePerm();
 }
