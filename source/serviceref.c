@@ -34,6 +34,9 @@ static const struct {
     [SERVICE_RANDOM] = { "csrng",
                          "GenerateRandomBytes fills the buffer, and differently each time" },
     [SERVICE_APM_OPENS] = { "apm", "apm opens, with a session" },
+    [SERVICE_APM_CONFIG] = { "apm", "a configuration set is read back for its mode alone" },
+    [SERVICE_APM_BOOST] = { "apm",
+                            "SetCpuBoostMode gives boost mode the configuration of its clocks" },
     [SERVICE_NFP_OPENS] = { "nfp", "nfp opens and initialises for a user" },
     [SERVICE_NFP_FILTER] = { "nfp",
                              "StartDetectionWithFilter answers what StartDetection answers" },
@@ -1550,5 +1553,44 @@ bool ServiceJudgeNgctClean(const char *text, uint32_t match_rc, bool matched,
                        : "no match, the text back as sent",
              text, (unsigned)match_rc, matched ? "matched" : "no match", (unsigned)filter->rc,
              shown);
+    return passed;
+}
+
+bool ServiceJudgeApmConfig(const ServiceApmConfig *seen, char *out, size_t out_size) {
+    const bool refused = seen->before_rc != 0u || seen->set_rc != 0u || seen->after_rc != 0u ||
+                         seen->restore_rc != 0u;
+    const bool kept = seen->normal_after == seen->asked;
+    const bool apart = seen->boost_after == seen->boost_before;
+    const bool passed = !refused && kept && apart;
+    snprintf(out, out_size,
+             "%s: Normal 0x%x Boost 0x%x (0x%x), Normal set to 0x%x (0x%x), read 0x%x and 0x%x "
+             "(0x%x), put back 0x%x",
+             refused ? "refused"
+             : !kept  ? "the write not read back"
+             : !apart ? "Boost changed with it"
+                      : "read back for its mode alone",
+             (unsigned)seen->normal_before, (unsigned)seen->boost_before,
+             (unsigned)seen->before_rc, (unsigned)seen->asked, (unsigned)seen->set_rc,
+             (unsigned)seen->normal_after, (unsigned)seen->boost_after, (unsigned)seen->after_rc,
+             (unsigned)seen->restore_rc);
+    return passed;
+}
+
+bool ServiceJudgeApmBoost(const ServiceApmBoost *seen, char *out, size_t out_size) {
+    const bool refused = seen->fast_rc != 0u || seen->fast_read_rc != 0u ||
+                         seen->normal_rc != 0u || seen->normal_read_rc != 0u;
+    const bool fast = seen->fast == SERVICE_APM_CONFIG13;
+    const bool normal = seen->normal == SERVICE_APM_CONFIG7;
+    const bool passed = !refused && fast && normal;
+    snprintf(out, out_size,
+             "%s: FastLoad 0x%x, Boost 0x%x (0x%x); Normal 0x%x, Boost 0x%x (0x%x); Config13 "
+             "0x%x and Config7 0x%x expected",
+             refused ? "refused"
+             : !fast  ? "another configuration for FastLoad"
+             : !normal ? "another configuration back at Normal"
+                       : "Config13 for FastLoad, Config7 back",
+             (unsigned)seen->fast_rc, (unsigned)seen->fast, (unsigned)seen->fast_read_rc,
+             (unsigned)seen->normal_rc, (unsigned)seen->normal, (unsigned)seen->normal_read_rc,
+             SERVICE_APM_CONFIG13, SERVICE_APM_CONFIG7);
     return passed;
 }
