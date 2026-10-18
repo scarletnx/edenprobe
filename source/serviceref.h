@@ -67,6 +67,11 @@ extern "C" {
 #define SERVICE_FONT_MAGIC 0x18029a7fu
 #define SERVICE_FONT_KEY 0x49621806u
 
+/// The user's picture as acc hands it to a game: a JPEG of 256 by 256, at most 0x20000 bytes
+/// (reden profile_picture.h, PROFILE_PICTURE_SIDE and PROFILE_PICTURE_MAX_SIZE).
+#define SERVICE_PICTURE_SIDE 256u
+#define SERVICE_PICTURE_MAX 0x20000u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -99,6 +104,10 @@ typedef enum {
     SERVICE_PL_OPENS,     ///< pl: pl:u and its shared memory, mapped (none tier)
     SERVICE_PL_FONTS,     ///< pl: six fonts loaded, inside the memory, behind their headers
     SERVICE_PL_ORDER,     ///< pl: GetSharedFontInOrderOfPriority lists the six
+    SERVICE_PROFILE_OPENS, ///< profile: acc:u0 hands out a user's profile (none tier)
+    SERVICE_PROFILE_BASE,  ///< profile: Get and GetBase tell the same user, by a name
+    SERVICE_PROFILE_IMAGE, ///< profile: the picture is a 256x256 JPEG of the size told
+    SERVICE_PROFILE_EXISTS, ///< profile: GetUserExistence finds the user, not one made up
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -306,6 +315,32 @@ typedef struct {
 } ServiceFontOrder;
 bool ServiceJudgeFontOrder(const ServiceFontOrder *seen, const ServiceFont fonts[SERVICE_FONTS],
                            char *out, size_t out_size);
+
+/// A user's profile base (nn::account::profile::ProfileBase) in the console's layout.
+typedef struct {
+    uint64_t uid[2];
+    uint64_t edited;
+    char nickname[0x20];
+} ServiceProfileBase;
+
+/// IProfile's Get (0) and GetBase (1) for the user acc:u0's GetProfile (5) was asked about.
+/// Passes when both succeed and tell that user, the same base twice, with a nickname that is not
+/// empty and ends inside its 0x20 bytes.
+bool ServiceJudgeProfileBase(const uint64_t asked[2], uint32_t get_rc,
+                             const ServiceProfileBase *get, uint32_t base_rc,
+                             const ServiceProfileBase *base, char *out, size_t out_size);
+
+/// IProfile's GetImageSize (10) and LoadImage (11, into a buffer of SERVICE_PICTURE_MAX): what each
+/// answered, the sizes they told and the bytes loaded. Passes when both succeed with the same size,
+/// not nought and within SERVICE_PICTURE_MAX, and the bytes are a JPEG, FF D8 to FF D9, whose frame
+/// is SERVICE_PICTURE_SIDE square: reden's GetProfilePictureForGame (4455b6a3ef, d88b4c3e4e).
+bool ServiceJudgeProfileImage(uint32_t size_rc, uint32_t size, uint32_t load_rc, uint32_t loaded,
+                              const uint8_t *bytes, char *out, size_t out_size);
+
+/// acc:u0's GetUserExistence (1) for the user and for an id nobody has. Passes when both succeed,
+/// the first true and the second false.
+bool ServiceJudgeUserExistence(uint32_t user_rc, bool user, uint32_t made_up_rc, bool made_up,
+                               char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

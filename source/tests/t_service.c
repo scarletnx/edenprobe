@@ -901,6 +901,87 @@ static void RunPl(void) {
     serviceClose(&pl);
 }
 
+// ---------------------------------------------------------------------------------------------
+// profile
+
+/// The profile of the user a game shows in its menus, from acc:u0's GetProfile (5): its base twice,
+/// its picture, and whether the user exists.
+static void RunProfile(void) {
+    char detail[480];
+    Account account;
+    memset(&account, 0, sizeof(account));
+    AccountUid uid;
+    memset(&uid, 0, sizeof(uid));
+    Service profile;
+    memset(&profile, 0, sizeof(profile));
+    bool opens = false;
+    if (Start(SERVICE_PROFILE_OPENS)) {
+        char said[240];
+        const char *how = "";
+        Result rc = AccountOpen(&account, said, sizeof(said));
+        Result user_rc = 0, profile_rc = 0;
+        if (R_SUCCEEDED(rc)) {
+            user_rc = AccountUser(&account, &uid, &how);
+        }
+        if (R_SUCCEEDED(rc) && accountUidIsValid(&uid)) {
+            profile_rc = serviceDispatchIn(account.service, 5, uid, .out_num_objects = 1,
+                                           .out_objects = &profile, );
+        }
+        opens = R_SUCCEEDED(rc) && accountUidIsValid(&uid) && R_SUCCEEDED(profile_rc) &&
+                serviceIsActive(&profile);
+        snprintf(detail, sizeof(detail), "%s; %s 0x%x, user %016llx%016llx; GetProfile 0x%x",
+                 said, how, (unsigned)user_rc, (unsigned long long)uid.uid[0],
+                 (unsigned long long)uid.uid[1], (unsigned)profile_rc);
+        Report(SERVICE_PROFILE_OPENS, CHECK_NONE, opens, detail);
+    }
+    if (!opens) {
+        Skip(SERVICE_PROFILE_BASE, REPORT_REASON_DEPENDS, "no profile to ask");
+        Skip(SERVICE_PROFILE_IMAGE, REPORT_REASON_DEPENDS, "no profile to ask");
+        Skip(SERVICE_PROFILE_EXISTS, REPORT_REASON_DEPENDS, "no user to ask about");
+    } else {
+        if (Start(SERVICE_PROFILE_BASE)) {
+            static u8 user_data[0x80];
+            ServiceProfileBase get, base;
+            memset(&get, 0, sizeof(get));
+            memset(&base, 0, sizeof(base));
+            const uint32_t get_rc = serviceDispatchOut(
+                &profile, 0, get,
+                .buffer_attrs = { SfBufferAttr_FixedSize | SfBufferAttr_HipcPointer |
+                                  SfBufferAttr_Out },
+                .buffers = { { user_data, sizeof(user_data) } }, );
+            const uint32_t base_rc = serviceDispatchOut(&profile, 1, base);
+            const bool passed = ServiceJudgeProfileBase(uid.uid, get_rc, &get, base_rc, &base,
+                                                        detail, sizeof(detail));
+            Report(SERVICE_PROFILE_BASE, CHECK_EXACT, passed, detail);
+        }
+        if (Start(SERVICE_PROFILE_IMAGE)) {
+            static u8 picture[SERVICE_PICTURE_MAX];
+            memset(picture, 0, sizeof(picture));
+            u32 size = 0, loaded = 0;
+            const uint32_t size_rc = serviceDispatchOut(&profile, 10, size);
+            const uint32_t load_rc = serviceDispatchOut(
+                &profile, 11, loaded,
+                .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+                .buffers = { { picture, sizeof(picture) } }, );
+            const bool passed = ServiceJudgeProfileImage(size_rc, size, load_rc, loaded, picture,
+                                                         detail, sizeof(detail));
+            Report(SERVICE_PROFILE_IMAGE, CHECK_EXACT, passed, detail);
+        }
+        if (Start(SERVICE_PROFILE_EXISTS)) {
+            // The user's id with both halves turned over: nobody's.
+            const AccountUid made_up = { { ~uid.uid[0], ~uid.uid[1] } };
+            u8 user = 0, nobody = 0;
+            const uint32_t user_rc = serviceDispatchInOut(account.service, 1, uid, user);
+            const uint32_t made_up_rc = serviceDispatchInOut(account.service, 1, made_up, nobody);
+            const bool passed = ServiceJudgeUserExistence(user_rc, user != 0u, made_up_rc,
+                                                          nobody != 0u, detail, sizeof(detail));
+            Report(SERVICE_PROFILE_EXISTS, CHECK_EXACT, passed, detail);
+        }
+    }
+    serviceClose(&profile);
+    AccountClose(&account);
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -914,4 +995,5 @@ void RunService(void) {
     RunAoc();
     RunTime();
     RunPl();
+    RunProfile();
 }

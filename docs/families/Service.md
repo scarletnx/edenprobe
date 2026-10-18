@@ -21,6 +21,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | aoc | 2 | the add-on content list a game reads before it mounts one, past its end (`hle/service/aoc/addon_content_manager.cpp`, `ListAddOnContent`) |
 | time | 6 | the clocks and dates a game reads at start: the user clock against its context and the steady clock, the steady clock's seconds, dates under UTC and under the device's rule (`hle/service/psc/time/clocks/system_clock_core.cpp`, `GetCurrentTime`, and `hle/service/glue/time/time_zone.cpp`) |
 | pl | 3 | the shared fonts a game's text is drawn with: loaded, inside the shared memory behind their headers, and in order of priority (`hle/service/ns/platform_service_manager.cpp`, `DecryptSharedFont`, `GetSharedFontInOrderOfPriority`) |
+| profile | 4 | the profile a game shows in its menus: one base twice, the picture a 256x256 JPEG of the size told, and the user's existence (`hle/service/acc/acc.cpp`, `IProfileCommon`, and `acc/profile_picture.cpp`, `GetProfilePictureForGame`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -256,6 +257,28 @@ language. The second case's line carries, for every type, the four results ORed,
 size at the offset, the header's first word and its second decoded both ways, and the font's first
 word.
 
+## profile
+
+A game that shows who is playing asks acc:u0 for the user's profile, GetProfile (5), and reads its
+base, Get (0) with the user data or GetBase (1) without, and its picture, GetImageSize (10) and
+LoadImage (11). reden hands a game the user's stored picture as a JPEG of 256 by 256, at most
+0x20000 bytes, made one on the fly when it is not (a PNG, a picture of another size), and its own
+default when there is none; GetImageSize tells the size of the same picture LoadImage writes
+(4455b6a3ef, 9c5d9e606e, d88b4c3e4e; `profile_picture.h:17-19`, `acc.cpp:693-711` at 75c12299a6).
+Before them both commands answered a size of nought and nothing.
+
+The user is the one the am suite asks about, from acc:u0 opened the same way.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| acc:u0 hands out the profile of a user | the user, then 5 | the profile comes | none |
+| Get and GetBase tell the same user, by a name | 0 with 0x80 bytes of user data, then 1 | both the asked user, the same base twice, a nickname not empty that ends inside its 0x20 bytes | exact |
+| the user's picture is a 256x256 JPEG of the size GetImageSize tells | 10, then 11 into 0x20000 bytes | the same size twice, FF D8 to FF D9, a frame of 256 by 256 | exact |
+| GetUserExistence finds the user and not one made up | acc:u0 1 for the user and for its id turned over | the first true, the second false | exact |
+
+The picture's line carries both sizes, its first and last two bytes and the frame's size; the
+nickname is printed with control characters and quotes as `?`.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -282,6 +305,8 @@ word.
 - **Q10.** The byte order of the size in a shared font's header on a console: reden leaves the
   .bfttf's word little-endian, Ryujinx writes it big-endian; and whether a console's
   GetSharedFontInOrderOfPriority puts a language's own font first.
+- **Q11.** What a console hands a game as the picture of a user who never chose one: reden its
+  own default JPEG; and whether a console's Get with user data and GetBase can ever differ.
 
 ## The judge, pinned
 
@@ -318,3 +343,7 @@ way, and fails the .bfttf's own magic in its place, a font not loaded, no room f
 font past the memory, bytes that are not a font and a stand-in's noughts; it passes the six in
 another order, each where its type said, and fails one listed twice, an offset moved, fonts not
 loaded and a stand-in.
+profile passes one base twice, of the user, by a name, and fails two bases, another
+user, no name, a name with no end and a stand-in; a 256x256 JPEG of the size told, and not
+another size told, a JPEG of 256 by 128, one cut before its end or a stand-in's nothing; and the
+user found with nobody made up, and not everyone found or nobody.
