@@ -494,6 +494,111 @@ static void CheckTime(void) {
                disagree, unnamed);
 }
 
+/// Six fonts as reden lays them out: one after another, each behind its 8-byte header.
+static void FontsAsReden(ServiceFont fonts[SERVICE_FONTS]) {
+    memset(fonts, 0, sizeof(ServiceFont) * SERVICE_FONTS);
+    uint32_t at = 0;
+    for (uint32_t i = 0; i < SERVICE_FONTS; ++i) {
+        ServiceFont *f = &fonts[i];
+        f->state = 1;
+        f->size = 0x1000u * (i + 1u);
+        f->offset = at + 8u;
+        // 0x18029a7f little-endian, and the size XORed with the key as reden stores it.
+        const uint8_t header[8] = { 0x7f, 0x9a, 0x02, 0x18, 0, 0, 0, 0 };
+        memcpy(f->header, header, sizeof(header));
+        const uint32_t size = f->size ^ SERVICE_FONT_KEY;
+        f->header[4] = (uint8_t)size;
+        f->header[5] = (uint8_t)(size >> 8);
+        f->header[6] = (uint8_t)(size >> 16);
+        f->header[7] = (uint8_t)(size >> 24);
+        const uint8_t start[4] = { 0x00, 0x01, 0x00, 0x00 };
+        memcpy(f->start, start, sizeof(start));
+        at = f->offset + f->size;
+    }
+}
+
+static void CheckFonts(void) {
+    static ServiceFont fonts[SERVICE_FONTS];
+    FontsAsReden(fonts);
+    const bool reden = ServiceJudgeFonts(fonts, said, sizeof(said)) &&
+                       strstr(said, "six fonts, each inside behind its header") == said;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+    // The .bfttf's own magic, 0x36f81a1e big-endian, where the decrypted one goes.
+    const uint8_t encrypted[4] = { 0x36, 0xf8, 0x1a, 0x1e };
+    memcpy(fonts[2].header, encrypted, sizeof(encrypted));
+    const bool magic = !ServiceJudgeFonts(fonts, said, sizeof(said)) &&
+                       strstr(said, "font 2 behind another magic") == said;
+    FontsAsReden(fonts);
+    fonts[5].state = 0;
+    const bool unloaded = !ServiceJudgeFonts(fonts, said, sizeof(said)) &&
+                          strstr(said, "font 5 not loaded") == said;
+    FontsAsReden(fonts);
+    fonts[0].offset = 0;
+    const bool no_header = !ServiceJudgeFonts(fonts, said, sizeof(said)) &&
+                           strstr(said, "font 0 outside the memory") == said;
+    FontsAsReden(fonts);
+    fonts[1].size = SERVICE_FONT_MEMORY;
+    const bool past = !ServiceJudgeFonts(fonts, said, sizeof(said));
+    FontsAsReden(fonts);
+    memset(fonts[3].start, 0xEE, sizeof(fonts[3].start));
+    const bool garbage = !ServiceJudgeFonts(fonts, said, sizeof(said)) &&
+                         strstr(said, "font 3 not a font") == said;
+    // The size word as Ryujinx writes it, big-endian: on the line, not judged.
+    FontsAsReden(fonts);
+    const uint32_t size = fonts[4].size ^ SERVICE_FONT_KEY;
+    fonts[4].header[4] = (uint8_t)(size >> 24);
+    fonts[4].header[5] = (uint8_t)(size >> 16);
+    fonts[4].header[6] = (uint8_t)(size >> 8);
+    fonts[4].header[7] = (uint8_t)size;
+    const bool ryujinx = ServiceJudgeFonts(fonts, said, sizeof(said)) &&
+                         strstr(said, "be 0x5000 ") != NULL;
+    // A stand-in: success and nought everywhere.
+    memset(fonts, 0, sizeof(fonts));
+    const bool stub = !ServiceJudgeFonts(fonts, said, sizeof(said)) &&
+                      strstr(said, "font 0 not loaded") == said;
+    CHECK_TRUE(SUITE, "service: pl passes six loaded fonts behind the decrypted magic", CHECK_NONE,
+               reden && magic && unloaded && no_header && past && garbage && ryujinx && stub,
+               "reden %d \"%.200s\", encrypted magic %d, unloaded %d, no room for a header %d, "
+               "past the memory %d, not a font %d, the size big-endian %d, a stand-in %d",
+               reden, reden_said, magic, unloaded, no_header, past, garbage, ryujinx, stub);
+
+    FontsAsReden(fonts);
+    ServiceFontOrder order;
+    memset(&order, 0, sizeof(order));
+    order.language = 0x53552d6e65ull; // "en-US"
+    order.loaded = 1;
+    order.count = SERVICE_FONTS;
+    for (uint32_t i = 0; i < SERVICE_FONTS; ++i) {
+        // Another order than the types', as a console's priority may give.
+        const uint32_t type = (i + 3u) % SERVICE_FONTS;
+        order.types[i] = type;
+        order.offsets[i] = fonts[type].offset;
+        order.sizes[i] = fonts[type].size;
+    }
+    const bool listed = ServiceJudgeFontOrder(&order, fonts, said, sizeof(said)) &&
+                        strstr(said, "the six, as told: language 0x0 \"en-US\"") == said;
+    char order_said[480];
+    memcpy(order_said, said, sizeof(said));
+    order.types[5] = order.types[0];
+    const bool twice = !ServiceJudgeFontOrder(&order, fonts, said, sizeof(said)) &&
+                       strstr(said, "not the six once each") == said;
+    order.types[5] = (5u + 3u) % SERVICE_FONTS;
+    order.offsets[1] += 4u;
+    const bool moved = !ServiceJudgeFontOrder(&order, fonts, said, sizeof(said)) &&
+                       strstr(said, "another offset or size") == said;
+    order.offsets[1] -= 4u;
+    order.loaded = 0;
+    const bool unloaded_order = !ServiceJudgeFontOrder(&order, fonts, said, sizeof(said));
+    memset(&order, 0, sizeof(order));
+    const bool stub_order = !ServiceJudgeFontOrder(&order, fonts, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: pl passes the six in order of priority, each as told", CHECK_NONE,
+               listed && twice && moved && unloaded_order && stub_order,
+               "listed %d \"%.200s\", one twice %d, an offset moved %d, not loaded %d, a stand-in "
+               "%d",
+               listed, order_said, twice, moved, unloaded_order, stub_order);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -506,4 +611,5 @@ void RunReferenceService(void) {
     CheckNfpFilter();
     CheckAocPast();
     CheckTime();
+    CheckFonts();
 }

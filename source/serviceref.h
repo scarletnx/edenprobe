@@ -58,6 +58,15 @@ extern "C" {
 #define SERVICE_TIME_KNOWN 1700000000
 #define SERVICE_TIME_WAIT_NS 1500000000ull
 
+/// pl:u's shared fonts: six of them in one shared memory of 0x1100000 bytes, each behind an
+/// 8-byte header whose first word reads 0x18029a7f (reden's DecryptSharedFont writes the
+/// decrypted magic 0x7f9a0218 big-endian, Ryujinx's WriteMagicAndSize the same bytes) and whose
+/// second is the size XORed with 0x49621806, the key of the .bfttf the fonts come from.
+#define SERVICE_FONTS 6u
+#define SERVICE_FONT_MEMORY 0x1100000u
+#define SERVICE_FONT_MAGIC 0x18029a7fu
+#define SERVICE_FONT_KEY 0x49621806u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -87,6 +96,9 @@ typedef enum {
     SERVICE_TIME_UTC,     ///< time: ToCalendarTime under UTC dates two known times
     SERVICE_TIME_POSIX,   ///< time: ToPosixTime under UTC turns the date back
     SERVICE_TIME_MY_RULE, ///< time: the device's location loads, and its rule is the service's own
+    SERVICE_PL_OPENS,     ///< pl: pl:u and its shared memory, mapped (none tier)
+    SERVICE_PL_FONTS,     ///< pl: six fonts loaded, inside the memory, behind their headers
+    SERVICE_PL_ORDER,     ///< pl: GetSharedFontInOrderOfPriority lists the six
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -264,6 +276,36 @@ typedef struct {
     ServiceCalendarInfo mine_info, loaded_info;
 } ServiceMyRule;
 bool ServiceJudgeMyRule(const ServiceMyRule *seen, char *out, size_t out_size);
+
+/// One shared font as pl:u tells it: RequestLoad (0), GetLoadState (1), GetSize (2) and
+/// GetSharedMemoryAddressOffset (3) for its type, with the 8 bytes before the offset and the
+/// font's first four, read from the mapped memory (nought when the offset puts them outside it).
+typedef struct {
+    uint32_t request_rc, state_rc, size_rc, offset_rc;
+    uint32_t state, size, offset;
+    uint8_t header[8];
+    uint8_t start[4];
+} ServiceFont;
+/// Passes when, for every type, all four succeed, the state is Loaded (1), the size is not
+/// nought, the font lies inside the memory with room for its header before it, the header's
+/// first word is SERVICE_FONT_MAGIC and the font starts as a TrueType or OpenType file. The
+/// header's second word goes on the line, as reden reads it (little-endian) and as Ryujinx
+/// writes it (big-endian), and is not judged: the two disagree (an open question in Service.md).
+bool ServiceJudgeFonts(const ServiceFont fonts[SERVICE_FONTS], char *out, size_t out_size);
+
+/// GetSharedFontInOrderOfPriority (5) for the language set's GetLanguageCode (0) gives:
+/// whether the fonts are loaded, how many it lists, and their types, offsets and sizes. Passes
+/// when both succeed, the fonts are loaded, all six are listed once each, and each one's offset
+/// and size are the ones its type was told in @p fonts.
+typedef struct {
+    uint32_t language_rc, rc;
+    uint64_t language;
+    uint8_t loaded;
+    uint32_t count;
+    uint32_t types[SERVICE_FONTS], offsets[SERVICE_FONTS], sizes[SERVICE_FONTS];
+} ServiceFontOrder;
+bool ServiceJudgeFontOrder(const ServiceFontOrder *seen, const ServiceFont fonts[SERVICE_FONTS],
+                           char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

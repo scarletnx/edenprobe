@@ -20,6 +20,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | nfp | 2 | the detection a game built for 23.0.0 starts (`hle/service/nfp/nfp.cpp`, the IUser table) |
 | aoc | 2 | the add-on content list a game reads before it mounts one, past its end (`hle/service/aoc/addon_content_manager.cpp`, `ListAddOnContent`) |
 | time | 6 | the clocks and dates a game reads at start: the user clock against its context and the steady clock, the steady clock's seconds, dates under UTC and under the device's rule (`hle/service/psc/time/clocks/system_clock_core.cpp`, `GetCurrentTime`, and `hle/service/glue/time/time_zone.cpp`) |
+| pl | 3 | the shared fonts a game's text is drawn with: loaded, inside the shared memory behind their headers, and in order of priority (`hle/service/ns/platform_service_manager.cpp`, `DecryptSharedFont`, `GetSharedFontInOrderOfPriority`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -228,6 +229,33 @@ first day (0); 1700000000 is 19675 days and 80000 seconds later, 2023-11-14 22:1
 Each line carries what each command answered and what it wrote, the dates as text. Nothing is
 set: the clocks and the location are only read.
 
+## pl
+
+A game that draws its text with the system's fonts asks pl:u for them before it draws:
+GetSharedMemoryNativeHandle (4) for the memory they are in, then for each type RequestLoad (0),
+GetLoadState (1), GetSize (2) and GetSharedMemoryAddressOffset (3), or all of them at once in the
+order of priority for a language, GetSharedFontInOrderOfPriority (5). reden puts the six fonts in
+one memory of 0x1100000 bytes, each behind 8 bytes: the magic the .bfttf decrypts to, 0x7f9a0218,
+big-endian, so that the word reads 0x18029a7f, and the size XORed with the key, 0x49621806, the
+.bfttf's own magic 0x36f81a1e XORed with the decrypted one; the font itself follows decrypted, a
+TrueType file (`DecryptSharedFont`, `platform_service_manager.cpp:38-53` at 75c12299a6). Ryujinx
+writes the same first word (`SharedFontManager.cs`, `WriteMagicAndSize`), and the second
+big-endian where reden leaves it little-endian, so the suite judges the first and only prints the
+second, both ways.
+
+The suite opens pl:u for itself and maps the memory read-only, as libnx's `plInitialize` does.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| pl:u opens and maps its shared fonts | pl:u and 4, the memory mapped | it maps | none |
+| the six shared fonts are loaded, each inside behind its header | 0 to 3 for each type, and the 8 bytes before the offset | every type Loaded (1), not empty, inside the memory, behind 0x18029a7f, and starting as a TrueType or OpenType file | exact |
+| the fonts in order of priority are the six, as told one by one | set's GetLanguageCode (0), then 5 for that code | loaded, six listed once each, every offset and size the one its type was told | exact |
+
+The order itself is not judged: reden lists the types in their own order, a console by the
+language. The second case's line carries, for every type, the four results ORed, the state, the
+size at the offset, the header's first word and its second decoded both ways, and the font's first
+word.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -251,6 +279,9 @@ set: the clocks and the location are only read.
   second and a half apart, as reden's does (it rounds nanoseconds down to seconds), and whether the
   user clock's context is ever on another source than the steady clock's on a console that keeps
   its time (reden's never is).
+- **Q10.** The byte order of the size in a shared font's header on a console: reden leaves the
+  .bfttf's word little-endian, Ryujinx writes it big-endian; and whether a console's
+  GetSharedFontInOrderOfPriority puts a language's own font first.
 
 ## The judge, pinned
 
@@ -282,3 +313,8 @@ the epoch and 1700000000 dated as worked out by hand, and not a day of the year 
 another weekday, an offset or a stand-in; 1700000000 back from its date, and not no time or a time
 three hours off; and the device's rule dating as the service's own, but not two offsets or no
 name.
+pl passes six loaded fonts behind the decrypted magic, with the size written either
+way, and fails the .bfttf's own magic in its place, a font not loaded, no room for a header, a
+font past the memory, bytes that are not a font and a stand-in's noughts; it passes the six in
+another order, each where its type said, and fails one listed twice, an offset moved, fonts not
+loaded and a stand-in.
