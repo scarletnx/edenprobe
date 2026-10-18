@@ -417,6 +417,7 @@ static const struct {
     { "auddev", UI_FAMILY_SERVICE },
     { "fsdir", UI_FAMILY_SERVICE },
     { "am-audio", UI_FAMILY_SERVICE },
+    { "am-channel", UI_FAMILY_SERVICE },
     { "nifm", UI_FAMILY_NET },
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
     { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },

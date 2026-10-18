@@ -1403,6 +1403,114 @@ static void RunAmAudio(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// am-channel
+
+/// A storage of SERVICE_CHANNEL_BYTES holding @p text, unpopped to the user channel with
+/// UnpopToUserChannel (122); its own handle is closed after, the channel keeps a copy.
+#define SERVICE_CHANNEL_BYTES 16u
+static uint32_t ChannelUnpop(Service *functions, const char *text, uint32_t *create_rc,
+                             uint32_t *write_rc) {
+    AppletStorage storage;
+    memset(&storage, 0, sizeof(storage));
+    *create_rc = appletCreateStorage(&storage, SERVICE_CHANNEL_BYTES);
+    if (R_FAILED(*create_rc)) {
+        return *create_rc;
+    }
+    *write_rc = appletStorageWrite(&storage, 0, text, SERVICE_CHANNEL_BYTES);
+    const uint32_t rc = R_FAILED(*write_rc)
+                            ? *write_rc
+                            : serviceDispatch(functions, 122, .in_num_objects = 1,
+                                              .in_objects = { &storage.s }, );
+    appletStorageClose(&storage);
+    return rc;
+}
+
+/// PopLaunchParameter(UserChannel) and the storage's first bytes, its handle closed after.
+static uint32_t ChannelPop(char *bytes, uint32_t *read_rc) {
+    AppletStorage storage;
+    memset(&storage, 0, sizeof(storage));
+    const uint32_t rc = appletPopLaunchParameter(&storage, AppletLaunchParameterKind_UserChannel);
+    if (R_SUCCEEDED(rc)) {
+        *read_rc = appletStorageRead(&storage, 0, bytes, SERVICE_CHANNEL_BYTES);
+        appletStorageClose(&storage);
+    }
+    return rc;
+}
+
+/// The user channel, which an application's programs hand each other data through when one
+/// launches the next (ExecuteProgram): a storage put back in it, two in a row, and the index of the
+/// program that ran before.
+static void RunAmChannel(void) {
+    char detail[480];
+    Service *const functions = appletGetServiceSession_Functions();
+    const bool application = appletGetAppletType() == AppletType_Application && functions != NULL &&
+                             serviceIsActive(functions);
+    char why[200];
+    snprintf(why, sizeof(why),
+             "needs to run as an application, with the application's functions; this program runs "
+             "as applet type %d",
+             (int)appletGetAppletType());
+    if (!application) {
+        Skip(SERVICE_CHANNEL_UNPOP, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_CHANNEL_ORDER, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_CHANNEL_PREVIOUS, REPORT_REASON_UNAVAILABLE, "%s", why);
+        return;
+    }
+    static const char FIRST[SERVICE_CHANNEL_BYTES] = "edenprobe first";
+    static const char SECOND[SERVICE_CHANNEL_BYTES] = "edenprobe secnd";
+    if (!hosversionAtLeast(6, 0, 0)) {
+        Skip(SERVICE_CHANNEL_UNPOP, REPORT_REASON_UNAVAILABLE,
+             "UnpopToUserChannel came with 6.0.0; this machine says it is older");
+        Skip(SERVICE_CHANNEL_ORDER, REPORT_REASON_UNAVAILABLE,
+             "ClearUserChannel and UnpopToUserChannel came with 6.0.0; this machine says it is "
+             "older");
+    } else {
+        if (Start(SERVICE_CHANNEL_UNPOP)) {
+            ServiceUserChannel seen;
+            memset(&seen, 0, sizeof(seen));
+            char bytes[SERVICE_CHANNEL_BYTES];
+            memset(bytes, 0, sizeof(bytes));
+            seen.unpop_rc = ChannelUnpop(functions, FIRST, &seen.create_rc, &seen.write_rc);
+            seen.pop_rc = ChannelPop(bytes, &seen.read_rc);
+            seen.same = seen.pop_rc == 0u && memcmp(bytes, FIRST, sizeof(bytes)) == 0;
+            char again[SERVICE_CHANNEL_BYTES];
+            uint32_t again_read = 0;
+            seen.again_rc = ChannelPop(again, &again_read);
+            const bool passed = ServiceJudgeUserChannel(&seen, detail, sizeof(detail));
+            Report(SERVICE_CHANNEL_UNPOP, CHECK_EXACT, passed, detail);
+        }
+        if (Start(SERVICE_CHANNEL_ORDER)) {
+            ServiceChannelOrder seen;
+            memset(&seen, 0, sizeof(seen));
+            uint32_t create_rc = 0, write_rc = 0;
+            seen.first_rc = ChannelUnpop(functions, FIRST, &create_rc, &write_rc);
+            seen.second_rc = ChannelUnpop(functions, SECOND, &create_rc, &write_rc);
+            char bytes[SERVICE_CHANNEL_BYTES];
+            memset(bytes, 0, sizeof(bytes));
+            seen.pop_rc = ChannelPop(bytes, &seen.read_rc);
+            seen.got = seen.pop_rc != 0u                              ? 0
+                       : memcmp(bytes, SECOND, sizeof(bytes)) == 0 ? 2
+                       : memcmp(bytes, FIRST, sizeof(bytes)) == 0  ? 1
+                                                                   : 0;
+            seen.clear_rc = serviceDispatch(functions, 121);
+            uint32_t after_read = 0;
+            seen.after_rc = ChannelPop(bytes, &after_read);
+            const bool passed = ServiceJudgeChannelOrder(&seen, detail, sizeof(detail));
+            Report(SERVICE_CHANNEL_ORDER, CHECK_EXACT, passed, detail);
+        }
+    }
+    if (!hosversionAtLeast(5, 0, 0)) {
+        Skip(SERVICE_CHANNEL_PREVIOUS, REPORT_REASON_UNAVAILABLE,
+             "GetPreviousProgramIndex came with 5.0.0; this machine says it is older");
+    } else if (Start(SERVICE_CHANNEL_PREVIOUS)) {
+        s32 index = 0x7EEEEEEE;
+        const uint32_t rc = serviceDispatchOut(functions, 123, index);
+        const bool passed = ServiceJudgePreviousProgram(rc, index, detail, sizeof(detail));
+        Report(SERVICE_CHANNEL_PREVIOUS, CHECK_EXACT, passed, detail);
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -1423,4 +1531,5 @@ void RunService(void) {
     RunAuddev();
     RunFsdir();
     RunAmAudio();
+    RunAmChannel();
 }

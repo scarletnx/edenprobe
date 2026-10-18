@@ -149,6 +149,9 @@ typedef enum {
     SERVICE_DIR_DELETE,   ///< fsdir: DeleteDirectoryRecursively takes it all
     SERVICE_AUDIOCTL_EXPECTED, ///< am-audio: the expected master volumes set are read back
     SERVICE_AUDIOCTL_CHANGE,   ///< am-audio: the main applet volume changed is read back
+    SERVICE_CHANNEL_UNPOP,    ///< am-channel: a storage unpopped to the user channel pops back
+    SERVICE_CHANNEL_ORDER,    ///< am-channel: the last one unpopped pops first; Clear empties it
+    SERVICE_CHANNEL_PREVIOUS, ///< am-channel: no program ran before this one
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -524,6 +527,32 @@ typedef struct {
     float before, asked, after;
 } ServiceMainVolume;
 bool ServiceJudgeMainVolume(const ServiceMainVolume *seen, char *out, size_t out_size);
+
+/// A storage put in the user channel with UnpopToUserChannel (122) and taken out with
+/// PopLaunchParameter(UserChannel) (1): what each step answered, whether the storage popped
+/// held the bytes written, and what a second pop answered. Passes when every step succeeds, the
+/// bytes are the same and the second pop finds the channel empty (NoDataInChannel): reden keeps
+/// what is unpopped for the next pop (`application_functions.cpp`, UnpopToUserChannel and
+/// PopLaunchParameter).
+typedef struct {
+    uint32_t create_rc, write_rc, unpop_rc, pop_rc, read_rc, again_rc;
+    bool same;
+} ServiceUserChannel;
+bool ServiceJudgeUserChannel(const ServiceUserChannel *seen, char *out, size_t out_size);
+
+/// Two storages unpopped, one pop, ClearUserChannel (121) and one more pop: which one the first
+/// pop gave (1 the first unpopped, 2 the second, 0 neither) and what each step answered. Passes
+/// when the second comes out first and the pop after the clear finds nothing: reden's channel is
+/// a stack and Clear empties it.
+typedef struct {
+    uint32_t first_rc, second_rc, pop_rc, read_rc, clear_rc, after_rc;
+    int got;
+} ServiceChannelOrder;
+bool ServiceJudgeChannelOrder(const ServiceChannelOrder *seen, char *out, size_t out_size);
+
+/// GetPreviousProgramIndex (123): -1 for a program no other program of the application launched,
+/// as reden starts every application (`applet.h`, previous_program_index).
+bool ServiceJudgePreviousProgram(uint32_t rc, int32_t index, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

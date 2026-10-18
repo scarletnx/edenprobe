@@ -958,6 +958,41 @@ static void CheckAmAudio(void) {
                kept, kept_said, stub, half, refused, changed, unchanged, rate_refused);
 }
 
+static void CheckAmChannel(void) {
+    ServiceUserChannel seen = { 0u, 0u, 0u, 0u, 0u, SERVICE_AM_NO_DATA, true };
+    const bool back = ServiceJudgeUserChannel(&seen, said, sizeof(said)) &&
+                      strcmp(said, "popped back with its bytes: create 0x0, write 0x0, unpop 0x0, "
+                                   "pop 0x0, read 0x0 same, pop again 0x480") == 0;
+    char back_said[480];
+    memcpy(back_said, said, sizeof(said));
+    // An unpop that keeps nothing: the pop finds the channel empty.
+    seen = (ServiceUserChannel){ 0u, 0u, 0u, SERVICE_AM_NO_DATA, 0u, SERVICE_AM_NO_DATA, false };
+    const bool nothing = !ServiceJudgeUserChannel(&seen, said, sizeof(said)) &&
+                         strstr(said, "the pop found nothing unpopped") == said;
+    seen = (ServiceUserChannel){ 0u, 0u, 0u, 0u, 0u, SERVICE_AM_NO_DATA, false };
+    const bool other = !ServiceJudgeUserChannel(&seen, said, sizeof(said)) &&
+                       strstr(said, "the storage popped holds other bytes") == said;
+    seen = (ServiceUserChannel){ 0u, 0u, 0u, 0u, 0u, 0u, true };
+    const bool kept = !ServiceJudgeUserChannel(&seen, said, sizeof(said)) &&
+                      strstr(said, "the channel is not empty after the pop") == said;
+    ServiceChannelOrder order = { 0u, 0u, 0u, 0u, 0u, SERVICE_AM_NO_DATA, 2 };
+    const bool stack = ServiceJudgeChannelOrder(&order, said, sizeof(said));
+    order.got = 1;
+    const bool queue = !ServiceJudgeChannelOrder(&order, said, sizeof(said)) &&
+                       strstr(said, "the first storage unpopped came out first") == said;
+    order = (ServiceChannelOrder){ 0u, 0u, 0u, 0u, 0u, 0u, 2 };
+    const bool left = !ServiceJudgeChannelOrder(&order, said, sizeof(said)) &&
+                      strstr(said, "the clear left a storage") == said;
+    const bool first = ServiceJudgePreviousProgram(0u, -1, said, sizeof(said));
+    const bool zero = !ServiceJudgePreviousProgram(0u, 0, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: am-channel passes a user channel that keeps what is unpopped",
+               CHECK_NONE,
+               back && nothing && other && kept && stack && queue && left && first && zero,
+               "back %d \"%.160s\", nothing %d, other bytes %d, not emptied %d, a stack %d, a "
+               "queue %d, a clear that leaves one %d, -1 %d, 0 %d",
+               back, back_said, nothing, other, kept, stack, queue, left, first, zero);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -978,4 +1013,5 @@ void RunReferenceService(void) {
     CheckAuddev();
     CheckFsdir();
     CheckAmAudio();
+    CheckAmChannel();
 }
