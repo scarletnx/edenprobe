@@ -152,6 +152,10 @@ extern "C" {
 /// a wait of nought.
 #define SERVICE_TIMED_OUT SERVICE_RESULT(1, 117)
 
+/// The flags the set-sys suite turns over and puts back, in the order its line names them: the
+/// lock screen, the quest (kiosk) flag, the battery percentage and the speaker's auto mute.
+#define SERVICE_SETSYS_FLAG_COUNT 4u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -245,6 +249,9 @@ typedef enum {
     SERVICE_NGCT_CLEAN, ///< ngc: ngct:u matches nothing and filters the name back unchanged
     SERVICE_LOCK_TAKEN, ///< am-lock: a free lock is taken as libnx takes it, held until unlocked
     SERVICE_LOCK_EVENT, ///< am-lock: a lock's event is signaled while free and when unlocked
+    SERVICE_SETSYS_LOOK,      ///< set-sys: the color set and keyboard layout set are read back
+    SERVICE_SETSYS_VIBRATION, ///< set-sys: the vibration master volume set is read back
+    SERVICE_SETSYS_FLAGS,     ///< set-sys: four flags turned over are read back, then put back
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -934,6 +941,32 @@ typedef struct {
     bool took;
 } ServiceLockEvent;
 bool ServiceJudgeLockEvent(const ServiceLockEvent *seen, char *out, size_t out_size);
+
+/// A system setting set and read back: what it was, what the write asked, what it read after,
+/// and what each step answered (the first read, the write, the read after, the write that puts it
+/// back). A volume is in thousandths. Passes when every step succeeds and the read after is what
+/// was asked: reden keeps the system settings it is given (`system_settings_server.cpp`).
+typedef struct {
+    uint32_t before_rc, set_rc, after_rc, restore_rc;
+    int32_t before, asked, after;
+} ServiceSetsysValue;
+bool ServiceJudgeSetsysValue(const char *what, const ServiceSetsysValue *seen, char *out,
+                             size_t out_size);
+/// The color set (GetColorSetId, 23, and SetColorSetId, 24) and the keyboard layout
+/// (GetKeyboardLayout, 136, and SetKeyboardLayout, 137), each as ServiceJudgeSetsysValue.
+bool ServiceJudgeSetsysLook(const ServiceSetsysValue *color, const ServiceSetsysValue *layout,
+                            char *out, size_t out_size);
+
+/// Four flags turned over and put back (SERVICE_SETSYS_FLAG_COUNT, in this order: 7 and 8, 47
+/// and 48, 99 and 100, 45 and 46): the first failing step's answer for each, or nought, and each
+/// flag as read first, after the write and after the write back. Passes when every step succeeds
+/// and each flag reads turned over, then as it was.
+typedef struct {
+    uint32_t rc[SERVICE_SETSYS_FLAG_COUNT];
+    bool before[SERVICE_SETSYS_FLAG_COUNT], after[SERVICE_SETSYS_FLAG_COUNT];
+    bool back[SERVICE_SETSYS_FLAG_COUNT];
+} ServiceSetsysFlags;
+bool ServiceJudgeSetsysFlags(const ServiceSetsysFlags *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }
