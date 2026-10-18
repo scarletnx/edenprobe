@@ -599,6 +599,77 @@ static void CheckFonts(void) {
                listed, order_said, twice, moved, unloaded_order, stub_order);
 }
 
+static void CheckProfile(void) {
+    const uint64_t asked[2] = { 0x1122334455667788ull, 0x99aabbccddeeff00ull };
+    ServiceProfileBase get = { { asked[0], asked[1] }, 1700000000ull, "eden" };
+    ServiceProfileBase base = get;
+    const bool reden = ServiceJudgeProfileBase(asked, 0u, &get, 0u, &base, said, sizeof(said)) &&
+                       strstr(said, "the user, by a name") == said;
+    char base_said[480];
+    memcpy(base_said, said, sizeof(said));
+    base.edited += 1u;
+    const bool two = !ServiceJudgeProfileBase(asked, 0u, &get, 0u, &base, said, sizeof(said)) &&
+                     strstr(said, "two bases") == said;
+    base = get;
+    get.uid[1] ^= 1u;
+    base.uid[1] ^= 1u;
+    const bool other = !ServiceJudgeProfileBase(asked, 0u, &get, 0u, &base, said, sizeof(said));
+    get = (ServiceProfileBase){ { asked[0], asked[1] }, 0u, "" };
+    base = get;
+    const bool unnamed = !ServiceJudgeProfileBase(asked, 0u, &get, 0u, &base, said, sizeof(said));
+    memset(get.nickname, 'a', sizeof(get.nickname));
+    base = get;
+    const bool unended = !ServiceJudgeProfileBase(asked, 0u, &get, 0u, &base, said, sizeof(said));
+    memset(&get, 0, sizeof(get));
+    base = get;
+    const bool stub = !ServiceJudgeProfileBase(asked, 0u, &get, 0u, &base, said, sizeof(said)) &&
+                      strstr(said, "another user") == said;
+    CHECK_TRUE(SUITE, "service: profile passes one base twice, of the user, by a name", CHECK_NONE,
+               reden && two && other && unnamed && unended && stub,
+               "reden %d \"%.160s\", two bases %d, another user %d, no name %d, a name with no "
+               "end %d, a stand-in %d",
+               reden, base_said, two, other, unnamed, unended, stub);
+
+    // A JPEG of 256x256 as a frame header writes it: SOI, an APP0 of 16 bytes, SOF0 of 17, EOI.
+    static uint8_t jpeg[64];
+    const uint8_t made[] = { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0, 1, 1, 0,
+                             0, 1, 0, 1, 0, 0, 0xFF, 0xC0, 0x00, 0x11, 0x08, 0x01, 0x00, 0x01,
+                             0x00, 0x03, 1, 0x11, 0, 2, 0x11, 1, 3, 0x11, 1, 0xFF, 0xD9 };
+    memcpy(jpeg, made, sizeof(made));
+    const uint32_t n = (uint32_t)sizeof(made);
+    const bool picture = ServiceJudgeProfileImage(0u, n, 0u, n, jpeg, said, sizeof(said)) &&
+                         strstr(said, "a 256x256 JPEG: ") == said &&
+                         strstr(said, "frame 256x256") != NULL;
+    char picture_said[480];
+    memcpy(picture_said, said, sizeof(said));
+    const bool told = !ServiceJudgeProfileImage(0u, n + 4u, 0u, n, jpeg, said, sizeof(said)) &&
+                      strstr(said, "a size the load does not keep") == said;
+    jpeg[25] = 0x00; // 128 high
+    jpeg[26] = 0x80;
+    const bool smaller = !ServiceJudgeProfileImage(0u, n, 0u, n, jpeg, said, sizeof(said)) &&
+                         strstr(said, "a JPEG of another size") == said;
+    jpeg[25] = 0x01;
+    jpeg[26] = 0x00;
+    jpeg[n - 1u] = 0x00;
+    const bool cut = !ServiceJudgeProfileImage(0u, n, 0u, n, jpeg, said, sizeof(said)) &&
+                     strstr(said, "not a JPEG") == said;
+    memset(jpeg, 0, sizeof(jpeg));
+    const bool none = !ServiceJudgeProfileImage(0u, 0u, 0u, 0u, jpeg, said, sizeof(said)) &&
+                      strstr(said, "no picture") == said;
+    CHECK_TRUE(SUITE, "service: profile passes a 256x256 JPEG of the size told", CHECK_NONE,
+               picture && told && smaller && cut && none,
+               "picture %d \"%.160s\", another size told %d, 256x128 %d, no end %d, a stand-in %d",
+               picture, picture_said, told, smaller, cut, none);
+
+    const bool exists = ServiceJudgeUserExistence(0u, true, 0u, false, said, sizeof(said));
+    const bool everyone = !ServiceJudgeUserExistence(0u, true, 0u, true, said, sizeof(said)) &&
+                          strstr(said, "a made up user found") == said;
+    const bool nobody = !ServiceJudgeUserExistence(0u, false, 0u, false, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: profile passes the user found and nobody made up", CHECK_NONE,
+               exists && everyone && nobody, "exists %d, everyone %d, nobody %d", exists,
+               everyone, nobody);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -612,4 +683,5 @@ void RunReferenceService(void) {
     CheckAocPast();
     CheckTime();
     CheckFonts();
+    CheckProfile();
 }

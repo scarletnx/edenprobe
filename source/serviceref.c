@@ -53,6 +53,13 @@ static const struct {
     [SERVICE_PL_OPENS] = { "pl", "pl:u opens and maps its shared fonts" },
     [SERVICE_PL_FONTS] = { "pl", "the six shared fonts are loaded, each inside behind its header" },
     [SERVICE_PL_ORDER] = { "pl", "the fonts in order of priority are the six, as told one by one" },
+    [SERVICE_PROFILE_OPENS] = { "profile", "acc:u0 hands out the profile of a user" },
+    [SERVICE_PROFILE_BASE] = { "profile", "Get and GetBase tell the same user, by a name" },
+    [SERVICE_PROFILE_IMAGE] = { "profile",
+                                "the user's picture is a 256x256 JPEG of the size GetImageSize "
+                                "tells" },
+    [SERVICE_PROFILE_EXISTS] = { "profile",
+                                 "GetUserExistence finds the user and not one made up" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -561,5 +568,97 @@ bool ServiceJudgeFontOrder(const ServiceFontOrder *seen, const ServiceFont fonts
              (unsigned)seen->count, (unsigned)seen->types[0], (unsigned)seen->types[1],
              (unsigned)seen->types[2], (unsigned)seen->types[3], (unsigned)seen->types[4],
              (unsigned)seen->types[5], (unsigned)told);
+    return passed;
+}
+
+static bool NicknameOk(const char nickname[0x20]) {
+    return nickname[0] != '\0' && memchr(nickname, '\0', 0x20) != NULL;
+}
+
+bool ServiceJudgeProfileBase(const uint64_t asked[2], uint32_t get_rc,
+                             const ServiceProfileBase *get, uint32_t base_rc,
+                             const ServiceProfileBase *base, char *out, size_t out_size) {
+    const bool refused = get_rc != 0u || base_rc != 0u;
+    const bool user = get->uid[0] == asked[0] && get->uid[1] == asked[1];
+    const bool same = memcmp(get, base, sizeof(*get)) == 0;
+    const bool named = NicknameOk(get->nickname);
+    const bool passed = !refused && user && same && named;
+    char nickname[0x21];
+    memcpy(nickname, get->nickname, 0x20);
+    nickname[0x20] = '\0';
+    for (uint32_t i = 0; nickname[i] != '\0'; ++i) {
+        nickname[i] = nickname[i] < 0x20 || nickname[i] == '"' ? '?' : nickname[i];
+    }
+    snprintf(out, out_size,
+             "%s: Get 0x%x user %016llx%016llx \"%s\" edited %llu; GetBase 0x%x user "
+             "%016llx%016llx, %s",
+             refused  ? "refused"
+             : !user  ? "another user"
+             : !named ? "no name"
+             : passed ? "the user, by a name"
+                      : "two bases",
+             (unsigned)get_rc, (unsigned long long)get->uid[0], (unsigned long long)get->uid[1],
+             nickname, (unsigned long long)get->edited, (unsigned)base_rc,
+             (unsigned long long)base->uid[0], (unsigned long long)base->uid[1],
+             same ? "the same base" : "another base");
+    return passed;
+}
+
+/// The frame of a JPEG: the first start-of-frame segment (C0 to C2) before the scan, its height
+/// and width. False when the markers run out first.
+static bool JpegFrame(const uint8_t *bytes, uint32_t size, uint32_t *width, uint32_t *height) {
+    uint32_t at = 2;
+    while (at + 4u <= size && bytes[at] == 0xFFu) {
+        const uint8_t marker = bytes[at + 1u];
+        const uint32_t length = (uint32_t)bytes[at + 2u] << 8 | bytes[at + 3u];
+        if (marker >= 0xC0u && marker <= 0xC2u && at + 9u <= size) {
+            *height = (uint32_t)bytes[at + 5u] << 8 | bytes[at + 6u];
+            *width = (uint32_t)bytes[at + 7u] << 8 | bytes[at + 8u];
+            return true;
+        }
+        if (marker == 0xDAu || length < 2u) {
+            return false;
+        }
+        at += 2u + length;
+    }
+    return false;
+}
+
+bool ServiceJudgeProfileImage(uint32_t size_rc, uint32_t size, uint32_t load_rc, uint32_t loaded,
+                              const uint8_t *bytes, char *out, size_t out_size) {
+    const bool refused = size_rc != 0u || load_rc != 0u;
+    const bool fits = loaded >= 4u && loaded <= SERVICE_PICTURE_MAX;
+    const bool jpeg = fits && bytes[0] == 0xFFu && bytes[1] == 0xD8u &&
+                      bytes[loaded - 2u] == 0xFFu && bytes[loaded - 1u] == 0xD9u;
+    uint32_t width = 0, height = 0;
+    const bool frame = jpeg && JpegFrame(bytes, loaded, &width, &height);
+    const bool square = frame && width == SERVICE_PICTURE_SIDE && height == SERVICE_PICTURE_SIDE;
+    const bool passed = !refused && size == loaded && square;
+    snprintf(out, out_size,
+             "%s: GetImageSize 0x%x %u bytes, LoadImage 0x%x %u bytes, %02x%02x..%02x%02x, "
+             "frame %ux%u",
+             refused          ? "refused"
+             : !fits          ? "no picture"
+             : size != loaded ? "a size the load does not keep"
+             : !jpeg          ? "not a JPEG"
+             : !frame         ? "a JPEG with no frame"
+             : passed         ? "a 256x256 JPEG"
+                              : "a JPEG of another size",
+             (unsigned)size_rc, (unsigned)size, (unsigned)load_rc, (unsigned)loaded,
+             fits ? bytes[0] : 0u, fits ? bytes[1] : 0u, fits ? bytes[loaded - 2u] : 0u,
+             fits ? bytes[loaded - 1u] : 0u, (unsigned)width, (unsigned)height);
+    return passed;
+}
+
+bool ServiceJudgeUserExistence(uint32_t user_rc, bool user, uint32_t made_up_rc, bool made_up,
+                               char *out, size_t out_size) {
+    const bool passed = user_rc == 0u && made_up_rc == 0u && user && !made_up;
+    snprintf(out, out_size, "%s: the user 0x%x %s, one made up 0x%x %s",
+             user_rc != 0u || made_up_rc != 0u ? "refused"
+             : passed                          ? "the user and nobody else"
+             : !user                           ? "the user not found"
+                                               : "a made up user found",
+             (unsigned)user_rc, user ? "exists" : "does not", (unsigned)made_up_rc,
+             made_up ? "exists" : "does not");
     return passed;
 }
