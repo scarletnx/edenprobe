@@ -103,6 +103,9 @@ static const struct {
                                       "builds" },
     [SERVICE_MII_STATE] = { "mii", "the database is neither updated nor full" },
     [SERVICE_MII_PAST] = { "mii", "a default Mii past the sixth is refused" },
+    [SERVICE_MODE_VR] = { "am-mode", "VR mode turned on reads on, and off once turned off" },
+    [SERVICE_MODE_BOOT] = { "am-mode",
+                            "the boot is normal and no controller firmware update is running" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1138,5 +1141,33 @@ bool ServiceJudgeMiiPast(uint32_t rc, char *out, size_t out_size) {
     snprintf(out, out_size, "%s: BuildDefault(6) 0x%x",
              passed ? "refused with InvalidArgument" : rc == 0u ? "built" : "refused otherwise",
              (unsigned)rc);
+    return passed;
+}
+
+bool ServiceJudgeVrTurn(const ServiceVrTurn *seen, char *out, size_t out_size) {
+    const bool refused = seen->before_rc != 0u || seen->on_rc != 0u || seen->on_read_rc != 0u ||
+                         seen->off_rc != 0u || seen->off_read_rc != 0u;
+    const bool passed = !refused && seen->on && !seen->off;
+    snprintf(out, out_size, "%s: read 0x%x %d, on 0x%x, read 0x%x %d, off 0x%x, read 0x%x %d",
+             refused     ? "refused"
+             : !seen->on ? "still off after it was turned on"
+             : seen->off ? "still on after it was turned off"
+                         : "on, then off, as turned",
+             (unsigned)seen->before_rc, seen->before ? 1 : 0, (unsigned)seen->on_rc,
+             (unsigned)seen->on_read_rc, seen->on ? 1 : 0, (unsigned)seen->off_rc,
+             (unsigned)seen->off_read_rc, seen->off ? 1 : 0);
+    return passed;
+}
+
+bool ServiceJudgeBootMode(uint32_t boot_rc, uint32_t mode, uint32_t section_rc, bool section,
+                          char *out, size_t out_size) {
+    const bool refused = boot_rc != 0u || section_rc != 0u;
+    const bool passed = !refused && mode == 0u && !section;
+    snprintf(out, out_size, "%s: GetBootMode 0x%x %u, IsInControllerFirmwareUpdateSection 0x%x %d",
+             refused     ? "refused"
+             : mode != 0 ? "another boot mode"
+             : section   ? "in a controller firmware update"
+                         : "a normal boot, no update",
+             (unsigned)boot_rc, (unsigned)mode, (unsigned)section_rc, section ? 1 : 0);
     return passed;
 }

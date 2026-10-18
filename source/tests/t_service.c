@@ -1661,6 +1661,41 @@ static void RunMii(void) {
     miiExit();
 }
 
+// ---------------------------------------------------------------------------------------------
+// am-mode
+
+/// The state getter's modes a game reads at start or sets in play: VR mode, which a game with a
+/// VR scene turns on and off, the boot mode and the controller firmware update section.
+static void RunAmMode(void) {
+    char detail[480];
+    if (!hosversionAtLeast(6, 0, 0)) {
+        Skip(SERVICE_MODE_VR, REPORT_REASON_UNAVAILABLE,
+             "libnx turns VR mode from 6.0.0; this machine says it is older");
+    } else if (Start(SERVICE_MODE_VR)) {
+        ServiceVrTurn seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.before_rc = appletIsVrModeEnabled(&seen.before);
+        seen.on_rc = appletSetVrModeEnabled(true);
+        seen.on_read_rc = appletIsVrModeEnabled(&seen.on);
+        seen.off_rc = appletSetVrModeEnabled(false);
+        seen.off_read_rc = appletIsVrModeEnabled(&seen.off);
+        const bool passed = ServiceJudgeVrTurn(&seen, detail, sizeof(detail));
+        Report(SERVICE_MODE_VR, CHECK_EXACT, passed, detail);
+    }
+    if (!hosversionAtLeast(3, 0, 0)) {
+        Skip(SERVICE_MODE_BOOT, REPORT_REASON_UNAVAILABLE,
+             "IsInControllerFirmwareUpdateSection came with 3.0.0; this machine says it is older");
+    } else if (Start(SERVICE_MODE_BOOT)) {
+        PmBootMode mode = (PmBootMode)0xEE;
+        bool section = true;
+        const uint32_t boot_rc = appletGetBootMode(&mode);
+        const uint32_t section_rc = appletIsInControllerFirmwareUpdateSection(&section);
+        const bool passed = ServiceJudgeBootMode(boot_rc, (uint32_t)mode, section_rc, section,
+                                                 detail, sizeof(detail));
+        Report(SERVICE_MODE_BOOT, CHECK_EXACT, passed, detail);
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -1684,4 +1719,5 @@ void RunService(void) {
     RunAmChannel();
     RunAmStorage();
     RunMii();
+    RunAmMode();
 }

@@ -1,12 +1,12 @@
 # What it checks today
 
-Sixty nine suites, in the order they run: the judge, then the processor, then the pad family when a
+Seventy suites, in the order they run: the judge, then the processor, then the pad family when a
 word asks for it, then the graphics family, then the fs family, then the kernel, display, video,
-audio and service families when a word asks for them, then the net family. A run is 972 cases: 904
+audio and service families when a word asks for them, then the net family. A run is 973 cases: 905
 for the judge, the processor and the graphics family, 15 for the fs family, 53 for the net family;
 the pad family adds thirty five when named, the kernel family seven, the display family four, the
 video family twenty seven, the audio family twelve when named or with `listen`, the service family
-sixty three, the mode word `stress` adds one, and `fatal` runs the cases the may-crash table names, which
+sixty five, the mode word `stress` adds one, and `fatal` runs the cases the may-crash table names, which
 are otherwise skipped. The
 order, and what a failure in each suite points at, is in [The roadmap](../Roadmap.md). A case that
 ends the program costs that case and not the rest of the run: see [When the program ends in the
@@ -25,7 +25,7 @@ middle](../Crashes.md).
   decoder, on VP9 jobs built from libvpx's test vectors ([the nvdec suite](./Nvdec.md))
 - **[Audio](./Audio.md)** - the audio renderer, and the listening sequence
 - **[Service](./Service.md)** - commands a game sends to the system's services, held to reden's
-  answers: hwopus, am, fsp, account, ldn, set, csrng, apm, nfp, aoc, time, pl, profile, am-state, am-self, am-functions, auddev, fsdir, am-audio, am-channel, am-storage, mii
+  answers: hwopus, am, fsp, account, ldn, set, csrng, apm, nfp, aoc, time, pl, profile, am-state, am-self, am-functions, auddev, fsdir, am-audio, am-channel, am-storage, mii, am-mode
 - **[Net](./Net.md)** - nifm, dns, bsd, ssl, acc and friend, the net file and the fixture
 
 No case draws to a screen. The targets are offscreen and the program reads them back itself, which
