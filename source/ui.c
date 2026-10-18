@@ -406,6 +406,7 @@ static const struct {
     { "hwopus", UI_FAMILY_SERVICE },  { "am", UI_FAMILY_SERVICE },
     { "fsp", UI_FAMILY_SERVICE },     { "account", UI_FAMILY_SERVICE },
     { "ldn", UI_FAMILY_SERVICE },     { "set", UI_FAMILY_SERVICE },
+    { "csrng", UI_FAMILY_SERVICE },
     { "nifm", UI_FAMILY_NET },
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
     { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },

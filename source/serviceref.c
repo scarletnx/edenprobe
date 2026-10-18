@@ -29,6 +29,9 @@ static const struct {
     [SERVICE_SET_MAKE] = { "set", "MakeLanguageCode makes each index into the code listed there" },
     [SERVICE_SET_COUNT] = { "set",
                             "GetAvailableLanguageCodeCount2 leaves room for every code listed" },
+    [SERVICE_CSRNG_OPENS] = { "csrng", "csrng opens" },
+    [SERVICE_RANDOM] = { "csrng",
+                         "GenerateRandomBytes fills the buffer, and differently each time" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -230,5 +233,48 @@ bool ServiceJudgeLanguageCount(const ServiceLanguages *seen, char *out, size_t o
     snprintf(out, out_size, "%s: GetAvailableLanguageCodeCount2 0x%x, %d; %d listed",
              passed ? "room for every code" : "less room than codes", (unsigned)seen->count_rc,
              (int)seen->count, (int)seen->listed);
+    return passed;
+}
+
+/// Whether the last eight bytes of a buffer still hold the fill, and whether it is all nought.
+static bool Unwritten(const uint8_t *bytes) {
+    for (uint32_t i = SERVICE_RANDOM_SIZE - 8u; i < SERVICE_RANDOM_SIZE; ++i) {
+        if (bytes[i] != SERVICE_RANDOM_FILL) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool Nought(const uint8_t *bytes) {
+    for (uint32_t i = 0; i < SERVICE_RANDOM_SIZE; ++i) {
+        if (bytes[i] != 0u) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ServiceJudgeRandom(uint32_t rc1, uint32_t rc2, const uint8_t *first, const uint8_t *second,
+                        char *out, size_t out_size) {
+    bool same = true;
+    for (uint32_t i = 0; i < SERVICE_RANDOM_SIZE; ++i) {
+        same = same && first[i] == second[i];
+    }
+    const bool unwritten = Unwritten(first) || Unwritten(second);
+    const bool nought = Nought(first) || Nought(second);
+    const char *const verdict = rc1 != 0u || rc2 != 0u ? "refused"
+                                : unwritten            ? "the buffer's end not written"
+                                : nought               ? "a buffer of nought"
+                                : same                 ? "the same bytes twice"
+                                                       : "two buffers of their own";
+    const bool passed = rc1 == 0u && rc2 == 0u && !unwritten && !nought && !same;
+    snprintf(out, out_size,
+             "%s: 0x%x and 0x%x; first %02x%02x%02x%02x..%02x%02x, "
+             "second %02x%02x%02x%02x..%02x%02x",
+             verdict, (unsigned)rc1, (unsigned)rc2, first[0], first[1], first[2], first[3],
+             first[SERVICE_RANDOM_SIZE - 2u], first[SERVICE_RANDOM_SIZE - 1u], second[0],
+             second[1], second[2], second[3], second[SERVICE_RANDOM_SIZE - 2u],
+             second[SERVICE_RANDOM_SIZE - 1u]);
     return passed;
 }

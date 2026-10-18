@@ -42,6 +42,10 @@ extern "C" {
 #define SERVICE_INVALID_LANGUAGE SERVICE_RESULT(105, 625)
 #define SERVICE_LANGUAGES_MAX 0x40u
 
+/// How many random bytes the csrng case asks for each time, and what it fills them with first.
+#define SERVICE_RANDOM_SIZE 64u
+#define SERVICE_RANDOM_FILL 0xA5u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -58,6 +62,8 @@ typedef enum {
     SERVICE_SET_LANGUAGE, ///< set: GetLanguageCode is one of them
     SERVICE_SET_MAKE,     ///< set: MakeLanguageCode gives the list's code at each index
     SERVICE_SET_COUNT,    ///< set: GetAvailableLanguageCodeCount2 leaves room for the list
+    SERVICE_CSRNG_OPENS,  ///< csrng: csrng opens (none tier)
+    SERVICE_RANDOM,       ///< csrng: two asks fill their buffers, differently
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -142,6 +148,13 @@ void ServiceLanguageText(uint64_t code, char out[9]);
 bool ServiceJudgeLanguage(const ServiceLanguages *seen, char *out, size_t out_size);
 bool ServiceJudgeMakeLanguage(const ServiceLanguages *seen, char *out, size_t out_size);
 bool ServiceJudgeLanguageCount(const ServiceLanguages *seen, char *out, size_t out_size);
+
+/// csrng's GenerateRandomBytes (0), asked twice for SERVICE_RANDOM_SIZE bytes, each buffer filled
+/// with SERVICE_RANDOM_FILL first. Passes when both succeeded, neither buffer's last eight bytes
+/// still hold the fill (reden writes the whole buffer it is given), neither is all nought, and the
+/// two differ.
+bool ServiceJudgeRandom(uint32_t rc1, uint32_t rc2, const uint8_t *first, const uint8_t *second,
+                        char *out, size_t out_size);
 
 #ifdef __cplusplus
 }
