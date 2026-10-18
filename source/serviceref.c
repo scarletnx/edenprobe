@@ -84,6 +84,9 @@ static const struct {
     [SERVICE_DIR_LIST] = { "fsdir", "the renamed directory lists its one file, once" },
     [SERVICE_DIR_DELETE] = { "fsdir",
                              "DeleteDirectoryRecursively takes a directory and what it holds" },
+    [SERVICE_AUDIOCTL_EXPECTED] = { "am-audio",
+                                    "the expected master volumes set are the ones read back" },
+    [SERVICE_AUDIOCTL_CHANGE] = { "am-audio", "a main applet volume changed is read back" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -944,5 +947,49 @@ bool ServiceJudgeDirDelete(uint32_t delete_rc, uint32_t gone_rc, char *out, size
              : passed        ? "gone with what it held"
                              : "still there",
              (unsigned)delete_rc, (unsigned)gone_rc);
+    return passed;
+}
+
+/// A volume on the line: in thousandths, so a line never carries a float format.
+static int Milli(float v) {
+    return (int)(v * 1000.0f + (v < 0.0f ? -0.5f : 0.5f));
+}
+
+bool ServiceJudgeExpectedVolume(const ServiceExpectedVolume *seen, char *out, size_t out_size) {
+    const bool refused = seen->before_rc != 0u || seen->set_rc != 0u || seen->after_rc != 0u ||
+                         seen->restore_rc != 0u;
+    const bool kept =
+        seen->main_after == seen->main_asked && seen->library_after == seen->library_asked;
+    const bool before =
+        seen->main_after == seen->main_before && seen->library_after == seen->library_before;
+    const bool passed = !refused && kept;
+    snprintf(out, out_size,
+             "%s: main %d/1000 library %d/1000 (0x%x), set to %d and %d (0x%x), read %d and %d "
+             "(0x%x), put back 0x%x",
+             refused  ? "refused"
+             : passed ? "read back as set"
+             : before ? "the volumes before read back"
+                      : "other volumes read back",
+             Milli(seen->main_before), Milli(seen->library_before), (unsigned)seen->before_rc,
+             Milli(seen->main_asked), Milli(seen->library_asked), (unsigned)seen->set_rc,
+             Milli(seen->main_after), Milli(seen->library_after), (unsigned)seen->after_rc,
+             (unsigned)seen->restore_rc);
+    return passed;
+}
+
+bool ServiceJudgeMainVolume(const ServiceMainVolume *seen, char *out, size_t out_size) {
+    const bool refused = seen->change_rc != 0u || seen->after_rc != 0u || seen->rate_rc != 0u ||
+                         seen->restore_rc != 0u;
+    const bool passed = !refused && seen->after == seen->asked;
+    snprintf(out, out_size,
+             "%s: main %d/1000, changed to %d (0x%x), read %d (0x%x), transparent rate 0x%x, put "
+             "back 0x%x",
+             refused                       ? "refused"
+             : passed                      ? "read back as changed"
+             : seen->after == seen->before ? "the volume before read back"
+                                           : "another volume read back",
+             Milli(seen->before), Milli(seen->asked), (unsigned)seen->change_rc,
+             Milli(seen->after), (unsigned)seen->after_rc, (unsigned)seen->rate_rc,
+             (unsigned)seen->restore_rc);
     return passed;
 }

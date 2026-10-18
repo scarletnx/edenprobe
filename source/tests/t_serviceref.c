@@ -923,6 +923,41 @@ static void CheckFsdir(void) {
                not_empty);
 }
 
+static void CheckAmAudio(void) {
+    ServiceExpectedVolume seen = { 0u, 0u, 0u, 0u, 0.25f, 1.0f, 0.5f, 0.25f, 0.5f, 0.25f };
+    const bool kept = ServiceJudgeExpectedVolume(&seen, said, sizeof(said)) &&
+                      strcmp(said, "read back as set: main 250/1000 library 1000/1000 (0x0), set "
+                                   "to 500 and 250 (0x0), read 500 and 250 (0x0), put back 0x0") ==
+                          0;
+    char kept_said[480];
+    memcpy(kept_said, said, sizeof(said));
+    // A write that does nothing: the reads stay what they were.
+    seen.main_after = 0.25f;
+    seen.library_after = 1.0f;
+    const bool stub = !ServiceJudgeExpectedVolume(&seen, said, sizeof(said)) &&
+                      strstr(said, "the volumes before read back") == said;
+    // The main one kept, the library one not.
+    seen.main_after = 0.5f;
+    const bool half = !ServiceJudgeExpectedVolume(&seen, said, sizeof(said)) &&
+                      strstr(said, "other volumes read back") == said;
+    seen = (ServiceExpectedVolume){ 0u, SERVICE_RESULT(10, 221), 0u, 0u, 0.25f, 1.0f,
+                                    0.5f, 0.25f, 0.5f, 0.25f };
+    const bool refused = !ServiceJudgeExpectedVolume(&seen, said, sizeof(said));
+    ServiceMainVolume main = { 0u, 0u, 0u, 0u, 0.25f, 0.75f, 0.75f };
+    const bool changed = ServiceJudgeMainVolume(&main, said, sizeof(said)) &&
+                         strstr(said, "read back as changed") == said;
+    main.after = 0.25f;
+    const bool unchanged = !ServiceJudgeMainVolume(&main, said, sizeof(said)) &&
+                           strstr(said, "the volume before read back") == said;
+    main = (ServiceMainVolume){ 0u, 0u, SERVICE_RESULT(10, 221), 0u, 0.25f, 0.75f, 0.75f };
+    const bool rate_refused = !ServiceJudgeMainVolume(&main, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: am-audio passes volumes read back as set", CHECK_NONE,
+               kept && stub && half && refused && changed && unchanged && rate_refused,
+               "kept %d \"%.160s\", a stub %d, half kept %d, refused %d, changed %d, unchanged %d, "
+               "rate refused %d",
+               kept, kept_said, stub, half, refused, changed, unchanged, rate_refused);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -942,4 +977,5 @@ void RunReferenceService(void) {
     CheckAmFunctions();
     CheckAuddev();
     CheckFsdir();
+    CheckAmAudio();
 }

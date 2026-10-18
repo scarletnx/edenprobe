@@ -27,6 +27,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | am-functions | 3 | what an application's functions tell a game before its title screen: the language, the events it waits on, the channels a launch may fill (`hle/service/am/service/application_functions.cpp`) |
 | auddev | 3 | the audio device service a game with a renderer asks: the active output among those listed, and its volume read back as set (`hle/service/audio/audio_device.cpp`, `audio_core/renderer/audio_device.cpp`) |
 | fsdir | 3 | a game's own files on the memory card: a directory renamed with what it holds, listed, and deleted with it (`hle/service/filesystem/fsp/fs_i_filesystem.cpp`, `RenameDirectory`, and `hle/service/filesystem/filesystem.cpp`) |
+| am-audio | 2 | the volumes a game expects for itself and a library applet, set and read back (`hle/service/am/service/audio_controller.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -386,6 +387,24 @@ which it deletes first, so a run left half done does not change the next.
 The second and third cases are skipped as `depends` when the rename did not come back as a
 directory.
 
+## am-audio
+
+Before a game shows the keyboard, an error or another library applet, it tells its audio
+controller, IAudioController, how loud it and the applet should be (SetExpectedMasterVolume, 0),
+and after, reads what it set to put it back (GetMainAppletExpectedMasterVolume, 1, and
+GetLibraryAppletExpectedMasterVolume, 2). reden keeps both volumes on the controller, a quarter
+and one at first, and ChangeMainAppletMasterVolume (3) sets the main one too
+(`audio_controller.cpp` at 75c12299a6); SetTransparentVolumeRate (4) is kept with nothing to read
+it back.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| the expected master volumes set are the ones read back | 1 and 2, 0 with a half and a quarter, 1 and 2 again, 0 back | both reads after the write are what was set | exact |
+| a main applet volume changed is read back | 1 and 2, 3 to three quarters with no fade, 1, 4 with a half, 0 back | every step succeeds and the main read is what was changed | exact |
+
+Both cases put the volumes back as they read them, or at one each when the first read failed; the
+line carries every answer, the volumes in thousandths.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -427,6 +446,8 @@ directory.
 - **Q16.** Whether a console's memory card keeps a directory's entries in the order they were
   made when it lists them (the case makes one), and the result it gives a rename whose new name
   is already there.
+- **Q17.** Whether a console keeps the expected master volumes an application sets and gives
+  them back, as reden does, and whether it clamps a volume past one or refuses it.
 
 ## The judge, pinned
 
@@ -489,3 +510,5 @@ file lost or found as a directory and a refused rename; the one file listed once
 listed twice, as a
 directory, with no size and a count of two; and a directory gone with what it held, failing
 one still there and a refused delete.
+am-audio passes volumes read back as set, and fails a write the reads do not see, half of it
+kept, and a refusal.

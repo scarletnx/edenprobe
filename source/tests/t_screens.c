@@ -483,6 +483,7 @@ static void CheckFamilies(void) {
         { "am-functions", UI_FAMILY_SERVICE },
         { "auddev", UI_FAMILY_SERVICE },
         { "fsdir", UI_FAMILY_SERVICE },
+        { "am-audio", UI_FAMILY_SERVICE },
         { "nifm", UI_FAMILY_NET },
         { "dns", UI_FAMILY_NET },           { "bsd", UI_FAMILY_NET },
         { "ssl", UI_FAMILY_NET },           { "acc", UI_FAMILY_NET },
@@ -498,7 +499,7 @@ static void CheckFamilies(void) {
     }
     // A run with every family has a group for each suite, so the index holds them all.
     CHECK_TRUE(SUITE, "every suite a run reports is shown under its own family", CHECK_NONE,
-               wrong == 0u && count == 65u && count <= UI_MAX_GROUPS &&
+               wrong == 0u && count == 66u && count <= UI_MAX_GROUPS &&
                    UiFamilyOf("weird") == UI_FAMILY_OTHER && UiFamilyOf(NULL) == UI_FAMILY_OTHER,
                "%u of %u suites under the wrong family, the first %s; the index holds %u groups",
                (unsigned)wrong, (unsigned)count, first, (unsigned)UI_MAX_GROUPS);
