@@ -2908,6 +2908,164 @@ static void RunAudout(void) {
     audoutExit();
 }
 
+// ---------------------------------------------------------------------------------------------
+// fs-file
+
+#define FILE_PARENT "/edenprobe/service/file"
+
+/// A file of SIZE bytes made at PATH on the card with the bytes given, or none. It is made at its
+/// size and written inside it: a write past the end needs a file opened to append.
+static Result FileMake(FsFileSystem *card, const char *path, const void *bytes, s64 size) {
+    Result rc = fsFsCreateFile(card, path, size, 0);
+    if (R_FAILED(rc) || size == 0) {
+        return rc;
+    }
+    FsFile f;
+    rc = fsFsOpenFile(card, path, FsOpenMode_Write, &f);
+    if (R_SUCCEEDED(rc)) {
+        rc = fsFileWrite(&f, 0, bytes, (u64)size, FsWriteOption_Flush);
+        fsFileClose(&f);
+    }
+    return rc;
+}
+
+/// A game's own files on the memory card, as a save writer handles them: a file resized, a file
+/// renamed into place over nothing and not over another, a directory cleaned, a file's time stamp,
+/// and the card's free space. Everything is made under FILE_PARENT and deleted with it.
+static void RunFsFile(void) {
+    char detail[480];
+    FsFileSystem *const card = fsdevGetDeviceFileSystem("sdmc");
+    if (card == NULL) {
+        const char *const why = "the memory card is not mounted";
+        Skip(SERVICE_FILE_SIZE, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_FILE_RENAME, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_FILE_CLEAN, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_FILE_STAMP, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_FILE_SPACE, REPORT_REASON_UNAVAILABLE, "%s", why);
+        return;
+    }
+    fsFsCreateDirectory(card, "/edenprobe");
+    fsFsCreateDirectory(card, "/edenprobe/service");
+    fsFsDeleteDirectoryRecursively(card, FILE_PARENT);
+    const Result parent_rc = fsFsCreateDirectory(card, FILE_PARENT);
+    static const char bytes[4] = { 'a', 'b', 'c', 'd' };
+    if (Start(SERVICE_FILE_SIZE)) {
+        ServiceFileSize seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.make_rc =
+            R_FAILED(parent_rc) ? parent_rc : fsFsCreateFile(card, FILE_PARENT "/size", 4, 0);
+        FsFile f;
+        if (R_SUCCEEDED(seen.make_rc)) {
+            seen.make_rc = fsFsOpenFile(card, FILE_PARENT "/size",
+                                        FsOpenMode_Read | FsOpenMode_Write, &f);
+        }
+        if (R_SUCCEEDED(seen.make_rc)) {
+            uint8_t back[16];
+            seen.write_rc = fsFileWrite(&f, 0, bytes, sizeof(bytes), FsWriteOption_Flush);
+            seen.grow_rc = fsFileSetSize(&f, 16);
+            seen.grown_rc = fsFileGetSize(&f, &seen.grown);
+            memset(back, 0xEE, sizeof(back));
+            if (R_SUCCEEDED(seen.grown_rc)) {
+                seen.grown_rc = fsFileRead(&f, 0, back, sizeof(back), FsReadOption_None,
+                                           &seen.grown_read);
+            }
+            static const uint8_t zeros[12] = { 0 };
+            seen.grown_bytes = memcmp(back, bytes, 4) == 0 && memcmp(back + 4, zeros, 12) == 0;
+            seen.cut_rc = fsFileSetSize(&f, 2);
+            seen.cut_size_rc = fsFileGetSize(&f, &seen.cut);
+            memset(back, 0xEE, sizeof(back));
+            if (R_SUCCEEDED(seen.cut_size_rc)) {
+                seen.cut_size_rc = fsFileRead(&f, 0, back, sizeof(back), FsReadOption_None,
+                                              &seen.cut_read);
+            }
+            seen.cut_bytes = memcmp(back, bytes, 2) == 0;
+            fsFileClose(&f);
+        }
+        const bool passed = ServiceJudgeFileSize(&seen, detail, sizeof(detail));
+        Report(SERVICE_FILE_SIZE, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_FILE_RENAME)) {
+        ServiceFileRename seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.make_rc =
+            R_FAILED(parent_rc) ? parent_rc : FileMake(card, FILE_PARENT "/old", bytes, 4);
+        if (R_SUCCEEDED(seen.make_rc)) {
+            seen.make_rc = FileMake(card, FILE_PARENT "/other", NULL, 0);
+        }
+        seen.rename_rc = fsFsRenameFile(card, FILE_PARENT "/old", FILE_PARENT "/new");
+        FsDirEntryType type = (FsDirEntryType)0xEE;
+        seen.old_rc = fsFsGetEntryType(card, FILE_PARENT "/old", &type);
+        type = (FsDirEntryType)0xEE;
+        seen.new_rc = fsFsGetEntryType(card, FILE_PARENT "/new", &type);
+        seen.new_type = (uint32_t)type;
+        FsFile f;
+        seen.size = -1;
+        seen.size_rc = fsFsOpenFile(card, FILE_PARENT "/new", FsOpenMode_Read, &f);
+        if (R_SUCCEEDED(seen.size_rc)) {
+            seen.size_rc = fsFileGetSize(&f, &seen.size);
+            fsFileClose(&f);
+        }
+        seen.onto_rc = fsFsRenameFile(card, FILE_PARENT "/other", FILE_PARENT "/new");
+        type = (FsDirEntryType)0xEE;
+        seen.other_rc = fsFsGetEntryType(card, FILE_PARENT "/other", &type);
+        seen.other_type = (uint32_t)type;
+        const bool passed = ServiceJudgeFileRename(&seen, detail, sizeof(detail));
+        Report(SERVICE_FILE_RENAME, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_FILE_CLEAN)) {
+        ServiceFileClean seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.make_rc =
+            R_FAILED(parent_rc) ? parent_rc : fsFsCreateDirectory(card, FILE_PARENT "/d");
+        if (R_SUCCEEDED(seen.make_rc)) {
+            seen.make_rc = FileMake(card, FILE_PARENT "/d/f", bytes, 4);
+        }
+        seen.delete_rc = fsFsDeleteDirectory(card, FILE_PARENT "/d");
+        FsDirEntryType type = (FsDirEntryType)0xEE;
+        seen.file_rc = fsFsGetEntryType(card, FILE_PARENT "/d/f", &type);
+        seen.file_type = (uint32_t)type;
+        seen.clean_rc = fsFsCleanDirectoryRecursively(card, FILE_PARENT "/d");
+        type = (FsDirEntryType)0xEE;
+        seen.dir_rc = fsFsGetEntryType(card, FILE_PARENT "/d", &type);
+        seen.dir_type = (uint32_t)type;
+        FsDir dir;
+        seen.count = -1;
+        seen.count_rc = fsFsOpenDirectory(card, FILE_PARENT "/d",
+                                          FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles, &dir);
+        if (R_SUCCEEDED(seen.count_rc)) {
+            seen.count_rc = fsDirGetEntryCount(&dir, &seen.count);
+            fsDirClose(&dir);
+        }
+        seen.again_rc = fsFsDeleteDirectory(card, FILE_PARENT "/d");
+        const bool passed = ServiceJudgeFileClean(&seen, detail, sizeof(detail));
+        Report(SERVICE_FILE_CLEAN, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_FILE_STAMP)) {
+        ServiceFileStamp seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.clock_rc = timeGetCurrentTime(TimeType_UserSystemClock, &seen.now);
+        seen.make_rc =
+            R_FAILED(parent_rc) ? parent_rc : FileMake(card, FILE_PARENT "/stamp", bytes, 4);
+        FsTimeStampRaw stamp;
+        memset(&stamp, 0, sizeof(stamp));
+        seen.stamp_rc = fsFsGetFileTimeStampRaw(card, FILE_PARENT "/stamp", &stamp);
+        seen.created = stamp.created;
+        seen.modified = stamp.modified;
+        seen.accessed = stamp.accessed;
+        const bool passed = ServiceJudgeFileStamp(&seen, detail, sizeof(detail));
+        Report(SERVICE_FILE_STAMP, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_FILE_SPACE)) {
+        s64 free_size = -1, total_size = -1;
+        const uint32_t free_rc = fsFsGetFreeSpace(card, "/", &free_size);
+        const uint32_t total_rc = fsFsGetTotalSpace(card, "/", &total_size);
+        const bool passed = ServiceJudgeFileSpace(free_rc, free_size, total_rc, total_size, detail,
+                                                  sizeof(detail));
+        Report(SERVICE_FILE_SPACE, CHECK_EXACT, passed, detail);
+    }
+    fsFsDeleteDirectoryRecursively(card, FILE_PARENT);
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -2944,4 +3102,5 @@ void RunService(void) {
     RunTimeZone();
     RunTimePerm();
     RunAudout();
+    RunFsFile();
 }
