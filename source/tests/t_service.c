@@ -384,9 +384,53 @@ static void RunAccount(void) {
     AccountClose(&account);
 }
 
+// ---------------------------------------------------------------------------------------------
+// ldn
+
+/// ldn:u's monitor of the client process, which libnx's ldnInitialize asks for on 18.0.0 and
+/// later, then registers this process with: CreateClientProcessMonitor (1) and the monitor's
+/// RegisterClient (0, a word of nought and the process id), as libnx sends them.
+static void RunLdn(void) {
+    char detail[480];
+    Service creator;
+    memset(&creator, 0, sizeof(creator));
+    bool opens = false;
+    if (Start(SERVICE_LDN_OPENS)) {
+        const Result rc = smGetService(&creator, "ldn:u");
+        opens = R_SUCCEEDED(rc);
+        snprintf(detail, sizeof(detail), "smGetService(\"ldn:u\") returned 0x%x", (unsigned)rc);
+        Report(SERVICE_LDN_OPENS, CHECK_NONE, opens, detail);
+    }
+
+    if (!opens) {
+        Skip(SERVICE_LDN_MONITOR, REPORT_REASON_DEPENDS, "ldn:u did not open");
+    } else if (Start(SERVICE_LDN_MONITOR)) {
+        ServiceLdnMonitor seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.firmware18 = hosversionAtLeast(18, 0, 0);
+        Service monitor;
+        memset(&monitor, 0, sizeof(monitor));
+        seen.create_rc =
+            serviceDispatch(&creator, 1, .out_num_objects = 1, .out_objects = &monitor, );
+        seen.handle = R_SUCCEEDED(seen.create_rc) ? monitor.session : 0u;
+        if (seen.handle != 0u) {
+            const u64 reserved = 0;
+            seen.register_rc = serviceDispatchIn(&monitor, 0, reserved, .in_send_pid = true, );
+            seen.registered = true;
+            serviceClose(&monitor);
+        }
+        const bool passed = ServiceJudgeLdnMonitor(&seen, detail, sizeof(detail));
+        Report(SERVICE_LDN_MONITOR, CHECK_EXACT, passed, detail);
+    }
+    if (opens) {
+        serviceClose(&creator);
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
     RunFsp();
     RunAccount();
+    RunLdn();
 }
