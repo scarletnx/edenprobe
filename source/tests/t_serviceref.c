@@ -142,9 +142,57 @@ static void CheckTempEmpty(void) {
                older, other, said);
 }
 
+static void CheckSelectUser(void) {
+    // reden, one user: both hand it back.
+    ServiceSelectUser seen;
+    memset(&seen, 0, sizeof(seen));
+    seen.users = 1;
+    seen.firmware19 = true;
+    seen.uid51[0] = seen.uid52[0] = 0x0123456789abcdefull;
+    seen.uid51[1] = seen.uid52[1] = 0xfedcba9876543210ull;
+    const bool one = ServiceJudgeSelectUser(&seen, said, sizeof(said)) &&
+                     strcmp(said, "52 answers what 51 answers: users 1; 51 0x0 "
+                                  "0123456789abcdeffedcba9876543210, 52 0x0 "
+                                  "0123456789abcdeffedcba9876543210; firmware at least 19.0.0") ==
+                         0;
+    char one_said[480];
+    memcpy(one_said, said, sizeof(said));
+    // reden, two users: both an id of nought.
+    ServiceSelectUser two;
+    memset(&two, 0, sizeof(two));
+    two.users = 2;
+    two.firmware19 = true;
+    const bool none = ServiceJudgeSelectUser(&two, said, sizeof(said));
+    // A machine without 52 that answers it as a stub: success, and nought for one user.
+    ServiceSelectUser stub = seen;
+    stub.uid52[0] = stub.uid52[1] = 0u;
+    const bool stubbed = !ServiceJudgeSelectUser(&stub, said, sizeof(said)) &&
+                         strstr(said, "52 answers another user than 51") == said;
+    // Older than 19.0.0: 52 refused passes there, and fails on a machine that says it is 19.
+    ServiceSelectUser refused = seen;
+    refused.rc52 = SERVICE_RESULT(10, 420);
+    refused.firmware19 = false;
+    const bool old = ServiceJudgeSelectUser(&refused, said, sizeof(said)) &&
+                     strstr(said, "52 refused, by a machine older than 19.0.0") == said;
+    refused.firmware19 = true;
+    const bool new_refused = !ServiceJudgeSelectUser(&refused, said, sizeof(said)) &&
+                             strstr(said, "52 refused") == said;
+    // 51 itself refused is never a pass.
+    ServiceSelectUser deprecated = seen;
+    deprecated.rc51 = SERVICE_RESULT(124, 0);
+    deprecated.firmware19 = false;
+    const bool first = !ServiceJudgeSelectUser(&deprecated, said, sizeof(said)) &&
+                       strstr(said, "51 refused") == said;
+    CHECK_TRUE(SUITE, "service: account passes 52 answering what 51 answers", CHECK_NONE,
+               one && none && stubbed && old && new_refused && first,
+               "one %d \"%.200s\", none %d, stubbed %d, old %d, new refused %d, 51 refused %d",
+               one, one_said, none, stubbed, old, new_refused, first);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
     CheckSaveSize();
     CheckTempEmpty();
+    CheckSelectUser();
 }

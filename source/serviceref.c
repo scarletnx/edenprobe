@@ -18,6 +18,9 @@ static const struct {
                             "GetSaveDataSize reads back the size ExtendSaveData gave the save" },
     [SERVICE_TEMP_OPENS] = { "fsp", "the temporary storage opens" },
     [SERVICE_TEMP_EMPTY] = { "fsp", "the temporary storage starts each launch empty" },
+    [SERVICE_ACC_OPENS] = { "account", "acc:u0 opens and counts its users" },
+    [SERVICE_SELECT_USER] = { "account",
+                              "TrySelectUserWithoutInteraction answers as its deprecated twin" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -107,4 +110,23 @@ bool ServiceJudgeTempEmpty(uint64_t promised, uint32_t found_rc, uint64_t found,
     snprintf(out, out_size, "the marker %016llx could not be looked for: opening it answered 0x%x",
              (unsigned long long)promised, (unsigned)found_rc);
     return false;
+}
+
+bool ServiceJudgeSelectUser(const ServiceSelectUser *seen, char *out, size_t out_size) {
+    const bool same = seen->uid51[0] == seen->uid52[0] && seen->uid51[1] == seen->uid52[1];
+    const bool answered = seen->rc51 == 0u && seen->rc52 == 0u;
+    const bool older = !seen->firmware19 && seen->rc51 == 0u && seen->rc52 != 0u;
+    const bool passed = (answered && same) || older;
+    const char *const verdict = answered && same ? "52 answers what 51 answers"
+                                : older          ? "52 refused, by a machine older than 19.0.0"
+                                : answered       ? "52 answers another user than 51"
+                                : seen->rc51 != 0u ? "51 refused"
+                                                   : "52 refused";
+    snprintf(out, out_size,
+             "%s: users %d; 51 0x%x %016llx%016llx, 52 0x%x %016llx%016llx; firmware %s 19.0.0",
+             verdict, (int)seen->users, (unsigned)seen->rc51, (unsigned long long)seen->uid51[0],
+             (unsigned long long)seen->uid51[1], (unsigned)seen->rc52,
+             (unsigned long long)seen->uid52[0], (unsigned long long)seen->uid52[1],
+             seen->firmware19 ? "at least" : "older than");
+    return passed;
 }

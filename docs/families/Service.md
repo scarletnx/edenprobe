@@ -12,6 +12,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | hwopus | 3 | the hardware Opus decoder's limit on live decoders and the result past it (`hle/service/audio/hardware_opus_decoder_manager.cpp`, `audio_core/opus/hardware_opus.cpp`, `RegisterDecoder`) |
 | am | 2 | the size of an application's account save: where the request carries the user, and whether the size is kept (`hle/service/am/service/application_functions.cpp`, `ExtendSaveData`, `GetSaveDataSize`) |
 | fsp | 2 | the temporary storage left as the launch before left it (`core.cpp`, `Load`, and `hle/service/filesystem/filesystem.cpp`, `InitTempStorage`) |
+| account | 2 | the user picked with nobody asked, by the command a game built for 19.0.0 sends (`hle/service/acc/acc.cpp`, `TrySelectUserWithoutInteraction`, and the acc:u0 table) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -83,6 +84,26 @@ Every request to the service is made in the first case, so a program that ends i
 recorded against a case that started. A marker that opens fails the case with what it holds, and
 says when it is not the one the card names (left by a launch whose card line was lost).
 
+## account
+
+A game picks its user without asking anybody when the console has exactly one:
+TrySelectUserWithoutInteractionDeprecated (51), or from 19.0.0 TrySelectUserWithoutInteraction
+(52), which a game built for that firmware sends instead. reden 87e5d0b6e4 put 52 in acc:u0's
+table (b66ebe638b had it in acc:u0 and acc:su) with 51's answer: the user when there is exactly
+one, an id of nought otherwise. Without 52 a game built for 19.0.0 gets whatever an unknown
+command answers, and an id of nought sends it to the user selector.
+
+acc:u0 is opened as the am suite opens it. Both commands are asked with no network account
+required (a byte of nought).
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| acc:u0 opens and counts its users | acc:u0 and GetUserCount (0) | both answer | none |
+| TrySelectUserWithoutInteraction answers as its deprecated twin | 51, then 52 | both succeed with the same id; or 52 is refused by a machine that says it is older than 19.0.0 | exact |
+
+The line carries the user count, both answers and both ids, and the firmware the machine says it
+runs (`hosversionAtLeast(19, 0, 0)`).
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -93,6 +114,8 @@ says when it is not the one the card names (left by a launch whose card line was
 - **Q3.** Whether a console gives a program whose control data declares no temporary storage size
   a storage at all, and empties it at each launch rather than at each exit; reden empties it when
   the application is launched.
+- **Q4.** What a console of 19.0.0 or later answers 52 with more than one user, and with one:
+  reden answers as it answers 51.
 
 ## The judge, pinned
 
@@ -104,4 +127,6 @@ the line that names it. The result code is worked out by hand: 111 + 385 x 512 =
 size that reads back as asked passes; the size before reading back, one part kept and the other
 not, and either command refusing each fail with the line that says which. A temporary marker that
 is gone passes; one that opens, holding the marker promised or an older one, and an open refused
-with anything but PathNotFound each fail.
+with anything but PathNotFound each fail. 52 passes with 51's answer for one user and for two, and
+refused only on a machine older than 19.0.0; a stub's id of nought for one user, 52 refused on a
+19.0.0 machine and 51 itself refused each fail.
