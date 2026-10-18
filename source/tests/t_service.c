@@ -1060,6 +1060,62 @@ static void RunAmState(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// am-self
+
+/// The application's self controller, as libnx opened it at start: two settings a game makes
+/// while it plays, each read, set to something else, read back and put back as it was.
+static void RunAmSelf(void) {
+    char detail[480];
+    Service *const self = appletGetServiceSession_SelfController();
+    if (self == NULL || !serviceIsActive(self)) {
+        Skip(SERVICE_SELF_IDLE, REPORT_REASON_UNAVAILABLE, "this program has no ISelfController");
+        Skip(SERVICE_SELF_SLEEP, REPORT_REASON_UNAVAILABLE, "this program has no ISelfController");
+        return;
+    }
+    if (Start(SERVICE_SELF_IDLE)) {
+        // GetIdleTimeDetectionExtension (63) and SetIdleTimeDetectionExtension (62): None (0) and
+        // Extended (1), whichever it is not.
+        ServiceSelfSetting seen;
+        memset(&seen, 0, sizeof(seen));
+        u32 before = 0xEEEEEEEEu, after = 0xEEEEEEEEu;
+        seen.before_rc = serviceDispatchOut(self, 63, before);
+        seen.before = before;
+        const u32 asked = before == 1u ? 0u : 1u;
+        seen.asked = asked;
+        seen.set_rc = serviceDispatchIn(self, 62, asked);
+        seen.after_rc = serviceDispatchOut(self, 63, after);
+        seen.after = after;
+        const u32 back = before <= 2u ? before : 0u;
+        seen.restore_rc = serviceDispatchIn(self, 62, back);
+        const bool passed = ServiceJudgeSelfSetting("GetIdleTimeDetectionExtension", &seen,
+                                                    detail, sizeof(detail));
+        Report(SERVICE_SELF_IDLE, CHECK_EXACT, passed, detail);
+    }
+    if (!hosversionAtLeast(5, 0, 0)) {
+        Skip(SERVICE_SELF_SLEEP, REPORT_REASON_UNAVAILABLE,
+             "SetAutoSleepDisabled and IsAutoSleepDisabled came with 5.0.0; this machine says it "
+             "is older");
+    } else if (Start(SERVICE_SELF_SLEEP)) {
+        // IsAutoSleepDisabled (69) and SetAutoSleepDisabled (68), to the other one.
+        ServiceSelfSetting seen;
+        memset(&seen, 0, sizeof(seen));
+        u8 before = 0xEE, after = 0xEE;
+        seen.before_rc = serviceDispatchOut(self, 69, before);
+        seen.before = before;
+        const u8 asked = before == 0u ? 1u : 0u;
+        seen.asked = asked;
+        seen.set_rc = serviceDispatchIn(self, 68, asked);
+        seen.after_rc = serviceDispatchOut(self, 69, after);
+        seen.after = after;
+        const u8 back = before == 1u ? 1u : 0u;
+        seen.restore_rc = serviceDispatchIn(self, 68, back);
+        const bool passed =
+            ServiceJudgeSelfSetting("IsAutoSleepDisabled", &seen, detail, sizeof(detail));
+        Report(SERVICE_SELF_SLEEP, CHECK_EXACT, passed, detail);
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -1075,4 +1131,5 @@ void RunService(void) {
     RunPl();
     RunProfile();
     RunAmState();
+    RunAmSelf();
 }
