@@ -300,6 +300,34 @@ static void CheckLanguages(void) {
                spelled, language, unlisted, zero, made, wrong, past, room, less, exact);
 }
 
+static void CheckRandom(void) {
+    uint8_t first[SERVICE_RANDOM_SIZE], second[SERVICE_RANDOM_SIZE];
+    for (uint32_t i = 0; i < SERVICE_RANDOM_SIZE; ++i) {
+        first[i] = (uint8_t)(i * 37u + 11u);
+        second[i] = (uint8_t)(i * 91u + 5u);
+    }
+    const bool own =
+        ServiceJudgeRandom(0u, 0u, first, second, said, sizeof(said)) &&
+        strstr(said, "two buffers of their own: 0x0 and 0x0; first 0b30557a..") == said;
+    const bool same = !ServiceJudgeRandom(0u, 0u, first, first, said, sizeof(said)) &&
+                      strstr(said, "the same bytes twice") == said;
+    uint8_t short_write[SERVICE_RANDOM_SIZE];
+    memcpy(short_write, second, sizeof(short_write));
+    memset(short_write + SERVICE_RANDOM_SIZE - 8u, SERVICE_RANDOM_FILL, 8u);
+    const bool partial = !ServiceJudgeRandom(0u, 0u, first, short_write, said, sizeof(said)) &&
+                         strstr(said, "the buffer's end not written") == said;
+    uint8_t zero[SERVICE_RANDOM_SIZE];
+    memset(zero, 0, sizeof(zero));
+    const bool nought = !ServiceJudgeRandom(0u, 0u, zero, second, said, sizeof(said)) &&
+                        strstr(said, "a buffer of nought") == said;
+    const bool refused =
+        !ServiceJudgeRandom(SERVICE_RESULT(26, 1), 0u, first, second, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: csrng passes two buffers written whole and apart", CHECK_NONE,
+               own && same && partial && nought && refused,
+               "own %d, same %d, partial %d, nought %d, refused %d", own, same, partial, nought,
+               refused);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -308,4 +336,5 @@ void RunReferenceService(void) {
     CheckSelectUser();
     CheckLdnMonitor();
     CheckLanguages();
+    CheckRandom();
 }

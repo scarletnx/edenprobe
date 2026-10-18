@@ -492,6 +492,36 @@ static void RunSet(void) {
     serviceClose(&set);
 }
 
+// ---------------------------------------------------------------------------------------------
+// csrng
+
+/// The random number service a game seeds from: GenerateRandomBytes (0), twice.
+static void RunCsrng(void) {
+    char detail[480];
+    bool opens = false;
+    if (Start(SERVICE_CSRNG_OPENS)) {
+        const Result rc = csrngInitialize();
+        opens = R_SUCCEEDED(rc);
+        snprintf(detail, sizeof(detail), "csrngInitialize returned 0x%x", (unsigned)rc);
+        Report(SERVICE_CSRNG_OPENS, CHECK_NONE, opens, detail);
+    }
+    if (!opens) {
+        Skip(SERVICE_RANDOM, REPORT_REASON_DEPENDS, "csrng did not open");
+        return;
+    }
+    if (Start(SERVICE_RANDOM)) {
+        static u8 first[SERVICE_RANDOM_SIZE];
+        static u8 second[SERVICE_RANDOM_SIZE];
+        memset(first, SERVICE_RANDOM_FILL, sizeof(first));
+        memset(second, SERVICE_RANDOM_FILL, sizeof(second));
+        const Result rc1 = csrngGetRandomBytes(first, sizeof(first));
+        const Result rc2 = csrngGetRandomBytes(second, sizeof(second));
+        const bool passed = ServiceJudgeRandom(rc1, rc2, first, second, detail, sizeof(detail));
+        Report(SERVICE_RANDOM, CHECK_EXACT, passed, detail);
+    }
+    csrngExit();
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -499,4 +529,5 @@ void RunService(void) {
     RunAccount();
     RunLdn();
     RunSet();
+    RunCsrng();
 }

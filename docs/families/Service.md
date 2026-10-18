@@ -15,6 +15,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | account | 2 | the user picked with nobody asked, by the command a game built for 19.0.0 sends (`hle/service/acc/acc.cpp`, `TrySelectUserWithoutInteraction`, and the acc:u0 table) |
 | ldn | 2 | the client process monitor a game asks ldn:u for on 18.0.0 (`hle/service/ldn/ldn.cpp`, `IUserServiceCreator`, `IClientProcessMonitor`) |
 | set | 4 | the language codes a game picks its text by (`hle/service/set/settings_server.cpp`, `available_language_codes`) |
+| csrng | 2 | the random bytes a game seeds from (`hle/service/spl/spl_module.cpp`, `GenerateRandomBytes`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -140,6 +141,20 @@ all three from one table, refuses an index past it with ResultInvalidLanguage, S
 The count is held to room, not to the list's length: a console's count is the list's, reden's the
 buffer's, and a game sizes its buffer by it either way. Each line names the codes as text.
 
+## csrng
+
+csrng's GenerateRandomBytes (0) writes as many random bytes as the buffer holds (reden's
+`spl_module.cpp`, the size of the buffer it is handed). The suite asks twice for 64 bytes, each
+buffer filled with `0xA5` first, through libnx's `csrngGetRandomBytes`.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| csrng opens | `csrngInitialize` | it succeeds | none |
+| GenerateRandomBytes fills the buffer, and differently each time | 0, twice | both succeed, neither buffer's last eight bytes still the fill, neither all nought, the two apart | exact |
+
+A correct machine fails the case only if 64 random bytes repeat, or eight end on the fill, by
+chance: one in 2^64. The line carries the first four bytes and the last two of each.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -174,4 +189,6 @@ process, and when 1 is refused on a machine older than 18.0.0; success with no o
 registration the kernel refuses (`0xE401`, InvalidHandle) and 1 refused on an 18.0.0 machine each
 fail. set passes reden's table (the codes spelled as text) and fails a language not listed, a code
 of nought, an index made into another index's code, one past the table made into anything, and a
-count below the list.
+count below the list. csrng passes two buffers written whole and
+apart, and fails the same bytes twice, a buffer whose end was not written, a buffer of nought and a
+refusal.
