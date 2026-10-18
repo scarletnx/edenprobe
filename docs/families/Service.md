@@ -18,7 +18,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | csrng | 2 | the random bytes a game seeds from (`hle/service/spl/spl_module.cpp`, `GenerateRandomBytes`) |
 | apm | 1 | apm and a session on it, which a game opens before it asks for the performance mode (`hle/service/apm/apm_interface.cpp`, `APM::OpenSession`) |
 | nfp | 2 | the detection a game built for 23.0.0 starts (`hle/service/nfp/nfp.cpp`, the IUser table) |
-| aoc | 5 | the add-on content a game counts and lists before it mounts one: none here, a list past its end, a list that fits its room, and the base id (`hle/service/aoc/addon_content_manager.cpp`, `CountAddOnContent`, `ListAddOnContent`, `GetAddOnContentBaseId`) |
+| aoc | 6 | the add-on content a game counts, lists and prepares before it mounts one: none here, a list past its end, a list that fits its room, the base id, a prepare of an index not installed (`hle/service/aoc/addon_content_manager.cpp`, `CountAddOnContent`, `ListAddOnContent`, `GetAddOnContentBaseId`, `PrepareAddOnContent`) |
 | time | 6 | the clocks and dates a game reads at start: the user clock against its context and the steady clock, the steady clock's seconds, dates under UTC and under the device's rule (`hle/service/psc/time/clocks/system_clock_core.cpp`, `GetCurrentTime`, and `hle/service/glue/time/time_zone.cpp`) |
 | pl | 3 | the shared fonts a game's text is drawn with: loaded, inside the shared memory behind their headers, and in order of priority (`hle/service/ns/platform_service_manager.cpp`, `DecryptSharedFont`, `GetSharedFontInOrderOfPriority`) |
 | profile | 4 | the profile a game shows in its menus: one base twice, the picture a 256x256 JPEG of the size told, and the user's existence (`hle/service/acc/acc.cpp`, `IProfileCommon`, and `acc/profile_picture.cpp`, `GetProfilePictureForGame`) |
@@ -219,7 +219,9 @@ with none, as this one, the program's id with its low 13 bits cleared and 0x1000
 (`GetAOCBaseTitleID`, `file_sys/common_funcs.h`); the case reads the program's id with
 `svcGetInfo` (ProgramId). A list asked for more indices than its buffer holds has no case:
 reden answers it as any other, Ryujinx refuses it with InvalidBufferSize, (166, 200), `0x190A6`.
-The commands by application id (0, 1, 4 and 6) have no handler in reden, so no case sends them.
+reden's PrepareAddOnContent (7) is a stub that answers success for any index, as Ryujinx's
+does. The commands by application id (0, 1, 4 and 6) have no handler in reden, so no case sends
+them.
 
 | case | what it asks | passes when | tier |
 |---|---|---|---|
@@ -228,6 +230,7 @@ The commands by application id (0, 1, 4 and 6) have no handler in reden, so no c
 | aoc:u counts no add-on content and lists none from 0 | 2, then 3 from 0 with room for 64 | none counted, and the list succeeds with none | exact |
 | a list for one into room for one, or for none, lists none | 3 from 0 for one into room for one, then for none into room for 64 | both succeed with none listed, and the 63 words past the room for one keep `0x5A5A5A5A` | exact |
 | the add-on content base id is the program's base and 0x1000 | `svcGetInfo` (ProgramId), then 5 | both succeed, and 5 gives the program's id with its low 13 bits cleared and 0x1000 added | exact |
+| PrepareAddOnContent of an index not installed succeeds | 7 for index 1, when none is counted | it succeeds | exact |
 
 Each line carries what was asked, the answers and how many were listed. Nothing is mounted.
 
@@ -673,6 +676,8 @@ The three skip as `unavailable` when audrenInitialize fails.
   Ryujinx does with InvalidBufferSize (166, 200), or answers it, as reden does; and whether its
   GetAddOnContentBaseId is the program's base with 0x1000 added or its control data's own value,
   where the two differ. On a console the aoc cases need a title with no add-on content.
+- **Q29.** Whether a console refuses PrepareAddOnContent of an index the program does not have,
+  and with what: reden answers success for any index, from a stub.
 
 ## The judge, pinned
 
@@ -702,6 +707,7 @@ answered with none and nothing past it, and the base id of a program of id nough
 application's program 3 and of an id with bit 12 set; one counted, either list refused, one
 listed, a word written past the room, the program's own id given back, its program index kept, a
 refusal and no program id each fail.
+A prepare of a missing index passes answered with success, and fails refused.
 time passes a user clock its context's offset past the steady clock, and a second
 more, and fails two seconds more, a context on another source and a stand-in's noughts; a steady
 clock one or two seconds on, and not one standing still, one counting nanoseconds or two sources;

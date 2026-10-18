@@ -43,6 +43,7 @@ static const struct {
     [SERVICE_AOC_NONE] = { "aoc", "aoc:u counts no add-on content and lists none from 0" },
     [SERVICE_AOC_ROOM] = { "aoc", "a list for one into room for one, or for none, lists none" },
     [SERVICE_AOC_BASE] = { "aoc", "the add-on content base id is the program's base and 0x1000" },
+    [SERVICE_AOC_PREPARE] = { "aoc", "PrepareAddOnContent of an index not installed succeeds" },
     [SERVICE_TIME_OPENS] = { "time", "time:u hands out the user clock, the steady clock and the "
                                      "time zones" },
     [SERVICE_TIME_USER] = { "time",
@@ -452,6 +453,14 @@ bool ServiceJudgeAocBase(uint32_t info_rc, uint64_t program_id, uint32_t rc, uin
                                      : "another id",
              (unsigned long long)program_id, (unsigned)info_rc, (unsigned)rc,
              (unsigned long long)base_id, (unsigned long long)expected);
+    return passed;
+}
+
+bool ServiceJudgeAocPrepare(uint32_t rc, char *out, size_t out_size) {
+    const bool passed = rc == 0u;
+    snprintf(out, out_size, "%s: PrepareAddOnContent(%u) 0x%x",
+             passed ? "prepared with success" : "refused", (unsigned)SERVICE_AOC_MISSING,
+             (unsigned)rc);
     return passed;
 }
 
