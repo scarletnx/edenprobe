@@ -1210,9 +1210,9 @@ static void CheckModeWords(void) {
     char bare[JOURNAL_MODE_MAX];
     const RunMode listed =
         ModeFromText("stress retry net quick listen fatal fs graphics audio notime images video "
-                     "kernel display");
+                     "kernel display service");
     const RunMode shuffled = ModeFromText("images kernel audio notime detailed graphics display "
-                                          "video fs fatal net retry listen stress");
+                                          "service video fs fatal net retry listen stress");
     const RunMode nothing = ModeFromText("quick detailed nojournal");
     ModeKey(key, sizeof(key), &listed);
     ModeKey(same, sizeof(same), &shuffled);
@@ -1220,7 +1220,7 @@ static void CheckModeWords(void) {
     CHECK_TRUE(SUITE, "the journal keeps the words that change a report, in one order",
                CHECK_NONE,
                strcmp(key, "audio display fatal fs graphics images kernel listen net notime retry "
-                           "stress video") ==
+                           "service stress video") ==
                        0 &&
                    strcmp(key, same) == 0 && bare[0] == '\0',
                "\"%s\" and \"%s\"; with none of them \"%s\"", key, same, bare);

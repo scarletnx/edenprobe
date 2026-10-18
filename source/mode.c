@@ -22,6 +22,7 @@ static const struct {
     { "display", MODE_FAMILY_DISPLAY },
     { "video", MODE_FAMILY_VIDEO },
     { "audio", MODE_FAMILY_AUDIO },
+    { "service", MODE_FAMILY_SERVICE },
     { "net", MODE_FAMILY_NET },
 };
 
@@ -410,6 +411,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { mode->no_timing, "notime" },
         { (mode->families_named & MODE_FAMILY_PAD) != 0u, "pad" },
         { mode->retry, "retry" },
+        { (mode->families_named & MODE_FAMILY_SERVICE) != 0u, "service" },
         { mode->stress, "stress" },
         { (mode->families_named & MODE_FAMILY_VIDEO) != 0u, "video" },
     };

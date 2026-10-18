@@ -229,6 +229,10 @@ void RunTouch(void);
 /// The same line on the touch screen.
 void TouchSetHeading(const char *heading);
 
+/// The service family: commands a game sends to the system's services, asked the way a game asks
+/// them, each answer judged by serviceref.c against the one reden gives.
+void RunService(void);
+
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not
 /// name, or a service this program cannot open, is skipped with the reason and counted apart.
@@ -269,6 +273,9 @@ void RunReferenceBinder(void);
 /// The blit2d suite's model and command words, held to tools/blit2d-expect.py: part of the
 /// reference suite.
 void RunReferenceBlit2d(void);
+
+/// The service family's judge on answers made to order: part of the reference suite.
+void RunReferenceService(void);
 
 #ifdef __cplusplus
 }
