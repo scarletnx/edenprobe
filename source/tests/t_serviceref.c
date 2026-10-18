@@ -120,8 +120,31 @@ static void CheckSaveSize(void) {
                stale, half, extend, after);
 }
 
+static void CheckTempEmpty(void) {
+    // reden: the marker is gone, the open answers PathNotFound (2 1, worked out by hand: 0x202).
+    const bool code = SERVICE_PATH_NOT_FOUND == 0x202u;
+    const bool reden =
+        ServiceJudgeTempEmpty(0x1234u, SERVICE_PATH_NOT_FOUND, 0u, said, sizeof(said)) &&
+        strcmp(said, "the marker 0000000000001234 the launch before left is gone") == 0;
+    // Never emptied: the marker opens, holding what was promised, or an older one.
+    const bool kept = !ServiceJudgeTempEmpty(0x1234u, 0u, 0x1234u, said, sizeof(said)) &&
+                      strcmp(said, "the marker the launch before left is still there, holding "
+                                   "0000000000001234") == 0;
+    const bool older = !ServiceJudgeTempEmpty(0x1234u, 0u, 0x99u, said, sizeof(said)) &&
+                       strstr(said, ", not the one it said it left") != NULL;
+    // Another refusal says nothing about the storage being empty.
+    const bool other =
+        !ServiceJudgeTempEmpty(0x1234u, SERVICE_RESULT(2, 1001), 0u, said, sizeof(said)) &&
+        strstr(said, "could not be looked for: opening it answered 0x7d202") != NULL;
+    CHECK_TRUE(SUITE, "service: fsp passes a temporary storage whose last marker is gone",
+               CHECK_NONE, code && reden && kept && older && other,
+               "code %d, reden %d, kept %d, older %d, other %d \"%.120s\"", code, reden, kept,
+               older, other, said);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
     CheckSaveSize();
+    CheckTempEmpty();
 }

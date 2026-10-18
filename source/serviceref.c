@@ -16,6 +16,8 @@ static const struct {
     [SERVICE_AM_OPENS] = { "am", "an application's functions open, with a user to ask about" },
     [SERVICE_SAVE_SIZE] = { "am",
                             "GetSaveDataSize reads back the size ExtendSaveData gave the save" },
+    [SERVICE_TEMP_OPENS] = { "fsp", "the temporary storage opens" },
+    [SERVICE_TEMP_EMPTY] = { "fsp", "the temporary storage starts each launch empty" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -86,4 +88,23 @@ bool ServiceJudgeSaveSize(const ServiceSaveSize *seen, char *out, size_t out_siz
              (unsigned long long)seen->required, (unsigned)seen->after_rc,
              (unsigned long long)seen->after_normal, (unsigned long long)seen->after_journal);
     return passed;
+}
+
+bool ServiceJudgeTempEmpty(uint64_t promised, uint32_t found_rc, uint64_t found, char *out,
+                           size_t out_size) {
+    if (found_rc == SERVICE_PATH_NOT_FOUND) {
+        snprintf(out, out_size, "the marker %016llx the launch before left is gone",
+                 (unsigned long long)promised);
+        return true;
+    }
+    if (found_rc == 0u) {
+        snprintf(out, out_size,
+                 "the marker the launch before left is still there, holding %016llx%s",
+                 (unsigned long long)found,
+                 found == promised ? "" : ", not the one it said it left");
+        return false;
+    }
+    snprintf(out, out_size, "the marker %016llx could not be looked for: opening it answered 0x%x",
+             (unsigned long long)promised, (unsigned)found_rc);
+    return false;
 }

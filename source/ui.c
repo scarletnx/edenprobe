@@ -404,6 +404,7 @@ static const struct {
     { "vic", UI_FAMILY_VIDEO },       { "nvdec", UI_FAMILY_VIDEO },
     { "audio", UI_FAMILY_AUDIO },
     { "hwopus", UI_FAMILY_SERVICE },  { "am", UI_FAMILY_SERVICE },
+    { "fsp", UI_FAMILY_SERVICE },
     { "nifm", UI_FAMILY_NET },
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
     { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },

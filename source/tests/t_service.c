@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <switch.h>
 
 #include "../check.h"
@@ -242,7 +243,105 @@ static void RunAm(void) {
     AccountClose(&account);
 }
 
+// ---------------------------------------------------------------------------------------------
+// fsp
+
+/// Where a launch says on the memory card which marker it left in the temporary storage, so the
+/// next launch knows what to look for; and the marker's place in the storage.
+#define SERVICE_DIRECTORY "sdmc:/edenprobe/service"
+static const char *const TEMP_PROMISE = SERVICE_DIRECTORY "/temporary";
+static const char *const TEMP_MARKER = "/edenprobe-launch";
+
+static uint64_t ReadPromise(void) {
+    unsigned long long promised = 0;
+    FILE *file = fopen(TEMP_PROMISE, "rb");
+    if (file != NULL) {
+        if (fscanf(file, "%llx", &promised) != 1) {
+            promised = 0;
+        }
+        fclose(file);
+    }
+    return promised;
+}
+
+/// Leaves a marker of its own in the storage and says so on the card, for the next launch.
+static bool LeaveMarker(FsFileSystem *fs, char *said, size_t said_size) {
+    const uint64_t marker = armGetSystemTick() | 1u;
+    fsFsDeleteFile(fs, TEMP_MARKER);
+    Result rc = fsFsCreateFile(fs, TEMP_MARKER, sizeof(marker), 0);
+    FsFile file;
+    if (R_SUCCEEDED(rc)) {
+        rc = fsFsOpenFile(fs, TEMP_MARKER, FsOpenMode_Write, &file);
+    }
+    if (R_SUCCEEDED(rc)) {
+        rc = fsFileWrite(&file, 0, &marker, sizeof(marker), FsWriteOption_Flush);
+        fsFileClose(&file);
+    }
+    if (R_FAILED(rc)) {
+        snprintf(said, said_size, "the marker for the next launch was not written: 0x%x",
+                 (unsigned)rc);
+        return false;
+    }
+    fsFsCommit(fs);
+    mkdir(SERVICE_DIRECTORY, 0777);
+    FILE *promise = fopen(TEMP_PROMISE, "wb");
+    const bool written = promise != NULL &&
+                         fprintf(promise, "%016llx\n", (unsigned long long)marker) == 17 &&
+                         fclose(promise) == 0;
+    snprintf(said, said_size, written ? "marker %016llx left for the next launch"
+                                      : "marker %016llx left, but %s was not written",
+             (unsigned long long)marker, TEMP_PROMISE);
+    return written;
+}
+
+/// The application's temporary storage, which a console empties at each launch of the
+/// application. The first case opens it, looks for the marker the launch before left and leaves
+/// one of its own, so every request to the service is made inside a case that started; the
+/// second judges what the first found against what the launch before said it left.
+static void RunFsp(void) {
+    char detail[480];
+    const uint64_t promised = ReadPromise();
+    uint32_t found_rc = 0;
+    uint64_t found = 0;
+    bool opens = false;
+    if (Start(SERVICE_TEMP_OPENS)) {
+        FsFileSystem fs;
+        memset(&fs, 0, sizeof(fs));
+        const Result rc = fsOpen_TemporaryStorage(&fs);
+        opens = R_SUCCEEDED(rc);
+        char left[200] = "";
+        if (opens) {
+            FsFile file;
+            found_rc = fsFsOpenFile(&fs, TEMP_MARKER, FsOpenMode_Read, &file);
+            if (R_SUCCEEDED(found_rc)) {
+                u64 read = 0;
+                fsFileRead(&file, 0, &found, sizeof(found), FsReadOption_None, &read);
+                fsFileClose(&file);
+            }
+            LeaveMarker(&fs, left, sizeof(left));
+            fsFsClose(&fs);
+        }
+        snprintf(detail, sizeof(detail), "fsOpen_TemporaryStorage returned 0x%x%s%s",
+                 (unsigned)rc, opens ? "; " : "", left);
+        Report(SERVICE_TEMP_OPENS, CHECK_NONE, opens, detail);
+    }
+
+    if (!opens) {
+        Skip(SERVICE_TEMP_EMPTY, REPORT_REASON_DEPENDS, "the temporary storage did not open");
+    } else if (promised == 0u) {
+        Skip(SERVICE_TEMP_EMPTY, REPORT_REASON_DEPENDS,
+             "no launch before this one said it left a marker (%s): this launch left one, and "
+             "the next one asks",
+             TEMP_PROMISE);
+    } else if (Start(SERVICE_TEMP_EMPTY)) {
+        const bool passed =
+            ServiceJudgeTempEmpty(promised, found_rc, found, detail, sizeof(detail));
+        Report(SERVICE_TEMP_EMPTY, CHECK_EXACT, passed, detail);
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
+    RunFsp();
 }
