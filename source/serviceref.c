@@ -60,6 +60,13 @@ static const struct {
                                 "tells" },
     [SERVICE_PROFILE_EXISTS] = { "profile",
                                  "GetUserExistence finds the user and not one made up" },
+    [SERVICE_STATE_MODE] = { "am-state",
+                             "the operation mode and the default resolution agree" },
+    [SERVICE_STATE_FOCUS] = { "am-state", "a running application is in focus" },
+    [SERVICE_STATE_LOGO] = { "am-state",
+                             "EnableStartupLogoDisappearedMessage brings message 95" },
+    [SERVICE_STATE_VR] = { "am-state", "BeginVrMode3d turns 3D VR mode on and EndVrMode3d off" },
+    [SERVICE_STATE_REGION] = { "am-state", "the settings platform region is Global" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -661,4 +668,86 @@ bool ServiceJudgeUserExistence(uint32_t user_rc, bool user, uint32_t made_up_rc,
              (unsigned)user_rc, user ? "exists" : "does not", (unsigned)made_up_rc,
              made_up ? "exists" : "does not");
     return passed;
+}
+
+bool ServiceJudgeOperationMode(uint32_t mode_rc, uint8_t mode, uint32_t resolution_rc,
+                               int32_t width, int32_t height, char *out, size_t out_size) {
+    const bool refused = mode_rc != 0u || resolution_rc != 0u;
+    const bool handheld = mode == 0u && width == 1280 && height == 720;
+    const bool docked = mode == 1u && width == 1920 && height == 1080;
+    const bool passed = !refused && (handheld || docked);
+    snprintf(out, out_size, "%s: GetOperationMode 0x%x %u (0 Handheld, 1 Console), "
+                            "GetDefaultDisplayResolution 0x%x %dx%d",
+             refused   ? "refused"
+             : passed  ? "they agree"
+             : mode > 1u ? "a mode that is neither"
+                       : "a resolution of the other mode",
+             (unsigned)mode_rc, (unsigned)mode, (unsigned)resolution_rc, (int)width, (int)height);
+    return passed;
+}
+
+bool ServiceJudgeFocus(uint32_t rc, uint8_t state, char *out, size_t out_size) {
+    const bool passed = rc == 0u && state == 1u;
+    snprintf(out, out_size, "%s: GetCurrentFocusState 0x%x %u (1 InFocus)",
+             rc != 0u ? "refused" : passed ? "in focus" : "out of focus", (unsigned)rc,
+             (unsigned)state);
+    return passed;
+}
+
+bool ServiceJudgeLogoMessage(const ServiceLogoMessage *seen, char *out, size_t out_size) {
+    bool gone = false;
+    const uint32_t count = seen->count < SERVICE_AM_MESSAGES ? seen->count : SERVICE_AM_MESSAGES;
+    for (uint32_t i = 0; i < count; ++i) {
+        gone = gone || seen->messages[i] == SERVICE_AM_LOGO_GONE;
+    }
+    const bool older = !seen->firmware21 && seen->enable_rc != 0u;
+    const bool passed = (seen->enable_rc == 0u && gone) || older;
+    int at = snprintf(out, out_size, "%s: 130 0x%x; %u received, then 0x%x (none left is 0x%x):",
+                      seen->enable_rc == 0u && gone ? "message 95 came"
+                      : older                       ? "130 refused, by a machine older than 21.0.0"
+                      : seen->enable_rc != 0u        ? "130 refused"
+                                                    : "130 succeeded and no message 95 came",
+                      (unsigned)seen->enable_rc, (unsigned)count, (unsigned)seen->end_rc,
+                      (unsigned)SERVICE_AM_NO_MESSAGES);
+    for (uint32_t i = 0; i < count && at > 0 && (size_t)at < out_size; ++i) {
+        at += snprintf(out + at, out_size - (size_t)at, " %u", (unsigned)seen->messages[i]);
+    }
+    if (at > 0 && (size_t)at < out_size) {
+        snprintf(out + at, out_size - (size_t)at, "; firmware %s 21.0.0",
+                 seen->firmware21 ? "at least" : "older than");
+    }
+    return passed;
+}
+
+bool ServiceJudgeVrMode(const ServiceVrMode *seen, char *out, size_t out_size) {
+    const bool answered = seen->begin_rc == 0u && seen->on_rc == 0u && seen->end_rc == 0u &&
+                          seen->off_rc == 0u;
+    const bool both = answered && seen->on != 0u && seen->off == 0u;
+    const bool older = !seen->firmware19 && seen->begin_rc != 0u;
+    snprintf(out, out_size,
+             "%s: BeginVrMode3d 0x%x, IsVrModeEnabled3d 0x%x %u; EndVrMode3d 0x%x, "
+             "IsVrModeEnabled3d 0x%x %u; firmware %s 19.0.0",
+             both                ? "on, then off"
+             : older             ? "1000 refused, by a machine older than 19.0.0"
+             : !answered         ? "refused"
+             : seen->on == 0u    ? "never on"
+                                 : "never off",
+             (unsigned)seen->begin_rc, (unsigned)seen->on_rc, (unsigned)seen->on,
+             (unsigned)seen->end_rc, (unsigned)seen->off_rc, (unsigned)seen->off,
+             seen->firmware19 ? "at least" : "older than");
+    return both || older;
+}
+
+bool ServiceJudgePlatformRegion(uint32_t rc, uint32_t region, bool firmware9, char *out,
+                                size_t out_size) {
+    const bool passed = rc == 0u && region == 1u;
+    const bool older = !firmware9 && rc != 0u;
+    snprintf(out, out_size, "%s: GetSettingsPlatformRegion 0x%x %u (1 Global, 2 China); "
+                            "firmware %s 9.0.0",
+             passed    ? "Global"
+             : older   ? "300 refused, by a machine older than 9.0.0"
+             : rc != 0u ? "refused"
+                       : "another region",
+             (unsigned)rc, (unsigned)region, firmware9 ? "at least" : "older than");
+    return passed || older;
 }
