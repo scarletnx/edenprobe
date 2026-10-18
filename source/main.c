@@ -127,6 +127,8 @@ static const Step STEPS[] = {
     // Before the net family, whose cases can wait out timeouts. Untimed: its cases wait for
     // sound to play, and a rehearsal would only play it again.
     { "audio", RunAudio, MODE_FAMILY_AUDIO, false, true },
+    // Untimed: what a case judges is a service's answer, and some open two dozen objects.
+    { "service", RunService, MODE_FAMILY_SERVICE, false, true },
     { "net", RunNet, MODE_FAMILY_NET, false, true },
 };
 
@@ -435,9 +437,10 @@ int main(int argc, char **argv) {
         ReportNote("%s", described);
     }
     // A step the screens know no family for is shown under other, away from its own. The net
-    // step reports under its six suites' names, which the screens know.
+    // and service steps report under their suites' names, which the screens know.
     for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
-        if (strcmp(STEPS[i].name, "net") != 0 && UiFamilyOf(STEPS[i].name) == UI_FAMILY_OTHER) {
+        if (strcmp(STEPS[i].name, "net") != 0 && strcmp(STEPS[i].name, "service") != 0 &&
+            UiFamilyOf(STEPS[i].name) == UI_FAMILY_OTHER) {
             ReportNote("bookkeeping: the screens have no family for suite %s and show it under "
                        "other",
                        STEPS[i].name);

@@ -6,8 +6,8 @@ One binary, two ways to run it, and a file on the memory card that chooses.
 screen. Every suite runs, both report channels get every line, the summary is counted and the report
 is closed, and only then does the run go on the screen, a group at a time. A group is a suite,
 gathered under its family: the judge (selfcheck, support, reference), cpu, pad (pad, touch),
-graphics (clear to blit2d), fs, kernel (sched), display (binder), video (vic, nvdec), audio and net
-(nifm to friend). Three screens, one inside the other:
+graphics (clear to blit2d), fs, kernel (sched), display (binder), video (vic, nvdec), audio, service
+(hwopus) and net (nifm to friend). Three screens, one inside the other:
 
 - **The overview** comes first, on the first group that failed. Its heading carries the run's counts
   and names the groups that failed, as many as fit. Below it, every group under its family with its

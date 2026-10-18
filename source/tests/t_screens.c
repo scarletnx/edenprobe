@@ -469,7 +469,8 @@ static void CheckFamilies(void) {
         { "fs", UI_FAMILY_FS },             { "sched", UI_FAMILY_KERNEL },
         { "binder", UI_FAMILY_DISPLAY },
         { "vic", UI_FAMILY_VIDEO },         { "nvdec", UI_FAMILY_VIDEO },
-        { "audio", UI_FAMILY_AUDIO },       { "nifm", UI_FAMILY_NET },
+        { "audio", UI_FAMILY_AUDIO },       { "hwopus", UI_FAMILY_SERVICE },
+        { "nifm", UI_FAMILY_NET },
         { "dns", UI_FAMILY_NET },           { "bsd", UI_FAMILY_NET },
         { "ssl", UI_FAMILY_NET },           { "acc", UI_FAMILY_NET },
         { "friend", UI_FAMILY_NET },
@@ -483,7 +484,7 @@ static void CheckFamilies(void) {
         }
     }
     CHECK_TRUE(SUITE, "every suite a run reports is shown under its own family", CHECK_NONE,
-               wrong == 0u && count == 47u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
+               wrong == 0u && count == 48u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
                    UiFamilyOf(NULL) == UI_FAMILY_OTHER,
                "%u of %u suites under the wrong family, the first %s", (unsigned)wrong,
                (unsigned)count, first);
@@ -1525,9 +1526,9 @@ static void CheckStartMenu(Fixture *f) {
                (int)risky.chosen_on_screen, (int)kept.saved_by_screen, heard.label, key_heard,
                (int)quiet_audio, said);
 
-    // The video, kernel and display families have no row: a file that names them keeps them
-    // whatever the screen changes.
-    const RunMode video_file = ModeFromText("video kernel display net");
+    // The video, kernel, display and service families have no row: a file that names them keeps
+    // them whatever the screen changes.
+    const RunMode video_file = ModeFromText("video kernel display service net");
     const UiStartState video_state =
         StartChoose(UiStartOpen(&video_file, MODE_FAMILIES_PRESENT), UI_START_ROW_FS, &info);
     const RunMode video_mode = UiStartMode(&video_state, video_file, MODE_FAMILIES_PRESENT);
@@ -1535,15 +1536,16 @@ static void CheckStartMenu(Fixture *f) {
     char key_video[128];
     ModeKey(key_video, sizeof(key_video), &video_mode);
     CHECK_TRUE(SUITE,
-               "the start screen keeps the video, kernel and display families the file names, which "
-               "have no row",
+               "the start screen keeps the video, kernel, display and service families the file "
+               "names, which have no row",
                CHECK_NONE,
                video_mode.chosen_on_screen &&
                    video_run == (MODE_FAMILY_CPU | MODE_FAMILY_FS | MODE_FAMILY_NET |
-                                 MODE_FAMILY_VIDEO | MODE_FAMILY_KERNEL | MODE_FAMILY_DISPLAY) &&
-                   strcmp(key_video, "cpu display fs kernel net video") == 0 &&
-                   (MODE_FAMILIES_DEFAULT &
-                    (MODE_FAMILY_VIDEO | MODE_FAMILY_KERNEL | MODE_FAMILY_DISPLAY)) == 0u,
+                                 MODE_FAMILY_VIDEO | MODE_FAMILY_KERNEL | MODE_FAMILY_DISPLAY |
+                                 MODE_FAMILY_SERVICE) &&
+                   strcmp(key_video, "cpu display fs kernel net service video") == 0 &&
+                   (MODE_FAMILIES_DEFAULT & (MODE_FAMILY_VIDEO | MODE_FAMILY_KERNEL |
+                                             MODE_FAMILY_DISPLAY | MODE_FAMILY_SERVICE)) == 0u,
                "families %x, words \"%s\"", (unsigned)video_run, key_video);
 
     // The words the screen saves and the ones the journal keeps read back as the same run.

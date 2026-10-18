@@ -403,6 +403,7 @@ static const struct {
     { "binder", UI_FAMILY_DISPLAY },
     { "vic", UI_FAMILY_VIDEO },       { "nvdec", UI_FAMILY_VIDEO },
     { "audio", UI_FAMILY_AUDIO },
+    { "hwopus", UI_FAMILY_SERVICE },
     { "nifm", UI_FAMILY_NET },
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
     { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },
@@ -438,6 +439,8 @@ const char *UiFamilyName(UiFamily family) {
         return "video";
     case UI_FAMILY_AUDIO:
         return "audio";
+    case UI_FAMILY_SERVICE:
+        return "service";
     case UI_FAMILY_NET:
         return "net";
     case UI_FAMILY_OTHER:
