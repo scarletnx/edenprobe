@@ -62,6 +62,7 @@ sdmc:/edenprobe/
   crashes           the crash list: this machine's, shared by every build
   last-run          the folder the latest launch reported in, e.g. runs/5fd6ec1_phone
   fs/               the fs family's files, written once
+  service/          what the service family leaves for its next launch: the temporary marker
   runs/
     5fd6ec1/        a build, by the hash of its commit
       report.jsonl

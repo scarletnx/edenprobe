@@ -33,12 +33,17 @@ extern "C" {
 /// first: a whole number of the save's 16 KiB blocks, small enough for any memory card.
 #define SERVICE_SAVE_STEP 0x100000u
 
+/// The file system's answer for a path that is not there: Fs (2) 1, PathNotFound.
+#define SERVICE_PATH_NOT_FOUND SERVICE_RESULT(2, 1)
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
     SERVICE_OPUS_FREED,   ///< hwopus: one closed, the next one opens
     SERVICE_AM_OPENS,     ///< am: the application's functions and a user (none tier)
     SERVICE_SAVE_SIZE,    ///< am: ExtendSaveData, then GetSaveDataSize reads it back
+    SERVICE_TEMP_OPENS,   ///< fsp: the temporary storage opens (none tier)
+    SERVICE_TEMP_EMPTY,   ///< fsp: what the launch before left there is gone
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -69,6 +74,14 @@ typedef struct {
     uint64_t after_normal, after_journal;
 } ServiceSaveSize;
 bool ServiceJudgeSaveSize(const ServiceSaveSize *seen, char *out, size_t out_size);
+
+/// The temporary storage at the start of a launch. @p promised is the marker the launch before
+/// wrote there, as it said on the memory card (never nought: with no promise there is nothing to
+/// look for, and the caller skips the case); @p found_rc what opening the marker answered and
+/// @p found what it held when it opened. Passes when the marker is not there, PathNotFound, which
+/// is reden f3af5d0c25's rule: the storage is emptied once at each launch of the application.
+bool ServiceJudgeTempEmpty(uint64_t promised, uint32_t found_rc, uint64_t found, char *out,
+                           size_t out_size);
 
 #ifdef __cplusplus
 }

@@ -21,7 +21,7 @@ leaves. The [README](../README.md) at the root says what edenprobe is.
   - **[The nvdec suite](./families/Nvdec.md)** - VP9 through the decode engine: six libvpx vectors
     by MD5, and Q1 to Q5
   - **[Audio](./families/Audio.md)** - the audio renderer, and the listening sequence
-  - **[Service](./families/Service.md)** - hwopus and am: the commands a game sends, held to reden's
+  - **[Service](./families/Service.md)** - hwopus, am and fsp: the commands a game sends, held to reden's
     answers
   - **[Net](./families/Net.md)** - nifm to friend, the net file and the fixture
 

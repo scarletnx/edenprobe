@@ -11,6 +11,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 |---|---|---|
 | hwopus | 3 | the hardware Opus decoder's limit on live decoders and the result past it (`hle/service/audio/hardware_opus_decoder_manager.cpp`, `audio_core/opus/hardware_opus.cpp`, `RegisterDecoder`) |
 | am | 2 | the size of an application's account save: where the request carries the user, and whether the size is kept (`hle/service/am/service/application_functions.cpp`, `ExtendSaveData`, `GetSaveDataSize`) |
+| fsp | 2 | the temporary storage left as the launch before left it (`core.cpp`, `Load`, and `hle/service/filesystem/filesystem.cpp`, `InitTempStorage`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -60,6 +61,28 @@ acc:u0, GetLastOpenedUser (4), else the first of ListAllUsers (2), with acc:u0 o
 The line carries the sizes before, the ones asked for, the required size 25 hands back (unjudged)
 and the sizes after, so a machine that keeps nothing says the size before reads back.
 
+## fsp
+
+An application's temporary storage starts empty: "On hardware, it is expected that temporary
+storage be empty at first use", the comment reden carried from yuzu, and reden f3af5d0c25 (#4375)
+empties it once at each launch of the application rather than each time a program of it opens its
+saves, which had deleted a file a game made a moment before.
+
+The suite opens the storage with libnx's `fsOpen_TemporaryStorage` (OpenSaveDataFileSystem, 51,
+space and type Temporary) and leaves a marker in it, `/edenprobe-launch`, eight bytes, saying on the
+memory card which one (`sdmc:/edenprobe/service/temporary`). The next launch looks for it before
+leaving its own: the first launch on a card has nothing to look for, so its second case is skipped
+as `depends`, and a run is only a question from the second launch on.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| the temporary storage opens | the storage, the marker the launch before left, and one left for the next | it opens | none |
+| the temporary storage starts each launch empty | what the first case found | the marker is gone: opening it answers PathNotFound (`0x202`) | exact |
+
+Every request to the service is made in the first case, so a program that ends inside one is
+recorded against a case that started. A marker that opens fails the case with what it holds, and
+says when it is not the one the card names (left by a launch whose card line was lost).
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -67,6 +90,9 @@ and the sizes after, so a machine that keeps nothing says the size before reads 
   either; the suite opens all its decoders from one process.
 - **Q2.** Whether a console extends the save of a program whose control data declares no save
   size: the expectation is reden's, which keeps any size it is asked for; a console may refuse.
+- **Q3.** Whether a console gives a program whose control data declares no temporary storage size
+  a storage at all, and empties it at each launch rather than at each exit; reden empties it when
+  the application is launched.
 
 ## The judge, pinned
 
@@ -76,4 +102,6 @@ case under a suite the screens put in the service family, and no name twice; red
 refusal with another result (`0xE01`, the session limit) and a reopen still refused each fail with
 the line that names it. The result code is worked out by hand: 111 + 385 x 512 = 0x3026F. A save
 size that reads back as asked passes; the size before reading back, one part kept and the other
-not, and either command refusing each fail with the line that says which.
+not, and either command refusing each fail with the line that says which. A temporary marker that
+is gone passes; one that opens, holding the marker promised or an older one, and an open refused
+with anything but PathNotFound each fail.
