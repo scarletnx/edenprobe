@@ -135,6 +135,10 @@ static const struct {
                                               "it opened with" },
     [SERVICE_RENDERER_LIMIT] = { "renderer", "the rendering time limit set is read back" },
     [SERVICE_RENDERER_DROP] = { "renderer", "the voice drop parameter set is read back" },
+    [SERVICE_NGC_CHECK] = { "ngc", "ngc:u has a version and finds no word in a clean name" },
+    [SERVICE_NGC_MASK] = { "ngc", "a clean name masked comes back as it was sent" },
+    [SERVICE_NGCT_CLEAN] = { "ngc",
+                             "ngct:u matches nothing in a clean name and filters it back as sent" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1480,5 +1484,71 @@ bool ServiceJudgeRendererSetting(const char *what, const ServiceRendererSetting 
              what, (int)seen->before, (unsigned)seen->before_rc, (int)seen->asked,
              (unsigned)seen->set_rc, (int)seen->after, (unsigned)seen->after_rc,
              (unsigned)seen->restore_rc);
+    return passed;
+}
+
+/// The first bytes of a text that came back, printable, for the line.
+static void NgcShown(const uint8_t *back, char *shown, size_t shown_size) {
+    size_t i = 0;
+    for (; i + 1u < shown_size && i < 20u && back[i] != 0u; ++i) {
+        shown[i] = back[i] >= 0x20u && back[i] < 0x7Fu ? (char)back[i] : '.';
+    }
+    shown[i] = '\0';
+}
+
+/// The text and its terminator came back byte for byte.
+static bool NgcSame(const char *text, const uint8_t *back) {
+    return memcmp(back, text, strlen(text) + 1u) == 0;
+}
+
+bool ServiceJudgeNgcCheck(const ServiceNgcCheck *seen, char *out, size_t out_size) {
+    const bool refused = seen->version_rc != 0u || seen->check_rc != 0u || seen->check2_rc != 0u;
+    const bool found = seen->check != 0u || seen->check2 != 0u;
+    const bool passed = !refused && seen->version > 0u && !found;
+    snprintf(out, out_size,
+             "%s: GetContentVersion 0x%x version %u, Check 0x%x flags 0x%x, Check2 0x%x flags 0x%x",
+             refused                  ? "refused"
+             : seen->version == 0u    ? "no version"
+             : found                  ? "a word found"
+                                      : "nothing found",
+             (unsigned)seen->version_rc, (unsigned)seen->version, (unsigned)seen->check_rc,
+             (unsigned)seen->check, (unsigned)seen->check2_rc, (unsigned)seen->check2);
+    return passed;
+}
+
+bool ServiceJudgeNgcMask(const char *text, const ServiceNgcText *mask, const ServiceNgcText *mask2,
+                         char *out, size_t out_size) {
+    const bool refused = mask->rc != 0u || mask2->rc != 0u;
+    const bool masked = mask->count != 0u || mask2->count != 0u;
+    const bool same = NgcSame(text, mask->back) && NgcSame(text, mask2->back);
+    const bool passed = !refused && !masked && same;
+    char shown[24], shown2[24];
+    NgcShown(mask->back, shown, sizeof(shown));
+    NgcShown(mask2->back, shown2, sizeof(shown2));
+    snprintf(out, out_size,
+             "%s: sent \"%s\"; Mask 0x%x masked %u, back \"%s\"; Mask2 0x%x masked %u, back \"%s\"",
+             refused ? "refused"
+             : masked ? "a word masked"
+             : !same  ? "another text back"
+                      : "the text back as sent",
+             text, (unsigned)mask->rc, (unsigned)mask->count, shown, (unsigned)mask2->rc,
+             (unsigned)mask2->count, shown2);
+    return passed;
+}
+
+bool ServiceJudgeNgctClean(const char *text, uint32_t match_rc, bool matched,
+                           const ServiceNgcText *filter, char *out, size_t out_size) {
+    const bool refused = match_rc != 0u || filter->rc != 0u;
+    const bool same = NgcSame(text, filter->back);
+    const bool passed = !refused && !matched && same;
+    char shown[24];
+    NgcShown(filter->back, shown, sizeof(shown));
+    snprintf(out, out_size, "%s: sent \"%s\"; Match 0x%x %s; Filter 0x%x, back \"%s\"",
+             refused  ? "refused"
+             : matched ? "a match"
+             : !same   ? "another text back"
+                       : "no match, the text back as sent",
+             text, (unsigned)match_rc, matched ? "matched" : "no match", (unsigned)filter->rc,
+             shown);
     return passed;
 }
