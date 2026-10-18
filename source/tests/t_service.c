@@ -2019,6 +2019,70 @@ static void RunTimeSnap(void) {
     serviceClose(&timesrv);
 }
 
+// ---------------------------------------------------------------------------------------------
+// vi
+
+/// The application display service, which every game opens before its first frame: the displays
+/// it lists, the scaling modes it converts for its layer, and the memory an indirect layer needs.
+static void RunVi(void) {
+    char detail[480];
+    const Result opened = viInitialize(ViServiceType_Default);
+    Service *const display = R_SUCCEEDED(opened) ? viGetSession_IApplicationDisplayService() : NULL;
+    if (display == NULL || !serviceIsActive(display)) {
+        char why[200];
+        snprintf(why, sizeof(why), "viInitialize(Default) returned 0x%x", (unsigned)opened);
+        Skip(SERVICE_VI_DISPLAYS, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_VI_SCALING, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_VI_INDIRECT, REPORT_REASON_UNAVAILABLE, "%s", why);
+        if (R_SUCCEEDED(opened)) {
+            viExit();
+        }
+        return;
+    }
+    if (Start(SERVICE_VI_DISPLAYS)) {
+        static u8 infos[4][0x60];
+        memset(infos, 0, sizeof(infos));
+        ServiceDisplayList seen;
+        memset(&seen, 0, sizeof(seen));
+        s64 count = -1;
+        seen.rc = serviceDispatchOut(
+            display, 1000, count, .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+            .buffers = { { infos, sizeof(infos) } }, );
+        seen.count = count;
+        seen.named = strncmp((const char *)infos[0], "Default", 0x40) == 0;
+        seen.limited = infos[0][0x40];
+        memcpy(&seen.layers, infos[0] + 0x48, 8);
+        memcpy(&seen.width, infos[0] + 0x50, 8);
+        memcpy(&seen.height, infos[0] + 0x58, 8);
+        const bool passed = ServiceJudgeDisplayList(&seen, detail, sizeof(detail));
+        Report(SERVICE_VI_DISPLAYS, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_VI_SCALING)) {
+        uint32_t rc[6];
+        uint64_t converted[6];
+        for (u32 mode = 0; mode < 6; ++mode) {
+            u64 out = 0xEEEEu;
+            rc[mode] = serviceDispatchInOut(display, 2102, mode, out);
+            converted[mode] = out;
+        }
+        const bool passed = ServiceJudgeScalingModes(rc, converted, detail, sizeof(detail));
+        Report(SERVICE_VI_SCALING, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_VI_INDIRECT)) {
+        const struct {
+            s64 width, height;
+        } in = { 1280, 720 };
+        struct {
+            s64 size, alignment;
+        } out = { -1, -1 };
+        const uint32_t rc = serviceDispatchInOut(display, 2460, in, out);
+        const bool passed =
+            ServiceJudgeIndirectMemory(rc, out.size, out.alignment, detail, sizeof(detail));
+        Report(SERVICE_VI_INDIRECT, CHECK_EXACT, passed, detail);
+    }
+    viExit();
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -2047,4 +2111,5 @@ void RunService(void) {
     RunIpc();
     RunHid();
     RunTimeSnap();
+    RunVi();
 }
