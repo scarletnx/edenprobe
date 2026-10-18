@@ -29,6 +29,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | fsdir | 3 | a game's own files on the memory card: a directory renamed with what it holds, listed, and deleted with it (`hle/service/filesystem/fsp/fs_i_filesystem.cpp`, `RenameDirectory`, and `hle/service/filesystem/filesystem.cpp`) |
 | am-audio | 2 | the volumes a game expects for itself and a library applet, set and read back (`hle/service/am/service/audio_controller.cpp`) |
 | am-channel | 3 | the user channel an application's programs hand data through, and the program that ran before (`hle/service/am/service/application_functions.cpp`) |
+| am-storage | 3 | the storages a game hands a library applet its arguments in: size, bytes, and the end (`hle/service/am/library_applet_storage.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -425,6 +426,22 @@ and `applet.h` at 75c12299a6).
 All three skip as `unavailable` in a program that is not an application. The channel is left
 empty, as the am-functions suite found it.
 
+## am-storage
+
+A game that shows the keyboard, an error or any other library applet writes the applet's
+arguments into storages it creates with CreateStorage (ILibraryAppletCreator 10) and opens with
+Open (IStorage 0): GetSize (IStorageAccessor 0), Write (10) and Read (11). reden's storage is a
+buffer of the size asked, and a write or a read whose end is past the storage's is refused with
+InvalidOffset (`library_applet_storage.cpp:17-24` at 75c12299a6), before any byte moves.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| a storage has the size asked and gives back what is written | a storage of 0x40, GetSize, 16 bytes written at 0x20 and read back | every step succeeds, the size is 0x40 and the bytes match | exact |
+| a write past a storage's end is refused | 16 bytes written at 0x38 in a storage of 0x40 | InvalidOffset (128, 503) | exact |
+| a read past a storage's end is refused | 16 bytes read at 0x38 in a storage of 0x40 | InvalidOffset (128, 503) | exact |
+
+Each case closes its storage before it returns.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -470,6 +487,8 @@ empty, as the am-functions suite found it.
   them back, as reden does, and whether it clamps a volume past one or refuses it.
 - **Q18.** Whether a console's user channel gives the last storage unpopped first, as reden's
   does, and whether an application launched from the home menu reads -1 as its previous program.
+- **Q19.** Whether a console refuses a read that runs past a storage's end with InvalidOffset, as
+  reden does, or reads what is there.
 
 ## The judge, pinned
 
@@ -537,3 +556,5 @@ kept, and a refusal.
 am-channel passes a user channel that keeps what is unpopped, and fails an unpop that keeps
 nothing, other bytes, a channel not emptied by the pop, a queue, a clear that leaves one, and an
 index of 0.
+am-storage passes a storage that keeps its size and its end, and fails another size, other
+bytes read back, a read cut at the end and answered as a success, and a refusal of another kind.

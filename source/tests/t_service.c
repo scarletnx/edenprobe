@@ -1511,6 +1511,66 @@ static void RunAmChannel(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// am-storage
+
+/// The storages a game hands a library applet its arguments in (the keyboard's text, an error's
+/// code): one created, its size, 16 bytes written and read back, and a write and a read that
+/// reach 8 bytes past its end.
+static void RunAmStorage(void) {
+    char detail[480];
+    static const u8 BYTES[16] = { 0x65, 0x64, 0x65, 0x6e, 0x70, 0x72, 0x6f, 0x62,
+                                  0x65, 0x20, 0x61, 0x6d, 0x20, 0x73, 0x74, 0x6f };
+    if (Start(SERVICE_STORAGE_KEEPS)) {
+        ServiceStorageKeeps seen;
+        memset(&seen, 0, sizeof(seen));
+        AppletStorage storage;
+        memset(&storage, 0, sizeof(storage));
+        u8 back[16];
+        memset(back, 0, sizeof(back));
+        seen.size = -1;
+        seen.create_rc = appletCreateStorage(&storage, SERVICE_STORAGE_SIZE);
+        if (R_SUCCEEDED(seen.create_rc)) {
+            s64 size = -1;
+            seen.size_rc = appletStorageGetSize(&storage, &size);
+            seen.size = size;
+            seen.write_rc = appletStorageWrite(&storage, SERVICE_STORAGE_AT, BYTES, sizeof(BYTES));
+            seen.read_rc = appletStorageRead(&storage, SERVICE_STORAGE_AT, back, sizeof(back));
+            seen.same = seen.read_rc == 0u && memcmp(back, BYTES, sizeof(back)) == 0;
+            appletStorageClose(&storage);
+        }
+        const bool passed = ServiceJudgeStorageKeeps(&seen, detail, sizeof(detail));
+        Report(SERVICE_STORAGE_KEEPS, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_STORAGE_WRITE_PAST)) {
+        AppletStorage storage;
+        memset(&storage, 0, sizeof(storage));
+        const uint32_t create_rc = appletCreateStorage(&storage, SERVICE_STORAGE_SIZE);
+        uint32_t rc = 0xFFFFFFFFu;
+        if (R_SUCCEEDED(create_rc)) {
+            rc = appletStorageWrite(&storage, SERVICE_STORAGE_PAST, BYTES, sizeof(BYTES));
+            appletStorageClose(&storage);
+        }
+        const bool passed =
+            ServiceJudgeStoragePast("a write", create_rc, rc, detail, sizeof(detail));
+        Report(SERVICE_STORAGE_WRITE_PAST, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_STORAGE_READ_PAST)) {
+        AppletStorage storage;
+        memset(&storage, 0, sizeof(storage));
+        u8 back[16];
+        const uint32_t create_rc = appletCreateStorage(&storage, SERVICE_STORAGE_SIZE);
+        uint32_t rc = 0xFFFFFFFFu;
+        if (R_SUCCEEDED(create_rc)) {
+            rc = appletStorageRead(&storage, SERVICE_STORAGE_PAST, back, sizeof(back));
+            appletStorageClose(&storage);
+        }
+        const bool passed =
+            ServiceJudgeStoragePast("a read", create_rc, rc, detail, sizeof(detail));
+        Report(SERVICE_STORAGE_READ_PAST, CHECK_EXACT, passed, detail);
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -1532,4 +1592,5 @@ void RunService(void) {
     RunFsdir();
     RunAmAudio();
     RunAmChannel();
+    RunAmStorage();
 }

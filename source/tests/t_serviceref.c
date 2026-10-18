@@ -993,6 +993,35 @@ static void CheckAmChannel(void) {
                back, back_said, nothing, other, kept, stack, queue, left, first, zero);
 }
 
+static void CheckAmStorage(void) {
+    ServiceStorageKeeps seen = { 0u, 0u, 0u, 0u, SERVICE_STORAGE_SIZE, true };
+    const bool keeps = ServiceJudgeStorageKeeps(&seen, said, sizeof(said)) &&
+                       strcmp(said, "its size, and the bytes written read back: CreateStorage("
+                                    "0x40) 0x0, GetSize 0x0 0x40, write at 0x20 0x0, read 0x0 "
+                                    "same") == 0;
+    char keeps_said[480];
+    memcpy(keeps_said, said, sizeof(said));
+    seen.size = 0x80;
+    const bool size = !ServiceJudgeStorageKeeps(&seen, said, sizeof(said)) &&
+                      strstr(said, "another size") == said;
+    seen.size = SERVICE_STORAGE_SIZE;
+    seen.same = false;
+    const bool lost = !ServiceJudgeStorageKeeps(&seen, said, sizeof(said)) &&
+                      strstr(said, "other bytes read back") == said;
+    const bool past =
+        ServiceJudgeStoragePast("a read", 0u, SERVICE_AM_INVALID_OFFSET, said, sizeof(said));
+    // A read cut at the end and answered as a success, and a refusal of another kind.
+    const bool cut = !ServiceJudgeStoragePast("a read", 0u, 0u, said, sizeof(said)) &&
+                     strstr(said, "accepted") == said;
+    const bool other =
+        !ServiceJudgeStoragePast("a write", 0u, SERVICE_RESULT(128, 511), said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: am-storage passes a storage that keeps its size and its end",
+               CHECK_NONE, keeps && size && lost && past && cut && other,
+               "keeps %d \"%.160s\", another size %d, lost bytes %d, past %d, a cut read %d, "
+               "another refusal %d",
+               keeps, keeps_said, size, lost, past, cut, other);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1014,4 +1043,5 @@ void RunReferenceService(void) {
     CheckFsdir();
     CheckAmAudio();
     CheckAmChannel();
+    CheckAmStorage();
 }
