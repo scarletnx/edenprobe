@@ -156,6 +156,11 @@ extern "C" {
 /// lock screen, the quest (kiosk) flag, the battery percentage and the speaker's auto mute.
 #define SERVICE_SETSYS_FLAG_COUNT 4u
 
+/// The location names the time-zone suite asks for at a time, and the most asks it makes: well
+/// past the six hundred or so names a time zone database holds.
+#define SERVICE_TZ_CHUNK 16u
+#define SERVICE_TZ_ASKS 128u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -252,6 +257,9 @@ typedef enum {
     SERVICE_SETSYS_LOOK,      ///< set-sys: the color set and keyboard layout set are read back
     SERVICE_SETSYS_VIBRATION, ///< set-sys: the vibration master volume set is read back
     SERVICE_SETSYS_FLAGS,     ///< set-sys: four flags turned over are read back, then put back
+    SERVICE_TZ_LIST,    ///< time-zone: as many names listed as counted, the device's among them
+    SERVICE_TZ_UPDATED, ///< time-zone: the device's location comes with when it was set
+    SERVICE_TZ_BACK,    ///< time-zone: a local date turned back gives the time it came from
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -967,6 +975,50 @@ typedef struct {
     bool back[SERVICE_SETSYS_FLAG_COUNT];
 } ServiceSetsysFlags;
 bool ServiceJudgeSetsysFlags(const ServiceSetsysFlags *seen, char *out, size_t out_size);
+
+/// The time zone service's location names: the device's (GetDeviceLocationName, 0), the count
+/// (GetTotalLocationNameCount, 2), and the names LoadLocationNameList (3) gives SERVICE_TZ_CHUNK
+/// at a time from 0 until it gives fewer, with the first failing call's answer, how many it
+/// listed, how many were empty and whether the device's was among them. Passes when every call
+/// succeeds, the count is above nought, as many are listed as counted, none is empty and the
+/// device's is listed: reden lists the names of its time zone binary
+/// (`glue/time/time_zone_binary.cpp`).
+typedef struct {
+    uint32_t name_rc, count_rc, list_rc;
+    int32_t count, listed;
+    uint32_t empty;
+    bool found;
+    char device[0x25];
+} ServiceTzList;
+bool ServiceJudgeTzList(const ServiceTzList *seen, char *out, size_t out_size);
+
+/// GetDeviceLocationNameAndUpdatedTime (6) against GetDeviceLocationName (0): what each answered,
+/// the two names, and the time point 6 gave. Passes when both succeed with the same name, not an
+/// empty one: reden answers the device's location and the steady clock time it was set at
+/// (`psc/time/time_zone_service.cpp`).
+typedef struct {
+    uint32_t name_rc, updated_rc;
+    char name[0x25], updated[0x25];
+    int64_t seconds;
+    uint8_t source[16];
+} ServiceTzUpdated;
+bool ServiceJudgeTzUpdated(const ServiceTzUpdated *seen, char *out, size_t out_size);
+
+/// The user clock's time now dated by the device's rule (ToCalendarTimeWithMyRule, 101) and the
+/// date turned back (ToPosixTimeWithMyRule, 202), with the rule's version (GetTimeZoneRuleVersion,
+/// 5) for the line: what each answered, the time, the times 202 gave and their count, and the
+/// version. Passes when every call succeeds and 202 gives one or two times with the first among
+/// them: reden gives back every time a local date can be (`psc/time/time_zone.cpp`). The version
+/// is not judged: reden's is its binary's date with a line break ("230326\n"), and what a
+/// console's is has not been seen.
+typedef struct {
+    uint32_t now_rc, date_rc, back_rc, version_rc;
+    int64_t now;
+    int32_t count;
+    int64_t times[2];
+    char version[0x11];
+} ServiceTzBack;
+bool ServiceJudgeTzBack(const ServiceTzBack *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

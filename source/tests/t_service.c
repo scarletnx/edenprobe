@@ -2560,6 +2560,126 @@ static void RunSetSys(void) {
     setsysExit();
 }
 
+// ---------------------------------------------------------------------------------------------
+// time-zone
+
+/// time:u's time zone service as a game's clock and calendar reach it: the location names a
+/// settings screen lists, the device's location and when it was set, and a local date turned
+/// back into the time it came from under the device's rule.
+static void RunTimeZone(void) {
+    char detail[480];
+    Service timesrv, user, zones;
+    memset(&timesrv, 0, sizeof(timesrv));
+    memset(&user, 0, sizeof(user));
+    memset(&zones, 0, sizeof(zones));
+    Result rc = smGetService(&timesrv, "time:u");
+    if (R_SUCCEEDED(rc)) {
+        rc = serviceDispatch(&timesrv, 0, .out_num_objects = 1, .out_objects = &user, );
+    }
+    if (R_SUCCEEDED(rc)) {
+        rc = serviceDispatch(&timesrv, 3, .out_num_objects = 1, .out_objects = &zones, );
+    }
+    if (R_FAILED(rc)) {
+        Skip(SERVICE_TZ_LIST, REPORT_REASON_UNAVAILABLE, "time:u handed out no time zone service "
+             "(0x%x)", (unsigned)rc);
+        Skip(SERVICE_TZ_UPDATED, REPORT_REASON_UNAVAILABLE, "time:u handed out no time zone "
+             "service (0x%x)", (unsigned)rc);
+        Skip(SERVICE_TZ_BACK, REPORT_REASON_UNAVAILABLE, "time:u handed out no time zone service "
+             "(0x%x)", (unsigned)rc);
+        serviceClose(&user);
+        serviceClose(&timesrv);
+        return;
+    }
+    TimeLocationName device;
+    memset(&device, 0, sizeof(device));
+    const uint32_t device_rc = serviceDispatchOut(&zones, 0, device);
+    if (Start(SERVICE_TZ_LIST)) {
+        static ServiceTzList seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.name_rc = device_rc;
+        memcpy(seen.device, device.name, sizeof(device.name));
+        s32 count = -1;
+        seen.count_rc = serviceDispatchOut(&zones, 2, count);
+        seen.count = count;
+        static TimeLocationName names[SERVICE_TZ_CHUNK];
+        for (uint32_t ask = 0; ask < SERVICE_TZ_ASKS && seen.count_rc == 0u; ++ask) {
+            memset(names, 0, sizeof(names));
+            const s32 index = seen.listed;
+            s32 got = -1;
+            const uint32_t list_rc = serviceDispatchInOut(
+                &zones, 3, index, got,
+                .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+                .buffers = { { names, sizeof(names) } }, );
+            if (list_rc != 0u || got < 0 || got > (s32)SERVICE_TZ_CHUNK) {
+                seen.list_rc = list_rc != 0u ? list_rc : 0xFFFFFFFFu;
+                break;
+            }
+            for (s32 i = 0; i < got; ++i) {
+                seen.empty += names[i].name[0] == '\0' ? 1u : 0u;
+                seen.found = seen.found || (device.name[0] != '\0' &&
+                                            strncmp(names[i].name, device.name,
+                                                    sizeof(device.name)) == 0);
+            }
+            seen.listed += got;
+            if (got < (s32)SERVICE_TZ_CHUNK) {
+                break;
+            }
+        }
+        const bool passed = ServiceJudgeTzList(&seen, detail, sizeof(detail));
+        Report(SERVICE_TZ_LIST, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_TZ_UPDATED)) {
+        ServiceTzUpdated seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.name_rc = device_rc;
+        memcpy(seen.name, device.name, sizeof(device.name));
+        // The name, then the time point at the next eight-byte boundary.
+        struct {
+            TimeLocationName name;
+            u8 pad[4];
+            TimeSteadyClockTimePoint point;
+        } updated;
+        memset(&updated, 0, sizeof(updated));
+        seen.updated_rc = serviceDispatchOut(&zones, 6, updated);
+        memcpy(seen.updated, updated.name.name, sizeof(updated.name.name));
+        seen.seconds = updated.point.time_point;
+        memcpy(seen.source, &updated.point.source_id, sizeof(seen.source));
+        const bool passed = ServiceJudgeTzUpdated(&seen, detail, sizeof(detail));
+        Report(SERVICE_TZ_UPDATED, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_TZ_BACK)) {
+        ServiceTzBack seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.now_rc = serviceDispatchOut(&user, 0, seen.now);
+        struct {
+            ServiceCalendarTime date;
+            ServiceCalendarInfo info;
+        } mine;
+        memset(&mine, 0, sizeof(mine));
+        seen.date_rc = serviceDispatchInOut(&zones, 101, seen.now, mine);
+        s32 count = -1;
+        s64 times[2] = { -1, -1 };
+        seen.back_rc = serviceDispatchInOut(
+            &zones, 202, mine.date, count,
+            .buffer_attrs = { SfBufferAttr_HipcPointer | SfBufferAttr_Out },
+            .buffers = { { times, sizeof(times) } }, );
+        seen.count = count;
+        seen.times[0] = times[0];
+        seen.times[1] = times[1];
+        struct {
+            char v[0x10];
+        } version;
+        memset(&version, 0, sizeof(version));
+        seen.version_rc = serviceDispatchOut(&zones, 5, version);
+        memcpy(seen.version, version.v, sizeof(version.v));
+        const bool passed = ServiceJudgeTzBack(&seen, detail, sizeof(detail));
+        Report(SERVICE_TZ_BACK, CHECK_EXACT, passed, detail);
+    }
+    serviceClose(&zones);
+    serviceClose(&user);
+    serviceClose(&timesrv);
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -2593,4 +2713,5 @@ void RunService(void) {
     RunNgc();
     RunAmLock();
     RunSetSys();
+    RunTimeZone();
 }

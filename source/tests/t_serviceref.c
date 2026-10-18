@@ -1549,6 +1549,73 @@ static void CheckSetSys(void) {
                unturned, stuck, flag_refused);
 }
 
+static void CheckTimeZone(void) {
+    ServiceTzList list;
+    memset(&list, 0, sizeof(list));
+    strcpy(list.device, "Asia/Tokyo");
+    list.count = list.listed = 598;
+    list.found = true;
+    const bool listed = ServiceJudgeTzList(&list, said, sizeof(said)) &&
+                        strcmp(said, "every name listed, the device's among them: device "
+                                     "\"Asia/Tokyo\" (0x0), count 598 (0x0), listed 598 (0x0), 0 "
+                                     "empty, the device's listed") == 0;
+    char listed_said[480];
+    memcpy(listed_said, said, sizeof(said));
+    // A list cut short, empty names of a stand-in, the device's not there, and none counted.
+    list.listed = 596;
+    const bool short_list = !ServiceJudgeTzList(&list, said, sizeof(said)) &&
+                            strstr(said, "another number listed") == said;
+    list.listed = 598;
+    list.empty = 598u;
+    const bool empty = !ServiceJudgeTzList(&list, said, sizeof(said));
+    list.empty = 0u;
+    list.found = false;
+    const bool missing = !ServiceJudgeTzList(&list, said, sizeof(said)) &&
+                         strstr(said, "the device's not listed") == said;
+    list.found = true;
+    list.count = list.listed = 0;
+    const bool none = !ServiceJudgeTzList(&list, said, sizeof(said)) &&
+                      strstr(said, "no name counted") == said;
+    ServiceTzUpdated updated;
+    memset(&updated, 0, sizeof(updated));
+    strcpy(updated.name, "Asia/Tokyo");
+    strcpy(updated.updated, "Asia/Tokyo");
+    const bool same = ServiceJudgeTzUpdated(&updated, said, sizeof(said)) &&
+                      strstr(said, "the device's location") == said;
+    // A stand-in's empty name, and another name.
+    updated.updated[0] = '\0';
+    const bool blank = !ServiceJudgeTzUpdated(&updated, said, sizeof(said));
+    strcpy(updated.updated, "UTC");
+    const bool other = !ServiceJudgeTzUpdated(&updated, said, sizeof(said));
+    ServiceTzBack back = { 0u, 0u, 0u, 0u, 1700000000ll, 1, { 1700000000ll, 0 }, "230326\n" };
+    const bool round = ServiceJudgeTzBack(&back, said, sizeof(said)) &&
+                       strcmp(said, "the time back: now 1700000000 (0x0), dated 0x0, back 0x0 1 "
+                                    "times 1700000000 0, version \"230326.\" (0x0)") == 0;
+    char round_said[480];
+    memcpy(round_said, said, sizeof(said));
+    // The second of two times, a time an hour off, none back, and 202 refused.
+    back = (ServiceTzBack){ 0u, 0u, 0u, 0u, 1700000000ll, 2, { 1699996400ll, 1700000000ll },
+                            "2024b" };
+    const bool second = ServiceJudgeTzBack(&back, said, sizeof(said));
+    back.times[1] = 1700003600ll;
+    const bool off = !ServiceJudgeTzBack(&back, said, sizeof(said)) &&
+                     strstr(said, "another time back") == said;
+    back = (ServiceTzBack){ 0u, 0u, 0u, 0u, 1700000000ll, 0, { 0, 0 }, "2024a" };
+    const bool counted = !ServiceJudgeTzBack(&back, said, sizeof(said));
+    back = (ServiceTzBack){ 0u, 0u, SERVICE_RESULT(116, 1), 0u, 1700000000ll, 1,
+                            { 1700000000ll, 0 }, "2024a" };
+    const bool refused = !ServiceJudgeTzBack(&back, said, sizeof(said)) &&
+                         strstr(said, "refused") == said;
+    CHECK_TRUE(SUITE, "service: time-zone passes names listed, the location and a date back",
+               CHECK_NONE,
+               listed && short_list && empty && missing && none && same && blank && other &&
+                   round && second && off && counted && refused,
+               "listed %d \"%.140s\", short %d, empty %d, missing %d, none %d, same %d, blank %d, "
+               "other %d, back %d \"%.120s\", the second %d, off %d, none back %d, refused %d",
+               listed, listed_said, short_list, empty, missing, none, same, blank, other, round,
+               round_said, second, off, counted, refused);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1585,4 +1652,5 @@ void RunReferenceService(void) {
     CheckApm();
     CheckAmLock();
     CheckSetSys();
+    CheckTimeZone();
 }
