@@ -90,6 +90,159 @@ static void RunHwopus(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// acc:u0, for the suites that need a user
+
+/// acc:u0, the way a program reaches it. libnx's accountInitialize asks InitializeApplicationInfo
+/// first, which a loader that registered no launch property for this program refuses; the
+/// commands asked here do not read what that call records, so the service is then opened by name
+/// without it and the line says so, as the net family's acc suite does.
+typedef struct {
+    Service *service;
+    Service raw;
+    bool libnx;
+} Account;
+
+static Result AccountOpen(Account *a, char *said, size_t said_size) {
+    memset(a, 0, sizeof(*a));
+    const Result initialized = accountInitialize(AccountServiceType_Application);
+    if (R_SUCCEEDED(initialized)) {
+        a->libnx = true;
+        a->service = accountGetServiceSession();
+        snprintf(said, said_size, "accountInitialize(Application) succeeded");
+        return 0;
+    }
+    const Result rc = smGetService(&a->raw, "acc:u0");
+    if (R_FAILED(rc)) {
+        snprintf(said, said_size,
+                 "accountInitialize(Application) returned 0x%x and smGetService(\"acc:u0\") 0x%x",
+                 (unsigned)initialized, (unsigned)rc);
+        return rc;
+    }
+    a->service = &a->raw;
+    snprintf(said, said_size,
+             "accountInitialize(Application) returned 0x%x, acc:u0 opened by name without "
+             "InitializeApplicationInfo",
+             (unsigned)initialized);
+    return 0;
+}
+
+static void AccountClose(Account *a) {
+    if (a->libnx) {
+        accountExit();
+    } else if (a->service != NULL) {
+        serviceClose(&a->raw);
+    }
+    memset(a, 0, sizeof(*a));
+}
+
+/// GetLastOpenedUser (4), then the first of ListAllUsers (2) when nobody was opened last.
+static Result AccountUser(Account *a, AccountUid *uid, const char **how) {
+    memset(uid, 0, sizeof(*uid));
+    Result rc = serviceDispatchOut(a->service, 4, *uid);
+    *how = "GetLastOpenedUser";
+    if (R_FAILED(rc) || !accountUidIsValid(uid)) {
+        AccountUid users[8];
+        memset(users, 0, sizeof(users));
+        rc = serviceDispatch(a->service, 2,
+                             .buffer_attrs = { SfBufferAttr_HipcPointer | SfBufferAttr_Out },
+                             .buffers = { { users, sizeof(users) } }, );
+        *uid = users[0];
+        *how = "ListAllUsers";
+    }
+    return rc;
+}
+
+// ---------------------------------------------------------------------------------------------
+// am
+
+/// The account save's size, as IApplicationFunctions takes it: the save's type, seven bytes of
+/// padding and the user, which is 8-aligned (reden d2279cbf8d).
+typedef struct {
+    u8 type;
+    u8 pad[7];
+    AccountUid uid;
+} SaveTarget;
+
+static Result SaveSize(Service *functions, const AccountUid *uid, u64 *normal, u64 *journal) {
+    const SaveTarget in = { FsSaveDataType_Account, { 0 }, *uid };
+    struct {
+        u64 normal, journal;
+    } out = { 0, 0 };
+    const Result rc = serviceDispatchInOut(functions, 26, in, out);
+    *normal = out.normal;
+    *journal = out.journal;
+    return rc;
+}
+
+/// The application's own functions, asked about the account save of a user: EnsureSaveData (20)
+/// first, as a game does, then the size, ExtendSaveData (25) by one step on both parts, and the
+/// size again.
+static void RunAm(void) {
+    char detail[480];
+    Account account;
+    memset(&account, 0, sizeof(account));
+    AccountUid uid;
+    memset(&uid, 0, sizeof(uid));
+    Service *functions = NULL;
+
+    bool opens = false;
+    char why[240] = "";
+    ReportReason why_reason = REPORT_REASON_DEPENDS;
+    if (appletGetAppletType() != AppletType_Application) {
+        snprintf(why, sizeof(why),
+                 "needs to run as an application, with the application's functions; this program "
+                 "runs as applet type %d",
+                 (int)appletGetAppletType());
+        why_reason = REPORT_REASON_UNAVAILABLE;
+        Skip(SERVICE_AM_OPENS, REPORT_REASON_UNAVAILABLE, "%s", why);
+    } else if (Start(SERVICE_AM_OPENS)) {
+        functions = appletGetServiceSession_Functions();
+        char said[240];
+        const char *how = "";
+        Result rc = AccountOpen(&account, said, sizeof(said));
+        if (R_SUCCEEDED(rc)) {
+            rc = AccountUser(&account, &uid, &how);
+        }
+        opens = functions != NULL && serviceIsActive(functions) && accountUidIsValid(&uid);
+        snprintf(detail, sizeof(detail), "functions %s; %s; %s 0x%x, user %016llx%016llx",
+                 functions != NULL && serviceIsActive(functions) ? "open" : "not open", said, how,
+                 (unsigned)rc, (unsigned long long)uid.uid[0], (unsigned long long)uid.uid[1]);
+        Report(SERVICE_AM_OPENS, CHECK_NONE, opens, detail);
+        if (!opens) {
+            snprintf(why, sizeof(why), "no application functions or no user to ask about");
+        }
+    } else {
+        snprintf(why, sizeof(why), "the case that opens the functions did not run");
+    }
+
+    if (!opens) {
+        Skip(SERVICE_SAVE_SIZE, why_reason, "%s", why);
+    } else if (Start(SERVICE_SAVE_SIZE)) {
+        u64 ensured = 0;
+        const Result ensure = serviceDispatchInOut(functions, 20, uid, ensured);
+        ServiceSaveSize seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.before_rc = SaveSize(functions, &uid, &seen.before_normal, &seen.before_journal);
+        seen.asked_normal = seen.before_normal + SERVICE_SAVE_STEP;
+        seen.asked_journal = seen.before_journal + SERVICE_SAVE_STEP;
+        const struct {
+            SaveTarget target;
+            u64 normal, journal;
+        } in = { { FsSaveDataType_Account, { 0 }, uid }, seen.asked_normal, seen.asked_journal };
+        u64 required = 0;
+        seen.extend_rc = serviceDispatchInOut(functions, 25, in, required);
+        seen.required = required;
+        seen.after_rc = SaveSize(functions, &uid, &seen.after_normal, &seen.after_journal);
+        char judged[400];
+        const bool passed = ServiceJudgeSaveSize(&seen, judged, sizeof(judged));
+        snprintf(detail, sizeof(detail), "EnsureSaveData 0x%x; %s", (unsigned)ensure, judged);
+        Report(SERVICE_SAVE_SIZE, CHECK_EXACT, passed, detail);
+    }
+    AccountClose(&account);
+}
+
 void RunService(void) {
     RunHwopus();
+    RunAm();
 }
