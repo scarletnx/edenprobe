@@ -64,6 +64,7 @@ typedef enum {
     SERVICE_SET_COUNT,    ///< set: GetAvailableLanguageCodeCount2 leaves room for the list
     SERVICE_CSRNG_OPENS,  ///< csrng: csrng opens (none tier)
     SERVICE_RANDOM,       ///< csrng: two asks fill their buffers, differently
+    SERVICE_APM_OPENS,    ///< apm: apm and a session (none tier)
     SERVICE_CASES
 } ServiceCaseId;
 

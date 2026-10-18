@@ -16,6 +16,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | ldn | 2 | the client process monitor a game asks ldn:u for on 18.0.0 (`hle/service/ldn/ldn.cpp`, `IUserServiceCreator`, `IClientProcessMonitor`) |
 | set | 4 | the language codes a game picks its text by (`hle/service/set/settings_server.cpp`, `available_language_codes`) |
 | csrng | 2 | the random bytes a game seeds from (`hle/service/spl/spl_module.cpp`, `GenerateRandomBytes`) |
+| apm | 1 | apm and a session on it, which a game opens before it asks for the performance mode (`hle/service/apm/apm_interface.cpp`, `APM::OpenSession`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -154,6 +155,16 @@ buffer filled with `0xA5` first, through libnx's `csrngGetRandomBytes`.
 
 A correct machine fails the case only if 64 random bytes repeat, or eight end on the fill, by
 chance: one in 2^64. The line carries the first four bytes and the last two of each.
+
+## apm
+
+A game opens apm, and a session on it, before it asks for the performance mode, Normal or Boost,
+that tells it whether it runs docked. libnx's `apmInitialize` does both: apm, then OpenSession (0),
+which reden answers with an ISession (`apm_interface.cpp`, `APM::OpenSession`).
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| apm opens, with a session | `apmInitialize` (apm and OpenSession, 0) | it succeeds | none |
 
 ## The open questions
 
