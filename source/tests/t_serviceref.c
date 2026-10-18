@@ -354,6 +354,42 @@ static void CheckNfpFilter(void) {
                alike_said, stub, old, old_stub, new_refused);
 }
 
+static void CheckAocPast(void) {
+    // AM is module 128 and the description 37: 128 + 37 * 512, worked out by hand.
+    const bool code = SERVICE_AOC_PAST_END == 0x4A80u;
+    // reden with no add-on content: the end (0) empty, one past it no record.
+    ServiceAocList seen = { 0u, 0u, 0u, SERVICE_AOC_PAST_END };
+    const bool reden =
+        ServiceJudgeAocPast(&seen, said, sizeof(said)) &&
+        strcmp(said, "the end empty, one past it no record: 0 add-on contents; from 0 0x0, 0 "
+                     "listed; from 1 0x4a80 (no record is 0x4a80)") == 0;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+    // Three of them: the end is 3, one past it 4.
+    seen = (ServiceAocList){ 3u, 0u, 0u, SERVICE_AOC_PAST_END };
+    const bool three = ServiceJudgeAocPast(&seen, said, sizeof(said));
+    // A stub: success and nothing listed past the end.
+    seen = (ServiceAocList){ 0u, 0u, 0u, 0u };
+    const bool stub = !ServiceJudgeAocPast(&seen, said, sizeof(said)) &&
+                      strstr(said, "one past the end answered with success") == said;
+    // reden before 54cd5fb8eb: ResultUnknown (0xFFFFFFFF in its log, any other result here).
+    seen = (ServiceAocList){ 0u, 0u, 0u, 0xFFFFFFFFu };
+    const bool unknown = !ServiceJudgeAocPast(&seen, said, sizeof(said)) &&
+                         strstr(said, "one past the end refused otherwise") == said;
+    // The end refused, or not empty.
+    seen = (ServiceAocList){ 0u, SERVICE_AOC_PAST_END, 0u, SERVICE_AOC_PAST_END };
+    const bool end_refused = !ServiceJudgeAocPast(&seen, said, sizeof(said)) &&
+                             strstr(said, "the list's end refused") == said;
+    seen = (ServiceAocList){ 2u, 0u, 1u, SERVICE_AOC_PAST_END };
+    const bool end_listed = !ServiceJudgeAocPast(&seen, said, sizeof(said)) &&
+                            strstr(said, "the list's end not empty") == said;
+    CHECK_TRUE(SUITE, "service: aoc passes an empty end and no record past it", CHECK_NONE,
+               code && reden && three && stub && unknown && end_refused && end_listed,
+               "code %d, reden %d \"%.160s\", three %d, stub %d, unknown %d, end refused %d, "
+               "end listed %d",
+               code, reden, reden_said, three, stub, unknown, end_refused, end_listed);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -364,4 +400,5 @@ void RunReferenceService(void) {
     CheckLanguages();
     CheckRandom();
     CheckNfpFilter();
+    CheckAocPast();
 }

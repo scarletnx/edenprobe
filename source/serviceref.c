@@ -36,6 +36,9 @@ static const struct {
     [SERVICE_NFP_OPENS] = { "nfp", "nfp opens and initialises for a user" },
     [SERVICE_NFP_FILTER] = { "nfp",
                              "StartDetectionWithFilter answers what StartDetection answers" },
+    [SERVICE_AOC_OPENS] = { "aoc", "aoc:u opens and counts this program's add-on content" },
+    [SERVICE_AOC_PAST] = { "aoc",
+                           "ListAddOnContent lists nothing at the end and refuses one past it" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -294,4 +297,20 @@ bool ServiceJudgeNfpFilter(uint32_t rc3, uint32_t rc25, int32_t devices, bool fi
                      : "two answers",
              (int)devices, (unsigned)rc3, (unsigned)rc25, firmware23 ? "at least" : "older than");
     return same || older;
+}
+
+bool ServiceJudgeAocPast(const ServiceAocList *seen, char *out, size_t out_size) {
+    const bool end = seen->end_rc == 0u && seen->end_listed == 0u;
+    const bool past = seen->past_rc == SERVICE_AOC_PAST_END;
+    const char *const verdict = seen->end_rc != 0u     ? "the list's end refused"
+                                : !end                 ? "the list's end not empty"
+                                : past                 ? "the end empty, one past it no record"
+                                : seen->past_rc == 0u  ? "one past the end answered with success"
+                                                       : "one past the end refused otherwise";
+    snprintf(out, out_size,
+             "%s: %u add-on contents; from %u 0x%x, %u listed; from %u 0x%x (no record is 0x%x)",
+             verdict, (unsigned)seen->count, (unsigned)seen->count, (unsigned)seen->end_rc,
+             (unsigned)seen->end_listed, (unsigned)seen->count + 1u, (unsigned)seen->past_rc,
+             (unsigned)SERVICE_AOC_PAST_END);
+    return end && past;
 }

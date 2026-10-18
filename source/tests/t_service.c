@@ -587,6 +587,68 @@ static void RunNfp(void) {
     nfpExit();
 }
 
+// ---------------------------------------------------------------------------------------------
+// aoc
+
+/// One list of aoc:u's: ListAddOnContent (3) from @p offset, the process id sent with a word for
+/// it in the request, as CountAddOnContent's.
+static Result AocList(Service *aoc, uint32_t offset, uint32_t *listed) {
+    static s32 indices[SERVICE_AOC_LISTED];
+    const struct {
+        s32 offset, count;
+        u64 pid;
+    } in = { (s32)offset, (s32)SERVICE_AOC_LISTED, 0 };
+    u32 out = 0;
+    const Result rc =
+        serviceDispatchInOut(aoc, 3, in, out, .in_send_pid = true,
+                             .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+                             .buffers = { { indices, sizeof(indices) } }, );
+    *listed = out;
+    return rc;
+}
+
+/// aoc:u, asked for this program's add-on content as a game asks before it mounts one:
+/// CountAddOnContent (2), then ListAddOnContent (3) from the count, the list's end, and from one
+/// past it.
+static void RunAoc(void) {
+    char detail[480];
+    Service aoc;
+    memset(&aoc, 0, sizeof(aoc));
+    u32 count = 0;
+    bool opens = false;
+    if (Start(SERVICE_AOC_OPENS)) {
+        Result rc = smGetService(&aoc, "aoc:u");
+        const bool session = R_SUCCEEDED(rc);
+        if (session) {
+            const u64 pid = 0;
+            rc = serviceDispatchInOut(&aoc, 2, pid, count, .in_send_pid = true, );
+        }
+        opens = session && R_SUCCEEDED(rc);
+        snprintf(detail, sizeof(detail),
+                 "smGetService(\"aoc:u\") %s; CountAddOnContent 0x%x, %u add-on contents",
+                 session ? "opened" : "refused", (unsigned)rc, (unsigned)count);
+        Report(SERVICE_AOC_OPENS, CHECK_NONE, opens, detail);
+        if (session && !opens) {
+            serviceClose(&aoc);
+        }
+    }
+    if (!opens) {
+        Skip(SERVICE_AOC_PAST, REPORT_REASON_DEPENDS, "aoc:u did not count its add-on content");
+        return;
+    }
+    if (Start(SERVICE_AOC_PAST)) {
+        ServiceAocList seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.count = count;
+        seen.end_rc = AocList(&aoc, count, &seen.end_listed);
+        uint32_t past_listed = 0;
+        seen.past_rc = AocList(&aoc, count + 1u, &past_listed);
+        const bool passed = ServiceJudgeAocPast(&seen, detail, sizeof(detail));
+        Report(SERVICE_AOC_PAST, CHECK_EXACT, passed, detail);
+    }
+    serviceClose(&aoc);
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -597,4 +659,5 @@ void RunService(void) {
     RunCsrng();
     RunApm();
     RunNfp();
+    RunAoc();
 }
