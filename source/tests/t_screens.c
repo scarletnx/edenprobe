@@ -488,11 +488,12 @@ static void CheckFamilies(void) {
             first = SUITES[i].suite;
         }
     }
+    // A run with every family has a group for each suite, so the index holds them all.
     CHECK_TRUE(SUITE, "every suite a run reports is shown under its own family", CHECK_NONE,
-               wrong == 0u && count == 57u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
-                   UiFamilyOf(NULL) == UI_FAMILY_OTHER,
-               "%u of %u suites under the wrong family, the first %s", (unsigned)wrong,
-               (unsigned)count, first);
+               wrong == 0u && count == 57u && count <= UI_MAX_GROUPS &&
+                   UiFamilyOf("weird") == UI_FAMILY_OTHER && UiFamilyOf(NULL) == UI_FAMILY_OTHER,
+               "%u of %u suites under the wrong family, the first %s; the index holds %u groups",
+               (unsigned)wrong, (unsigned)count, first, (unsigned)UI_MAX_GROUPS);
 }
 
 /// One string field of a line with its escapes undone, as a reader of the report gets it back.
