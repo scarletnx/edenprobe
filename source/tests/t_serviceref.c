@@ -670,6 +670,81 @@ static void CheckProfile(void) {
                everyone, nobody);
 }
 
+static void CheckAmState(void) {
+    const bool handheld = ServiceJudgeOperationMode(0u, 0, 0u, 1280, 720, said, sizeof(said));
+    const bool docked = ServiceJudgeOperationMode(0u, 1, 0u, 1920, 1080, said, sizeof(said));
+    const bool crossed = !ServiceJudgeOperationMode(0u, 1, 0u, 1280, 720, said, sizeof(said)) &&
+                         strstr(said, "a resolution of the other mode") == said;
+    const bool stub = !ServiceJudgeOperationMode(0u, 0, 0u, 0, 0, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: am-state passes a mode with its own resolution", CHECK_NONE,
+               handheld && docked && crossed && stub, "handheld %d, docked %d, crossed %d, a "
+               "stand-in %d", handheld, docked, crossed, stub);
+
+    const bool focus = ServiceJudgeFocus(0u, 1, said, sizeof(said)) &&
+                       !ServiceJudgeFocus(0u, 0, said, sizeof(said)) &&
+                       !ServiceJudgeFocus(0u, 2, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: am-state passes an application in focus", CHECK_NONE, focus,
+               "\"%.120s\"", said);
+
+    // AM is module 128: 128 + 3 * 512 and 128 + 2 * 512, worked out by hand.
+    const bool codes = SERVICE_AM_NO_MESSAGES == 0x680u && SERVICE_AM_NO_DATA == 0x480u;
+    ServiceLogoMessage logo;
+    memset(&logo, 0, sizeof(logo));
+    logo.firmware21 = true;
+    logo.end_rc = SERVICE_AM_NO_MESSAGES;
+    logo.count = 2;
+    logo.messages[0] = 15; // FocusStateChanged, left from before
+    logo.messages[1] = SERVICE_AM_LOGO_GONE;
+    const bool reden = ServiceJudgeLogoMessage(&logo, said, sizeof(said)) &&
+                       strstr(said, "message 95 came: 130 0x0; 2 received, then 0x680") == said;
+    char logo_said[480];
+    memcpy(logo_said, said, sizeof(said));
+    logo.count = 1;
+    const bool missing = !ServiceJudgeLogoMessage(&logo, said, sizeof(said)) &&
+                         strstr(said, "130 succeeded and no message 95 came") == said;
+    logo.firmware21 = false;
+    const bool missing_old = !ServiceJudgeLogoMessage(&logo, said, sizeof(said));
+    logo.enable_rc = SERVICE_RESULT(10, 221);
+    const bool refused_old = ServiceJudgeLogoMessage(&logo, said, sizeof(said));
+    logo.firmware21 = true;
+    const bool refused_new = !ServiceJudgeLogoMessage(&logo, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: am-state passes message 95 after 130", CHECK_NONE,
+               codes && reden && missing && missing_old && refused_old && refused_new,
+               "codes %d, reden %d \"%.160s\", no 95 %d, no 95 before 21 %d, refused before 21 "
+               "%d, refused at 21 %d",
+               codes, reden, logo_said, missing, missing_old, refused_old, refused_new);
+
+    ServiceVrMode vr = { 0u, 0u, 0u, 0u, 1, 0, true };
+    const bool on_off = ServiceJudgeVrMode(&vr, said, sizeof(said));
+    vr.on = 0;
+    const bool never_on = !ServiceJudgeVrMode(&vr, said, sizeof(said)) &&
+                          strstr(said, "never on") == said;
+    vr.firmware19 = false;
+    const bool stub_old = !ServiceJudgeVrMode(&vr, said, sizeof(said));
+    vr.begin_rc = SERVICE_RESULT(10, 221);
+    const bool refused_vr = ServiceJudgeVrMode(&vr, said, sizeof(said));
+    vr = (ServiceVrMode){ 0u, 0u, 0u, 0u, 1, 1, true };
+    const bool never_off = !ServiceJudgeVrMode(&vr, said, sizeof(said)) &&
+                           strstr(said, "never off") == said;
+    CHECK_TRUE(SUITE, "service: am-state passes 3D VR mode on, then off", CHECK_NONE,
+               on_off && never_on && stub_old && refused_vr && never_off,
+               "on and off %d, never on %d, a stand-in before 19 %d, refused before 19 %d, "
+               "never off %d",
+               on_off, never_on, stub_old, refused_vr, never_off);
+
+    const bool global = ServiceJudgePlatformRegion(0u, 1u, true, said, sizeof(said));
+    const bool nought = !ServiceJudgePlatformRegion(0u, 0u, true, said, sizeof(said)) &&
+                        strstr(said, "another region") == said;
+    const bool old = ServiceJudgePlatformRegion(SERVICE_RESULT(10, 221), 0u, false, said,
+                                                sizeof(said));
+    const bool refused_region =
+        !ServiceJudgePlatformRegion(SERVICE_RESULT(10, 221), 0u, true, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: am-state passes the region Global", CHECK_NONE,
+               global && nought && old && refused_region,
+               "Global %d, nought %d, refused before 9 %d, refused at 9 %d", global, nought, old,
+               refused_region);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -684,4 +759,5 @@ void RunReferenceService(void) {
     CheckTime();
     CheckFonts();
     CheckProfile();
+    CheckAmState();
 }

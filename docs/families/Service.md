@@ -22,6 +22,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | time | 6 | the clocks and dates a game reads at start: the user clock against its context and the steady clock, the steady clock's seconds, dates under UTC and under the device's rule (`hle/service/psc/time/clocks/system_clock_core.cpp`, `GetCurrentTime`, and `hle/service/glue/time/time_zone.cpp`) |
 | pl | 3 | the shared fonts a game's text is drawn with: loaded, inside the shared memory behind their headers, and in order of priority (`hle/service/ns/platform_service_manager.cpp`, `DecryptSharedFont`, `GetSharedFontInOrderOfPriority`) |
 | profile | 4 | the profile a game shows in its menus: one base twice, the picture a 256x256 JPEG of the size told, and the user's existence (`hle/service/acc/acc.cpp`, `IProfileCommon`, and `acc/profile_picture.cpp`, `GetProfilePictureForGame`) |
+| am-state | 5 | what the application's state getter tells a game before its first frame: the mode and its resolution, the focus, the start-up logo's message, 3D VR mode, the platform region (`hle/service/am/service/common_state_getter.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -279,6 +280,33 @@ The user is the one the am suite asks about, from acc:u0 opened the same way.
 The picture's line carries both sizes, its first and last two bytes and the frame's size; the
 nickname is printed with control characters and quotes as `?`.
 
+## am-state
+
+Before its first frame a game asks the application's common state getter, ICommonStateGetter,
+how to lay itself out and when to start: GetOperationMode (5) and GetDefaultDisplayResolution (60),
+GetCurrentFocusState (9), and from 21.0.0 EnableStartupLogoDisappearedMessage (130), after which a
+message says the start-up logo is gone. reden (`common_state_getter.cpp` at 75c12299a6) answers the
+resolution of the mode it is in, 1280x720 handheld and 1920x1080 docked; enqueues
+StartupLogoDisappeared (95) on 130 (87e5d0b6e4, #4343); keeps 3D VR mode across BeginVrMode3d
+(1000), EndVrMode3d (1001) and IsVrModeEnabled3d (1002), from 19.0.0 (the same commit); and answers
+GetSettingsPlatformRegion (300, from 9.0.0) Global (1). A machine without those commands answers
+an unknown command's success: no message, VR mode never on, a region of nought.
+
+The getter is the one libnx opened at start. A command a machine says is newer than its firmware
+may be refused, and passes that way; answered with nothing done, it fails at any firmware.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| the operation mode and the default resolution agree | 5 and 60 | Handheld with 1280x720, or Console with 1920x1080 | exact |
+| a running application is in focus | 9 | InFocus (1); skipped as `unavailable` for a program that is not an application | exact |
+| EnableStartupLogoDisappearedMessage brings message 95 | 130, then ReceiveMessage (1) until it refuses, at most 16 | 95 among the messages; or 130 refused by a machine older than 21.0.0 | exact |
+| BeginVrMode3d turns 3D VR mode on and EndVrMode3d off | 1000, 1002, 1001, 1002 | on, then off; or 1000 refused by a machine older than 19.0.0 | exact |
+| the settings platform region is Global | 300 | Global (1); or refused by a machine older than 9.0.0 | exact |
+
+The logo case's line carries every message it received and what ended them (ResultNoMessages,
+AM 3, `0x680`, when none was left). Messages left from before go with them: the program's own
+loop does not need them.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -307,6 +335,9 @@ nickname is printed with control characters and quotes as `?`.
   GetSharedFontInOrderOfPriority puts a language's own font first.
 - **Q11.** What a console hands a game as the picture of a user who never chose one: reden its
   own default JPEG; and whether a console's Get with user data and GetBase can ever differ.
+- **Q12.** Whether a console of 21.0.0 sends message 95 at once on 130 when the logo is long
+  gone, as reden does, or only when it goes; whether its 3D VR mode shows on the screen while the
+  case has it on; and the region a console sold in China answers (reden always says Global).
 
 ## The judge, pinned
 
@@ -347,3 +378,10 @@ profile passes one base twice, of the user, by a name, and fails two bases, anot
 user, no name, a name with no end and a stand-in; a 256x256 JPEG of the size told, and not
 another size told, a JPEG of 256 by 128, one cut before its end or a stand-in's nothing; and the
 user found with nobody made up, and not everyone found or nobody.
+am-state passes Handheld at 1280x720 and Console at 1920x1080, and fails a mode with
+the other's resolution and a stand-in; InFocus, and not out of focus or in the background;
+message 95 among the messages after 130, and fails 130 answered without it at any firmware and
+130 refused on 21.0.0, while passing 130 refused on an older one (`0x680` and `0x480` worked out
+by hand: 128 + 3 x 512, 128 + 2 x 512); VR mode on then off, and not never on, never off or a
+stand-in, with 1000 refused passing only before 19.0.0; and the region Global, with 300 refused
+passing only before 9.0.0.

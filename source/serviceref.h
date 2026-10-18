@@ -72,6 +72,15 @@ extern "C" {
 #define SERVICE_PICTURE_SIDE 256u
 #define SERVICE_PICTURE_MAX 0x20000u
 
+/// The applet manager's results: no message left to receive, ResultNoMessages, AM (128) 3; and
+/// a channel with nothing in it, ResultNoDataInChannel, AM 2 (reden am_results.h). The message a
+/// program that enabled it gets when the start-up logo is gone: StartupLogoDisappeared, 95
+/// (reden am_types.h). The most messages the logo case receives looking for it.
+#define SERVICE_AM_NO_MESSAGES SERVICE_RESULT(128, 3)
+#define SERVICE_AM_NO_DATA SERVICE_RESULT(128, 2)
+#define SERVICE_AM_LOGO_GONE 95u
+#define SERVICE_AM_MESSAGES 16u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -108,6 +117,11 @@ typedef enum {
     SERVICE_PROFILE_BASE,  ///< profile: Get and GetBase tell the same user, by a name
     SERVICE_PROFILE_IMAGE, ///< profile: the picture is a 256x256 JPEG of the size told
     SERVICE_PROFILE_EXISTS, ///< profile: GetUserExistence finds the user, not one made up
+    SERVICE_STATE_MODE,   ///< am-state: the operation mode and the default resolution agree
+    SERVICE_STATE_FOCUS,  ///< am-state: a running application is in focus
+    SERVICE_STATE_LOGO,   ///< am-state: 130 enqueues StartupLogoDisappeared
+    SERVICE_STATE_VR,     ///< am-state: BeginVrMode3d and EndVrMode3d, read back
+    SERVICE_STATE_REGION, ///< am-state: the settings platform region is Global
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -341,6 +355,43 @@ bool ServiceJudgeProfileImage(uint32_t size_rc, uint32_t size, uint32_t load_rc,
 /// the first true and the second false.
 bool ServiceJudgeUserExistence(uint32_t user_rc, bool user, uint32_t made_up_rc, bool made_up,
                                char *out, size_t out_size);
+
+/// ICommonStateGetter's GetOperationMode (5) and GetDefaultDisplayResolution (60). Passes when
+/// both succeed and agree: Handheld (0) with 1280x720, Console (1) with 1920x1080, reden's
+/// GetDefaultDisplayResolution.
+bool ServiceJudgeOperationMode(uint32_t mode_rc, uint8_t mode, uint32_t resolution_rc,
+                               int32_t width, int32_t height, char *out, size_t out_size);
+
+/// GetCurrentFocusState (9) of a program running as an application. Passes when it succeeds
+/// with InFocus (1).
+bool ServiceJudgeFocus(uint32_t rc, uint8_t state, char *out, size_t out_size);
+
+/// EnableStartupLogoDisappearedMessage (130, 21.0.0+), then ReceiveMessage (1) until it refuses
+/// or SERVICE_AM_MESSAGES came: what 130 answered, the messages and what ended them. Passes when
+/// 130 succeeds and SERVICE_AM_LOGO_GONE is among them, reden 87e5d0b6e4's handler; a machine
+/// that says it is older than 21.0.0 may refuse 130 instead.
+typedef struct {
+    uint32_t enable_rc, end_rc;
+    uint32_t count;
+    uint32_t messages[SERVICE_AM_MESSAGES];
+    bool firmware21;
+} ServiceLogoMessage;
+bool ServiceJudgeLogoMessage(const ServiceLogoMessage *seen, char *out, size_t out_size);
+
+/// BeginVrMode3d (1000, 19.0.0+), IsVrModeEnabled3d (1002), EndVrMode3d (1001) and 1002 again.
+/// Passes when all succeed, on after the beginning and off after the end, reden 87e5d0b6e4's
+/// three handlers; a machine that says it is older than 19.0.0 may refuse 1000 instead.
+typedef struct {
+    uint32_t begin_rc, on_rc, end_rc, off_rc;
+    uint8_t on, off;
+    bool firmware19;
+} ServiceVrMode;
+bool ServiceJudgeVrMode(const ServiceVrMode *seen, char *out, size_t out_size);
+
+/// GetSettingsPlatformRegion (300, 9.0.0+). Passes when it succeeds with Global (1), reden's
+/// answer; a machine that says it is older than 9.0.0 may refuse it instead.
+bool ServiceJudgePlatformRegion(uint32_t rc, uint32_t region, bool firmware9, char *out,
+                                size_t out_size);
 
 #ifdef __cplusplus
 }

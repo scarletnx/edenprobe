@@ -982,6 +982,84 @@ static void RunProfile(void) {
     AccountClose(&account);
 }
 
+// ---------------------------------------------------------------------------------------------
+// am-state
+
+/// The application's common state getter, as libnx opened it at start, asked what a game asks
+/// before its first frame: the operation mode and the resolution, the focus, the start-up logo's
+/// message, 3D VR mode and the platform's region.
+static void RunAmState(void) {
+    char detail[480];
+    Service *const getter = appletGetServiceSession_CommonStateGetter();
+    if (getter == NULL || !serviceIsActive(getter)) {
+        const char *const why = "this program has no ICommonStateGetter";
+        Skip(SERVICE_STATE_MODE, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_STATE_FOCUS, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_STATE_LOGO, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_STATE_VR, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_STATE_REGION, REPORT_REASON_UNAVAILABLE, "%s", why);
+        return;
+    }
+    if (Start(SERVICE_STATE_MODE)) {
+        u8 mode = 0xEE;
+        struct {
+            s32 width, height;
+        } resolution = { -1, -1 };
+        const uint32_t mode_rc = serviceDispatchOut(getter, 5, mode);
+        const uint32_t resolution_rc = serviceDispatchOut(getter, 60, resolution);
+        const bool passed = ServiceJudgeOperationMode(mode_rc, mode, resolution_rc,
+                                                      resolution.width, resolution.height, detail,
+                                                      sizeof(detail));
+        Report(SERVICE_STATE_MODE, CHECK_EXACT, passed, detail);
+    }
+    if (appletGetAppletType() != AppletType_Application) {
+        Skip(SERVICE_STATE_FOCUS, REPORT_REASON_UNAVAILABLE,
+             "needs to run as an application, which has the focus; this program runs as applet "
+             "type %d",
+             (int)appletGetAppletType());
+    } else if (Start(SERVICE_STATE_FOCUS)) {
+        u8 state = 0xEE;
+        const uint32_t rc = serviceDispatchOut(getter, 9, state);
+        const bool passed = ServiceJudgeFocus(rc, state, detail, sizeof(detail));
+        Report(SERVICE_STATE_FOCUS, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_STATE_LOGO)) {
+        ServiceLogoMessage seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.firmware21 = hosversionAtLeast(21, 0, 0);
+        seen.enable_rc = serviceDispatch(getter, 130);
+        while (seen.count < SERVICE_AM_MESSAGES) {
+            u32 message = 0;
+            seen.end_rc = serviceDispatchOut(getter, 1, message);
+            if (R_FAILED(seen.end_rc)) {
+                break;
+            }
+            seen.messages[seen.count++] = message;
+        }
+        const bool passed = ServiceJudgeLogoMessage(&seen, detail, sizeof(detail));
+        Report(SERVICE_STATE_LOGO, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_STATE_VR)) {
+        ServiceVrMode seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.firmware19 = hosversionAtLeast(19, 0, 0);
+        seen.on = seen.off = 0xEE;
+        seen.begin_rc = serviceDispatch(getter, 1000);
+        seen.on_rc = serviceDispatchOut(getter, 1002, seen.on);
+        seen.end_rc = serviceDispatch(getter, 1001);
+        seen.off_rc = serviceDispatchOut(getter, 1002, seen.off);
+        const bool passed = ServiceJudgeVrMode(&seen, detail, sizeof(detail));
+        Report(SERVICE_STATE_VR, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_STATE_REGION)) {
+        u32 region = 0xEEEEEEEEu;
+        const uint32_t rc = serviceDispatchOut(getter, 300, region);
+        const bool passed = ServiceJudgePlatformRegion(rc, region, hosversionAtLeast(9, 0, 0),
+                                                       detail, sizeof(detail));
+        Report(SERVICE_STATE_REGION, CHECK_EXACT, passed, detail);
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -996,4 +1074,5 @@ void RunService(void) {
     RunTime();
     RunPl();
     RunProfile();
+    RunAmState();
 }
