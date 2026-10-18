@@ -112,6 +112,10 @@ static const struct {
                                     "a socket timeout shorter than a timeval is EINVAL" },
     [SERVICE_BSD_NAME_SHORT] = { "bsd-local",
                                  "getsockname into 8 bytes writes 8 and says 8" },
+    [SERVICE_IPC_POINTER] = { "ipc", "a session of set has a pointer buffer" },
+    [SERVICE_IPC_CLONE] = { "ipc", "a clone of a session answers as the session does" },
+    [SERVICE_IPC_CLOSE] = { "ipc",
+                            "a Close is answered SessionClosed, and so is the next request" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1221,5 +1225,48 @@ bool ServiceJudgeNameShort(const ServiceNameShort *seen, char *out, size_t out_s
                                    : "8 bytes, and 8 said",
              seen->socket_fd, seen->bind_ret, seen->bind_errno, seen->name_ret, seen->name_errno,
              (unsigned)seen->length, seen->past_kept ? "kept" : "written");
+    return passed;
+}
+
+bool ServiceJudgePointerBuffer(uint32_t open_rc, uint32_t rc, uint32_t size, char *out,
+                               size_t out_size) {
+    const bool passed = open_rc == 0u && rc == 0u && size > 0u;
+    snprintf(out, out_size, "%s: set opened 0x%x, QueryPointerBufferSize 0x%x, 0x%x",
+             open_rc != 0u ? "no session"
+             : rc != 0u    ? "refused"
+             : passed      ? "room in it"
+                           : "no room",
+             (unsigned)open_rc, (unsigned)rc, (unsigned)size);
+    return passed;
+}
+
+bool ServiceJudgeSessionClone(const ServiceSessionClone *seen, char *out, size_t out_size) {
+    const bool refused = seen->open_rc != 0u || seen->clone_rc != 0u || !seen->handle ||
+                         seen->first_rc != 0u || seen->clone_ask_rc != 0u;
+    const bool passed = !refused && seen->first != 0u && seen->first == seen->cloned;
+    snprintf(out, out_size,
+             "%s: set opened 0x%x, CloneCurrentObject 0x%x %s, GetLanguageCode 0x%x 0x%llx, on the "
+             "clone 0x%x 0x%llx",
+             refused  ? "refused"
+             : passed ? "the same answer"
+                      : "another answer",
+             (unsigned)seen->open_rc, (unsigned)seen->clone_rc,
+             seen->handle ? "a handle" : "no handle", (unsigned)seen->first_rc,
+             (unsigned long long)seen->first, (unsigned)seen->clone_ask_rc,
+             (unsigned long long)seen->cloned);
+    return passed;
+}
+
+bool ServiceJudgeSessionClose(uint32_t open_rc, uint32_t close_rc, uint32_t after_rc, char *out,
+                              size_t out_size) {
+    const bool closed = close_rc == SERVICE_SESSION_CLOSED;
+    const bool stays = after_rc == SERVICE_SESSION_CLOSED;
+    const bool passed = open_rc == 0u && closed && stays;
+    snprintf(out, out_size, "%s: set opened 0x%x, Close 0x%x, GetLanguageCode after 0x%x",
+             open_rc != 0u ? "no session"
+             : !closed     ? "the Close answered otherwise"
+             : !stays      ? "the session answered after its Close"
+                           : "SessionClosed both",
+             (unsigned)open_rc, (unsigned)close_rc, (unsigned)after_rc);
     return passed;
 }

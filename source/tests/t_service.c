@@ -1792,6 +1792,80 @@ static void RunBsdLocal(void) {
     socketExit();
 }
 
+// ---------------------------------------------------------------------------------------------
+// ipc
+
+/// A session of set opened by name, as the SDK opens each service, with nothing of libnx's around
+/// it.
+static uint32_t IpcOpenSet(Handle *h) {
+    *h = 0;
+    return smGetServiceOriginal(h, smEncodeName("set"));
+}
+
+/// What every service session answers whatever service it is, through the IpcController commands
+/// a game's IPC layer sends (sf's pointer buffer, clone) and the Close it ends a session with.
+static void RunIpc(void) {
+    char detail[480];
+    if (Start(SERVICE_IPC_POINTER)) {
+        Handle h;
+        const uint32_t open_rc = IpcOpenSet(&h);
+        u16 size = 0;
+        uint32_t rc = 0xFFFFFFFFu;
+        if (open_rc == 0u) {
+            rc = cmifQueryPointerBufferSize(h, &size);
+            Service s;
+            serviceCreate(&s, h);
+            serviceClose(&s);
+        }
+        const bool passed =
+            ServiceJudgePointerBuffer(open_rc, rc, size, detail, sizeof(detail));
+        Report(SERVICE_IPC_POINTER, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_IPC_CLONE)) {
+        ServiceSessionClone seen;
+        memset(&seen, 0, sizeof(seen));
+        Handle h;
+        seen.open_rc = IpcOpenSet(&h);
+        if (seen.open_rc == 0u) {
+            Handle clone = 0;
+            seen.clone_rc = cmifCloneCurrentObject(h, &clone);
+            seen.handle = seen.clone_rc == 0u && clone != 0u;
+            Service first, cloned;
+            serviceCreate(&first, h);
+            u64 code = 0;
+            seen.first_rc = serviceDispatchOut(&first, 0, code);
+            seen.first = code;
+            if (seen.handle) {
+                serviceCreate(&cloned, clone);
+                code = 0;
+                seen.clone_ask_rc = serviceDispatchOut(&cloned, 0, code);
+                seen.cloned = code;
+                serviceClose(&cloned);
+            }
+            serviceClose(&first);
+        }
+        const bool passed = ServiceJudgeSessionClone(&seen, detail, sizeof(detail));
+        Report(SERVICE_IPC_CLONE, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_IPC_CLOSE)) {
+        Handle h;
+        const uint32_t open_rc = IpcOpenSet(&h);
+        uint32_t close_rc = 0xFFFFFFFFu, after_rc = 0xFFFFFFFFu;
+        if (open_rc == 0u) {
+            cmifMakeCloseRequest(armGetTls(), 0);
+            close_rc = svcSendSyncRequest(h);
+            Service s;
+            serviceCreate(&s, h);
+            u64 code = 0;
+            after_rc = serviceDispatchOut(&s, 0, code);
+            svcCloseHandle(h);
+        }
+        const bool passed =
+            ServiceJudgeSessionClose(open_rc, close_rc, after_rc, detail, sizeof(detail));
+        Report(SERVICE_IPC_CLOSE, CHECK_EXACT, passed, detail);
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -1817,4 +1891,5 @@ void RunService(void) {
     RunMii();
     RunAmMode();
     RunBsdLocal();
+    RunIpc();
 }
