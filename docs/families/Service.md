@@ -25,6 +25,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | am-state | 5 | what the application's state getter tells a game before its first frame: the mode and its resolution, the focus, the start-up logo's message, 3D VR mode, the platform region (`hle/service/am/service/common_state_getter.cpp`) |
 | am-self | 2 | two settings a game makes on its self controller, read back: the idle time detection extension and auto sleep (`hle/service/am/service/self_controller.cpp`) |
 | am-functions | 3 | what an application's functions tell a game before its title screen: the language, the events it waits on, the channels a launch may fill (`hle/service/am/service/application_functions.cpp`) |
+| auddev | 3 | the audio device service a game with a renderer asks: the active output among those listed, and its volume read back as set (`hle/service/audio/audio_device.cpp`, `audio_core/renderer/audio_device.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -347,6 +348,23 @@ anywhere else every case is skipped as `unavailable`.
 
 Each event handed out is closed at once; a storage handed out is closed without being read.
 
+## auddev
+
+A game that plays through the audio renderer asks the audio device service which outputs there
+are and which one plays, and sets that one's volume: audren:u's GetAudioDeviceService (2), then
+ListAudioDeviceName, GetActiveAudioDeviceName and Get and SetAudioDeviceOutputVolume, the Auto
+commands from 3.0.0 (6, 10, 8, 7) as libnx's `auddev` sends them. reden lists its outputs, names
+AudioTvOutput the active one, and keeps the volume set on that one (`audio_device.cpp:57-127` at
+75c12299a6, and `audio_core/renderer/audio_device.cpp` for the names).
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| audren:u hands out the audio device service | libnx's `auddevInitialize` | it succeeds | none |
+| the active output is one of the devices listed | the list, room for 8, and the active name | at least one listed, the active name not empty and among them | exact |
+| a volume set on the active device reads back | its volume, set to 0.5 (0.25 when it was 0.5), read again, set back | the read after the set is what was set | exact |
+
+The volume is put back as it was before the case returns; the line carries all four answers.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -382,6 +400,9 @@ Each event handed out is closed at once; a storage handed out is closed without 
   after it was Extended, and keeps it until the application exits, as reden does.
 - **Q14.** Whether a console's user channel is ever filled for a program nobody launched with
   one.
+- **Q15.** Which output a console names active when it is docked, handheld and with
+  headphones (reden always AudioTvOutput), and whether it keeps a volume set on an output that
+  is not the active one.
 
 ## The judge, pinned
 
@@ -436,3 +457,6 @@ a code of nought; every start event handed out, also with the three of 9.0.0 new
 firmware, and fails an unknown command's success with no handle and nothing asked; and two
 empty channels refused with `0x480`, the friend one only when asked, failing a stub's success,
 a storage in the user channel and another result.
+auddev passes reden's three outputs with AudioTvOutput active, and fails an active one
+not listed, no active name and a stand-in's empty list; and a volume read back as set, failing
+the volume before read back, another and a refusal.

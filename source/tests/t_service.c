@@ -1206,6 +1206,64 @@ static void RunAmFunctions(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// auddev
+
+/// The audio device service a game with a renderer asks which output plays and how loud, opened
+/// with libnx's auddevInitialize (audren:u's GetAudioDeviceService, 2, with this program's
+/// applet resource user id).
+static void RunAuddev(void) {
+    char detail[480];
+    bool opens = false;
+    if (Start(SERVICE_AUDDEV_OPENS)) {
+        const Result rc = auddevInitialize();
+        opens = R_SUCCEEDED(rc);
+        snprintf(detail, sizeof(detail), "auddevInitialize returned 0x%x", (unsigned)rc);
+        Report(SERVICE_AUDDEV_OPENS, CHECK_NONE, opens, detail);
+    }
+    if (!opens) {
+        Skip(SERVICE_AUDDEV_ACTIVE, REPORT_REASON_DEPENDS, "the audio device service did not open");
+        Skip(SERVICE_AUDDEV_VOLUME, REPORT_REASON_DEPENDS, "the audio device service did not open");
+        return;
+    }
+    static ServiceAudioDevices seen;
+    memset(&seen, 0, sizeof(seen));
+    bool active = false;
+    if (Start(SERVICE_AUDDEV_ACTIVE)) {
+        static AudioDeviceName names[SERVICE_AUDIO_DEVICES];
+        AudioDeviceName name;
+        memset(names, 0, sizeof(names));
+        memset(&name, 0, sizeof(name));
+        s32 listed = -1;
+        seen.list_rc = auddevListAudioDeviceName(names, SERVICE_AUDIO_DEVICES, &listed);
+        seen.listed = listed;
+        memcpy(seen.names, names, sizeof(seen.names));
+        seen.active_rc = auddevGetActiveAudioDeviceName(&name);
+        memcpy(seen.active, name.name, sizeof(seen.active));
+        seen.active[SERVICE_AUDIO_NAME - 1u] = '\0';
+        active = R_SUCCEEDED(seen.active_rc) && seen.active[0] != '\0';
+        const bool passed = ServiceJudgeAudioActive(&seen, detail, sizeof(detail));
+        Report(SERVICE_AUDDEV_ACTIVE, CHECK_EXACT, passed, detail);
+    }
+    if (!active) {
+        Skip(SERVICE_AUDDEV_VOLUME, REPORT_REASON_DEPENDS, "no active device to set a volume on");
+    } else if (Start(SERVICE_AUDDEV_VOLUME)) {
+        AudioDeviceName name;
+        memcpy(name.name, seen.active, sizeof(name.name));
+        float before = -1.0f, after = -1.0f;
+        const uint32_t before_rc = auddevGetAudioDeviceOutputVolume(&name, &before);
+        const float asked = before == 0.5f ? 0.25f : 0.5f;
+        const uint32_t set_rc = auddevSetAudioDeviceOutputVolume(&name, asked);
+        const uint32_t after_rc = auddevGetAudioDeviceOutputVolume(&name, &after);
+        const uint32_t restore_rc =
+            auddevSetAudioDeviceOutputVolume(&name, before >= 0.0f ? before : 1.0f);
+        const bool passed = ServiceJudgeAudioVolume(before_rc, before, set_rc, asked, after_rc,
+                                                    after, restore_rc, detail, sizeof(detail));
+        Report(SERVICE_AUDDEV_VOLUME, CHECK_EXACT, passed, detail);
+    }
+    auddevExit();
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -1223,4 +1281,5 @@ void RunService(void) {
     RunAmState();
     RunAmSelf();
     RunAmFunctions();
+    RunAuddev();
 }

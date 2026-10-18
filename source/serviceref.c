@@ -77,6 +77,9 @@ static const struct {
     [SERVICE_FUNC_CHANNELS] = { "am-functions",
                                 "nothing waits in the friend invitation channel or the user "
                                 "channel" },
+    [SERVICE_AUDDEV_OPENS] = { "auddev", "audren:u hands out the audio device service" },
+    [SERVICE_AUDDEV_ACTIVE] = { "auddev", "the active output is one of the devices listed" },
+    [SERVICE_AUDDEV_VOLUME] = { "auddev", "a volume set on the active device reads back" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -841,5 +844,47 @@ bool ServiceJudgeEmptyChannels(bool friend_asked, uint32_t friend_rc, bool frien
              friend_asked ? "asked" : "newer than the firmware", (unsigned)friend_rc,
              friend_storage ? ", a storage" : "", (unsigned)user_rc,
              user_storage ? ", a storage" : "", (unsigned)SERVICE_AM_NO_DATA);
+    return passed;
+}
+
+bool ServiceJudgeAudioActive(const ServiceAudioDevices *seen, char *out, size_t out_size) {
+    const bool refused = seen->list_rc != 0u || seen->active_rc != 0u;
+    const int32_t n = seen->listed > (int32_t)SERVICE_AUDIO_DEVICES ? (int32_t)SERVICE_AUDIO_DEVICES
+                                                                    : seen->listed;
+    bool found = false;
+    for (int32_t i = 0; i < n; ++i) {
+        found = found || strncmp(seen->names[i], seen->active, SERVICE_AUDIO_NAME) == 0;
+    }
+    const bool named = seen->active[0] != '\0';
+    const bool passed = !refused && n > 0 && named && found;
+    int at = snprintf(out, out_size, "%s: list 0x%x, %d listed:",
+                      refused  ? "refused"
+                      : n <= 0 ? "nothing listed"
+                      : !named ? "no active device"
+                      : passed ? "the active one listed"
+                               : "the active one not listed",
+                      (unsigned)seen->list_rc, (int)seen->listed);
+    for (int32_t i = 0; i < n && at > 0 && (size_t)at < out_size; ++i) {
+        at += snprintf(out + at, out_size - (size_t)at, " %.40s", seen->names[i]);
+    }
+    if (at > 0 && (size_t)at < out_size) {
+        snprintf(out + at, out_size - (size_t)at, "; active 0x%x \"%.40s\"",
+                 (unsigned)seen->active_rc, seen->active);
+    }
+    return passed;
+}
+
+bool ServiceJudgeAudioVolume(uint32_t before_rc, float before, uint32_t set_rc, float asked,
+                             uint32_t after_rc, float after, uint32_t restore_rc, char *out,
+                             size_t out_size) {
+    const bool refused = before_rc != 0u || set_rc != 0u || after_rc != 0u || restore_rc != 0u;
+    const bool passed = !refused && after == asked;
+    snprintf(out, out_size, "%s: volume 0x%x %.3f, set to %.3f 0x%x, read 0x%x %.3f, put back 0x%x",
+             refused           ? "refused"
+             : passed          ? "the volume set reads back"
+             : after == before ? "the volume before reads back"
+                               : "another volume reads back",
+             (unsigned)before_rc, (double)before, (double)asked, (unsigned)set_rc,
+             (unsigned)after_rc, (double)after, (unsigned)restore_rc);
     return passed;
 }

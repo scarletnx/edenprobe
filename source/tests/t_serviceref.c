@@ -826,6 +826,47 @@ static void CheckAmFunctions(void) {
                empty, stub_storage, user_left, old_friend, other, user_other);
 }
 
+static void CheckAuddev(void) {
+    static ServiceAudioDevices seen;
+    memset(&seen, 0, sizeof(seen));
+    seen.listed = 3;
+    strcpy(seen.names[0], "AudioStereoJackOutput");
+    strcpy(seen.names[1], "AudioBuiltInSpeakerOutput");
+    strcpy(seen.names[2], "AudioTvOutput");
+    strcpy(seen.active, "AudioTvOutput");
+    const bool reden = ServiceJudgeAudioActive(&seen, said, sizeof(said)) &&
+                       strcmp(said, "the active one listed: list 0x0, 3 listed: "
+                                    "AudioStereoJackOutput AudioBuiltInSpeakerOutput "
+                                    "AudioTvOutput; active 0x0 \"AudioTvOutput\"") == 0;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+    strcpy(seen.active, "AudioUsbDeviceOutput");
+    const bool unlisted = !ServiceJudgeAudioActive(&seen, said, sizeof(said)) &&
+                          strstr(said, "the active one not listed") == said;
+    seen.active[0] = '\0';
+    const bool unnamed = !ServiceJudgeAudioActive(&seen, said, sizeof(said));
+    memset(&seen, 0, sizeof(seen));
+    const bool stub = !ServiceJudgeAudioActive(&seen, said, sizeof(said)) &&
+                      strstr(said, "nothing listed") == said;
+    CHECK_TRUE(SUITE, "service: auddev passes the active output among those listed", CHECK_NONE,
+               reden && unlisted && unnamed && stub,
+               "reden %d \"%.200s\", not listed %d, no name %d, a stand-in %d", reden, reden_said,
+               unlisted, unnamed, stub);
+
+    const bool kept = ServiceJudgeAudioVolume(0u, 1.0f, 0u, 0.5f, 0u, 0.5f, 0u, said, sizeof(said));
+    const bool fixed = !ServiceJudgeAudioVolume(0u, 1.0f, 0u, 0.5f, 0u, 1.0f, 0u, said,
+                                                sizeof(said)) &&
+                       strstr(said, "the volume before reads back") == said;
+    const bool other = !ServiceJudgeAudioVolume(0u, 1.0f, 0u, 0.5f, 0u, 0.25f, 0u, said,
+                                                sizeof(said));
+    const bool refused = !ServiceJudgeAudioVolume(0u, 1.0f, SERVICE_RESULT(10, 221), 0.5f, 0u,
+                                                  1.0f, 0u, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: auddev passes a volume read back as set", CHECK_NONE,
+               kept && fixed && other && refused,
+               "kept %d, the volume before %d, another %d, refused %d", kept, fixed, other,
+               refused);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -843,4 +884,5 @@ void RunReferenceService(void) {
     CheckAmState();
     CheckAmSelf();
     CheckAmFunctions();
+    CheckAuddev();
 }

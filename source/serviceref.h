@@ -87,6 +87,11 @@ extern "C" {
 /// last three 9.0.0+ (libnx applet.c).
 #define SERVICE_START_EVENTS 4u
 
+/// The most output devices the audio device case lists, and the length of a device's name
+/// (nn::audio::AudioDeviceName, 0x100 bytes).
+#define SERVICE_AUDIO_DEVICES 8u
+#define SERVICE_AUDIO_NAME 0x100u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -133,6 +138,9 @@ typedef enum {
     SERVICE_FUNC_LANGUAGE, ///< am-functions: GetDesiredLanguage is a code set lists
     SERVICE_FUNC_EVENTS,   ///< am-functions: the events asked for at start are handed out
     SERVICE_FUNC_CHANNELS, ///< am-functions: the friend invitation and user channels are empty
+    SERVICE_AUDDEV_OPENS,  ///< auddev: audren:u hands out the audio device service (none tier)
+    SERVICE_AUDDEV_ACTIVE, ///< auddev: the active output is one of the devices listed
+    SERVICE_AUDDEV_VOLUME, ///< auddev: a volume set on the active device reads back
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -440,6 +448,25 @@ bool ServiceJudgeStartEvents(const ServiceStartEvent events[SERVICE_START_EVENTS
 /// channel.
 bool ServiceJudgeEmptyChannels(bool friend_asked, uint32_t friend_rc, bool friend_storage,
                                uint32_t user_rc, bool user_storage, char *out, size_t out_size);
+
+/// IAudioDevice's ListAudioDeviceName and GetActiveAudioDeviceName (the Auto commands from
+/// 3.0.0, as libnx sends them): what each answered, how many were listed, the names, and the
+/// active one. Passes when both succeed, at least one is listed and the active name is one of
+/// them, not empty: reden lists its outputs and names AudioTvOutput the active one.
+typedef struct {
+    uint32_t list_rc, active_rc;
+    int32_t listed;
+    char names[SERVICE_AUDIO_DEVICES][SERVICE_AUDIO_NAME];
+    char active[SERVICE_AUDIO_NAME];
+} ServiceAudioDevices;
+bool ServiceJudgeAudioActive(const ServiceAudioDevices *seen, char *out, size_t out_size);
+
+/// GetAudioDeviceOutputVolume of the active device, SetAudioDeviceOutputVolume to @p asked, the
+/// volume read again and the first one set back. Passes when all four succeed and the read after
+/// the set is @p asked, reden's SetDeviceVolumes for the device it calls active.
+bool ServiceJudgeAudioVolume(uint32_t before_rc, float before, uint32_t set_rc, float asked,
+                             uint32_t after_rc, float after, uint32_t restore_rc, char *out,
+                             size_t out_size);
 
 #ifdef __cplusplus
 }
