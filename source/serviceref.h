@@ -95,6 +95,13 @@ extern "C" {
 /// The file the directory cases make inside the directory they rename, and its size.
 #define SERVICE_DIR_FILE_SIZE 16
 
+/// am's InvalidOffset: a storage access past its end (`hle/service/am/am_results.h`).
+#define SERVICE_AM_INVALID_OFFSET SERVICE_RESULT(128, 503)
+/// The storage the am-storage suite creates, and where it writes in it.
+#define SERVICE_STORAGE_SIZE 0x40
+#define SERVICE_STORAGE_AT 0x20
+#define SERVICE_STORAGE_PAST 0x38
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -152,6 +159,9 @@ typedef enum {
     SERVICE_CHANNEL_UNPOP,    ///< am-channel: a storage unpopped to the user channel pops back
     SERVICE_CHANNEL_ORDER,    ///< am-channel: the last one unpopped pops first; Clear empties it
     SERVICE_CHANNEL_PREVIOUS, ///< am-channel: no program ran before this one
+    SERVICE_STORAGE_KEEPS,      ///< am-storage: a storage has its size and keeps what is written
+    SERVICE_STORAGE_WRITE_PAST, ///< am-storage: a write past the end is refused
+    SERVICE_STORAGE_READ_PAST,  ///< am-storage: a read past the end is refused
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -553,6 +563,24 @@ bool ServiceJudgeChannelOrder(const ServiceChannelOrder *seen, char *out, size_t
 /// GetPreviousProgramIndex (123): -1 for a program no other program of the application launched,
 /// as reden starts every application (`applet.h`, previous_program_index).
 bool ServiceJudgePreviousProgram(uint32_t rc, int32_t index, char *out, size_t out_size);
+
+/// A storage from CreateStorage (ILibraryAppletCreator 10): what the creation, GetSize, a write
+/// of 16 bytes at SERVICE_STORAGE_AT and the read of them back answered, the size it gave, and
+/// whether the bytes read are the ones written. Passes when every step succeeds, the size is the
+/// one asked and the bytes match: reden's storage is a buffer of that size
+/// (`library_applet_storage.cpp`).
+typedef struct {
+    uint32_t create_rc, size_rc, write_rc, read_rc;
+    int64_t size;
+    bool same;
+} ServiceStorageKeeps;
+bool ServiceJudgeStorageKeeps(const ServiceStorageKeeps *seen, char *out, size_t out_size);
+
+/// An access of 16 bytes at SERVICE_STORAGE_PAST in a storage of SERVICE_STORAGE_SIZE, which ends
+/// 8 bytes past it: InvalidOffset (128, 503), as reden's ValidateOffset answers a write or a read
+/// whose end is past the storage's. @p what names the access on the line.
+bool ServiceJudgeStoragePast(const char *what, uint32_t create_rc, uint32_t rc, char *out,
+                             size_t out_size);
 
 #ifdef __cplusplus
 }

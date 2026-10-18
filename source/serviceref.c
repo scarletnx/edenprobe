@@ -94,6 +94,10 @@ static const struct {
                                 "channel" },
     [SERVICE_CHANNEL_PREVIOUS] = { "am-channel",
                                    "the previous program index is -1 for the first program" },
+    [SERVICE_STORAGE_KEEPS] = { "am-storage",
+                                "a storage has the size asked and gives back what is written" },
+    [SERVICE_STORAGE_WRITE_PAST] = { "am-storage", "a write past a storage's end is refused" },
+    [SERVICE_STORAGE_READ_PAST] = { "am-storage", "a read past a storage's end is refused" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1050,5 +1054,35 @@ bool ServiceJudgePreviousProgram(uint32_t rc, int32_t index, char *out, size_t o
     snprintf(out, out_size, "%s: GetPreviousProgramIndex 0x%x, %d",
              rc != 0u ? "refused" : passed ? "no program before" : "another index", (unsigned)rc,
              (int)index);
+    return passed;
+}
+
+bool ServiceJudgeStorageKeeps(const ServiceStorageKeeps *seen, char *out, size_t out_size) {
+    const bool refused = seen->create_rc != 0u || seen->size_rc != 0u || seen->write_rc != 0u ||
+                         seen->read_rc != 0u;
+    const bool sized = seen->size == SERVICE_STORAGE_SIZE;
+    const bool passed = !refused && sized && seen->same;
+    snprintf(out, out_size,
+             "%s: CreateStorage(0x%x) 0x%x, GetSize 0x%x 0x%llx, write at 0x%x 0x%x, read 0x%x %s",
+             refused       ? "refused"
+             : !sized      ? "another size"
+             : !seen->same ? "other bytes read back"
+                           : "its size, and the bytes written read back",
+             (unsigned)SERVICE_STORAGE_SIZE, (unsigned)seen->create_rc, (unsigned)seen->size_rc,
+             (unsigned long long)seen->size, (unsigned)SERVICE_STORAGE_AT,
+             (unsigned)seen->write_rc, (unsigned)seen->read_rc, seen->same ? "same" : "other");
+    return passed;
+}
+
+bool ServiceJudgeStoragePast(const char *what, uint32_t create_rc, uint32_t rc, char *out,
+                             size_t out_size) {
+    const bool passed = create_rc == 0u && rc == SERVICE_AM_INVALID_OFFSET;
+    snprintf(out, out_size, "%s: CreateStorage(0x%x) 0x%x, %s of 16 bytes at 0x%x 0x%x",
+             create_rc != 0u ? "no storage"
+             : passed        ? "refused with InvalidOffset"
+             : rc == 0u      ? "accepted"
+                             : "refused otherwise",
+             (unsigned)SERVICE_STORAGE_SIZE, (unsigned)create_rc, what,
+             (unsigned)SERVICE_STORAGE_PAST, (unsigned)rc);
     return passed;
 }
