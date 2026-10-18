@@ -28,6 +28,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | auddev | 3 | the audio device service a game with a renderer asks: the active output among those listed, and its volume read back as set (`hle/service/audio/audio_device.cpp`, `audio_core/renderer/audio_device.cpp`) |
 | fsdir | 3 | a game's own files on the memory card: a directory renamed with what it holds, listed, and deleted with it (`hle/service/filesystem/fsp/fs_i_filesystem.cpp`, `RenameDirectory`, and `hle/service/filesystem/filesystem.cpp`) |
 | am-audio | 2 | the volumes a game expects for itself and a library applet, set and read back (`hle/service/am/service/audio_controller.cpp`) |
+| am-channel | 3 | the user channel an application's programs hand data through, and the program that ran before (`hle/service/am/service/application_functions.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -405,6 +406,25 @@ it back.
 Both cases put the volumes back as they read them, or at one each when the first read failed; the
 line carries every answer, the volumes in thousandths.
 
+## am-channel
+
+An application made of several programs (a collection, a game with a separate launcher) starts
+the next one with ExecuteProgram and hands it data through the user channel: it clears the
+channel (ClearUserChannel, 121), puts a storage in it (UnpopToUserChannel, 122), and the program
+started takes it out with PopLaunchParameter(UserChannel) (1); GetPreviousProgramIndex (123)
+tells a program which one launched it. reden keeps what is unpopped for the next pop, the last
+one first, and starts every application with -1 as the previous program (`application_functions.cpp`
+and `applet.h` at 75c12299a6).
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| a storage unpopped to the user channel pops back with its bytes | a storage of 16 bytes written, 122, 1 with UserChannel, the bytes read, 1 again; skipped as `unavailable` before 6.0.0 | the bytes are the ones written and the second pop answers NoDataInChannel | exact |
+| the last storage unpopped pops first and a clear empties the channel | two storages unpopped, 1, 121, 1 again; skipped as `unavailable` before 6.0.0 | the pop gives the second one and the pop after the clear answers NoDataInChannel | exact |
+| the previous program index is -1 for the first program | 123; skipped as `unavailable` before 5.0.0 | it succeeds with -1 | exact |
+
+All three skip as `unavailable` in a program that is not an application. The channel is left
+empty, as the am-functions suite found it.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -448,6 +468,8 @@ line carries every answer, the volumes in thousandths.
   is already there.
 - **Q17.** Whether a console keeps the expected master volumes an application sets and gives
   them back, as reden does, and whether it clamps a volume past one or refuses it.
+- **Q18.** Whether a console's user channel gives the last storage unpopped first, as reden's
+  does, and whether an application launched from the home menu reads -1 as its previous program.
 
 ## The judge, pinned
 
@@ -512,3 +534,6 @@ directory, with no size and a count of two; and a directory gone with what it he
 one still there and a refused delete.
 am-audio passes volumes read back as set, and fails a write the reads do not see, half of it
 kept, and a refusal.
+am-channel passes a user channel that keeps what is unpopped, and fails an unpop that keeps
+nothing, other bytes, a channel not emptied by the pop, a queue, a clear that leaves one, and an
+index of 0.

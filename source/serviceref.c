@@ -87,6 +87,13 @@ static const struct {
     [SERVICE_AUDIOCTL_EXPECTED] = { "am-audio",
                                     "the expected master volumes set are the ones read back" },
     [SERVICE_AUDIOCTL_CHANGE] = { "am-audio", "a main applet volume changed is read back" },
+    [SERVICE_CHANNEL_UNPOP] = { "am-channel",
+                                "a storage unpopped to the user channel pops back with its bytes" },
+    [SERVICE_CHANNEL_ORDER] = { "am-channel",
+                                "the last storage unpopped pops first and a clear empties the "
+                                "channel" },
+    [SERVICE_CHANNEL_PREVIOUS] = { "am-channel",
+                                   "the previous program index is -1 for the first program" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -991,5 +998,57 @@ bool ServiceJudgeMainVolume(const ServiceMainVolume *seen, char *out, size_t out
              Milli(seen->before), Milli(seen->asked), (unsigned)seen->change_rc,
              Milli(seen->after), (unsigned)seen->after_rc, (unsigned)seen->rate_rc,
              (unsigned)seen->restore_rc);
+    return passed;
+}
+
+bool ServiceJudgeUserChannel(const ServiceUserChannel *seen, char *out, size_t out_size) {
+    const bool refused = seen->create_rc != 0u || seen->write_rc != 0u || seen->unpop_rc != 0u ||
+                         (seen->pop_rc != 0u && seen->pop_rc != SERVICE_AM_NO_DATA) ||
+                         seen->read_rc != 0u;
+    const bool nothing = seen->pop_rc == SERVICE_AM_NO_DATA;
+    const bool empty = seen->again_rc == SERVICE_AM_NO_DATA;
+    const bool passed = !refused && !nothing && seen->same && empty;
+    snprintf(out, out_size,
+             "%s: create 0x%x, write 0x%x, unpop 0x%x, pop 0x%x, read 0x%x %s, pop again 0x%x",
+             refused        ? "refused"
+             : nothing      ? "the pop found nothing unpopped"
+             : !seen->same  ? "the storage popped holds other bytes"
+             : !empty       ? "the channel is not empty after the pop"
+                            : "popped back with its bytes",
+             (unsigned)seen->create_rc, (unsigned)seen->write_rc, (unsigned)seen->unpop_rc,
+             (unsigned)seen->pop_rc, (unsigned)seen->read_rc, seen->same ? "same" : "other",
+             (unsigned)seen->again_rc);
+    return passed;
+}
+
+bool ServiceJudgeChannelOrder(const ServiceChannelOrder *seen, char *out, size_t out_size) {
+    const bool refused = seen->first_rc != 0u || seen->second_rc != 0u ||
+                         (seen->pop_rc != 0u && seen->pop_rc != SERVICE_AM_NO_DATA) ||
+                         seen->read_rc != 0u || seen->clear_rc != 0u;
+    const bool cleared = seen->after_rc == SERVICE_AM_NO_DATA;
+    const bool passed = !refused && seen->pop_rc == 0u && seen->got == 2 && cleared;
+    const char *verdict = "the last in came out first and the clear emptied it";
+    if (refused) {
+        verdict = "refused";
+    } else if (seen->pop_rc == SERVICE_AM_NO_DATA) {
+        verdict = "the pop found nothing unpopped";
+    } else if (seen->got != 2) {
+        verdict = "the first storage unpopped came out first";
+    } else if (!cleared) {
+        verdict = "the clear left a storage";
+    }
+    snprintf(out, out_size, "%s: unpop 0x%x and 0x%x, pop 0x%x gave %s, clear 0x%x, pop 0x%x",
+             verdict,
+             (unsigned)seen->first_rc, (unsigned)seen->second_rc, (unsigned)seen->pop_rc,
+             seen->got == 2 ? "the second" : seen->got == 1 ? "the first" : "neither",
+             (unsigned)seen->clear_rc, (unsigned)seen->after_rc);
+    return passed;
+}
+
+bool ServiceJudgePreviousProgram(uint32_t rc, int32_t index, char *out, size_t out_size) {
+    const bool passed = rc == 0u && index == -1;
+    snprintf(out, out_size, "%s: GetPreviousProgramIndex 0x%x, %d",
+             rc != 0u ? "refused" : passed ? "no program before" : "another index", (unsigned)rc,
+             (int)index);
     return passed;
 }
