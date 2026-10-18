@@ -31,6 +31,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | am-channel | 3 | the user channel an application's programs hand data through, and the program that ran before (`hle/service/am/service/application_functions.cpp`) |
 | am-storage | 3 | the storages a game hands a library applet its arguments in: size, bytes, and the end (`hle/service/am/library_applet_storage.cpp`) |
 | mii | 4 | the console's six default Miis a game lists with the player's, and the database's state (`hle/service/mii/mii_manager.cpp`) |
+| am-mode | 2 | the state getter's modes: VR mode turned on and off, the boot mode, the controller update section (`hle/service/am/service/common_state_getter.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -463,6 +464,21 @@ refuses a default index past the sixth with InvalidArgument (`mii_manager.cpp:55
 The four skip as `unavailable` when mii:u or its database does not open; the session is closed
 after.
 
+## am-mode
+
+A game with a VR scene turns VR mode on as it enters it and off as it leaves, and reads it back
+(IsVrModeEnabled, 50); libnx turns it with BeginVrModeEx (53) and EndVrModeEx (54) from 7.0.0 and
+SetVrModeEnabled (51) before. reden keeps the mode on the applet, answers GetBootMode (8) with a
+normal boot and IsInControllerFirmwareUpdateSection (55) with false (`common_state_getter.cpp` at
+75c12299a6).
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| VR mode turned on reads on, and off once turned off | 50, on, 50, off, 50; skipped as `unavailable` before 6.0.0 | every step succeeds, on after on and off after off | exact |
+| the boot is normal and no controller firmware update is running | 8 and 55; skipped as `unavailable` before 3.0.0 | both succeed, a boot mode of 0 and false | exact |
+
+VR mode is left off.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -512,6 +528,8 @@ after.
   reden does, or reads what is there.
 - **Q20.** Whether a console's default Miis come out of Get in BuildDefault's order, as reden
   gives them, and whether each Get makes their create ids anew.
+- **Q21.** Whether a console lets an application turn VR mode on and back off, and reads it back
+  each time, as reden does.
 
 ## The judge, pinned
 
@@ -583,3 +601,5 @@ am-storage passes a storage that keeps its size and its end, and fails another s
 bytes read back, a read cut at the end and answered as a success, and a refusal of another kind.
 mii passes the six default Miis, and fails a count of nought, an empty or short list, a Mii of
 another source or build, a full database, and a seventh default built.
+am-mode passes VR mode as turned and a normal boot, and fails a stub's read that stays off,
+a mode stuck on, a maintenance boot and an update running.

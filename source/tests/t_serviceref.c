@@ -1051,6 +1051,30 @@ static void CheckMii(void) {
                six, six_said, none, given, empty, source, other, state, full, past, built);
 }
 
+static void CheckAmMode(void) {
+    ServiceVrTurn seen = { 0u, 0u, 0u, 0u, 0u, false, true, false };
+    const bool turned = ServiceJudgeVrTurn(&seen, said, sizeof(said)) &&
+                        strcmp(said, "on, then off, as turned: read 0x0 0, on 0x0, read 0x0 1, off "
+                                     "0x0, read 0x0 0") == 0;
+    char turned_said[480];
+    memcpy(turned_said, said, sizeof(said));
+    // A stub's read, off whatever was asked.
+    seen.on = false;
+    const bool stub = !ServiceJudgeVrTurn(&seen, said, sizeof(said)) &&
+                      strstr(said, "still off after it was turned on") == said;
+    seen = (ServiceVrTurn){ 0u, 0u, 0u, 0u, 0u, false, true, true };
+    const bool stuck = !ServiceJudgeVrTurn(&seen, said, sizeof(said)) &&
+                       strstr(said, "still on after it was turned off") == said;
+    const bool normal = ServiceJudgeBootMode(0u, 0u, 0u, false, said, sizeof(said));
+    const bool maintenance = !ServiceJudgeBootMode(0u, 1u, 0u, false, said, sizeof(said));
+    const bool updating = !ServiceJudgeBootMode(0u, 0u, 0u, true, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: am-mode passes VR mode as turned and a normal boot", CHECK_NONE,
+               turned && stub && stuck && normal && maintenance && updating,
+               "turned %d \"%.160s\", a stub %d, stuck on %d, normal %d, maintenance %d, "
+               "updating %d",
+               turned, turned_said, stub, stuck, normal, maintenance, updating);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1074,4 +1098,5 @@ void RunReferenceService(void) {
     CheckAmChannel();
     CheckAmStorage();
     CheckMii();
+    CheckAmMode();
 }

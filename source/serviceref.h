@@ -171,6 +171,8 @@ typedef enum {
     SERVICE_MII_DEFAULTS, ///< mii: Get of the default source gives the six BuildDefault builds
     SERVICE_MII_STATE,    ///< mii: the database is neither updated nor full
     SERVICE_MII_PAST,     ///< mii: BuildDefault past the six is refused
+    SERVICE_MODE_VR,   ///< am-mode: VR mode turned on and off reads back
+    SERVICE_MODE_BOOT, ///< am-mode: a normal boot, outside a controller firmware update
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -615,6 +617,21 @@ bool ServiceJudgeMiiState(uint32_t updated_rc, bool updated, uint32_t full_rc, b
 /// BuildDefault (7) of index 6, one past the default Miis: InvalidArgument (126, 1), as reden
 /// checks the index against RawData::DefaultMii.
 bool ServiceJudgeMiiPast(uint32_t rc, char *out, size_t out_size);
+
+/// VR mode read (IsVrModeEnabled, 50), turned on, read, turned off and read: libnx turns it with
+/// BeginVrModeEx (53) and EndVrModeEx (54) from 7.0.0, SetVrModeEnabled (51) before. Passes when
+/// every step succeeds and the reads say on after on and off after off: reden keeps the mode on
+/// the applet (`common_state_getter.cpp`, vr_mode_enabled).
+typedef struct {
+    uint32_t before_rc, on_rc, on_read_rc, off_rc, off_read_rc;
+    bool before, on, off;
+} ServiceVrTurn;
+bool ServiceJudgeVrTurn(const ServiceVrTurn *seen, char *out, size_t out_size);
+
+/// GetBootMode (8) and IsInControllerFirmwareUpdateSection (55): reden answers a normal boot (0)
+/// and false.
+bool ServiceJudgeBootMode(uint32_t boot_rc, uint32_t mode, uint32_t section_rc, bool section,
+                          char *out, size_t out_size);
 
 #ifdef __cplusplus
 }
