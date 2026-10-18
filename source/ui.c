@@ -434,6 +434,7 @@ static const struct {
     { "time-perm", UI_FAMILY_SERVICE },
     { "audout", UI_FAMILY_SERVICE },
     { "fs-file", UI_FAMILY_SERVICE },
+    { "acc-app", UI_FAMILY_SERVICE },
     { "nifm", UI_FAMILY_NET },
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
     { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },

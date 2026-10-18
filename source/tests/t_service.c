@@ -3066,6 +3066,69 @@ static void RunFsFile(void) {
     fsFsDeleteDirectoryRecursively(card, FILE_PARENT);
 }
 
+// ---------------------------------------------------------------------------------------------
+// acc-app
+
+/// The thumbnail the acc-app suite stores: a blank 256x144 RGBA frame.
+static u8 g_acc_thumbnail[SERVICE_ACC_THUMBNAIL_SIZE];
+
+/// StoreSaveDataThumbnail (110): the user, and the thumbnail by a mapped buffer.
+static Result AccStoreThumbnail(Service *s, const AccountUid *uid, size_t size) {
+    return serviceDispatchIn(s, 110, *uid,
+                             .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_In },
+                             .buffers = { { g_acc_thumbnail, size } }, );
+}
+
+/// acc:u0 as an application's save code asks it: the users it may pick from, and the thumbnail it
+/// stores with a save, at the size the account service takes and at others.
+static void RunAccApp(void) {
+    char detail[480];
+    char said[200];
+    Account a;
+    const Result opened = AccountOpen(&a, said, sizeof(said));
+    if (R_FAILED(opened)) {
+        Skip(SERVICE_ACC_QUALIFIED, REPORT_REASON_UNAVAILABLE, "%s", said);
+        Skip(SERVICE_ACC_THUMBNAIL, REPORT_REASON_UNAVAILABLE, "%s", said);
+        return;
+    }
+    if (Start(SERVICE_ACC_QUALIFIED)) {
+        ServiceAccQualified seen;
+        memset(&seen, 0, sizeof(seen));
+        AccountUid all[SERVICE_ACC_USERS], qualified[SERVICE_ACC_USERS];
+        memset(all, 0, sizeof(all));
+        memset(qualified, 0xEE, sizeof(qualified));
+        seen.all_rc = serviceDispatch(
+            a.service, 2, .buffer_attrs = { SfBufferAttr_HipcPointer | SfBufferAttr_Out },
+            .buffers = { { all, sizeof(all) } }, );
+        seen.qualified_rc = serviceDispatch(
+            a.service, 141, .buffer_attrs = { SfBufferAttr_HipcPointer | SfBufferAttr_Out },
+            .buffers = { { qualified, sizeof(qualified) } }, );
+        for (uint32_t i = 0; i < SERVICE_ACC_USERS; ++i) {
+            seen.users += accountUidIsValid(&all[i]) ? 1u : 0u;
+        }
+        seen.same = memcmp(all, qualified, sizeof(all)) == 0;
+        const bool passed = ServiceJudgeAccQualified(&seen, detail, sizeof(detail));
+        Report(SERVICE_ACC_QUALIFIED, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_ACC_THUMBNAIL)) {
+        ServiceAccThumbnail seen;
+        memset(&seen, 0, sizeof(seen));
+        memset(g_acc_thumbnail, 0, sizeof(g_acc_thumbnail));
+        AccountUid uid, nobody;
+        memset(&nobody, 0, sizeof(nobody));
+        const char *how = "";
+        seen.user_rc = AccountUser(&a, &uid, &how);
+        seen.stored_rc = AccStoreThumbnail(a.service, &uid, SERVICE_ACC_THUMBNAIL_SIZE);
+        seen.short_rc = AccStoreThumbnail(a.service, &uid, 0x1000);
+        seen.nobody_rc = AccStoreThumbnail(a.service, &nobody, SERVICE_ACC_THUMBNAIL_SIZE);
+        const bool passed = ServiceJudgeAccThumbnail(&seen, detail, sizeof(detail));
+        const size_t n = strlen(detail);
+        snprintf(detail + n, sizeof(detail) - n, "; the user by %s", how);
+        Report(SERVICE_ACC_THUMBNAIL, CHECK_EXACT, passed, detail);
+    }
+    AccountClose(&a);
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -3103,4 +3166,5 @@ void RunService(void) {
     RunTimePerm();
     RunAudout();
     RunFsFile();
+    RunAccApp();
 }

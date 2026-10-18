@@ -180,6 +180,15 @@ extern "C" {
 /// How far the fs-file suite lets a file's time stamps be from the user clock: two minutes.
 #define SERVICE_STAMP_SLACK 120u
 
+/// acc refusing a user id of nought, InvalidUserId, and a thumbnail of another size,
+/// InvalidArrayLength: Account (124) 20 and 32 (reden `acc/errors.h`). A save's thumbnail is
+/// 256x144 RGBA: 0x24000 bytes (reden `acc.cpp`, THUMBNAIL_SIZE).
+#define SERVICE_ACC_INVALID_USER SERVICE_RESULT(124, 20)
+#define SERVICE_ACC_INVALID_LENGTH SERVICE_RESULT(124, 32)
+#define SERVICE_ACC_THUMBNAIL_SIZE 0x24000u
+/// The users the acc-app suite lists at once: as many as a console has.
+#define SERVICE_ACC_USERS 8u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -289,6 +298,8 @@ typedef enum {
     SERVICE_FILE_CLEAN,  ///< fs-file: a directory with a file not deleted; cleaned, kept empty
     SERVICE_FILE_STAMP,  ///< fs-file: a file just written is dated by the clock
     SERVICE_FILE_SPACE,  ///< fs-file: the memory card's free space is within its total
+    SERVICE_ACC_QUALIFIED, ///< acc-app: the qualified users are the users there are
+    SERVICE_ACC_THUMBNAIL, ///< acc-app: a save thumbnail is taken at its size, for a user
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -1160,6 +1171,27 @@ bool ServiceJudgeFileStamp(const ServiceFileStamp *seen, char *out, size_t out_s
 /// succeed and the free space is above nought and no more than the total.
 bool ServiceJudgeFileSpace(uint32_t free_rc, int64_t free_size, uint32_t total_rc,
                            int64_t total_size, char *out, size_t out_size);
+
+/// ListAllUsers (2) and ListQualifiedUsers (141), each with what it answered, how many users the
+/// first listed, and whether the second listed the same ones. Passes when both succeed with at
+/// least one user and the same list: reden qualifies every user, with no parental control
+/// (`acc.cpp`, `ListQualifiedUsers`).
+typedef struct {
+    uint32_t all_rc, qualified_rc;
+    uint32_t users;
+    bool same;
+} ServiceAccQualified;
+bool ServiceJudgeAccQualified(const ServiceAccQualified *seen, char *out, size_t out_size);
+
+/// StoreSaveDataThumbnail (110) for the user with a thumbnail of SERVICE_ACC_THUMBNAIL_SIZE
+/// bytes, with one of 0x1000, and for a user id of nought: what each answered, with how the user
+/// was picked. Passes when the first is taken, the short one is refused as
+/// SERVICE_ACC_INVALID_LENGTH and the nought user as SERVICE_ACC_INVALID_USER: reden checks the
+/// user, then the size (`acc.cpp`, `StoreSaveDataThumbnail`).
+typedef struct {
+    uint32_t user_rc, stored_rc, short_rc, nobody_rc;
+} ServiceAccThumbnail;
+bool ServiceJudgeAccThumbnail(const ServiceAccThumbnail *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

@@ -45,6 +45,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | time-perm | 2 | what time:u, an application's time service, may not write: a clock, automatic correction, the steady clock's offset, the device's location (`hle/service/psc/time/system_clock.cpp`, `steady_clock.cpp`, `static.cpp`, `glue/time/time_zone.cpp`) |
 | audout | 3 | the plain PCM output: one output listed and opened as asked, its volume kept, buffers held while stopped and given back when it stops (`audio_core/out/audio_out_system.cpp`) |
 | fs-file | 5 | a game's own files on the memory card, as a save writer handles them: resized, renamed into place, a directory cleaned, a file's time stamp, the free space (`hle/service/filesystem/fsp/fs_i_file.cpp`, `fs_i_filesystem.cpp`, `filesystem.cpp`) |
+| acc-app | 2 | acc:u0 as a game's save code asks it: the users it may pick, and the thumbnail it stores with a save (`hle/service/acc/acc.cpp`, `ListQualifiedUsers`, `StoreSaveDataThumbnail`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -761,6 +762,22 @@ append is refused on a console (FileExtensionWithoutOpenModeAllowAppend, `0x3072
 does not check. Everything is made under `/edenprobe/service/file` on the card, which the suite
 deletes before and after; all five are skipped as `unavailable` when the card is not mounted.
 
+## acc-app
+
+A game that saves for a user lists the users it may pick from (ListQualifiedUsers, 141, from
+6.0.0), and stores a thumbnail of the moment with the save (StoreSaveDataThumbnail, 110): a 256x144
+RGBA frame of 0x24000 bytes. reden qualifies every user (`acc.cpp` at 75c12299a6, with no parental
+control), and takes a thumbnail only for a user and only at that size: a user id of nought is
+InvalidUserId (`0x287C`) and another size InvalidArrayLength (`0x407C`).
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| the qualified users are the users there are | ListAllUsers (2) and 141, room for eight each | both succeed with at least one user and the same list | exact |
+| a save thumbnail is taken at its size for a user, and only so | 110 for the user with 0x24000 bytes, with 0x1000, and for a user id of nought with 0x24000 | the first succeeds, the second is `0x407C` and the third `0x287C` | exact |
+
+The user is GetLastOpenedUser's, else the first ListAllUsers lists, with acc:u0 opened as the
+account suite opens it; both cases are skipped as `unavailable` when it does not open.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -848,6 +865,8 @@ deletes before and after; all five are skipped as `unavailable` when the card is
 - **Q37.** What a console answers DeleteDirectory of a directory that holds a file (reden's
   ResultUnknown), and whether its GetFileTimeStampRaw lays out created, modified and accessed in
   that order and sets the flag after them.
+- **Q38.** Whether a console's StoreSaveDataThumbnail refuses another size and a user id of
+  nought with these results, and whether it checks the user before the size, as reden does.
 
 ## The judge, pinned
 
@@ -973,3 +992,6 @@ directory kept and cleaned empty, and fails a delete that takes the file, a clea
 and one that takes the directory; it passes stamps within two minutes of the clock and fails a
 stub's noughts, a day off and no clock; and it passes the free space within the total and fails
 more than the total and none.
+acc-app passes every user qualified, and fails other users qualified, no user and a refusal; it
+passes a thumbnail taken at its size and refused short or for nobody, and fails a stub's success
+at every size, a nought user taken, another size taken and the thumbnail itself refused.

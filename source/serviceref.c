@@ -172,6 +172,9 @@ static const struct {
                              "a directory with a file is not deleted, and cleaned is left empty" },
     [SERVICE_FILE_STAMP] = { "fs-file", "a file just written is dated by the clock" },
     [SERVICE_FILE_SPACE] = { "fs-file", "the memory card's free space is within its total" },
+    [SERVICE_ACC_QUALIFIED] = { "acc-app", "the qualified users are the users there are" },
+    [SERVICE_ACC_THUMBNAIL] = { "acc-app",
+                                "a save thumbnail is taken at its size for a user, and only so" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1981,5 +1984,33 @@ bool ServiceJudgeFileSpace(uint32_t free_rc, int64_t free_size, uint32_t total_r
     snprintf(out, out_size, "%s: free %lld (0x%x), total %lld (0x%x)",
              refused ? "refused" : within ? "free within the total" : "free not within the total",
              (long long)free_size, (unsigned)free_rc, (long long)total_size, (unsigned)total_rc);
+    return passed;
+}
+
+bool ServiceJudgeAccQualified(const ServiceAccQualified *seen, char *out, size_t out_size) {
+    const bool refused = seen->all_rc != 0u || seen->qualified_rc != 0u;
+    const bool passed = !refused && seen->users > 0u && seen->same;
+    snprintf(out, out_size, "%s: ListAllUsers 0x%x %u users, ListQualifiedUsers 0x%x %s",
+             refused            ? "refused"
+             : seen->users == 0u ? "no user"
+             : !seen->same      ? "other users qualified"
+                                : "every user qualified",
+             (unsigned)seen->all_rc, (unsigned)seen->users, (unsigned)seen->qualified_rc,
+             seen->same ? "the same" : "others");
+    return passed;
+}
+
+bool ServiceJudgeAccThumbnail(const ServiceAccThumbnail *seen, char *out, size_t out_size) {
+    const bool stored = seen->user_rc == 0u && seen->stored_rc == 0u;
+    const bool checked = seen->short_rc == SERVICE_ACC_INVALID_LENGTH &&
+                         seen->nobody_rc == SERVICE_ACC_INVALID_USER;
+    const bool passed = stored && checked;
+    snprintf(out, out_size,
+             "%s: user 0x%x; 0x%x bytes 0x%x, 0x1000 bytes 0x%x, user nought 0x%x",
+             !stored   ? "the thumbnail not taken"
+             : !checked ? "a wrong size or user taken"
+                        : "taken at its size, refused short or for nobody",
+             (unsigned)seen->user_rc, SERVICE_ACC_THUMBNAIL_SIZE, (unsigned)seen->stored_rc,
+             (unsigned)seen->short_rc, (unsigned)seen->nobody_rc);
     return passed;
 }
