@@ -107,6 +107,10 @@ extern "C" {
 #define SERVICE_MII_INVALID_ARGUMENT SERVICE_RESULT(126, 1)
 #define SERVICE_MII_DEFAULT_COUNT 6u
 
+/// The errnos bsd answers, in the numbering it and newlib share.
+#define SERVICE_EINVAL 22
+#define SERVICE_EDOM 33
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -173,6 +177,10 @@ typedef enum {
     SERVICE_MII_PAST,     ///< mii: BuildDefault past the six is refused
     SERVICE_MODE_VR,   ///< am-mode: VR mode turned on and off reads back
     SERVICE_MODE_BOOT, ///< am-mode: a normal boot, outside a controller firmware update
+    SERVICE_BSD_RAW,           ///< bsd-local: a raw socket on bsd:u is refused with EINVAL
+    SERVICE_BSD_TIMEOUT_RANGE, ///< bsd-local: a timeout out of range is EDOM
+    SERVICE_BSD_TIMEOUT_SHORT, ///< bsd-local: a timeout shorter than a timeval is EINVAL
+    SERVICE_BSD_NAME_SHORT,    ///< bsd-local: getsockname into 8 bytes says 8
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -632,6 +640,31 @@ bool ServiceJudgeVrTurn(const ServiceVrTurn *seen, char *out, size_t out_size);
 /// and false.
 bool ServiceJudgeBootMode(uint32_t boot_rc, uint32_t mode, uint32_t section_rc, bool section,
                           char *out, size_t out_size);
+
+/// socket(AF_INET, SOCK_RAW, 0) on bsd:u: -1 with EINVAL, as reden refuses a raw socket that
+/// is not ICMP on the user's service (a41a98028a, `bsd.cpp` SocketImpl).
+bool ServiceJudgeRawSocket(int fd, int err, char *out, size_t out_size);
+
+/// setsockopt of SO_RCVTIMEO with tv_usec 1000000 and of SO_SNDTIMEO with tv_sec -1, on a UDP
+/// socket: each -1 with EDOM, as a BSD stack answers a timeval out of range and reden does
+/// (afe7a00cde, `bsd.cpp` TimeoutMilliseconds).
+typedef struct {
+    int socket_fd, usec_ret, usec_errno, sec_ret, sec_errno;
+} ServiceTimeoutRange;
+bool ServiceJudgeTimeoutRange(const ServiceTimeoutRange *seen, char *out, size_t out_size);
+
+/// setsockopt of SO_RCVTIMEO with 4 bytes: -1 with EINVAL, a buffer too short for a timeval.
+bool ServiceJudgeTimeoutShort(int socket_fd, int ret, int err, char *out, size_t out_size);
+
+/// getsockname of a UDP socket bound to the loopback, into a buffer of 8 bytes: it succeeds,
+/// says 8, the length it wrote, and writes nothing past them, as reden cuts the address to the
+/// buffer and answers the length cut (1b7f7eedcb).
+typedef struct {
+    int socket_fd, bind_ret, bind_errno, name_ret, name_errno;
+    uint32_t length;
+    bool past_kept;
+} ServiceNameShort;
+bool ServiceJudgeNameShort(const ServiceNameShort *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }
