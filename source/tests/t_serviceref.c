@@ -390,6 +390,110 @@ static void CheckAocPast(void) {
                code, reden, reden_said, three, stub, unknown, end_refused, end_listed);
 }
 
+static void CheckTime(void) {
+    // reden: the context's offset past the steady clock, on its source.
+    ServiceUserClock clock;
+    memset(&clock, 0, sizeof(clock));
+    clock.offset = 1700000000 - 5000;
+    clock.context.seconds = 120;
+    clock.context.source[0] = 0x5a;
+    clock.steady = clock.context;
+    clock.steady.seconds = 5000;
+    clock.time = 1700000000;
+    const bool user = ServiceJudgeUserClock(&clock, said, sizeof(said)) &&
+                      strstr(said, "the offset past the steady clock") == said;
+    char user_said[480];
+    memcpy(user_said, said, sizeof(said));
+    clock.time += 1;
+    const bool tick = ServiceJudgeUserClock(&clock, said, sizeof(said));
+    clock.time += 1;
+    const bool late = !ServiceJudgeUserClock(&clock, said, sizeof(said)) &&
+                      strstr(said, "another time") == said;
+    clock.time -= 2;
+    clock.context.source[0] = 0x5b;
+    const bool other_source = !ServiceJudgeUserClock(&clock, said, sizeof(said)) &&
+                              strstr(said, "the context is on another source") == said;
+    // A stand-in: every answer nought.
+    memset(&clock, 0, sizeof(clock));
+    const bool nought = !ServiceJudgeUserClock(&clock, said, sizeof(said)) &&
+                        strstr(said, "the steady clock's source is nought") == said;
+    CHECK_TRUE(SUITE, "service: time passes a user clock its context's offset past steady",
+               CHECK_NONE, user && tick && late && other_source && nought,
+               "reden %d \"%.200s\", a second later %d, two %d, another source %d, nought %d",
+               user, user_said, tick, late, other_source, nought);
+
+    ServiceTimePoint first = { 5000, { 0x5a } }, second = { 5001, { 0x5a } };
+    const bool one = ServiceJudgeSteadyClock(0u, &first, 0u, &second, said, sizeof(said));
+    second.seconds = 5002;
+    const bool two = ServiceJudgeSteadyClock(0u, &first, 0u, &second, said, sizeof(said));
+    second.seconds = 5000;
+    const bool still = !ServiceJudgeSteadyClock(0u, &first, 0u, &second, said, sizeof(said));
+    // Nanoseconds where seconds go: a second and a half is 1500000000.
+    second.seconds = 5000 + 1500000000;
+    const bool nanos = !ServiceJudgeSteadyClock(0u, &first, 0u, &second, said, sizeof(said)) &&
+                       strstr(said, "not a second's count") == said;
+    second = (ServiceTimePoint){ 5001, { 0x5b } };
+    const bool sources = !ServiceJudgeSteadyClock(0u, &first, 0u, &second, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: time passes a steady clock one or two seconds on", CHECK_NONE,
+               one && two && still && nanos && sources,
+               "one %d, two %d, still %d, nanoseconds %d, two sources %d", one, two, still, nanos,
+               sources);
+
+    // The dates, worked out by hand: 1970-01-01 was a Thursday; 1700000000 is 19675 days and
+    // 80000 seconds, 2023-11-14 (a Tuesday, the 318th day) at 22:13:20.
+    ServiceUtcDates dates;
+    memset(&dates, 0, sizeof(dates));
+    dates.date[0] = (ServiceCalendarTime){ 1970, 1, 1, 0, 0, 0, 0 };
+    dates.info[0] = (ServiceCalendarInfo){ 4, 0, "UTC", 0, 0 };
+    dates.date[1] = (ServiceCalendarTime){ 2023, 11, 14, 22, 13, 20, 0 };
+    dates.info[1] = (ServiceCalendarInfo){ 2, 317, "UTC", 0, 0 };
+    const bool reden = ServiceJudgeUtcDates(&dates, said, sizeof(said)) &&
+                       strstr(said, "both dates right") == said;
+    char dates_said[480];
+    memcpy(dates_said, said, sizeof(said));
+    dates.info[1].day_of_year = 318;
+    const bool one_based = !ServiceJudgeUtcDates(&dates, said, sizeof(said));
+    dates.info[1].day_of_year = 317;
+    dates.info[0].day_of_week = 3;
+    const bool weekday = !ServiceJudgeUtcDates(&dates, said, sizeof(said)) &&
+                         strstr(said, "the epoch dated otherwise") == said;
+    dates.info[0].day_of_week = 4;
+    dates.info[1].utc_offset = -10800;
+    const bool offset = !ServiceJudgeUtcDates(&dates, said, sizeof(said));
+    memset(&dates, 0, sizeof(dates));
+    const bool stub = !ServiceJudgeUtcDates(&dates, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: time passes the epoch and the known time dated under UTC",
+               CHECK_NONE, reden && one_based && weekday && offset && stub,
+               "reden %d \"%.220s\", a day of the year from one %d, another weekday %d, an "
+               "offset %d, a stand-in %d",
+               reden, dates_said, one_based, weekday, offset, stub);
+
+    const bool back = ServiceJudgeUtcPosix(0u, 0u, 1, 1700000000, said, sizeof(said));
+    const bool none = !ServiceJudgeUtcPosix(0u, 0u, 0, 0, said, sizeof(said)) &&
+                      strstr(said, "not one time") == said;
+    const bool shifted = !ServiceJudgeUtcPosix(0u, 0u, 1, 1700000000 + 10800, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: time passes ToPosixTime giving the known time back", CHECK_NONE,
+               back && none && shifted, "back %d, none %d, shifted %d", back, none, shifted);
+
+    ServiceMyRule mine;
+    memset(&mine, 0, sizeof(mine));
+    strcpy(mine.name, "America/Sao_Paulo");
+    mine.time = 1700000000;
+    mine.mine_date = mine.loaded_date = (ServiceCalendarTime){ 2023, 11, 14, 19, 13, 20, 0 };
+    mine.mine_info = mine.loaded_info = (ServiceCalendarInfo){ 2, 317, "-03", 0, -10800 };
+    const bool agree = ServiceJudgeMyRule(&mine, said, sizeof(said)) &&
+                       strstr(said, "the same date under both") == said;
+    mine.mine_info.utc_offset = 0;
+    const bool disagree = !ServiceJudgeMyRule(&mine, said, sizeof(said)) &&
+                          strstr(said, "two dates") == said;
+    mine.mine_info.utc_offset = -10800;
+    mine.name[0] = '\0';
+    const bool unnamed = !ServiceJudgeMyRule(&mine, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: time passes the device's rule dating as the service's own",
+               CHECK_NONE, agree && disagree && unnamed, "agree %d, disagree %d, unnamed %d", agree,
+               disagree, unnamed);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -401,4 +505,5 @@ void RunReferenceService(void) {
     CheckRandom();
     CheckNfpFilter();
     CheckAocPast();
+    CheckTime();
 }
