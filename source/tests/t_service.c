@@ -2764,6 +2764,150 @@ static void RunTimePerm(void) {
     serviceClose(&timesrv);
 }
 
+// ---------------------------------------------------------------------------------------------
+// audout
+
+/// The samples the audout suite appends: two buffers of silence, a 21 ms frame of 48 kHz stereo
+/// each, page-aligned as the service maps them.
+static s16 g_audout_pcm[2][0x800] __attribute__((aligned(0x1000)));
+static AudioOutBuffer g_audout_buffers[2];
+
+/// GetReleasedAudioOutBuffersAuto (8): the tags released, as many as fit.
+static Result AudoutReleased(uint64_t *tags, uint32_t *count) {
+    memset(tags, 0, SERVICE_AUDOUT_TAGS * sizeof(*tags));
+    *count = 0xEEEEu;
+    return serviceDispatchOut(audoutGetServiceSession_AudioOut(), 8, *count,
+                              .buffer_attrs = { SfBufferAttr_HipcAutoSelect | SfBufferAttr_Out },
+                              .buffers = { { tags, SERVICE_AUDOUT_TAGS * sizeof(*tags) } }, );
+}
+
+/// The two silent buffers appended, as libnx appends them: each tagged with its own address.
+static Result AudoutAppendBoth(void) {
+    memset(g_audout_pcm, 0, sizeof(g_audout_pcm));
+    Result rc = 0;
+    for (uint32_t i = 0; i < 2u && R_SUCCEEDED(rc); ++i) {
+        memset(&g_audout_buffers[i], 0, sizeof(g_audout_buffers[i]));
+        g_audout_buffers[i].buffer = g_audout_pcm[i];
+        g_audout_buffers[i].buffer_size = sizeof(g_audout_pcm[i]);
+        g_audout_buffers[i].data_size = sizeof(g_audout_pcm[i]);
+        rc = audoutAppendAudioOutBuffer(&g_audout_buffers[i]);
+    }
+    return rc;
+}
+
+/// audout, the plain PCM output a game without a renderer plays through (a homebrew, a video
+/// player, many ports): the outputs listed and one opened, its volume, and the buffers appended,
+/// held, flushed, played and given back around Start and Stop.
+static void RunAudout(void) {
+    char detail[480];
+    const Result opened = audoutInitialize();
+    if (R_FAILED(opened)) {
+        Skip(SERVICE_AUDOUT_OPENS, REPORT_REASON_UNAVAILABLE, "audoutInitialize returned 0x%x",
+             (unsigned)opened);
+        Skip(SERVICE_AUDOUT_STOPPED, REPORT_REASON_UNAVAILABLE, "audoutInitialize returned 0x%x",
+             (unsigned)opened);
+        Skip(SERVICE_AUDOUT_STARTED, REPORT_REASON_UNAVAILABLE, "audoutInitialize returned 0x%x",
+             (unsigned)opened);
+        return;
+    }
+    if (Start(SERVICE_AUDOUT_OPENS)) {
+        ServiceAudoutOpen seen;
+        memset(&seen, 0, sizeof(seen));
+        static char names[4][0x100];
+        memset(names, 0, sizeof(names));
+        seen.list_rc = audoutListAudioOuts(names[0], 4, &seen.listed);
+        memcpy(seen.name, names[0], sizeof(seen.name) - 1u);
+        // OpenAudioOutAuto (3) of a name audout does not have, as libnx's audoutOpenAudioOut asks.
+        static char other_in[0x100], other_out[0x100];
+        memset(other_in, 0, sizeof(other_in));
+        memset(other_out, 0, sizeof(other_out));
+        strcpy(other_in, "NoSuchOut");
+        const struct {
+            u32 sample_rate;
+            u32 channel_count;
+            u64 aruid;
+        } in = { 48000, 2, appletGetAppletResourceUserId() };
+        struct {
+            u32 sample_rate, channel_count, format, state;
+        } got;
+        Service other;
+        memset(&other, 0, sizeof(other));
+        seen.other_rc = serviceDispatchInOut(
+            audoutGetServiceSession(), 3, in, got,
+            .buffer_attrs = { SfBufferAttr_HipcAutoSelect | SfBufferAttr_In,
+                              SfBufferAttr_HipcAutoSelect | SfBufferAttr_Out },
+            .buffers = { { other_in, sizeof(other_in) }, { other_out, sizeof(other_out) } },
+            .in_send_pid = true, .in_num_handles = 1, .in_handles = { CUR_PROCESS_HANDLE },
+            .out_num_objects = 1, .out_objects = &other, );
+        if (R_SUCCEEDED(seen.other_rc)) {
+            serviceClose(&other);
+        }
+        seen.rate = audoutGetSampleRate();
+        seen.channels = audoutGetChannelCount();
+        seen.format = (uint32_t)audoutGetPcmFormat();
+        seen.state = (uint32_t)audoutGetDeviceState();
+        float volume = -1.0f, after = -1.0f;
+        seen.volume_rc = audoutGetAudioOutVolume(&volume);
+        seen.set_rc = audoutSetAudioOutVolume(0.5f);
+        seen.after_rc = audoutGetAudioOutVolume(&after);
+        audoutSetAudioOutVolume(volume >= 0.0f && volume <= 1.0f ? volume : 1.0f);
+        seen.volume = (int32_t)(volume * 1000.0f + (volume < 0.0f ? -0.5f : 0.5f));
+        seen.after = (int32_t)(after * 1000.0f + (after < 0.0f ? -0.5f : 0.5f));
+        const bool passed = ServiceJudgeAudoutOpen(&seen, detail, sizeof(detail));
+        Report(SERVICE_AUDOUT_OPENS, CHECK_EXACT, passed, detail);
+    }
+    bool appended = false;
+    if (Start(SERVICE_AUDOUT_STOPPED)) {
+        ServiceAudoutStopped seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.append_rc = AudoutAppendBoth();
+        appended = R_SUCCEEDED(seen.append_rc);
+        seen.count_rc = audoutGetAudioOutBufferCount(&seen.count);
+        seen.contains_rc = audoutContainsAudioOutBuffer(&g_audout_buffers[1], &seen.held);
+        static AudioOutBuffer never;
+        if (R_SUCCEEDED(seen.contains_rc)) {
+            seen.contains_rc = audoutContainsAudioOutBuffer(&never, &seen.other);
+        }
+        uint64_t tags[SERVICE_AUDOUT_TAGS];
+        seen.released_rc = AudoutReleased(tags, &seen.released);
+        seen.flush_rc = audoutFlushAudioOutBuffers(&seen.flushed);
+        seen.after_rc = audoutGetAudioOutBufferCount(&seen.after);
+        const bool passed = ServiceJudgeAudoutStopped(&seen, detail, sizeof(detail));
+        Report(SERVICE_AUDOUT_STOPPED, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_AUDOUT_STARTED)) {
+        ServiceAudoutStarted seen;
+        memset(&seen, 0, sizeof(seen));
+        uint32_t count = 0;
+        if (!appended || R_FAILED(audoutGetAudioOutBufferCount(&count)) || count != 2u) {
+            // The case above did not leave its two buffers: a flush took them, or it did not run.
+            uint64_t drop[SERVICE_AUDOUT_TAGS];
+            uint32_t dropped = 0;
+            AudoutReleased(drop, &dropped);
+            AudoutAppendBoth();
+        }
+        seen.first = (uint64_t)(uintptr_t)&g_audout_buffers[0];
+        seen.second = (uint64_t)(uintptr_t)&g_audout_buffers[1];
+        AudioOutState state = (AudioOutState)0xEE;
+        seen.start_rc = audoutStartAudioOut();
+        seen.state_rc = audoutGetAudioOutState(&state);
+        seen.started = (uint32_t)state;
+        seen.again_rc = audoutStartAudioOut();
+        seen.stop_rc = audoutStopAudioOut();
+        state = (AudioOutState)0xEE;
+        if (R_SUCCEEDED(seen.state_rc)) {
+            seen.state_rc = audoutGetAudioOutState(&state);
+        }
+        seen.stopped = (uint32_t)state;
+        seen.released_rc = AudoutReleased(seen.tags, &seen.released);
+        audoutGetAudioOutBufferCount(&seen.count);
+        const bool passed = ServiceJudgeAudoutStarted(&seen, detail, sizeof(detail));
+        Report(SERVICE_AUDOUT_STARTED, CHECK_EXACT, passed, detail);
+    }
+    audoutStopAudioOut();
+    audoutExit();
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -2799,4 +2943,5 @@ void RunService(void) {
     RunSetSys();
     RunTimeZone();
     RunTimePerm();
+    RunAudout();
 }

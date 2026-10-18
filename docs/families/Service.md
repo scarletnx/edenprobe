@@ -43,6 +43,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | set-sys | 3 | the system settings a homebrew program reads and writes on set:sys: the color set, the keyboard layout, the vibration volume and four flags (`hle/service/set/system_settings_server.cpp`) |
 | time-zone | 3 | time:u's time zone service: every location name it counts listed with the device's, the device's location with when it was set, and a local date turned back (`hle/service/glue/time/time_zone.cpp`, `psc/time/time_zone_service.cpp`) |
 | time-perm | 2 | what time:u, an application's time service, may not write: a clock, automatic correction, the steady clock's offset, the device's location (`hle/service/psc/time/system_clock.cpp`, `steady_clock.cpp`, `static.cpp`, `glue/time/time_zone.cpp`) |
+| audout | 3 | the plain PCM output: one output listed and opened as asked, its volume kept, buffers held while stopped and given back when it stops (`audio_core/out/audio_out_system.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -715,6 +716,25 @@ of them PermissionDenied, Time (116) 1: `0x274` (`glue/glue.cpp` and the checks 
 Every write asks for what is there already, so a machine that takes one changes nothing; the
 suite opens time:u itself and skips both cases as `unavailable` when it hands out no clocks.
 
+## audout
+
+A program without an audio renderer plays through audout:u: libnx's `audoutInitialize` opens the
+default output with OpenAudioOutAuto (3), and the program appends buffers (7) to it, starts it (1),
+takes back what was played (8) and stops it (2). reden's output is "DeviceOut", opened at 48 kHz
+stereo, PCM16, stopped, at full volume; it holds what is appended while stopped and flushes (11)
+only a started out, refuses to start an out already started with OperationFailed (`0x499`), and
+gives every buffer back when it stops (`audio_core/out/audio_out_system.cpp` at 75c12299a6).
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| one output, opened at 48 kHz stereo, stopped, its volume kept | ListAudioOuts (0); 3 with "NoSuchOut"; what `audoutInitialize`'s open gave; GetAudioOutVolume (13), SetAudioOutVolume (12) to a half, 13 | one output, "DeviceOut"; the other name refused with `0x299`; 48000 Hz, 2 channels, format 2, state 1; volume 1 and then a half | exact |
+| buffers appended to a stopped out wait, held and not flushed | two buffers of silence appended (7); 9; 6 for one of them and for another address; 8; 11; 9 | every call succeeds; both counted, the one held and the other not, none released; 11 says nothing was flushed and both are still counted | exact |
+| an out starts once, and its Stop gives every buffer back | 1; GetAudioOutState (0); 1 again; 2; 0; 8; 9 | Started (0), then `0x499`; Stopped (1) with both tags released in the order appended and none counted | exact |
+
+The third case appends its own two buffers when the second did not leave them. The volume is put
+back as it was read, the out is stopped and closed before the suite returns, and all three are
+skipped as `unavailable` when `audoutInitialize` fails.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -797,6 +817,8 @@ suite opens time:u itself and skips both cases as `unavailable` when it hands ou
   the steady clock.
 - **Q35.** Whether a console's time:u refuses each of these writes with PermissionDenied
   (`0x274`), as reden's does.
+- **Q36.** Whether a console's audout refuses a second Start with OperationFailed and
+  flushes nothing while stopped, as reden and Ryujinx do.
 
 ## The judge, pinned
 
@@ -910,3 +932,8 @@ another; it passes the time back, first or second of two, and fails a time an ho
 202 refused.
 time-perm passes every write refused with `0x274` and nothing changed, and fails a write taken,
 another refusal, a clock moved, a location set and no write asked.
+audout passes one output opened as asked with its volume kept, and fails another name opened, a
+mono out, a stub's volume and two outputs; it passes buffers held while stopped and fails a flush
+that takes them, a tag held that was never appended and one released early; it passes a single
+Start and every buffer back, and fails a second Start taken, the tags back swapped and one still
+counted.
