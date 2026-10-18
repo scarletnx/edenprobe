@@ -92,6 +92,9 @@ extern "C" {
 #define SERVICE_AUDIO_DEVICES 8u
 #define SERVICE_AUDIO_NAME 0x100u
 
+/// The file the directory cases make inside the directory they rename, and its size.
+#define SERVICE_DIR_FILE_SIZE 16
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -141,6 +144,9 @@ typedef enum {
     SERVICE_AUDDEV_OPENS,  ///< auddev: audren:u hands out the audio device service (none tier)
     SERVICE_AUDDEV_ACTIVE, ///< auddev: the active output is one of the devices listed
     SERVICE_AUDDEV_VOLUME, ///< auddev: a volume set on the active device reads back
+    SERVICE_DIR_RENAME,   ///< fsdir: a directory renamed takes what it holds
+    SERVICE_DIR_LIST,     ///< fsdir: the directory lists its one file, once
+    SERVICE_DIR_DELETE,   ///< fsdir: DeleteDirectoryRecursively takes it all
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -467,6 +473,35 @@ bool ServiceJudgeAudioActive(const ServiceAudioDevices *seen, char *out, size_t 
 bool ServiceJudgeAudioVolume(uint32_t before_rc, float before, uint32_t set_rc, float asked,
                              uint32_t after_rc, float after, uint32_t restore_rc, char *out,
                              size_t out_size);
+
+/// On the memory card: CreateDirectory of a directory and CreateFile of a file in it, then
+/// RenameDirectory to a new name in the same parent, and GetEntryType of the new name, the old
+/// one and the file under the new one. Passes when the three succeed, the new name is a
+/// directory, the old one is not there (SERVICE_PATH_NOT_FOUND) and the file is under the new
+/// name, reden 1f03dee126's RenameDirectory in one parent.
+typedef struct {
+    uint32_t make_rc, file_rc, rename_rc;
+    uint32_t new_rc, old_rc, inside_rc;
+    uint32_t new_type, inside_type;
+} ServiceDirRename;
+bool ServiceJudgeDirRename(const ServiceDirRename *seen, char *out, size_t out_size);
+
+/// OpenDirectory of the renamed directory, GetEntryCount, Read with room for four and Read again.
+/// Passes when all succeed, the count is one, the first read gives the file by its name, as a
+/// file of SERVICE_DIR_FILE_SIZE bytes, and the second gives nothing.
+typedef struct {
+    uint32_t open_rc, count_rc, read_rc, again_rc;
+    int64_t count, read, again;
+    char name[16];
+    int32_t type;
+    int64_t size;
+} ServiceDirList;
+bool ServiceJudgeDirList(const ServiceDirList *seen, const char *file, char *out,
+                         size_t out_size);
+
+/// DeleteDirectoryRecursively of the parent, then GetEntryType of it. Passes when the delete
+/// succeeds and the parent is not there.
+bool ServiceJudgeDirDelete(uint32_t delete_rc, uint32_t gone_rc, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

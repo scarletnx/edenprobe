@@ -867,6 +867,62 @@ static void CheckAuddev(void) {
                refused);
 }
 
+static void CheckFsdir(void) {
+    ServiceDirRename seen = { 0u, 0u, 0u, 0u, SERVICE_PATH_NOT_FOUND, 0u, 0u, 1u };
+    const bool reden = ServiceJudgeDirRename(&seen, said, sizeof(said)) &&
+                       strstr(said, "renamed with what it holds") == said;
+    // A rename that copies the name and leaves the old directory.
+    seen.old_rc = 0u;
+    const bool copied = !ServiceJudgeDirRename(&seen, said, sizeof(said)) &&
+                        strstr(said, "the old name still there") == said;
+    seen.old_rc = SERVICE_PATH_NOT_FOUND;
+    seen.inside_rc = SERVICE_PATH_NOT_FOUND;
+    const bool emptied = !ServiceJudgeDirRename(&seen, said, sizeof(said)) &&
+                         strstr(said, "renamed without what it held") == said;
+    // The file found under the new name as a directory.
+    seen.inside_rc = 0u;
+    seen.inside_type = 0u;
+    const bool as_directory = !ServiceJudgeDirRename(&seen, said, sizeof(said));
+    seen = (ServiceDirRename){ 0u, 0u, SERVICE_PATH_NOT_FOUND, SERVICE_PATH_NOT_FOUND,
+                               0u, SERVICE_PATH_NOT_FOUND, 0u, 0u };
+    const bool refused = !ServiceJudgeDirRename(&seen, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: fsdir passes a directory renamed with what it holds", CHECK_NONE,
+               reden && copied && emptied && as_directory && refused,
+               "reden %d, the old one left %d, emptied %d, the file a directory %d, refused %d",
+               reden, copied, emptied, as_directory, refused);
+
+    ServiceDirList list = { 0u, 0u, 0u, 0u, 1, 1, 0, "f", 1, SERVICE_DIR_FILE_SIZE };
+    const bool one = ServiceJudgeDirList(&list, "f", said, sizeof(said)) &&
+                     strstr(said, "its one file, once") == said;
+    list.again = 1;
+    const bool twice = !ServiceJudgeDirList(&list, "f", said, sizeof(said)) &&
+                       strstr(said, "the file again") == said;
+    list.again = 0;
+    list.type = 0;
+    const bool as_dir = !ServiceJudgeDirList(&list, "f", said, sizeof(said));
+    list.type = 1;
+    list.size = 0;
+    const bool no_size = !ServiceJudgeDirList(&list, "f", said, sizeof(said));
+    list.size = SERVICE_DIR_FILE_SIZE;
+    list.count = 2;
+    const bool counted = !ServiceJudgeDirList(&list, "f", said, sizeof(said)) &&
+                         strstr(said, "another count") == said;
+    CHECK_TRUE(SUITE, "service: fsdir passes the one file listed once", CHECK_NONE,
+               one && twice && as_dir && no_size && counted,
+               "one %d, twice %d, as a directory %d, no size %d, counted two %d", one, twice,
+               as_dir, no_size, counted);
+
+    const bool gone = ServiceJudgeDirDelete(0u, SERVICE_PATH_NOT_FOUND, said, sizeof(said));
+    const bool left = !ServiceJudgeDirDelete(0u, 0u, said, sizeof(said)) &&
+                      strstr(said, "still there") == said;
+    // A refused delete.
+    const bool not_empty = !ServiceJudgeDirDelete(SERVICE_RESULT(2, 8), 0u, said, sizeof(said)) &&
+                           strstr(said, "refused") == said;
+    CHECK_TRUE(SUITE, "service: fsdir passes a directory gone with what it held", CHECK_NONE,
+               gone && left && not_empty, "gone %d, left %d, not empty %d", gone, left,
+               not_empty);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -885,4 +941,5 @@ void RunReferenceService(void) {
     CheckAmSelf();
     CheckAmFunctions();
     CheckAuddev();
+    CheckFsdir();
 }

@@ -1264,6 +1264,88 @@ static void RunAuddev(void) {
     auddevExit();
 }
 
+// ---------------------------------------------------------------------------------------------
+// fsdir
+
+/// Where the directory cases work on the memory card, under the service family's own directory,
+/// and the names they use there.
+#define DIR_PARENT "/edenprobe/service/directory"
+#define DIR_OLD DIR_PARENT "/a"
+#define DIR_NEW DIR_PARENT "/b"
+#define DIR_FILE "f"
+
+/// The memory card as libnx mounted it at start, written as a game writes its own files: a
+/// directory with a file renamed in its parent, listed, and deleted with what it holds. What a
+/// run before left there is deleted first.
+static void RunFsdir(void) {
+    char detail[480];
+    FsFileSystem *const card = fsdevGetDeviceFileSystem("sdmc");
+    if (card == NULL) {
+        const char *const why = "the memory card is not mounted";
+        Skip(SERVICE_DIR_RENAME, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_DIR_LIST, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_DIR_DELETE, REPORT_REASON_UNAVAILABLE, "%s", why);
+        return;
+    }
+    bool renamed = false;
+    if (Start(SERVICE_DIR_RENAME)) {
+        ServiceDirRename seen;
+        memset(&seen, 0, sizeof(seen));
+        fsFsCreateDirectory(card, "/edenprobe");
+        fsFsCreateDirectory(card, "/edenprobe/service");
+        fsFsDeleteDirectoryRecursively(card, DIR_PARENT);
+        seen.make_rc = fsFsCreateDirectory(card, DIR_PARENT);
+        if (R_SUCCEEDED(seen.make_rc)) {
+            seen.make_rc = fsFsCreateDirectory(card, DIR_OLD);
+        }
+        seen.file_rc = fsFsCreateFile(card, DIR_OLD "/" DIR_FILE, SERVICE_DIR_FILE_SIZE, 0);
+        seen.rename_rc = fsFsRenameDirectory(card, DIR_OLD, DIR_NEW);
+        FsDirEntryType type = (FsDirEntryType)0xEE;
+        seen.new_rc = fsFsGetEntryType(card, DIR_NEW, &type);
+        seen.new_type = (uint32_t)type;
+        seen.old_rc = fsFsGetEntryType(card, DIR_OLD, &type);
+        type = (FsDirEntryType)0xEE;
+        seen.inside_rc = fsFsGetEntryType(card, DIR_NEW "/" DIR_FILE, &type);
+        seen.inside_type = (uint32_t)type;
+        renamed = R_SUCCEEDED(seen.rename_rc) && R_SUCCEEDED(seen.new_rc);
+        const bool passed = ServiceJudgeDirRename(&seen, detail, sizeof(detail));
+        Report(SERVICE_DIR_RENAME, CHECK_EXACT, passed, detail);
+    }
+    if (!renamed) {
+        Skip(SERVICE_DIR_LIST, REPORT_REASON_DEPENDS, "no renamed directory to list");
+    } else if (Start(SERVICE_DIR_LIST)) {
+        ServiceDirList seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.count = seen.read = seen.again = -1;
+        FsDir dir;
+        memset(&dir, 0, sizeof(dir));
+        seen.open_rc = fsFsOpenDirectory(card, DIR_NEW,
+                                         FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles, &dir);
+        if (R_SUCCEEDED(seen.open_rc)) {
+            static FsDirectoryEntry entries[4];
+            memset(entries, 0, sizeof(entries));
+            seen.count_rc = fsDirGetEntryCount(&dir, &seen.count);
+            seen.read_rc = fsDirRead(&dir, &seen.read, 4, entries);
+            memcpy(seen.name, entries[0].name, sizeof(seen.name));
+            seen.type = entries[0].type;
+            seen.size = entries[0].file_size;
+            seen.again_rc = fsDirRead(&dir, &seen.again, 4, entries);
+            fsDirClose(&dir);
+        }
+        const bool passed = ServiceJudgeDirList(&seen, DIR_FILE, detail, sizeof(detail));
+        Report(SERVICE_DIR_LIST, CHECK_EXACT, passed, detail);
+    }
+    if (!renamed) {
+        Skip(SERVICE_DIR_DELETE, REPORT_REASON_DEPENDS, "no directory made to delete");
+    } else if (Start(SERVICE_DIR_DELETE)) {
+        const uint32_t delete_rc = fsFsDeleteDirectoryRecursively(card, DIR_PARENT);
+        FsDirEntryType type;
+        const uint32_t gone_rc = fsFsGetEntryType(card, DIR_PARENT, &type);
+        const bool passed = ServiceJudgeDirDelete(delete_rc, gone_rc, detail, sizeof(detail));
+        Report(SERVICE_DIR_DELETE, CHECK_EXACT, passed, detail);
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -1282,4 +1364,5 @@ void RunService(void) {
     RunAmSelf();
     RunAmFunctions();
     RunAuddev();
+    RunFsdir();
 }
