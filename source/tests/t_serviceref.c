@@ -328,6 +328,32 @@ static void CheckRandom(void) {
                refused);
 }
 
+static void CheckNfpFilter(void) {
+    // No device: both refuse alike (NFP, 115, 64: DeviceNotFound).
+    const uint32_t not_found = SERVICE_RESULT(115, 64);
+    const bool alike = ServiceJudgeNfpFilter(not_found, not_found, 0, true, said, sizeof(said)) &&
+                       strcmp(said, "the same answer: 0 devices; StartDetection 0x8073, "
+                                    "StartDetectionWithFilter 0x8073; firmware at least 23.0.0") ==
+                           0;
+    char alike_said[480];
+    memcpy(alike_said, said, sizeof(said));
+    // An unknown command's success where 3 refuses.
+    const bool stub = !ServiceJudgeNfpFilter(not_found, 0u, 0, true, said, sizeof(said)) &&
+                      strstr(said, "two answers") == said;
+    // Older than 23.0.0: 25 refused passes, a success where 3 refuses does not.
+    const bool old =
+        ServiceJudgeNfpFilter(not_found, SERVICE_RESULT(10, 421), 0, false, said, sizeof(said));
+    const bool old_stub = !ServiceJudgeNfpFilter(not_found, 0u, 0, false, said, sizeof(said));
+    // On 23.0.0, 25 refused otherwise than 3 is two answers.
+    const bool new_refused = !ServiceJudgeNfpFilter(not_found, SERVICE_RESULT(10, 421), 0, true,
+                                                    said, sizeof(said)) &&
+                             strstr(said, "two answers") == said;
+    CHECK_TRUE(SUITE, "service: nfp passes 25 answering what 3 answers", CHECK_NONE,
+               alike && stub && old && old_stub && new_refused,
+               "alike %d \"%.160s\", stub %d, old %d, old stub %d, refused at 23 %d", alike,
+               alike_said, stub, old, old_stub, new_refused);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -337,4 +363,5 @@ void RunReferenceService(void) {
     CheckLdnMonitor();
     CheckLanguages();
     CheckRandom();
+    CheckNfpFilter();
 }

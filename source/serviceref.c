@@ -33,6 +33,9 @@ static const struct {
     [SERVICE_RANDOM] = { "csrng",
                          "GenerateRandomBytes fills the buffer, and differently each time" },
     [SERVICE_APM_OPENS] = { "apm", "apm opens, with a session" },
+    [SERVICE_NFP_OPENS] = { "nfp", "nfp opens and initialises for a user" },
+    [SERVICE_NFP_FILTER] = { "nfp",
+                             "StartDetectionWithFilter answers what StartDetection answers" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -278,4 +281,17 @@ bool ServiceJudgeRandom(uint32_t rc1, uint32_t rc2, const uint8_t *first, const 
              second[1], second[2], second[3], second[SERVICE_RANDOM_SIZE - 2u],
              second[SERVICE_RANDOM_SIZE - 1u]);
     return passed;
+}
+
+bool ServiceJudgeNfpFilter(uint32_t rc3, uint32_t rc25, int32_t devices, bool firmware23,
+                           char *out, size_t out_size) {
+    const bool same = rc3 == rc25;
+    const bool older = !firmware23 && rc25 != 0u;
+    snprintf(out, out_size, "%s: %d devices; StartDetection 0x%x, StartDetectionWithFilter 0x%x; "
+                            "firmware %s 23.0.0",
+             same    ? "the same answer"
+             : older ? "25 refused, by a machine older than 23.0.0"
+                     : "two answers",
+             (int)devices, (unsigned)rc3, (unsigned)rc25, firmware23 ? "at least" : "older than");
+    return same || older;
 }

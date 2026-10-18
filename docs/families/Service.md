@@ -17,6 +17,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | set | 4 | the language codes a game picks its text by (`hle/service/set/settings_server.cpp`, `available_language_codes`) |
 | csrng | 2 | the random bytes a game seeds from (`hle/service/spl/spl_module.cpp`, `GenerateRandomBytes`) |
 | apm | 1 | apm and a session on it, which a game opens before it asks for the performance mode (`hle/service/apm/apm_interface.cpp`, `APM::OpenSession`) |
+| nfp | 2 | the detection a game built for 23.0.0 starts (`hle/service/nfp/nfp.cpp`, the IUser table) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -166,6 +167,21 @@ which reden answers with an ISession (`apm_interface.cpp`, `APM::OpenSession`).
 |---|---|---|---|
 | apm opens, with a session | `apmInitialize` (apm and OpenSession, 0) | it succeeds | none |
 
+## nfp
+
+A game built for 23.0.0 starts looking for a figure with StartDetectionWithFilter (25) where older
+ones send StartDetection (3). reden 42642f8bad (#4425) answers 25 with 3's handler in IUser, ISystem
+and IDebug. With nobody holding a figure to the reader the question is still asked: both commands
+for the same device, the first ListDevices (2) finds or a handle of nought, and the two answers must
+agree. Nothing here needs a person.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| nfp opens and initialises for a user | `nfpInitialize(User)` (nfp:user, CreateUserInterface, Initialize) | it succeeds | none |
+| StartDetectionWithFilter answers what StartDetection answers | 2, then 3 and 25 for one device, each stopped when it started | the same result; or 25 refused by a machine that says it is older than 23.0.0 | exact |
+
+25 is sent with the device first, where reden's handler reads it, and a filter word of nought after.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -182,6 +198,7 @@ which reden answers with an ISession (`apm_interface.cpp`, `APM::OpenSession`).
   does not ask Initialize first, as libnx does): reden answers success to any process.
 - **Q6.** The result a console gives MakeLanguageCode past its table (reden's `0x4E269`), and
   whether its count (6) is the list's length or, as reden's, the most the list can hold.
+- **Q7.** The layout of 25's filter on a console: reden reads the device handle and nothing else.
 
 ## The judge, pinned
 
@@ -200,6 +217,7 @@ process, and when 1 is refused on a machine older than 18.0.0; success with no o
 registration the kernel refuses (`0xE401`, InvalidHandle) and 1 refused on an 18.0.0 machine each
 fail. set passes reden's table (the codes spelled as text) and fails a language not listed, a code
 of nought, an index made into another index's code, one past the table made into anything, and a
-count below the list. csrng passes two buffers written whole and
+count below the list. nfp passes 25 refusing as 3 refuses, and 25 refused on
+a machine older than 23.0.0; an unknown command's success where 3 refuses fails, at any firmware. csrng passes two buffers written whole and
 apart, and fails the same bytes twice, a buffer whose end was not written, a buffer of nought and a
 refusal.

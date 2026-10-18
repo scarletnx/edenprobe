@@ -65,6 +65,8 @@ typedef enum {
     SERVICE_CSRNG_OPENS,  ///< csrng: csrng opens (none tier)
     SERVICE_RANDOM,       ///< csrng: two asks fill their buffers, differently
     SERVICE_APM_OPENS,    ///< apm: apm and a session (none tier)
+    SERVICE_NFP_OPENS,    ///< nfp: libnx's nfpInitialize for a user (none tier)
+    SERVICE_NFP_FILTER,   ///< nfp: StartDetectionWithFilter answers as StartDetection
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -156,6 +158,13 @@ bool ServiceJudgeLanguageCount(const ServiceLanguages *seen, char *out, size_t o
 /// two differ.
 bool ServiceJudgeRandom(uint32_t rc1, uint32_t rc2, const uint8_t *first, const uint8_t *second,
                         char *out, size_t out_size);
+
+/// nfp's StartDetection (3) and StartDetectionWithFilter (25, 23.0.0), each asked for the same
+/// device, and how many devices ListDevices (2) found. Passes when 25 answers what 3 answers,
+/// reden 42642f8bad's one handler for both; a machine that says it is older than 23.0.0 may
+/// refuse 25 instead.
+bool ServiceJudgeNfpFilter(uint32_t rc3, uint32_t rc25, int32_t devices, bool firmware23,
+                           char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

@@ -57,6 +57,7 @@ its dependencies put it, not at the end.
 | set | exact | the language codes: the console's own not in the list, an index made into another code, one past the table not refused, a count below the list (`hle/service/set/settings_server.cpp`). |
 | csrng | exact | random bytes: a buffer not written to its end, or the same bytes twice (`hle/service/spl/spl_module.cpp`, `GenerateRandomBytes`). |
 | apm | none | apm, or a session on it, refused to a game (`hle/service/apm/apm.cpp`, `apm_interface.cpp`, `APM::OpenSession`). |
+| nfp | exact | the detection of 23.0.0: StartDetectionWithFilter answering otherwise than StartDetection, an unknown command's success where there is no device (`hle/service/nfp/nfp.cpp`). |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
