@@ -35,6 +35,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | bsd-local | 4 | bsd:u with no network: a raw socket, a timeout out of range or short, an address into a short buffer (`hle/service/sockets/bsd.cpp`) |
 | ipc | 3 | what every session answers: its pointer buffer, a clone, a Close (`hle/service/sm/sm_controller.cpp`, `hle/service/service.cpp`) |
 | hid | 1 | the npad LIFOs of hid's shared memory, which every game reads its controllers from (`hid_core/resources/ring_lifo.h`) |
+| time-snap | 2 | the clock snapshot a game dates a save or times a wait across a sleep with, and the span between two (`hle/service/psc/time/static.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -536,6 +537,23 @@ one apart.
 
 An entry whose storage number moves under eight copies in a row is counted as torn and left out.
 
+## time-snap
+
+A game that dates a save or times something across a sleep (a plant that grows, a stamina that
+fills) takes a clock snapshot (GetClockSnapshot, time:u 400) and later the span between two
+(CalculateSpanBetween, 501). reden fills the snapshot from the user clock's context, the steady
+clock and the device's location, the user time being the context's offset plus the steady time
+point when both are of one source, and takes the span from the two steady time points
+(`psc/time/static.cpp:232-341` at 75c12299a6).
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| a clock snapshot holds the user clock, its time and the location | 400 of the user clock (type 0), ISystemClock 2 of the user clock, ITimeZoneService 0 | the snapshot's user context is the clock's, its user time the offset plus its steady time point of one source, its location the device's, its type 0 | exact |
+| the span between two snapshots is their steady clocks' difference | 400, then 501 of the snapshot and itself, and of it and a copy five seconds later on the steady clock | nought, then five seconds in nanoseconds | exact |
+
+The suite opens time:u of its own and closes it before it returns; the two skip as `unavailable`
+when it or its clocks do not open.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -593,6 +611,8 @@ An entry whose storage number moves under eight copies in a row is counted as to
   serviceClose ignores, and how large its pointer buffer is.
 - **Q24.** Whether a console numbers an npad entry's storage twice its state, as reden does, and
   keeps writing the LIFOs of an npad with nothing connected.
+- **Q25.** Whether a console's snapshot gives the user time as the context's offset plus its own
+  steady time point, as reden does, and the span in nanoseconds.
 
 ## The judge, pinned
 
@@ -674,3 +694,5 @@ answers otherwise or gives no handle, a Close answered as a success, and a sessi
 it.
 hid passes npad entries doubled and one apart, and fails an entry numbered as its state, states
 not one apart, and no LIFO to read.
+time-snap passes a snapshot of the user clock and its span, and fails another user time,
+context or location, a span in seconds, and a span to itself above nought.

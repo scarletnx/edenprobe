@@ -1932,6 +1932,93 @@ static void RunHid(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// time-snap
+
+/// GetClockSnapshot (400) of @p type into @p snapshot.
+static uint32_t SnapTake(Service *timesrv, u8 type, u8 *snapshot) {
+    return serviceDispatchIn(
+        timesrv, 400, type,
+        .buffer_attrs = { SfBufferAttr_FixedSize | SfBufferAttr_HipcPointer | SfBufferAttr_Out },
+        .buffers = { { snapshot, SERVICE_SNAP_SIZE } }, );
+}
+
+/// CalculateSpanBetween (501) of two snapshots, in nanoseconds.
+static uint32_t SnapSpan(Service *timesrv, const u8 *a, const u8 *b, s64 *span) {
+    return serviceDispatchOut(
+        timesrv, 501, *span,
+        .buffer_attrs = { SfBufferAttr_FixedSize | SfBufferAttr_HipcPointer | SfBufferAttr_In,
+                          SfBufferAttr_FixedSize | SfBufferAttr_HipcPointer | SfBufferAttr_In },
+        .buffers = { { a, SERVICE_SNAP_SIZE }, { b, SERVICE_SNAP_SIZE } }, );
+}
+
+/// time:u of this suite's own, and the snapshot of the clocks a game takes to date a save or
+/// time a wait across a sleep: what it holds, and the span between two.
+static void RunTimeSnap(void) {
+    char detail[480];
+    Service timesrv, user, zones;
+    memset(&timesrv, 0, sizeof(timesrv));
+    memset(&user, 0, sizeof(user));
+    memset(&zones, 0, sizeof(zones));
+    Result rc = smGetService(&timesrv, "time:u");
+    Result user_rc = rc, zones_rc = rc;
+    if (R_SUCCEEDED(rc)) {
+        user_rc = serviceDispatch(&timesrv, 0, .out_num_objects = 1, .out_objects = &user, );
+        zones_rc = serviceDispatch(&timesrv, 3, .out_num_objects = 1, .out_objects = &zones, );
+    }
+    if (R_FAILED(rc) || R_FAILED(user_rc) || R_FAILED(zones_rc)) {
+        char why[200];
+        snprintf(why, sizeof(why),
+                 "smGetService(\"time:u\") 0x%x, GetStandardUserSystemClock 0x%x, "
+                 "GetTimeZoneService 0x%x",
+                 (unsigned)rc, (unsigned)user_rc, (unsigned)zones_rc);
+        Skip(SERVICE_SNAP_COHERENT, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_SNAP_SPAN, REPORT_REASON_UNAVAILABLE, "%s", why);
+    } else {
+        static u8 snapshot[SERVICE_SNAP_SIZE], later[SERVICE_SNAP_SIZE];
+        if (Start(SERVICE_SNAP_COHERENT)) {
+            ServiceSnapshot seen;
+            memset(&seen, 0, sizeof(seen));
+            memset(snapshot, 0, sizeof(snapshot));
+            seen.snap_rc = SnapTake(&timesrv, 0, snapshot);
+            TimeSystemClockContext context;
+            memset(&context, 0, sizeof(context));
+            seen.context_rc = serviceDispatchOut(&user, 2, context);
+            TimeLocationName name;
+            memset(&name, 0, sizeof(name));
+            seen.name_rc = serviceDispatchOut(&zones, 0, name);
+            seen.same_context = memcmp(snapshot, &context, sizeof(context)) == 0;
+            memcpy(&seen.user_time, snapshot + SERVICE_SNAP_USER_TIME, 8);
+            memcpy(&seen.offset, snapshot, 8);
+            memcpy(&seen.steady, snapshot + SERVICE_SNAP_STEADY, 8);
+            // The context's steady time point and the snapshot's: their source ids after the time.
+            seen.same_source = memcmp(snapshot + 0x10, snapshot + SERVICE_SNAP_STEADY + 8, 16) == 0;
+            seen.same_name = memcmp(snapshot + SERVICE_SNAP_LOCATION, &name, sizeof(name)) == 0;
+            seen.type = snapshot[SERVICE_SNAP_TYPE];
+            const bool passed = ServiceJudgeSnapshot(&seen, detail, sizeof(detail));
+            Report(SERVICE_SNAP_COHERENT, CHECK_EXACT, passed, detail);
+        }
+        if (Start(SERVICE_SNAP_SPAN)) {
+            memset(snapshot, 0, sizeof(snapshot));
+            const uint32_t snap_rc = SnapTake(&timesrv, 0, snapshot);
+            memcpy(later, snapshot, sizeof(later));
+            s64 steady = 0;
+            memcpy(&steady, later + SERVICE_SNAP_STEADY, 8);
+            steady += 5;
+            memcpy(later + SERVICE_SNAP_STEADY, &steady, 8);
+            s64 same = -1, ahead = -1;
+            const uint32_t same_rc = SnapSpan(&timesrv, snapshot, snapshot, &same);
+            const uint32_t later_rc = SnapSpan(&timesrv, snapshot, later, &ahead);
+            const bool passed = ServiceJudgeSnapSpan(snap_rc, same_rc, same, later_rc, ahead,
+                                                     detail, sizeof(detail));
+            Report(SERVICE_SNAP_SPAN, CHECK_EXACT, passed, detail);
+        }
+    }
+    serviceClose(&zones);
+    serviceClose(&user);
+    serviceClose(&timesrv);
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -1959,4 +2046,5 @@ void RunService(void) {
     RunBsdLocal();
     RunIpc();
     RunHid();
+    RunTimeSnap();
 }

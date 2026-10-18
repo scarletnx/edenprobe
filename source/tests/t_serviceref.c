@@ -1161,6 +1161,32 @@ static void CheckHid(void) {
                doubled_said, same, apart, none);
 }
 
+static void CheckTimeSnap(void) {
+    ServiceSnapshot seen = { 0u, 0u, 0u, true, true, true, 1760000100, 1760000000, 100, 0u };
+    const bool whole = ServiceJudgeSnapshot(&seen, said, sizeof(said)) &&
+                       strstr(said, "the user clock's, at its time, at the device's location") ==
+                           said;
+    char whole_said[480];
+    memcpy(whole_said, said, sizeof(said));
+    // A user time of another clock, a snapshot of another context, of another location.
+    seen.user_time = 1760000101;
+    const bool time = !ServiceJudgeSnapshot(&seen, said, sizeof(said)) &&
+                      strstr(said, "another user time") == said;
+    seen = (ServiceSnapshot){ 0u, 0u, 0u, false, true, true, 1760000100, 1760000000, 100, 0u };
+    const bool context = !ServiceJudgeSnapshot(&seen, said, sizeof(said));
+    seen = (ServiceSnapshot){ 0u, 0u, 0u, true, true, false, 1760000100, 1760000000, 100, 0u };
+    const bool location = !ServiceJudgeSnapshot(&seen, said, sizeof(said));
+    const bool span = ServiceJudgeSnapSpan(0u, 0u, 0, 0u, 5000000000ll, said, sizeof(said));
+    // Seconds where nanoseconds belong, and a span to itself above nought.
+    const bool seconds = !ServiceJudgeSnapSpan(0u, 0u, 0, 0u, 5, said, sizeof(said));
+    const bool itself = !ServiceJudgeSnapSpan(0u, 0u, 1, 0u, 5000000000ll, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: time-snap passes a snapshot of the user clock and its span",
+               CHECK_NONE, whole && time && context && location && span && seconds && itself,
+               "whole %d \"%.160s\", another time %d, context %d, location %d, span %d, in "
+               "seconds %d, to itself %d",
+               whole, whole_said, time, context, location, span, seconds, itself);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1188,4 +1214,5 @@ void RunReferenceService(void) {
     CheckBsdLocal();
     CheckIpc();
     CheckHid();
+    CheckTimeSnap();
 }
