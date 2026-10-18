@@ -18,7 +18,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | csrng | 2 | the random bytes a game seeds from (`hle/service/spl/spl_module.cpp`, `GenerateRandomBytes`) |
 | apm | 1 | apm and a session on it, which a game opens before it asks for the performance mode (`hle/service/apm/apm_interface.cpp`, `APM::OpenSession`) |
 | nfp | 2 | the detection a game built for 23.0.0 starts (`hle/service/nfp/nfp.cpp`, the IUser table) |
-| aoc | 2 | the add-on content list a game reads before it mounts one, past its end (`hle/service/aoc/addon_content_manager.cpp`, `ListAddOnContent`) |
+| aoc | 5 | the add-on content a game counts and lists before it mounts one: none here, a list past its end, a list that fits its room, and the base id (`hle/service/aoc/addon_content_manager.cpp`, `CountAddOnContent`, `ListAddOnContent`, `GetAddOnContentBaseId`) |
 | time | 6 | the clocks and dates a game reads at start: the user clock against its context and the steady clock, the steady clock's seconds, dates under UTC and under the device's rule (`hle/service/psc/time/clocks/system_clock_core.cpp`, `GetCurrentTime`, and `hle/service/glue/time/time_zone.cpp`) |
 | pl | 3 | the shared fonts a game's text is drawn with: loaded, inside the shared memory behind their headers, and in order of priority (`hle/service/ns/platform_service_manager.cpp`, `DecryptSharedFont`, `GetSharedFontInOrderOfPriority`) |
 | profile | 4 | the profile a game shows in its menus: one base twice, the picture a 256x256 JPEG of the size told, and the user's existence (`hle/service/acc/acc.cpp`, `IProfileCommon`, and `acc/profile_picture.cpp`, `GetProfilePictureForGame`) |
@@ -211,12 +211,25 @@ answered ResultUnknown; asked from the end itself, the list is empty and succeed
 client for aoc:u, so both commands are sent raw: the offset and the most indices wanted, then a
 word for the process id, which goes with the request.
 
+The program has no add-on content: reden counts the contents installed under the program's base
+id and lists their indices from the offset, the fewer of what it has and what is asked, so a list
+from 0 is empty however much it asks for (`addon_content_manager.cpp:96-142` at 75c12299a6).
+GetAddOnContentBaseId (5) gives the base id from the program's control data, and to a program
+with none, as this one, the program's id with its low 13 bits cleared and 0x1000 added
+(`GetAOCBaseTitleID`, `file_sys/common_funcs.h`); the case reads the program's id with
+`svcGetInfo` (ProgramId). A list asked for more indices than its buffer holds has no case:
+reden answers it as any other, Ryujinx refuses it with InvalidBufferSize, (166, 200), `0x190A6`.
+The commands by application id (0, 1, 4 and 6) have no handler in reden, so no case sends them.
+
 | case | what it asks | passes when | tier |
 |---|---|---|---|
 | aoc:u opens and counts this program's add-on content | aoc:u and 2 | both answer | none |
 | ListAddOnContent lists nothing at the end and refuses one past it | 3 from the count, then from the count and one | the first succeeds with none listed, the second is refused with `0x4A80` | exact |
+| aoc:u counts no add-on content and lists none from 0 | 2, then 3 from 0 with room for 64 | none counted, and the list succeeds with none | exact |
+| a list for one into room for one, or for none, lists none | 3 from 0 for one into room for one, then for none into room for 64 | both succeed with none listed, and the 63 words past the room for one keep `0x5A5A5A5A` | exact |
+| the add-on content base id is the program's base and 0x1000 | `svcGetInfo` (ProgramId), then 5 | both succeed, and 5 gives the program's id with its low 13 bits cleared and 0x1000 added | exact |
 
-The line carries the count, both answers and how many the first listed. Nothing is mounted.
+Each line carries what was asked, the answers and how many were listed. Nothing is mounted.
 
 ## time
 
@@ -656,6 +669,10 @@ The three skip as `unavailable` when audrenInitialize fails.
   reckons an indirect layer's memory in blocks of 0x20000.
 - **Q27.** Whether a console starts a renderer's voice drop parameter at 1 and its rendering time
   limit at 100, as reden does, and reads both back as set.
+- **Q28.** Whether a console refuses a list asked for more indices than its buffer holds, as
+  Ryujinx does with InvalidBufferSize (166, 200), or answers it, as reden does; and whether its
+  GetAddOnContentBaseId is the program's base with 0x1000 added or its control data's own value,
+  where the two differ. On a console the aoc cases need a title with no add-on content.
 
 ## The judge, pinned
 
@@ -680,6 +697,11 @@ apart, and fails the same bytes twice, a buffer whose end was not written, a buf
 refusal. aoc passes an empty end and `0x4A80` past it, for none and for three add-on contents (the
 code worked out by hand: 128 + 37 x 512); a success past the end, another refusal there (reden's
 ResultUnknown before 54cd5fb8eb), the end refused and an end that lists one each fail.
+With no add-on content, aoc passes none counted and none listed, both lists that fit their room
+answered with none and nothing past it, and the base id of a program of id nought, of an
+application's program 3 and of an id with bit 12 set; one counted, either list refused, one
+listed, a word written past the room, the program's own id given back, its program index kept, a
+refusal and no program id each fail.
 time passes a user clock its context's offset past the steady clock, and a second
 more, and fails two seconds more, a context on another source and a stand-in's noughts; a steady
 clock one or two seconds on, and not one standing still, one counting nanoseconds or two sources;

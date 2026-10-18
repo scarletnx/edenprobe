@@ -390,6 +390,95 @@ static void CheckAocPast(void) {
                code, reden, reden_said, three, stub, unknown, end_refused, end_listed);
 }
 
+static void CheckAocMore(void) {
+    // reden with no add-on content: none counted, none listed from 0.
+    ServiceAocNone none = { 0u, 0u, 0u };
+    const bool none_reden =
+        ServiceJudgeAocNone(&none, said, sizeof(said)) &&
+        strcmp(said, "none counted, none listed: 0 add-on contents counted; from 0 0x0, 0 "
+                     "listed") == 0;
+    char none_said[480];
+    memcpy(none_said, said, sizeof(said));
+    // One counted with an empty list, the list refused, and one listed with none counted.
+    none = (ServiceAocNone){ 1u, 0u, 0u };
+    const bool counted = !ServiceJudgeAocNone(&none, said, sizeof(said)) &&
+                         strstr(said, "add-on content counted") == said;
+    none = (ServiceAocNone){ 0u, SERVICE_AOC_PAST_END, 0u };
+    const bool none_refused = !ServiceJudgeAocNone(&none, said, sizeof(said)) &&
+                              strstr(said, "the list from 0 refused") == said;
+    none = (ServiceAocNone){ 0u, 0u, 1u };
+    const bool listed = !ServiceJudgeAocNone(&none, said, sizeof(said)) &&
+                        strstr(said, "add-on content listed") == said;
+
+    // reden: both lists succeed with none, and nothing is written past the room.
+    ServiceAocRoom room = { 0u, 0u, 0u, 0u, true };
+    const bool room_reden =
+        ServiceJudgeAocRoom(&room, said, sizeof(said)) &&
+        strcmp(said, "none listed, nothing past the room: 1 asked into room for 1 0x0, 0 "
+                     "listed, past it kept; 0 asked into room for 64 0x0, 0 listed") == 0;
+    char room_said[480];
+    memcpy(room_said, said, sizeof(said));
+    // A list of one refused (with Ryujinx's InvalidBufferSize, as a stand-in), a list of none
+    // refused, one listed into the room for one or for none asked, and a word written past the
+    // room.
+    room = (ServiceAocRoom){ 0x190A6u, 0u, 0u, 0u, true };
+    const bool one_refused = !ServiceJudgeAocRoom(&room, said, sizeof(said)) &&
+                             strstr(said, "a list of one refused") == said;
+    room = (ServiceAocRoom){ 0u, 0u, 0xFFFFFFFFu, 0u, true };
+    const bool zero_refused = !ServiceJudgeAocRoom(&room, said, sizeof(said)) &&
+                              strstr(said, "a list of none refused") == said;
+    room = (ServiceAocRoom){ 0u, 1u, 0u, 0u, true };
+    const bool one_listed = !ServiceJudgeAocRoom(&room, said, sizeof(said)) &&
+                            strstr(said, "something listed") == said;
+    room = (ServiceAocRoom){ 0u, 0u, 0u, 1u, true };
+    const bool zero_listed = !ServiceJudgeAocRoom(&room, said, sizeof(said)) &&
+                             strstr(said, "something listed") == said;
+    room = (ServiceAocRoom){ 0u, 0u, 0u, 0u, false };
+    const bool past = !ServiceJudgeAocRoom(&room, said, sizeof(said)) &&
+                      strstr(said, "written past the room") == said;
+
+    // reden's program of id 0 gets 0x1000; an application's program 3 gets the application's
+    // 0x1000; an id with bit 12 set is its own base and 0x1000.
+    const bool base_reden =
+        ServiceJudgeAocBase(0u, 0u, 0u, 0x1000u, said, sizeof(said)) &&
+        strcmp(said, "the program's base with 0x1000 added: program 0x0000000000000000 "
+                     "(svcGetInfo 0x0); GetAddOnContentBaseId 0x0 0x0000000000001000, its base "
+                     "and 0x1000 0x0000000000001000") == 0;
+    char base_said[480];
+    memcpy(base_said, said, sizeof(said));
+    const bool indexed = ServiceJudgeAocBase(0u, 0x0100ABCD00002003ull, 0u,
+                                             0x0100ABCD00003000ull, said, sizeof(said));
+    const bool high = ServiceJudgeAocBase(0u, 0x0100000000001000ull, 0u, 0x0100000000001000ull,
+                                          said, sizeof(said)) &&
+                      strstr(said, "the program's base with 0x1000 added") == said;
+    // The program's own id given back, the program index kept, a refusal, and no program id.
+    const bool own = !ServiceJudgeAocBase(0u, 0x0100ABCD00002000ull, 0u, 0x0100ABCD00002000ull,
+                                          said, sizeof(said)) &&
+                     strstr(said, "the program's own id") == said;
+    const bool kept = !ServiceJudgeAocBase(0u, 0x0100ABCD00002003ull, 0u,
+                                           0x0100ABCD00003003ull, said, sizeof(said)) &&
+                      strstr(said, "another id") == said;
+    const bool base_refused =
+        !ServiceJudgeAocBase(0u, 0x0100ABCD00002000ull, 0xFFFFFFFFu, 0x0100ABCD00003000ull, said,
+                             sizeof(said)) &&
+        strstr(said, "refused") == said;
+    // svcGetInfo's InvalidEnumValue, Kernel (1) 120, on a machine older than 3.0.0.
+    const bool no_info = !ServiceJudgeAocBase(SERVICE_RESULT(1, 120), 0u, 0u, 0x1000u, said,
+                                              sizeof(said)) &&
+                         strstr(said, "no program id") == said;
+    CHECK_TRUE(SUITE, "service: aoc passes none listed, lists that fit their room and the base id",
+               CHECK_NONE,
+               none_reden && counted && none_refused && listed && room_reden && one_refused &&
+                   zero_refused && one_listed && zero_listed && past && base_reden && indexed &&
+                   high && own && kept && base_refused && no_info,
+               "none %d \"%.100s\", counted %d, refused %d, listed %d; room %d \"%.100s\", "
+               "one refused %d, none refused %d, one listed %d %d, past %d; base %d "
+               "\"%.100s\", indexed %d, high %d, own %d, kept %d, refused %d, no info %d",
+               none_reden, none_said, counted, none_refused, listed, room_reden, room_said,
+               one_refused, zero_refused, one_listed, zero_listed, past, base_reden, base_said,
+               indexed, high, own, kept, base_refused, no_info);
+}
+
 static void CheckTime(void) {
     // reden: the context's offset past the steady clock, on its source.
     ServiceUserClock clock;
@@ -1254,6 +1343,7 @@ void RunReferenceService(void) {
     CheckRandom();
     CheckNfpFilter();
     CheckAocPast();
+    CheckAocMore();
     CheckTime();
     CheckFonts();
     CheckProfile();

@@ -596,26 +596,34 @@ static void RunNfp(void) {
 // ---------------------------------------------------------------------------------------------
 // aoc
 
-/// One list of aoc:u's: ListAddOnContent (3) from @p offset, the process id sent with a word for
-/// it in the request, as CountAddOnContent's.
-static Result AocList(Service *aoc, uint32_t offset, uint32_t *listed) {
-    static s32 indices[SERVICE_AOC_LISTED];
+/// One list of aoc:u's: ListAddOnContent (3) of up to @p count indices from @p offset into the
+/// @p size bytes at @p indices, the process id sent with a word for it in the request, as
+/// CountAddOnContent's.
+static Result AocListInto(Service *aoc, uint32_t offset, uint32_t count, s32 *indices,
+                          size_t size, uint32_t *listed) {
     const struct {
         s32 offset, count;
         u64 pid;
-    } in = { (s32)offset, (s32)SERVICE_AOC_LISTED, 0 };
+    } in = { (s32)offset, (s32)count, 0 };
     u32 out = 0;
     const Result rc =
         serviceDispatchInOut(aoc, 3, in, out, .in_send_pid = true,
                              .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
-                             .buffers = { { indices, sizeof(indices) } }, );
+                             .buffers = { { indices, size } }, );
     *listed = out;
     return rc;
 }
 
+/// A list from @p offset into room for SERVICE_AOC_LISTED indices, all of them asked for.
+static Result AocList(Service *aoc, uint32_t offset, uint32_t *listed) {
+    static s32 indices[SERVICE_AOC_LISTED];
+    return AocListInto(aoc, offset, SERVICE_AOC_LISTED, indices, sizeof(indices), listed);
+}
+
 /// aoc:u, asked for this program's add-on content as a game asks before it mounts one:
 /// CountAddOnContent (2), then ListAddOnContent (3) from the count, the list's end, and from one
-/// past it.
+/// past it; from 0 into room for all of them, for one into room for one, and for none; and
+/// GetAddOnContentBaseId (5) beside the program's id. The program has no add-on content.
 static void RunAoc(void) {
     char detail[480];
     Service aoc;
@@ -640,6 +648,9 @@ static void RunAoc(void) {
     }
     if (!opens) {
         Skip(SERVICE_AOC_PAST, REPORT_REASON_DEPENDS, "aoc:u did not count its add-on content");
+        Skip(SERVICE_AOC_NONE, REPORT_REASON_DEPENDS, "aoc:u did not count its add-on content");
+        Skip(SERVICE_AOC_ROOM, REPORT_REASON_DEPENDS, "aoc:u did not count its add-on content");
+        Skip(SERVICE_AOC_BASE, REPORT_REASON_DEPENDS, "aoc:u did not count its add-on content");
         return;
     }
     if (Start(SERVICE_AOC_PAST)) {
@@ -651,6 +662,42 @@ static void RunAoc(void) {
         seen.past_rc = AocList(&aoc, count + 1u, &past_listed);
         const bool passed = ServiceJudgeAocPast(&seen, detail, sizeof(detail));
         Report(SERVICE_AOC_PAST, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_AOC_NONE)) {
+        ServiceAocNone seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.count = count;
+        seen.list_rc = AocList(&aoc, 0u, &seen.listed);
+        const bool passed = ServiceJudgeAocNone(&seen, detail, sizeof(detail));
+        Report(SERVICE_AOC_NONE, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_AOC_ROOM)) {
+        static s32 room[SERVICE_AOC_LISTED];
+        for (uint32_t i = 0; i < SERVICE_AOC_LISTED; ++i) {
+            room[i] = (s32)SERVICE_AOC_UNTOUCHED;
+        }
+        ServiceAocRoom seen;
+        memset(&seen, 0, sizeof(seen));
+        // One asked for, into room for one: the rest of the array is past the room.
+        seen.one_rc = AocListInto(&aoc, 0u, 1u, room, sizeof(room[0]), &seen.one_listed);
+        seen.past_kept = true;
+        for (uint32_t i = 1; i < SERVICE_AOC_LISTED; ++i) {
+            seen.past_kept = seen.past_kept && room[i] == (s32)SERVICE_AOC_UNTOUCHED;
+        }
+        seen.none_rc = AocListInto(&aoc, 0u, 0u, room, sizeof(room), &seen.none_listed);
+        const bool passed = ServiceJudgeAocRoom(&seen, detail, sizeof(detail));
+        Report(SERVICE_AOC_ROOM, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_AOC_BASE)) {
+        u64 program_id = 0;
+        const uint32_t info_rc =
+            svcGetInfo(&program_id, InfoType_ProgramId, CUR_PROCESS_HANDLE, 0);
+        const u64 pid = 0;
+        u64 base_id = 0;
+        const uint32_t rc = serviceDispatchInOut(&aoc, 5, pid, base_id, .in_send_pid = true, );
+        const bool passed =
+            ServiceJudgeAocBase(info_rc, program_id, rc, base_id, detail, sizeof(detail));
+        Report(SERVICE_AOC_BASE, CHECK_EXACT, passed, detail);
     }
     serviceClose(&aoc);
 }
