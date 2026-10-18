@@ -1616,6 +1616,47 @@ static void CheckTimeZone(void) {
                round_said, second, off, counted, refused);
 }
 
+static void CheckTimePerm(void) {
+    ServiceTimeWrites clocks = { SERVICE_TIME_CLOCK_WRITES,
+                                 { SERVICE_TIME_DENIED, SERVICE_TIME_DENIED, SERVICE_TIME_DENIED,
+                                   SERVICE_TIME_DENIED },
+                                 true };
+    const bool denied = ServiceJudgeTimeClocks(&clocks, said, sizeof(said)) &&
+                        strcmp(said, "every write refused, nothing changed: user SetCurrentTime "
+                                     "0x274, user SetSystemClockContext 0x274, network "
+                                     "SetCurrentTime 0x274, steady SetTestOffset 0x274; the same "
+                                     "after") == 0;
+    char denied_said[480];
+    memcpy(denied_said, said, sizeof(said));
+    // A stub's success for one write, a refusal of another kind, and a clock moved.
+    clocks.rc[3] = 0u;
+    const bool taken = !ServiceJudgeTimeClocks(&clocks, said, sizeof(said)) &&
+                       strstr(said, "a write not refused as PermissionDenied") == said;
+    clocks.rc[3] = SERVICE_RESULT(116, 103);
+    const bool other = !ServiceJudgeTimeClocks(&clocks, said, sizeof(said));
+    clocks.rc[3] = SERVICE_TIME_DENIED;
+    clocks.same = false;
+    const bool moved = !ServiceJudgeTimeClocks(&clocks, said, sizeof(said)) &&
+                       strstr(said, "refused, and changed") == said;
+    ServiceTimeWrites settings = { SERVICE_TIME_SETTING_WRITES,
+                                   { SERVICE_TIME_DENIED, SERVICE_TIME_DENIED, SERVICE_TIME_DENIED,
+                                     0u },
+                                   true };
+    const bool kept = ServiceJudgeTimeSettings(&settings, said, sizeof(said)) &&
+                      strstr(said, "every write refused, nothing changed") == said;
+    settings.rc[2] = 0u;
+    const bool located = !ServiceJudgeTimeSettings(&settings, said, sizeof(said));
+    settings.count = 0u;
+    const bool none = !ServiceJudgeTimeSettings(&settings, said, sizeof(said));
+    // PermissionDenied is Time (116) 1: 116 + 1 x 512 = 0x274, worked out by hand.
+    const bool code = SERVICE_TIME_DENIED == 0x274u;
+    CHECK_TRUE(SUITE, "service: time-perm passes every write time:u asks refused", CHECK_NONE,
+               denied && taken && other && moved && kept && located && none && code,
+               "denied %d \"%.180s\", a write taken %d, another refusal %d, moved %d, settings %d, "
+               "a location set %d, no write %d, code %d",
+               denied, denied_said, taken, other, moved, kept, located, none, code);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1653,4 +1694,5 @@ void RunReferenceService(void) {
     CheckAmLock();
     CheckSetSys();
     CheckTimeZone();
+    CheckTimePerm();
 }

@@ -154,6 +154,10 @@ static const struct {
                           "as many location names are listed as counted, the device's among them" },
     [SERVICE_TZ_UPDATED] = { "time-zone", "the device's location comes with when it was set" },
     [SERVICE_TZ_BACK] = { "time-zone", "a local date turned back gives the time it came from" },
+    [SERVICE_TIME_PERM_CLOCKS] = { "time-perm", "time:u may not set a clock" },
+    [SERVICE_TIME_PERM_SETTINGS] = { "time-perm",
+                                     "time:u may not set automatic correction, the steady clock's "
+                                     "offset or the device's location" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1758,4 +1762,47 @@ bool ServiceJudgeTzBack(const ServiceTzBack *seen, char *out, size_t out_size) {
              (unsigned)seen->back_rc, (int)seen->count, (long long)seen->times[0],
              (long long)seen->times[1], version, (unsigned)seen->version_rc);
     return passed;
+}
+
+/// Every write refused as PermissionDenied, and what each write names, for the line.
+static bool TimeWrites(const char *const *names, const ServiceTimeWrites *seen, char *out,
+                       size_t out_size) {
+    bool denied = seen->count > 0u;
+    size_t n = 0;
+    for (uint32_t i = 0; i < seen->count; ++i) {
+        denied = denied && seen->rc[i] == SERVICE_TIME_DENIED;
+        n += (size_t)snprintf(out + (n < out_size ? n : out_size), n < out_size ? out_size - n : 0u,
+                              "%s%s 0x%x", i == 0u ? ": " : ", ", names[i], (unsigned)seen->rc[i]);
+    }
+    return denied;
+}
+
+static bool TimeVerdict(bool denied, const ServiceTimeWrites *seen, char *out, size_t out_size) {
+    char writes[400];
+    snprintf(writes, sizeof(writes), "%s", out);
+    const bool passed = denied && seen->same;
+    snprintf(out, out_size, "%s%s; %s",
+             !denied ? "a write not refused as PermissionDenied"
+             : !seen->same ? "refused, and changed"
+                           : "every write refused, nothing changed",
+             writes, seen->same ? "the same after" : "changed after");
+    return passed;
+}
+
+bool ServiceJudgeTimeClocks(const ServiceTimeWrites *seen, char *out, size_t out_size) {
+    static const char *const names[SERVICE_TIME_CLOCK_WRITES] = {
+        "user SetCurrentTime", "user SetSystemClockContext", "network SetCurrentTime",
+        "steady SetTestOffset"
+    };
+    const bool denied = TimeWrites(names, seen, out, out_size);
+    return TimeVerdict(denied, seen, out, out_size);
+}
+
+bool ServiceJudgeTimeSettings(const ServiceTimeWrites *seen, char *out, size_t out_size) {
+    static const char *const names[SERVICE_TIME_SETTING_WRITES] = {
+        "SetStandardUserSystemClockAutomaticCorrectionEnabled",
+        "SetStandardSteadyClockInternalOffset", "SetDeviceLocationName"
+    };
+    const bool denied = TimeWrites(names, seen, out, out_size);
+    return TimeVerdict(denied, seen, out, out_size);
 }

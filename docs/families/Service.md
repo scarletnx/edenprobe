@@ -42,6 +42,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | am-lock | 2 | the lock accessors a game holds the home button off with: taken as libnx takes it, held, and their event (`hle/service/am/service/lock_accessor.cpp`) |
 | set-sys | 3 | the system settings a homebrew program reads and writes on set:sys: the color set, the keyboard layout, the vibration volume and four flags (`hle/service/set/system_settings_server.cpp`) |
 | time-zone | 3 | time:u's time zone service: every location name it counts listed with the device's, the device's location with when it was set, and a local date turned back (`hle/service/glue/time/time_zone.cpp`, `psc/time/time_zone_service.cpp`) |
+| time-perm | 2 | what time:u, an application's time service, may not write: a clock, automatic correction, the steady clock's offset, the device's location (`hle/service/psc/time/system_clock.cpp`, `steady_clock.cpp`, `static.cpp`, `glue/time/time_zone.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -695,6 +696,25 @@ The names are asked for in at most 128 calls, past the six hundred or so a datab
 suite opens time:u itself, as the time suite does; all three are skipped as `unavailable` when it
 hands out no time zone service.
 
+## time-perm
+
+An application gets time:u, which reads the clocks and the time zone and writes none of them: the
+user and network clocks' SetCurrentTime (1) and SetSystemClockContext (3), the steady clock's
+SetTestOffset (3), SetStandardUserSystemClockAutomaticCorrectionEnabled (101),
+SetStandardSteadyClockInternalOffset (50) and the time zone service's SetDeviceLocationName (1) are
+the system settings' and time:a's. reden's time:u has every write permission off and answers each
+of them PermissionDenied, Time (116) 1: `0x274` (`glue/glue.cpp` and the checks of
+`psc/time/system_clock.cpp`, `steady_clock.cpp`, `static.cpp` and `glue/time/time_zone.cpp` at
+75c12299a6).
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| time:u may not set a clock | the user clock's 1 with its time and 3 with its context, the network clock's 1 with its time, the steady clock's 3 with its offset | each is refused with `0x274` and the user clock reads within two seconds of before | exact |
+| time:u may not set automatic correction, the steady clock's offset or the device's location | 101 with the flag 100 reads, 50 with nought, the time zone service's 1 with the name 0 reads | each is refused with `0x274` and 100 and 0 read the same after | exact |
+
+Every write asks for what is there already, so a machine that takes one changes nothing; the
+suite opens time:u itself and skips both cases as `unavailable` when it hands out no clocks.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -775,6 +795,8 @@ hands out no time zone service.
 - **Q34.** How many location names a console counts, what its GetTimeZoneRuleVersion answers
   (reden's is `230326\n`), and whether GetDeviceLocationNameAndUpdatedTime dates the location by
   the steady clock.
+- **Q35.** Whether a console's time:u refuses each of these writes with PermissionDenied
+  (`0x274`), as reden's does.
 
 ## The judge, pinned
 
@@ -886,3 +908,5 @@ time-zone passes every name listed with the device's, and fails a list cut short
 device's missing and none counted; it passes the device's location twice and fails an empty one and
 another; it passes the time back, first or second of two, and fails a time an hour off, no time back and
 202 refused.
+time-perm passes every write refused with `0x274` and nothing changed, and fails a write taken,
+another refusal, a clock moved, a location set and no write asked.
