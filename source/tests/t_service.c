@@ -534,15 +534,59 @@ static void RunCsrng(void) {
 /// apm and a session on it, as libnx opens them before a game asks for the performance mode.
 static void RunApm(void) {
     char detail[480];
+    bool opens = false;
     if (Start(SERVICE_APM_OPENS)) {
         const Result rc = apmInitialize();
+        opens = R_SUCCEEDED(rc);
         snprintf(detail, sizeof(detail), "apmInitialize (apm and OpenSession) returned 0x%x",
                  (unsigned)rc);
-        Report(SERVICE_APM_OPENS, CHECK_NONE, R_SUCCEEDED(rc), detail);
-        if (R_SUCCEEDED(rc)) {
-            apmExit();
-        }
+        Report(SERVICE_APM_OPENS, CHECK_NONE, opens, detail);
     }
+    if (!opens) {
+        Skip(SERVICE_APM_CONFIG, REPORT_REASON_DEPENDS, "apm handed out no session");
+        Skip(SERVICE_APM_BOOST, REPORT_REASON_DEPENDS, "apm handed out no session");
+        return;
+    }
+    if (Start(SERVICE_APM_CONFIG)) {
+        // GetPerformanceConfiguration (1) for Normal and Boost, SetPerformanceConfiguration (0)
+        // for Normal to a configuration it does not have, the two reads, and Normal put back.
+        ServiceApmConfig seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.before_rc = apmGetPerformanceConfiguration(ApmPerformanceMode_Normal,
+                                                        &seen.normal_before);
+        if (R_SUCCEEDED(seen.before_rc)) {
+            seen.before_rc = apmGetPerformanceConfiguration(ApmPerformanceMode_Boost,
+                                                            &seen.boost_before);
+        }
+        seen.asked = seen.normal_before == SERVICE_APM_CONFIG1 ? SERVICE_APM_CONFIG7
+                                                               : SERVICE_APM_CONFIG1;
+        seen.set_rc = apmSetPerformanceConfiguration(ApmPerformanceMode_Normal, seen.asked);
+        seen.after_rc = apmGetPerformanceConfiguration(ApmPerformanceMode_Normal,
+                                                       &seen.normal_after);
+        if (R_SUCCEEDED(seen.after_rc)) {
+            seen.after_rc = apmGetPerformanceConfiguration(ApmPerformanceMode_Boost,
+                                                           &seen.boost_after);
+        }
+        const bool known = seen.before_rc == 0u && seen.normal_before != 0u;
+        seen.restore_rc = apmSetPerformanceConfiguration(
+            ApmPerformanceMode_Normal, known ? seen.normal_before : SERVICE_APM_CONFIG7);
+        const bool passed = ServiceJudgeApmConfig(&seen, detail, sizeof(detail));
+        Report(SERVICE_APM_CONFIG, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_APM_BOOST)) {
+        // The state getter's SetCpuBoostMode (66) to FastLoad, Boost's configuration read, then
+        // back to Normal, as a game does around its loading screens, and read again.
+        ServiceApmBoost seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.fast_rc = appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
+        seen.fast_read_rc = apmGetPerformanceConfiguration(ApmPerformanceMode_Boost, &seen.fast);
+        seen.normal_rc = appletSetCpuBoostMode(ApmCpuBoostMode_Normal);
+        seen.normal_read_rc =
+            apmGetPerformanceConfiguration(ApmPerformanceMode_Boost, &seen.normal);
+        const bool passed = ServiceJudgeApmBoost(&seen, detail, sizeof(detail));
+        Report(SERVICE_APM_BOOST, CHECK_EXACT, passed, detail);
+    }
+    apmExit();
 }
 
 // ---------------------------------------------------------------------------------------------

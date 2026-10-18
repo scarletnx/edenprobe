@@ -36,6 +36,13 @@ extern "C" {
 /// The file system's answer for a path that is not there: Fs (2) 1, PathNotFound.
 #define SERVICE_PATH_NOT_FOUND SERVICE_RESULT(2, 1)
 
+/// apm's performance configurations the apm suite sets and expects (reden `apm_controller.h`):
+/// Config7, both modes' at first; Config1, one the session case sets; Config13, the one
+/// SetCpuBoostMode with FastLoad gives Boost mode (`apm_controller.cpp`, `SetFromCpuBoostMode`).
+#define SERVICE_APM_CONFIG7 0x00020003u
+#define SERVICE_APM_CONFIG1 0x00010000u
+#define SERVICE_APM_CONFIG13 0x92220009u
+
 /// set refusing a language past its table: Settings (105) 625, ResultInvalidLanguage (reden
 /// settings_server.cpp). The most codes GetAvailableLanguageCodes2 can list, 0x40, is reden's
 /// POST_4_0_0_MAX_ENTRIES.
@@ -160,6 +167,8 @@ typedef enum {
     SERVICE_CSRNG_OPENS,  ///< csrng: csrng opens (none tier)
     SERVICE_RANDOM,       ///< csrng: two asks fill their buffers, differently
     SERVICE_APM_OPENS,    ///< apm: apm and a session (none tier)
+    SERVICE_APM_CONFIG,   ///< apm: a configuration set is read back for its mode alone
+    SERVICE_APM_BOOST,    ///< apm: SetCpuBoostMode picks the boost mode's configuration
     SERVICE_NFP_OPENS,    ///< nfp: libnx's nfpInitialize for a user (none tier)
     SERVICE_NFP_FILTER,   ///< nfp: StartDetectionWithFilter answers as StartDetection
     SERVICE_AOC_OPENS,    ///< aoc: aoc:u opens and counts its add-on content (none tier)
@@ -876,6 +885,27 @@ bool ServiceJudgeNgcMask(const char *text, const ServiceNgcText *mask, const Ser
 /// for byte, as reden's IService does.
 bool ServiceJudgeNgctClean(const char *text, uint32_t match_rc, bool matched,
                            const ServiceNgcText *filter, char *out, size_t out_size);
+
+/// A session's configurations: both modes' at first, the one asked for Normal mode, both read
+/// after, with what each step answered (the two first reads, the write, the two reads after, the
+/// write that puts Normal back). Passes when every step succeeds, Normal reads what was asked and
+/// Boost what it read at first: reden keeps one configuration per mode (`apm_controller.cpp`,
+/// `SetPerformanceConfiguration`, `GetCurrentPerformanceConfiguration`).
+typedef struct {
+    uint32_t before_rc, set_rc, after_rc, restore_rc;
+    uint32_t normal_before, boost_before, asked, normal_after, boost_after;
+} ServiceApmConfig;
+bool ServiceJudgeApmConfig(const ServiceApmConfig *seen, char *out, size_t out_size);
+
+/// Boost mode's configuration after the state getter's SetCpuBoostMode (66) with FastLoad and then
+/// with Normal, each read on an apm session, with what each step answered. Passes when every step
+/// succeeds, FastLoad gives Config13 and Normal Config7: reden hands the mode to apm, which sets
+/// Boost's configuration from it (`common_state_getter.cpp`, `SetCpuBoostMode`).
+typedef struct {
+    uint32_t fast_rc, fast_read_rc, normal_rc, normal_read_rc;
+    uint32_t fast, normal;
+} ServiceApmBoost;
+bool ServiceJudgeApmBoost(const ServiceApmBoost *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

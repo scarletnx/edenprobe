@@ -1396,6 +1396,51 @@ static void CheckNgc(void) {
                masked, filtered, matched, emptied);
 }
 
+static void CheckApm(void) {
+    ServiceApmConfig seen = { 0u, 0u, 0u, 0u, SERVICE_APM_CONFIG7, SERVICE_APM_CONFIG7,
+                              SERVICE_APM_CONFIG1, SERVICE_APM_CONFIG1, SERVICE_APM_CONFIG7 };
+    const bool kept = ServiceJudgeApmConfig(&seen, said, sizeof(said)) &&
+                      strcmp(said, "read back for its mode alone: Normal 0x20003 Boost 0x20003 "
+                                   "(0x0), Normal set to 0x10000 (0x0), read 0x10000 and 0x20003 "
+                                   "(0x0), put back 0x0") == 0;
+    char kept_said[480];
+    memcpy(kept_said, said, sizeof(said));
+    // A stub's fixed Config7, a write that both modes take, and the write refused.
+    seen.normal_after = SERVICE_APM_CONFIG7;
+    const bool stub = !ServiceJudgeApmConfig(&seen, said, sizeof(said)) &&
+                      strstr(said, "the write not read back") == said;
+    seen.normal_after = SERVICE_APM_CONFIG1;
+    seen.boost_after = SERVICE_APM_CONFIG1;
+    const bool both = !ServiceJudgeApmConfig(&seen, said, sizeof(said)) &&
+                      strstr(said, "Boost changed with it") == said;
+    seen.boost_after = SERVICE_APM_CONFIG7;
+    seen.set_rc = SERVICE_RESULT(148, 1);
+    const bool refused = !ServiceJudgeApmConfig(&seen, said, sizeof(said));
+    ServiceApmBoost boost = { 0u, 0u, 0u, 0u, SERVICE_APM_CONFIG13, SERVICE_APM_CONFIG7 };
+    const bool boosted = ServiceJudgeApmBoost(&boost, said, sizeof(said)) &&
+                         strstr(said, "Config13 for FastLoad, Config7 back") == said;
+    // A stub's Config7 for FastLoad, FastLoad's kept after Normal, and SetCpuBoostMode refused.
+    boost.fast = SERVICE_APM_CONFIG7;
+    const bool unboosted = !ServiceJudgeApmBoost(&boost, said, sizeof(said)) &&
+                           strstr(said, "another configuration for FastLoad") == said;
+    boost = (ServiceApmBoost){ 0u, 0u, 0u, 0u, SERVICE_APM_CONFIG13, SERVICE_APM_CONFIG13 };
+    const bool stuck = !ServiceJudgeApmBoost(&boost, said, sizeof(said)) &&
+                       strstr(said, "another configuration back at Normal") == said;
+    boost = (ServiceApmBoost){ SERVICE_RESULT(128, 1), 0u, 0u, 0u, SERVICE_APM_CONFIG13,
+                               SERVICE_APM_CONFIG7 };
+    const bool boost_refused = !ServiceJudgeApmBoost(&boost, said, sizeof(said));
+    // Config13 is 0x92220009 and Config7 0x00020003 (reden apm_controller.h).
+    const bool codes = SERVICE_APM_CONFIG13 == 0x92220009u && SERVICE_APM_CONFIG7 == 0x20003u;
+    CHECK_TRUE(SUITE, "service: apm passes a configuration kept per mode and the boost mode's",
+               CHECK_NONE,
+               kept && stub && both && refused && boosted && unboosted && stuck && boost_refused &&
+                   codes,
+               "kept %d \"%.160s\", a stub %d, both modes %d, refused %d, boosted %d, a stub's "
+               "boost %d, stuck %d, boost refused %d, codes %d",
+               kept, kept_said, stub, both, refused, boosted, unboosted, stuck, boost_refused,
+               codes);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1429,4 +1474,5 @@ void RunReferenceService(void) {
     CheckVi();
     CheckRenderer();
     CheckNgc();
+    CheckApm();
 }

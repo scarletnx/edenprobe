@@ -16,7 +16,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | ldn | 2 | the client process monitor a game asks ldn:u for on 18.0.0 (`hle/service/ldn/ldn.cpp`, `IUserServiceCreator`, `IClientProcessMonitor`) |
 | set | 4 | the language codes a game picks its text by (`hle/service/set/settings_server.cpp`, `available_language_codes`) |
 | csrng | 2 | the random bytes a game seeds from (`hle/service/spl/spl_module.cpp`, `GenerateRandomBytes`) |
-| apm | 1 | apm and a session on it, which a game opens before it asks for the performance mode (`hle/service/apm/apm_interface.cpp`, `APM::OpenSession`) |
+| apm | 3 | apm and a session on it, which a game opens before it asks for the performance mode, and the configurations a session and SetCpuBoostMode set (`hle/service/apm/apm_interface.cpp`, `APM::OpenSession`, `apm_controller.cpp`) |
 | nfp | 2 | the detection a game built for 23.0.0 starts (`hle/service/nfp/nfp.cpp`, the IUser table) |
 | aoc | 6 | the add-on content a game counts, lists and prepares before it mounts one: none here, a list past its end, a list that fits its room, the base id, a prepare of an index not installed (`hle/service/aoc/addon_content_manager.cpp`, `CountAddOnContent`, `ListAddOnContent`, `GetAddOnContentBaseId`, `PrepareAddOnContent`) |
 | time | 6 | the clocks and dates a game reads at start: the user clock against its context and the steady clock, the steady clock's seconds, dates under UTC and under the device's rule (`hle/service/psc/time/clocks/system_clock_core.cpp`, `GetCurrentTime`, and `hle/service/glue/time/time_zone.cpp`) |
@@ -187,6 +187,13 @@ which reden answers with an ISession (`apm_interface.cpp`, `APM::OpenSession`).
 | case | what it asks | passes when | tier |
 |---|---|---|---|
 | apm opens, with a session | `apmInitialize` (apm and OpenSession, 0) | it succeeds | none |
+| a configuration set is read back for its mode alone | GetPerformanceConfiguration (1) for both modes, SetPerformanceConfiguration (0) for Normal, 1 for both, 0 back | Normal reads what was set and Boost what it read first | exact |
+| SetCpuBoostMode gives boost mode the configuration of its clocks | the state getter's SetCpuBoostMode (66) with FastLoad, 1 for Boost, 66 with Normal, 1 for Boost | FastLoad gives `0x92220009` (Config13) and Normal `0x00020003` (Config7) | exact |
+
+reden keeps one configuration per mode, Config7 for both at first, and its state getter's
+SetCpuBoostMode hands the mode to apm, which gives Boost mode Config7, Config13 or Config15 by it
+(`apm_controller.cpp` at 75c12299a6, `SetFromCpuBoostMode`). Both cases skip as `depends` when apm
+opened no session; the first puts Normal's configuration back, the second ends at Normal.
 
 ## nfp
 
@@ -701,6 +708,8 @@ Each case is skipped as `unavailable` when sm hands out no session to its servic
   and with what: reden answers success for any index, from a stub.
 - **Q30.** Which version a console's ngc:u answers, which buffer types its Check and Mask take
   (the suite sends mapped ones), and whether the pattern list's bit 1 is American English.
+- **Q31.** Whether a console's apm session keeps a configuration per mode as reden does, and
+  whether its SetCpuBoostMode with FastLoad gives Boost mode Config13 (`0x92220009`).
 
 ## The judge, pinned
 
@@ -798,3 +807,6 @@ stub's nought read back, and a first read that is not the default.
 ngc passes a version and no word found, and fails a version of nought, a word found and a refusal;
 a text given back passes, and a buffer left as it was, a text without its terminator, a word
 masked, a match and a filter that empties the text each fail.
+apm passes a configuration read back for its mode alone and fails a stub's fixed one, a write
+both modes take and a refusal; it passes Config13 for FastLoad and Config7 back, and fails Config7
+for FastLoad, Config13 kept after Normal and SetCpuBoostMode refused.
