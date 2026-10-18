@@ -1022,6 +1022,35 @@ static void CheckAmStorage(void) {
                keeps, keeps_said, size, lost, past, cut, other);
 }
 
+static void CheckMii(void) {
+    const bool six = ServiceJudgeMiiCount(0u, 6, said, sizeof(said)) &&
+                     strcmp(said, "six default Miis: GetCount(Default) 0x0, 6") == 0;
+    char six_said[480];
+    memcpy(six_said, said, sizeof(said));
+    // A stub's count of nought.
+    const bool none = !ServiceJudgeMiiCount(0u, 0, said, sizeof(said));
+    ServiceMiiDefaults seen = { 0u, 0u, 6, 6u, 6u };
+    const bool given = ServiceJudgeMiiDefaults(&seen, said, sizeof(said));
+    seen.count = 0;
+    const bool empty = !ServiceJudgeMiiDefaults(&seen, said, sizeof(said)) &&
+                       strstr(said, "another count of Miis") == said;
+    seen = (ServiceMiiDefaults){ 0u, 0u, 6, 5u, 6u };
+    const bool source = !ServiceJudgeMiiDefaults(&seen, said, sizeof(said)) &&
+                        strstr(said, "a Mii of another source") == said;
+    seen = (ServiceMiiDefaults){ 0u, 0u, 6, 6u, 5u };
+    const bool other = !ServiceJudgeMiiDefaults(&seen, said, sizeof(said)) &&
+                       strstr(said, "other Miis than BuildDefault builds") == said;
+    const bool state = ServiceJudgeMiiState(0u, false, 0u, false, said, sizeof(said));
+    const bool full = !ServiceJudgeMiiState(0u, false, 0u, true, said, sizeof(said));
+    const bool past = ServiceJudgeMiiPast(SERVICE_MII_INVALID_ARGUMENT, said, sizeof(said));
+    const bool built = !ServiceJudgeMiiPast(0u, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: mii passes the six default Miis", CHECK_NONE,
+               six && none && given && empty && source && other && state && full && past && built,
+               "six %d \"%.120s\", none %d, given %d, empty %d, another source %d, other Miis %d, "
+               "state %d, full %d, past %d, built past %d",
+               six, six_said, none, given, empty, source, other, state, full, past, built);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1044,4 +1073,5 @@ void RunReferenceService(void) {
     CheckAmAudio();
     CheckAmChannel();
     CheckAmStorage();
+    CheckMii();
 }

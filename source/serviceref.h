@@ -102,6 +102,11 @@ extern "C" {
 #define SERVICE_STORAGE_AT 0x20
 #define SERVICE_STORAGE_PAST 0x38
 
+/// mii's InvalidArgument (`hle/service/mii/mii_result.h`), and the default Miis reden builds
+/// (RawData::DefaultMii).
+#define SERVICE_MII_INVALID_ARGUMENT SERVICE_RESULT(126, 1)
+#define SERVICE_MII_DEFAULT_COUNT 6u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -162,6 +167,10 @@ typedef enum {
     SERVICE_STORAGE_KEEPS,      ///< am-storage: a storage has its size and keeps what is written
     SERVICE_STORAGE_WRITE_PAST, ///< am-storage: a write past the end is refused
     SERVICE_STORAGE_READ_PAST,  ///< am-storage: a read past the end is refused
+    SERVICE_MII_COUNT,    ///< mii: six default Miis counted
+    SERVICE_MII_DEFAULTS, ///< mii: Get of the default source gives the six BuildDefault builds
+    SERVICE_MII_STATE,    ///< mii: the database is neither updated nor full
+    SERVICE_MII_PAST,     ///< mii: BuildDefault past the six is refused
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -581,6 +590,31 @@ bool ServiceJudgeStorageKeeps(const ServiceStorageKeeps *seen, char *out, size_t
 /// whose end is past the storage's. @p what names the access on the line.
 bool ServiceJudgeStoragePast(const char *what, uint32_t create_rc, uint32_t rc, char *out,
                              size_t out_size);
+
+/// GetCount (2) of the default source: reden counts its six default Miis
+/// (`mii_manager.cpp`, GetCount and DefaultMiiCount).
+bool ServiceJudgeMiiCount(uint32_t rc, int32_t count, char *out, size_t out_size);
+
+/// Get (3) of the default source against BuildDefault (7) of each index: what Get answered and
+/// how many it gave, how many of those came with source Default (1), what the builds answered
+/// and how many of the Miis given are the same build past their create id, which reden makes new
+/// for each (`mii_manager.cpp`, Get and BuildDefault). Passes when both succeed and all six are
+/// Default and the same.
+typedef struct {
+    uint32_t get_rc, built_rc;
+    int32_t count;
+    uint32_t defaults, same;
+} ServiceMiiDefaults;
+bool ServiceJudgeMiiDefaults(const ServiceMiiDefaults *seen, char *out, size_t out_size);
+
+/// IsUpdated (0) of the default source and IsFullDatabase (1): reden answers false to both for a
+/// session that asked the default source only and a database with room.
+bool ServiceJudgeMiiState(uint32_t updated_rc, bool updated, uint32_t full_rc, bool full,
+                          char *out, size_t out_size);
+
+/// BuildDefault (7) of index 6, one past the default Miis: InvalidArgument (126, 1), as reden
+/// checks the index against RawData::DefaultMii.
+bool ServiceJudgeMiiPast(uint32_t rc, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }
