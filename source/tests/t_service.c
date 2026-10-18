@@ -2219,6 +2219,7 @@ static void RunRenderer(void) {
         Skip(SERVICE_RENDERER_PARAMS, REPORT_REASON_UNAVAILABLE, "%s", why);
         Skip(SERVICE_RENDERER_LIMIT, REPORT_REASON_UNAVAILABLE, "%s", why);
         Skip(SERVICE_RENDERER_DROP, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_RENDERER_STATE, REPORT_REASON_UNAVAILABLE, "%s", why);
         if (R_SUCCEEDED(opened)) {
             audrenExit();
         }
@@ -2276,6 +2277,26 @@ static void RunRenderer(void) {
         const bool passed =
             ServiceJudgeRendererSetting("GetVoiceDropParameter", &seen, detail, sizeof(detail));
         Report(SERVICE_RENDERER_DROP, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_RENDERER_STATE)) {
+        // GetState (3), Start (5), 3, Stop (6), 3: the renderer the audio family starts with
+        // audrenStartAudioRenderer, here with no update asked of it.
+        ServiceRendererState seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.before = seen.started = seen.stopped = 0xEEu;
+        u32 v = 0xEEu;
+        seen.before_rc = serviceDispatchOut(renderer, 3, v);
+        seen.before = v;
+        seen.start_rc = serviceDispatch(renderer, 5);
+        v = 0xEEu;
+        seen.started_rc = serviceDispatchOut(renderer, 3, v);
+        seen.started = v;
+        seen.stop_rc = serviceDispatch(renderer, 6);
+        v = 0xEEu;
+        seen.stopped_rc = serviceDispatchOut(renderer, 3, v);
+        seen.stopped = v;
+        const bool passed = ServiceJudgeRendererState(&seen, detail, sizeof(detail));
+        Report(SERVICE_RENDERER_STATE, CHECK_EXACT, passed, detail);
     }
     audrenExit();
 }

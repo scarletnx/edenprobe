@@ -37,7 +37,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | hid | 1 | the npad LIFOs of hid's shared memory, which every game reads its controllers from (`hid_core/resources/ring_lifo.h`) |
 | time-snap | 2 | the clock snapshot a game dates a save or times a wait across a sleep with, and the span between two (`hle/service/psc/time/static.cpp`) |
 | vi | 3 | the application display service every game opens first: the displays listed, the scaling modes converted, an indirect layer's memory (`hle/service/vi/application_display_service.cpp`) |
-| renderer | 3 | an audio renderer of the program's own: what it was opened with, the rendering time limit and the voice drop parameter (`hle/service/audio/audio_renderer.cpp`) |
+| renderer | 4 | an audio renderer of the program's own: what it was opened with, the rendering time limit and the voice drop parameter, and its state through Start and Stop (`hle/service/audio/audio_renderer.cpp`) |
 | ngc | 3 | the profanity filter a game runs a player's name through: ngc:u's version, check and mask, and ngct:u's match and filter (`hle/service/ngc/ngc.cpp`) |
 | am-lock | 2 | the lock accessors a game holds the home button off with: taken as libnx takes it, held, and their event (`hle/service/am/service/lock_accessor.cpp`) |
 | set-sys | 3 | the system settings a homebrew program reads and writes on set:sys: the color set, the keyboard layout, the vibration volume and four flags (`hle/service/set/system_settings_server.cpp`) |
@@ -621,8 +621,9 @@ suite opens one of its own, at 48 kHz with a final mix of 2 buffers, and closes 
 | a renderer gives the rate, frame and mix buffers it opened with | 0, 1 and 2 | 48000, 240 and 2 | exact |
 | the rendering time limit set is read back | 9, 8 to 70, 9, 8 back | 100 at first, then 70 | exact |
 | the voice drop parameter set is read back | 13, 12 to a half, 13, 12 back | 1 at first, then a half (in thousandths on the line) | exact |
+| a renderer is stopped until started, and stopped again | GetState (3), Start (5), 3, Stop (6), 3 | 1, then 0, then 1 (reden answers whether it is not active) | exact |
 
-The three skip as `unavailable` when audrenInitialize fails.
+The four skip as `unavailable` when audrenInitialize fails.
 
 ## ngc
 
@@ -867,6 +868,8 @@ account suite opens it; both cases are skipped as `unavailable` when it does not
   that order and sets the flag after them.
 - **Q38.** Whether a console's StoreSaveDataThumbnail refuses another size and a user id of
   nought with these results, and whether it checks the user before the size, as reden does.
+- **Q39.** Whether a console's renderer answers GetState 1 before Start and after Stop and 0
+  in between, as reden does.
 
 ## The judge, pinned
 
@@ -995,3 +998,5 @@ more than the total and none.
 acc-app passes every user qualified, and fails other users qualified, no user and a refusal; it
 passes a thumbnail taken at its size and refused short or for nobody, and fails a stub's success
 at every size, a nought user taken, another size taken and the thumbnail itself refused.
+renderer passes a renderer stopped, started and stopped again, and fails one that stays stopped,
+one still started after Stop and a Start refused.
