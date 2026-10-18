@@ -13,6 +13,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | am | 2 | the size of an application's account save: where the request carries the user, and whether the size is kept (`hle/service/am/service/application_functions.cpp`, `ExtendSaveData`, `GetSaveDataSize`) |
 | fsp | 2 | the temporary storage left as the launch before left it (`core.cpp`, `Load`, and `hle/service/filesystem/filesystem.cpp`, `InitTempStorage`) |
 | account | 2 | the user picked with nobody asked, by the command a game built for 19.0.0 sends (`hle/service/acc/acc.cpp`, `TrySelectUserWithoutInteraction`, and the acc:u0 table) |
+| ldn | 2 | the client process monitor a game asks ldn:u for on 18.0.0 (`hle/service/ldn/ldn.cpp`, `IUserServiceCreator`, `IClientProcessMonitor`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -104,6 +105,22 @@ required (a byte of nought).
 The line carries the user count, both answers and both ids, and the firmware the machine says it
 runs (`hosversionAtLeast(19, 0, 0)`).
 
+## ldn
+
+From 18.0.0, libnx's `ldnInitialize` asks ldn:u for a monitor of the client process,
+CreateClientProcessMonitor (1), and registers this process with it, the monitor's RegisterClient (0,
+a word of nought and the process id). reden 23585820bc (#4376) added the command and the object;
+without it, an unknown command's success hands back no object and the registration goes to a
+handle that is none.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| ldn:u opens | ldn:u | it opens | none |
+| CreateClientProcessMonitor hands out a monitor this process joins | 1, then RegisterClient on what it handed out | both succeed, on a handle that is not nought; or 1 is refused by a machine that says it is older than 18.0.0 | exact |
+
+The line carries both results, the handle and the firmware the machine says it runs. The monitor
+and ldn:u are closed before the suite returns; nothing else of ldn is asked.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -116,6 +133,8 @@ runs (`hosversionAtLeast(19, 0, 0)`).
   the application is launched.
 - **Q4.** What a console of 19.0.0 or later answers 52 with more than one user, and with one:
   reden answers as it answers 51.
+- **Q5.** What a console's RegisterClient answers a process that never initialised ldn (the suite
+  does not ask Initialize first, as libnx does): reden answers success to any process.
 
 ## The judge, pinned
 
@@ -129,4 +148,7 @@ not, and either command refusing each fail with the line that says which. A temp
 is gone passes; one that opens, holding the marker promised or an older one, and an open refused
 with anything but PathNotFound each fail. 52 passes with 51's answer for one user and for two, and
 refused only on a machine older than 19.0.0; a stub's id of nought for one user, 52 refused on a
-19.0.0 machine and 51 itself refused each fail.
+19.0.0 machine and 51 itself refused each fail. The ldn monitor passes when it comes and takes the
+process, and when 1 is refused on a machine older than 18.0.0; success with no object, a
+registration the kernel refuses (`0xE401`, InvalidHandle) and 1 refused on an 18.0.0 machine each
+fail.

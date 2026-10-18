@@ -189,10 +189,62 @@ static void CheckSelectUser(void) {
                one, one_said, none, stubbed, old, new_refused, first);
 }
 
+static void CheckLdnMonitor(void) {
+    // reden: an object, and RegisterClient succeeds on it.
+    ServiceLdnMonitor seen;
+    memset(&seen, 0, sizeof(seen));
+    seen.handle = 0xd0000u;
+    seen.registered = true;
+    seen.firmware18 = true;
+    const bool reden =
+        ServiceJudgeLdnMonitor(&seen, said, sizeof(said)) &&
+        strcmp(said, "the monitor came and RegisterClient took this process: "
+                     "CreateClientProcessMonitor 0x0, handle 0xd0000; RegisterClient 0x0; "
+                     "firmware at least 18.0.0") == 0;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+    // Success with no object, as an unknown command answers: nothing to register with.
+    ServiceLdnMonitor empty = seen;
+    empty.handle = 0u;
+    empty.registered = false;
+    const bool none = !ServiceJudgeLdnMonitor(&empty, said, sizeof(said)) &&
+                      strstr(said, "CreateClientProcessMonitor answered with no object") == said &&
+                      strstr(said, "RegisterClient not asked") != NULL;
+    // A handle of nought never passes, even said to have registered; nor does a monitor nobody
+    // registered with.
+    ServiceLdnMonitor nought = seen;
+    nought.handle = 0u;
+    const bool zero_handle = !ServiceJudgeLdnMonitor(&nought, said, sizeof(said));
+    ServiceLdnMonitor unasked = seen;
+    unasked.registered = false;
+    const bool not_registered = !ServiceJudgeLdnMonitor(&unasked, said, sizeof(said));
+    // A handle that is no object of the service's: the kernel refuses it (InvalidHandle).
+    ServiceLdnMonitor stray = seen;
+    stray.register_rc = SERVICE_RESULT(1, 114);
+    const bool invalid = !ServiceJudgeLdnMonitor(&stray, said, sizeof(said)) &&
+                         strstr(said, "RegisterClient refused") == said;
+    // Refused: a pass only where the machine says it is older than 18.0.0.
+    ServiceLdnMonitor refused = seen;
+    refused.create_rc = SERVICE_RESULT(10, 421);
+    refused.handle = 0u;
+    refused.registered = false;
+    const bool new_refused = !ServiceJudgeLdnMonitor(&refused, said, sizeof(said)) &&
+                             strstr(said, "CreateClientProcessMonitor refused") == said;
+    refused.firmware18 = false;
+    const bool old = ServiceJudgeLdnMonitor(&refused, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: ldn passes a monitor that comes and takes this process",
+               CHECK_NONE,
+               reden && none && zero_handle && not_registered && invalid && new_refused && old,
+               "reden %d \"%.200s\", no object %d, handle 0 %d, unregistered %d, invalid %d, "
+               "refused at 18 %d, older %d",
+               reden, reden_said, none, zero_handle, not_registered, invalid, new_refused, old);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
     CheckSaveSize();
     CheckTempEmpty();
     CheckSelectUser();
+    CheckLdnMonitor();
 }

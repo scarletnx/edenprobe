@@ -46,6 +46,8 @@ typedef enum {
     SERVICE_TEMP_EMPTY,   ///< fsp: what the launch before left there is gone
     SERVICE_ACC_OPENS,    ///< account: acc:u0 and its user count (none tier)
     SERVICE_SELECT_USER,  ///< account: 52 answers as 51 does
+    SERVICE_LDN_OPENS,    ///< ldn: ldn:u opens (none tier)
+    SERVICE_LDN_MONITOR,  ///< ldn: CreateClientProcessMonitor and its RegisterClient
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -97,6 +99,19 @@ typedef struct {
     bool firmware19;
 } ServiceSelectUser;
 bool ServiceJudgeSelectUser(const ServiceSelectUser *seen, char *out, size_t out_size);
+
+/// ldn:u's CreateClientProcessMonitor (1, 18.0.0+): what it answered and the handle of the object
+/// it handed out, and what that object's RegisterClient (0, with this process's id) answered.
+/// Passes when both succeeded on a handle that is not nought, which is what libnx's ldnInitialize
+/// asks on 18.0.0 and later and reden 23585820bc answers; a machine that says it is older than
+/// 18.0.0 may refuse 1 instead.
+typedef struct {
+    uint32_t create_rc, register_rc;
+    uint32_t handle;
+    bool registered; ///< RegisterClient was asked
+    bool firmware18;
+} ServiceLdnMonitor;
+bool ServiceJudgeLdnMonitor(const ServiceLdnMonitor *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

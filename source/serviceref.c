@@ -21,6 +21,9 @@ static const struct {
     [SERVICE_ACC_OPENS] = { "account", "acc:u0 opens and counts its users" },
     [SERVICE_SELECT_USER] = { "account",
                               "TrySelectUserWithoutInteraction answers as its deprecated twin" },
+    [SERVICE_LDN_OPENS] = { "ldn", "ldn:u opens" },
+    [SERVICE_LDN_MONITOR] = { "ldn",
+                              "CreateClientProcessMonitor hands out a monitor this process joins" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -129,4 +132,26 @@ bool ServiceJudgeSelectUser(const ServiceSelectUser *seen, char *out, size_t out
              (unsigned long long)seen->uid52[0], (unsigned long long)seen->uid52[1],
              seen->firmware19 ? "at least" : "older than");
     return passed;
+}
+
+bool ServiceJudgeLdnMonitor(const ServiceLdnMonitor *seen, char *out, size_t out_size) {
+    const bool joined = seen->create_rc == 0u && seen->handle != 0u && seen->registered &&
+                        seen->register_rc == 0u;
+    const bool older = !seen->firmware18 && seen->create_rc != 0u;
+    const char *const verdict =
+        joined               ? "the monitor came and RegisterClient took this process"
+        : older              ? "1 refused, by a machine older than 18.0.0"
+        : seen->create_rc != 0u ? "CreateClientProcessMonitor refused"
+        : seen->handle == 0u ? "CreateClientProcessMonitor answered with no object"
+                             : "RegisterClient refused";
+    char registered[32] = "not asked";
+    if (seen->registered) {
+        snprintf(registered, sizeof(registered), "0x%x", (unsigned)seen->register_rc);
+    }
+    snprintf(out, out_size,
+             "%s: CreateClientProcessMonitor 0x%x, handle 0x%x; RegisterClient %s; firmware %s "
+             "18.0.0",
+             verdict, (unsigned)seen->create_rc, (unsigned)seen->handle, registered,
+             seen->firmware18 ? "at least" : "older than");
+    return joined || older;
 }
