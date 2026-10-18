@@ -134,6 +134,13 @@ extern "C" {
 /// vi's OperationFailed (`hle/service/vi/vi_results.h`).
 #define SERVICE_VI_OPERATION_FAILED SERVICE_RESULT(114, 1)
 
+/// The buffers the ngc suite hands the profanity filter: the text in one, what comes back in the
+/// other, filled with 0xEE before the call so a buffer left as it was shows.
+#define SERVICE_NGC_SIZE 0x40u
+/// The word lists ngc:u is asked to look in, as nn::ngc's pattern list flags: American English
+/// (bit 1). reden reads none of it.
+#define SERVICE_NGC_LANGUAGES 0x2u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -220,6 +227,9 @@ typedef enum {
     SERVICE_RENDERER_PARAMS, ///< renderer: the rate, frame and mix buffers it was opened with
     SERVICE_RENDERER_LIMIT,  ///< renderer: the rendering time limit set reads back
     SERVICE_RENDERER_DROP,   ///< renderer: the voice drop parameter set reads back
+    SERVICE_NGC_CHECK,  ///< ngc: a version, and nothing found in a clean name
+    SERVICE_NGC_MASK,   ///< ngc: a clean name masked comes back as it was sent
+    SERVICE_NGCT_CLEAN, ///< ngc: ngct:u matches nothing and filters the name back unchanged
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -837,6 +847,35 @@ typedef struct {
 } ServiceRendererSetting;
 bool ServiceJudgeRendererSetting(const char *what, const ServiceRendererSetting *seen, char *out,
                                  size_t out_size);
+
+/// ngc:u's version of its word lists (GetContentVersion, 0) and what Check (1) and Check2 (4)
+/// found in a clean name, with what each answered. Passes when every call succeeds, the version is
+/// above nought and neither check found a word: reden answers version 1 and finds nothing
+/// (`ngc/ngc.cpp`, NgcServiceImpl).
+typedef struct {
+    uint32_t version_rc, check_rc, check2_rc;
+    uint32_t version, check, check2;
+} ServiceNgcCheck;
+bool ServiceJudgeNgcCheck(const ServiceNgcCheck *seen, char *out, size_t out_size);
+
+/// A text the profanity filter gave back: what the call answered, the words it said it masked
+/// (0xEEEE when it wrote none) and the buffer the text came back in.
+typedef struct {
+    uint32_t rc, count;
+    uint8_t back[SERVICE_NGC_SIZE];
+} ServiceNgcText;
+
+/// Mask (2) and Mask2 (5) of the clean name TEXT. Passes when both succeed, mask no word and give
+/// the text and its terminator back byte for byte: reden writes the text it was sent into the
+/// buffer it hands back.
+bool ServiceJudgeNgcMask(const char *text, const ServiceNgcText *mask, const ServiceNgcText *mask2,
+                         char *out, size_t out_size);
+
+/// ngct:u's Match (0) and Filter (1) of the clean name TEXT: Match's answer and verdict, and the
+/// filtered text. Passes when both succeed, Match finds nothing and Filter gives the text back byte
+/// for byte, as reden's IService does.
+bool ServiceJudgeNgctClean(const char *text, uint32_t match_rc, bool matched,
+                           const ServiceNgcText *filter, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

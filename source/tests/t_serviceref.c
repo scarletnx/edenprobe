@@ -1346,6 +1346,56 @@ static void CheckRenderer(void) {
                opened, opened_said, frame, mixes, kept, stub, initial);
 }
 
+static void CheckNgc(void) {
+    ServiceNgcCheck check = { 0u, 0u, 0u, 1u, 0u, 0u };
+    const bool clean = ServiceJudgeNgcCheck(&check, said, sizeof(said)) &&
+                       strcmp(said, "nothing found: GetContentVersion 0x0 version 1, Check 0x0 "
+                                    "flags 0x0, Check2 0x0 flags 0x0") == 0;
+    char clean_said[480];
+    memcpy(clean_said, said, sizeof(said));
+    // A stand-in's version of nought, a word found by Check2, and Check refused.
+    check.version = 0u;
+    const bool unversioned = !ServiceJudgeNgcCheck(&check, said, sizeof(said)) &&
+                             strstr(said, "no version") == said;
+    check = (ServiceNgcCheck){ 0u, 0u, 0u, 1u, 0u, 4u };
+    const bool found = !ServiceJudgeNgcCheck(&check, said, sizeof(said)) &&
+                       strstr(said, "a word found") == said;
+    check = (ServiceNgcCheck){ 0u, SERVICE_RESULT(147, 1), 0u, 1u, 0u, 0u };
+    const bool refused = !ServiceJudgeNgcCheck(&check, said, sizeof(said));
+    static const char text[] = "abc";
+    ServiceNgcText a, b;
+    memset(&a, 0, sizeof(a));
+    memcpy(a.back, text, sizeof(text));
+    b = a;
+    const bool back = ServiceJudgeNgcMask(text, &a, &b, said, sizeof(said)) &&
+                      strstr(said, "the text back as sent: sent \"abc\"") == said;
+    // A buffer left as it was, a text cut before its terminator, and a word masked.
+    memset(b.back, 0xEE, sizeof(b.back));
+    b.count = 0xEEEEu;
+    const bool untouched = !ServiceJudgeNgcMask(text, &a, &b, said, sizeof(said));
+    b = a;
+    b.back[3] = 'd';
+    const bool unterminated = !ServiceJudgeNgcMask(text, &a, &b, said, sizeof(said)) &&
+                              strstr(said, "another text back") == said;
+    b = a;
+    b.count = 1u;
+    const bool masked = !ServiceJudgeNgcMask(text, &a, &b, said, sizeof(said)) &&
+                        strstr(said, "a word masked") == said;
+    const bool filtered = ServiceJudgeNgctClean(text, 0u, false, &a, said, sizeof(said)) &&
+                          strstr(said, "no match, the text back as sent") == said;
+    const bool matched = !ServiceJudgeNgctClean(text, 0u, true, &a, said, sizeof(said));
+    b = a;
+    b.back[0] = 0u;
+    const bool emptied = !ServiceJudgeNgctClean(text, 0u, false, &b, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: ngc passes a clean name found clean and given back", CHECK_NONE,
+               clean && unversioned && found && refused && back && untouched && unterminated &&
+                   masked && filtered && matched && emptied,
+               "clean %d \"%.160s\", no version %d, a word %d, refused %d, back %d, untouched %d, "
+               "unterminated %d, masked %d, filtered %d, matched %d, emptied %d",
+               clean, clean_said, unversioned, found, refused, back, untouched, unterminated,
+               masked, filtered, matched, emptied);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1378,4 +1428,5 @@ void RunReferenceService(void) {
     CheckTimeSnap();
     CheckVi();
     CheckRenderer();
+    CheckNgc();
 }

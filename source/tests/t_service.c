@@ -2236,6 +2236,108 @@ static void RunRenderer(void) {
     audrenExit();
 }
 
+// ---------------------------------------------------------------------------------------------
+// ngc
+
+/// The text the profanity filter is asked about: a name a player could type, with no word in it
+/// that a list would hold.
+static const char kNgcText[] = "edenprobe player";
+
+/// The text in a buffer of SERVICE_NGC_SIZE, the rest of it nought.
+static uint8_t g_ngc_text[SERVICE_NGC_SIZE];
+
+/// ngc:u's Check (1) or Check2 (4): the lists to look in and the filter's options (nought), the
+/// text in a buffer; the words found, as flags.
+static Result NgcCheck(Service *s, uint32_t cmd, uint32_t *found) {
+    const struct {
+        uint32_t languages;
+        uint8_t option[0x20];
+    } in = { SERVICE_NGC_LANGUAGES, { 0 } };
+    *found = 0xEEEEu;
+    return serviceDispatchInOut(s, cmd, in, *found,
+                                .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_In },
+                                .buffers = { { g_ngc_text, sizeof(g_ngc_text) } }, );
+}
+
+/// ngc:u's Mask (2) or Mask2 (5): as Check, with a buffer for the masked text.
+static void NgcMask(Service *s, uint32_t cmd, ServiceNgcText *seen) {
+    const struct {
+        uint32_t languages;
+        uint8_t option[0x20];
+    } in = { SERVICE_NGC_LANGUAGES, { 0 } };
+    memset(seen->back, 0xEE, sizeof(seen->back));
+    seen->count = 0xEEEEu;
+    seen->rc = serviceDispatchInOut(
+        s, cmd, in, seen->count,
+        .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_In,
+                          SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+        .buffers = { { g_ngc_text, sizeof(g_ngc_text) }, { seen->back, sizeof(seen->back) } }, );
+}
+
+/// The profanity filter a game runs a player's name or message through before it shows it or
+/// sends it: ngc:u, asked as a game asks, and ngct:u, the newer one with one word list. A clean
+/// name is checked, masked and filtered.
+static void RunNgc(void) {
+    char detail[480];
+    memset(g_ngc_text, 0, sizeof(g_ngc_text));
+    memcpy(g_ngc_text, kNgcText, sizeof(kNgcText));
+    Service ngc;
+    memset(&ngc, 0, sizeof(ngc));
+    const Result ngc_rc = smGetService(&ngc, "ngc:u");
+    if (R_FAILED(ngc_rc)) {
+        Skip(SERVICE_NGC_CHECK, REPORT_REASON_UNAVAILABLE, "smGetService(\"ngc:u\") returned 0x%x",
+             (unsigned)ngc_rc);
+        Skip(SERVICE_NGC_MASK, REPORT_REASON_UNAVAILABLE, "smGetService(\"ngc:u\") returned 0x%x",
+             (unsigned)ngc_rc);
+    } else {
+        if (Start(SERVICE_NGC_CHECK)) {
+            ServiceNgcCheck seen;
+            memset(&seen, 0, sizeof(seen));
+            seen.version_rc = serviceDispatchOut(&ngc, 0, seen.version);
+            seen.check_rc = NgcCheck(&ngc, 1, &seen.check);
+            seen.check2_rc = NgcCheck(&ngc, 4, &seen.check2);
+            const bool passed = ServiceJudgeNgcCheck(&seen, detail, sizeof(detail));
+            Report(SERVICE_NGC_CHECK, CHECK_EXACT, passed, detail);
+        }
+        if (Start(SERVICE_NGC_MASK)) {
+            ServiceNgcText mask, mask2;
+            NgcMask(&ngc, 2, &mask);
+            NgcMask(&ngc, 5, &mask2);
+            const bool passed =
+                ServiceJudgeNgcMask(kNgcText, &mask, &mask2, detail, sizeof(detail));
+            Report(SERVICE_NGC_MASK, CHECK_EXACT, passed, detail);
+        }
+        serviceClose(&ngc);
+    }
+    Service ngct;
+    memset(&ngct, 0, sizeof(ngct));
+    const Result ngct_rc = smGetService(&ngct, "ngct:u");
+    if (R_FAILED(ngct_rc)) {
+        Skip(SERVICE_NGCT_CLEAN, REPORT_REASON_UNAVAILABLE,
+             "smGetService(\"ngct:u\") returned 0x%x", (unsigned)ngct_rc);
+        return;
+    }
+    if (Start(SERVICE_NGCT_CLEAN)) {
+        // Match (0) and Filter (1) take the text by pointer and give the filtered one by pointer.
+        u8 matched = 0xEEu;
+        const uint32_t match_rc = serviceDispatchOut(
+            &ngct, 0, matched, .buffer_attrs = { SfBufferAttr_HipcPointer | SfBufferAttr_In },
+            .buffers = { { g_ngc_text, sizeof(g_ngc_text) } }, );
+        ServiceNgcText filter;
+        memset(&filter, 0, sizeof(filter));
+        memset(filter.back, 0xEE, sizeof(filter.back));
+        filter.rc = serviceDispatch(&ngct, 1,
+                                    .buffer_attrs = { SfBufferAttr_HipcPointer | SfBufferAttr_In,
+                                                      SfBufferAttr_HipcPointer | SfBufferAttr_Out },
+                                    .buffers = { { g_ngc_text, sizeof(g_ngc_text) },
+                                                 { filter.back, sizeof(filter.back) } }, );
+        const bool passed = ServiceJudgeNgctClean(kNgcText, match_rc, (matched & 1u) != 0u,
+                                                  &filter, detail, sizeof(detail));
+        Report(SERVICE_NGCT_CLEAN, CHECK_EXACT, passed, detail);
+    }
+    serviceClose(&ngct);
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -2266,4 +2368,5 @@ void RunService(void) {
     RunTimeSnap();
     RunVi();
     RunRenderer();
+    RunNgc();
 }

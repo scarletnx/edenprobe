@@ -38,6 +38,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | time-snap | 2 | the clock snapshot a game dates a save or times a wait across a sleep with, and the span between two (`hle/service/psc/time/static.cpp`) |
 | vi | 3 | the application display service every game opens first: the displays listed, the scaling modes converted, an indirect layer's memory (`hle/service/vi/application_display_service.cpp`) |
 | renderer | 3 | an audio renderer of the program's own: what it was opened with, the rendering time limit and the voice drop parameter (`hle/service/audio/audio_renderer.cpp`) |
+| ngc | 3 | the profanity filter a game runs a player's name through: ngc:u's version, check and mask, and ngct:u's match and filter (`hle/service/ngc/ngc.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -609,6 +610,26 @@ suite opens one of its own, at 48 kHz with a final mix of 2 buffers, and closes 
 
 The three skip as `unavailable` when audrenInitialize fails.
 
+## ngc
+
+A game runs a name or a message a player typed through the profanity filter before it shows or
+sends it: ngc:u checks the text against the word lists of the languages it is given (Check, 1, and
+Check2, 4) and masks what it finds (Mask, 2, and Mask2, 5), and ngct:u, from 9.0.0, matches and
+filters with one list (Match, 0, and Filter, 1). reden finds nothing and hands every text back as
+it was sent, and answers version 1 for its lists (`ngc/ngc.cpp` at 75c12299a6); a clean name is
+what a console would give back too.
+
+The text is "edenprobe player" in a buffer of 0x40 bytes; ngc:u takes it by a mapped buffer, ngct:u
+by pointer, and the buffer it comes back in is filled with 0xEE first.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| ngc:u has a version and finds no word in a clean name | 0, 1 and 4 with the American English list | each succeeds, the version is above nought, and no flag is set | exact |
+| a clean name masked comes back as it was sent | 2 and 5 | each succeeds, masks no word, and gives the text and its terminator back byte for byte | exact |
+| ngct:u matches nothing in a clean name and filters it back as sent | 0 and 1 | each succeeds, nothing matches, and the text comes back byte for byte | exact |
+
+Each case is skipped as `unavailable` when sm hands out no session to its service.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -678,6 +699,8 @@ The three skip as `unavailable` when audrenInitialize fails.
   where the two differ. On a console the aoc cases need a title with no add-on content.
 - **Q29.** Whether a console refuses PrepareAddOnContent of an index the program does not have,
   and with what: reden answers success for any index, from a stub.
+- **Q30.** Which version a console's ngc:u answers, which buffer types its Check and Mask take
+  (the suite sends mapped ones), and whether the pattern list's bit 1 is American English.
 
 ## The judge, pinned
 
@@ -772,3 +795,6 @@ listed, a smaller default display, the game's numbering given back, a sixth mode
 unrounded size.
 renderer passes its parameters and two settings kept, and fails another frame or mix count, a
 stub's nought read back, and a first read that is not the default.
+ngc passes a version and no word found, and fails a version of nought, a word found and a refusal;
+a text given back passes, and a buffer left as it was, a text without its terminator, a word
+masked, a match and a filter that empties the text each fail.
