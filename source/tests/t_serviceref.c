@@ -767,6 +767,65 @@ static void CheckAmSelf(void) {
                other, refused);
 }
 
+static void CheckAmFunctions(void) {
+    const uint64_t codes[3] = { 0x53552d6e65ull, 0x616aull, 0x7266ull }; // en-US, ja, fr
+    const bool listed = ServiceJudgeDesiredLanguage(0u, 0x616aull, 0u, 3, codes, said,
+                                                    sizeof(said)) &&
+                        strstr(said, "a code set lists: GetDesiredLanguage 0x0 \"ja\"") == said;
+    char listed_said[480];
+    memcpy(listed_said, said, sizeof(said));
+    const bool unlisted =
+        !ServiceJudgeDesiredLanguage(0u, 0x6564ull, 0u, 3, codes, said, sizeof(said)) &&
+        strstr(said, "a code set does not list") == said;
+    const bool nought = !ServiceJudgeDesiredLanguage(0u, 0u, 0u, 3, codes, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: am-functions passes a desired language set lists", CHECK_NONE,
+               listed && unlisted && nought, "listed %d \"%.160s\", unlisted %d, nought %d",
+               listed, listed_said, unlisted, nought);
+
+    ServiceStartEvent events[SERVICE_START_EVENTS] = {
+        { true, 0u, 0x10u }, { true, 0u, 0x11u }, { true, 0u, 0x12u }, { true, 0u, 0x13u }
+    };
+    const bool all = ServiceJudgeStartEvents(events, said, sizeof(said)) &&
+                     strstr(said, "every event handed out, 4 of 4 asked: 130 0x0 handle 10;") ==
+                         said;
+    char events_said[480];
+    memcpy(events_said, said, sizeof(said));
+    events[2].handle = 0u; // an unknown command's success
+    const bool missing = !ServiceJudgeStartEvents(events, said, sizeof(said)) &&
+                         strstr(said, "an event not handed out, 3 of 4") == said;
+    events[2] = (ServiceStartEvent){ false, 0u, 0u };
+    events[1] = events[3] = events[2];
+    const bool old = ServiceJudgeStartEvents(events, said, sizeof(said)) &&
+                     strstr(said, "140 newer than the firmware") != NULL;
+    events[0].asked = false;
+    const bool none = !ServiceJudgeStartEvents(events, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: am-functions passes every start event handed out", CHECK_NONE,
+               all && missing && old && none,
+               "all %d \"%.160s\", one missing %d, before 9.0.0 %d, none asked %d", all,
+               events_said, missing, old, none);
+
+    const bool empty = ServiceJudgeEmptyChannels(true, SERVICE_AM_NO_DATA, false,
+                                                 SERVICE_AM_NO_DATA, false, said, sizeof(said));
+    const bool stub_storage = !ServiceJudgeEmptyChannels(true, 0u, false, SERVICE_AM_NO_DATA,
+                                                         false, said, sizeof(said)) &&
+                              strstr(said, "the friend invitation channel not refused") == said;
+    const bool user_left = !ServiceJudgeEmptyChannels(true, SERVICE_AM_NO_DATA, false, 0u, true,
+                                                      said, sizeof(said)) &&
+                           strstr(said, "the user channel not refused as empty") == said;
+    const bool old_friend = ServiceJudgeEmptyChannels(false, 0u, false, SERVICE_AM_NO_DATA, false,
+                                                      said, sizeof(said));
+    const bool other = !ServiceJudgeEmptyChannels(true, SERVICE_AM_NO_MESSAGES, false,
+                                                  SERVICE_AM_NO_DATA, false, said, sizeof(said));
+    const bool user_other = !ServiceJudgeEmptyChannels(true, SERVICE_AM_NO_DATA, false,
+                                                       SERVICE_AM_NO_MESSAGES, false, said,
+                                                       sizeof(said));
+    CHECK_TRUE(SUITE, "service: am-functions passes two empty channels refused as empty",
+               CHECK_NONE, empty && stub_storage && user_left && old_friend && other && user_other,
+               "empty %d, a stub's success %d, a user storage %d, before 9.0.0 %d, another "
+               "result %d, the user channel's %d",
+               empty, stub_storage, user_left, old_friend, other, user_other);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -783,4 +842,5 @@ void RunReferenceService(void) {
     CheckProfile();
     CheckAmState();
     CheckAmSelf();
+    CheckAmFunctions();
 }

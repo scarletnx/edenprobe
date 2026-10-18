@@ -70,6 +70,13 @@ static const struct {
     [SERVICE_SELF_IDLE] = { "am-self",
                             "the idle time detection extension set is the one read back" },
     [SERVICE_SELF_SLEEP] = { "am-self", "auto sleep disabled is read back as set" },
+    [SERVICE_FUNC_LANGUAGE] = { "am-functions",
+                                "GetDesiredLanguage is one of the codes set lists" },
+    [SERVICE_FUNC_EVENTS] = { "am-functions",
+                              "the events an application asks for at start are handed out" },
+    [SERVICE_FUNC_CHANNELS] = { "am-functions",
+                                "nothing waits in the friend invitation channel or the user "
+                                "channel" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -768,5 +775,71 @@ bool ServiceJudgeSelfSetting(const char *what, const ServiceSelfSetting *seen, c
              what, (unsigned)seen->before_rc, (unsigned)seen->before, (unsigned)seen->asked,
              (unsigned)seen->set_rc, (unsigned)seen->after_rc, (unsigned)seen->after,
              (unsigned)seen->restore_rc);
+    return passed;
+}
+
+bool ServiceJudgeDesiredLanguage(uint32_t rc, uint64_t code, uint32_t list_rc, int32_t listed,
+                                 const uint64_t *codes, char *out, size_t out_size) {
+    bool listed_there = false;
+    const int32_t n = listed > (int32_t)SERVICE_LANGUAGES_MAX ? (int32_t)SERVICE_LANGUAGES_MAX
+                                                             : listed;
+    for (int32_t i = 0; i < n; ++i) {
+        listed_there = listed_there || codes[i] == code;
+    }
+    const bool refused = rc != 0u || list_rc != 0u;
+    const bool passed = !refused && code != 0u && listed_there;
+    char text[9];
+    ServiceLanguageText(code, text);
+    snprintf(out, out_size, "%s: GetDesiredLanguage 0x%x \"%s\"; set lists 0x%x, %d codes",
+             refused      ? "refused"
+             : code == 0u ? "a code of nought"
+             : passed     ? "a code set lists"
+                          : "a code set does not list",
+             (unsigned)rc, text, (unsigned)list_rc, (int)listed);
+    return passed;
+}
+
+bool ServiceJudgeStartEvents(const ServiceStartEvent events[SERVICE_START_EVENTS], char *out,
+                             size_t out_size) {
+    static const uint32_t COMMANDS[SERVICE_START_EVENTS] = { 130, 140, 150, 160 };
+    uint32_t asked = 0, given = 0;
+    for (uint32_t i = 0; i < SERVICE_START_EVENTS; ++i) {
+        if (events[i].asked) {
+            ++asked;
+            given += events[i].rc == 0u && events[i].handle != 0u ? 1u : 0u;
+        }
+    }
+    const bool passed = asked > 0u && given == asked;
+    int at = snprintf(out, out_size, "%s, %u of %u asked:",
+                      passed       ? "every event handed out"
+                      : asked == 0u ? "none asked"
+                                   : "an event not handed out",
+                      (unsigned)given, (unsigned)asked);
+    for (uint32_t i = 0; i < SERVICE_START_EVENTS && at > 0 && (size_t)at < out_size; ++i) {
+        if (events[i].asked) {
+            at += snprintf(out + at, out_size - (size_t)at, " %u 0x%x handle %x;",
+                           (unsigned)COMMANDS[i], (unsigned)events[i].rc,
+                           (unsigned)events[i].handle);
+        } else {
+            at += snprintf(out + at, out_size - (size_t)at, " %u newer than the firmware;",
+                           (unsigned)COMMANDS[i]);
+        }
+    }
+    return passed;
+}
+
+bool ServiceJudgeEmptyChannels(bool friend_asked, uint32_t friend_rc, bool friend_storage,
+                               uint32_t user_rc, bool user_storage, char *out, size_t out_size) {
+    const bool friend_empty = !friend_asked || friend_rc == SERVICE_AM_NO_DATA;
+    const bool user_empty = user_rc == SERVICE_AM_NO_DATA;
+    const bool passed = friend_empty && user_empty;
+    snprintf(out, out_size,
+             "%s: friend invitation channel %s 0x%x%s; user channel 0x%x%s (empty is 0x%x)",
+             passed           ? "both empty"
+             : !friend_empty  ? "the friend invitation channel not refused as empty"
+                              : "the user channel not refused as empty",
+             friend_asked ? "asked" : "newer than the firmware", (unsigned)friend_rc,
+             friend_storage ? ", a storage" : "", (unsigned)user_rc,
+             user_storage ? ", a storage" : "", (unsigned)SERVICE_AM_NO_DATA);
     return passed;
 }

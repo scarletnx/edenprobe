@@ -1116,6 +1116,96 @@ static void RunAmSelf(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// am-functions
+
+/// The application's own functions, as libnx opened them at start, asked what a game asks before
+/// its title screen: the language to show, the events it waits on, and the two channels a launch
+/// may have left something in.
+static void RunAmFunctions(void) {
+    char detail[480];
+    Service *const functions = appletGetServiceSession_Functions();
+    if (appletGetAppletType() != AppletType_Application || functions == NULL ||
+        !serviceIsActive(functions)) {
+        char why[200];
+        snprintf(why, sizeof(why),
+                 "needs to run as an application, with the application's functions; this "
+                 "program runs as applet type %d",
+                 (int)appletGetAppletType());
+        Skip(SERVICE_FUNC_LANGUAGE, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_FUNC_EVENTS, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_FUNC_CHANNELS, REPORT_REASON_UNAVAILABLE, "%s", why);
+        return;
+    }
+    if (Start(SERVICE_FUNC_LANGUAGE)) {
+        static u64 codes[SERVICE_LANGUAGES_MAX];
+        memset(codes, 0, sizeof(codes));
+        u64 code = 0;
+        s32 listed = -1;
+        const uint32_t rc = serviceDispatchOut(functions, 21, code);
+        Service set;
+        memset(&set, 0, sizeof(set));
+        uint32_t list_rc = smGetService(&set, "set");
+        if (R_SUCCEEDED(list_rc)) {
+            list_rc = serviceDispatchOut(
+                &set, 5, listed, .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+                .buffers = { { codes, sizeof(codes) } }, );
+            serviceClose(&set);
+        }
+        const bool passed =
+            ServiceJudgeDesiredLanguage(rc, code, list_rc, listed, codes, detail, sizeof(detail));
+        Report(SERVICE_FUNC_LANGUAGE, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_FUNC_EVENTS)) {
+        static const u32 COMMANDS[SERVICE_START_EVENTS] = { 130, 140, 150, 160 };
+        static const u32 SINCE[SERVICE_START_EVENTS] = { 8, 9, 9, 9 };
+        ServiceStartEvent events[SERVICE_START_EVENTS];
+        memset(events, 0, sizeof(events));
+        for (u32 i = 0; i < SERVICE_START_EVENTS; ++i) {
+            events[i].asked = hosversionAtLeast(SINCE[i], 0, 0);
+            if (events[i].asked) {
+                Handle handle = 0;
+                events[i].rc = serviceDispatch(functions, COMMANDS[i],
+                                               .out_handle_attrs = { SfOutHandleAttr_HipcCopy },
+                                               .out_handles = &handle, );
+                events[i].handle = handle;
+                if (handle != 0u) {
+                    svcCloseHandle(handle);
+                }
+            }
+        }
+        const bool passed = ServiceJudgeStartEvents(events, detail, sizeof(detail));
+        Report(SERVICE_FUNC_EVENTS, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_FUNC_CHANNELS)) {
+        const bool friend_asked = hosversionAtLeast(9, 0, 0);
+        uint32_t friend_rc = 0;
+        Service storage;
+        memset(&storage, 0, sizeof(storage));
+        bool friend_storage = false;
+        if (friend_asked) {
+            friend_rc = serviceDispatch(functions, 141, .out_num_objects = 1,
+                                        .out_objects = &storage, );
+            friend_storage = R_SUCCEEDED(friend_rc) && serviceIsActive(&storage);
+            if (friend_storage) {
+                serviceClose(&storage);
+            }
+        }
+        const u32 kind = 1; // AppletLaunchParameterKind_UserChannel
+        memset(&storage, 0, sizeof(storage));
+        const uint32_t user_rc = serviceDispatchIn(functions, 1, kind, .out_num_objects = 1,
+                                                   .out_objects = &storage, );
+        const bool user_storage = R_SUCCEEDED(user_rc) && serviceIsActive(&storage);
+        if (user_storage) {
+            serviceClose(&storage);
+        }
+        const bool passed = ServiceJudgeEmptyChannels(friend_asked, friend_rc, friend_storage,
+                                                      user_rc, user_storage, detail,
+                                                      sizeof(detail));
+        Report(SERVICE_FUNC_CHANNELS, CHECK_EXACT, passed, detail);
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -1132,4 +1222,5 @@ void RunService(void) {
     RunProfile();
     RunAmState();
     RunAmSelf();
+    RunAmFunctions();
 }
