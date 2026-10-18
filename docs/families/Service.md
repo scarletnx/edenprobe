@@ -10,6 +10,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | suite | cases | what a failure points at |
 |---|---|---|
 | hwopus | 3 | the hardware Opus decoder's limit on live decoders and the result past it (`hle/service/audio/hardware_opus_decoder_manager.cpp`, `audio_core/opus/hardware_opus.cpp`, `RegisterDecoder`) |
+| am | 2 | the size of an application's account save: where the request carries the user, and whether the size is kept (`hle/service/am/service/application_functions.cpp`, `ExtendSaveData`, `GetSaveDataSize`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -38,11 +39,34 @@ The second case stops at the first refusal, so a machine with no limit opens all
 and a limit of another size or a refusal with another result says which. The third is skipped when
 the second refused nothing. Every decoder is closed before the suite returns.
 
+## am
+
+A game that grows its save asks the application's functions to extend it, ExtendSaveData (25),
+and reads the size back with GetSaveDataSize (26). Both take the save's type and the user, the
+user 8-aligned after seven bytes of padding; reden d2279cbf8d read it from byte 8 in both, where
+it had been read from byte 1, and keeps the size the extend asked for, which the next 26 hands
+back (`application_functions.cpp:234-261` at 75c12299a6).
+
+The suite needs the application's functions, which only a program running as an application has
+(`appletGetAppletType`); anywhere else both cases are skipped as `unavailable`. The user comes from
+acc:u0, GetLastOpenedUser (4), else the first of ListAllUsers (2), with acc:u0 opened by libnx's
+`accountInitialize` or, when the loader refuses InitializeApplicationInfo, by name.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| an application's functions open, with a user to ask about | the functions and a user | both are there | none |
+| GetSaveDataSize reads back the size ExtendSaveData gave the save | EnsureSaveData (20), then 26, then 25 with both parts one MiB larger, then 26 | 25 succeeds and 26 reads back what it asked | exact |
+
+The line carries the sizes before, the ones asked for, the required size 25 hands back (unjudged)
+and the sizes after, so a machine that keeps nothing says the size before reads back.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
   from a console run. Whether the limit is per process or for the whole machine is not known
   either; the suite opens all its decoders from one process.
+- **Q2.** Whether a console extends the save of a program whose control data declares no save
+  size: the expectation is reden's, which keeps any size it is asked for; a console may refuse.
 
 ## The judge, pinned
 
@@ -50,4 +74,6 @@ The `reference` suite holds `source/serviceref.c` on answers made to order, in b
 case under a suite the screens put in the service family, and no name twice; reden's 24 and
 `0x3026F` pass, and so does a reopen that succeeds, while no limit, a limit of 25 or of 3, a
 refusal with another result (`0xE01`, the session limit) and a reopen still refused each fail with
-the line that names it. The result code is worked out by hand: 111 + 385 x 512 = 0x3026F.
+the line that names it. The result code is worked out by hand: 111 + 385 x 512 = 0x3026F. A save
+size that reads back as asked passes; the size before reading back, one part kept and the other
+not, and either command refusing each fail with the line that says which.

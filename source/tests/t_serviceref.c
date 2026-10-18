@@ -76,7 +76,52 @@ static void CheckOpus(void) {
                freed, "\"%.120s\"", said);
 }
 
+static void CheckSaveSize(void) {
+    // reden: 25 keeps the size it is asked for, 26 hands it back.
+    ServiceSaveSize seen;
+    memset(&seen, 0, sizeof(seen));
+    seen.asked_normal = SERVICE_SAVE_STEP;
+    seen.asked_journal = SERVICE_SAVE_STEP;
+    seen.after_normal = SERVICE_SAVE_STEP;
+    seen.after_journal = SERVICE_SAVE_STEP;
+    const bool reden =
+        ServiceJudgeSaveSize(&seen, said, sizeof(said)) &&
+        strcmp(said, "the size asked for reads back: before 0x0 0/0; ExtendSaveData(0x100000, "
+                     "0x100000) 0x0, required 0; after 0x0 0x100000/0x100000") == 0;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+
+    // 25 answering success and keeping nothing: 26 says what it said before.
+    ServiceSaveSize kept = seen;
+    kept.before_normal = 0x400000u;
+    kept.before_journal = 0x200000u;
+    kept.asked_normal = 0x500000u;
+    kept.asked_journal = 0x300000u;
+    kept.after_normal = 0x400000u;
+    kept.after_journal = 0x200000u;
+    const bool stale = !ServiceJudgeSaveSize(&kept, said, sizeof(said)) &&
+                       strstr(said, "the size before ExtendSaveData reads back") == said;
+    // Only the journal kept: still the wrong answer.
+    kept.after_normal = 0x500000u;
+    const bool half = !ServiceJudgeSaveSize(&kept, said, sizeof(said)) &&
+                      strstr(said, "another size reads back") == said;
+    // 25 refused, and 26 refused after it.
+    ServiceSaveSize refused = seen;
+    refused.extend_rc = SERVICE_RESULT(2, 1003);
+    const bool extend = !ServiceJudgeSaveSize(&refused, said, sizeof(said)) &&
+                        strstr(said, "ExtendSaveData refused") == said;
+    refused.extend_rc = 0u;
+    refused.after_rc = SERVICE_RESULT(2, 1002);
+    const bool after = !ServiceJudgeSaveSize(&refused, said, sizeof(said)) &&
+                       strstr(said, "GetSaveDataSize refused after it") == said;
+    CHECK_TRUE(SUITE, "service: am passes a save size that reads back as ExtendSaveData asked",
+               CHECK_NONE, reden && stale && half && extend && after,
+               "reden %d \"%.160s\", stale %d, half %d, extend %d, after %d", reden, reden_said,
+               stale, half, extend, after);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
+    CheckSaveSize();
 }

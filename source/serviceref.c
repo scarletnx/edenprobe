@@ -13,6 +13,9 @@ static const struct {
     [SERVICE_OPUS_LIMITED] = { "hwopus",
                                "hwopus keeps 24 decoders and refuses the 25th as out of decoders" },
     [SERVICE_OPUS_FREED] = { "hwopus", "a decoder closed makes room for the next one" },
+    [SERVICE_AM_OPENS] = { "am", "an application's functions open, with a user to ask about" },
+    [SERVICE_SAVE_SIZE] = { "am",
+                            "GetSaveDataSize reads back the size ExtendSaveData gave the save" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -61,4 +64,26 @@ bool ServiceJudgeOpusFreed(uint32_t reopened, char *out, size_t out_size) {
     }
     snprintf(out, out_size, "one of %u closed, the next opened", (unsigned)SERVICE_OPUS_LIMIT);
     return true;
+}
+
+bool ServiceJudgeSaveSize(const ServiceSaveSize *seen, char *out, size_t out_size) {
+    const bool passed = seen->extend_rc == 0u && seen->after_rc == 0u &&
+                        seen->after_normal == seen->asked_normal &&
+                        seen->after_journal == seen->asked_journal;
+    const char *const verdict =
+        passed                   ? "the size asked for reads back"
+        : seen->extend_rc != 0u  ? "ExtendSaveData refused"
+        : seen->after_rc != 0u   ? "GetSaveDataSize refused after it"
+        : seen->after_normal == seen->before_normal && seen->after_journal == seen->before_journal
+            ? "the size before ExtendSaveData reads back"
+            : "another size reads back";
+    snprintf(out, out_size,
+             "%s: before 0x%x %#llx/%#llx; ExtendSaveData(%#llx, %#llx) 0x%x, required %#llx; "
+             "after 0x%x %#llx/%#llx",
+             verdict, (unsigned)seen->before_rc, (unsigned long long)seen->before_normal,
+             (unsigned long long)seen->before_journal, (unsigned long long)seen->asked_normal,
+             (unsigned long long)seen->asked_journal, (unsigned)seen->extend_rc,
+             (unsigned long long)seen->required, (unsigned)seen->after_rc,
+             (unsigned long long)seen->after_normal, (unsigned long long)seen->after_journal);
+    return passed;
 }
