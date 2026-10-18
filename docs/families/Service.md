@@ -14,6 +14,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | fsp | 2 | the temporary storage left as the launch before left it (`core.cpp`, `Load`, and `hle/service/filesystem/filesystem.cpp`, `InitTempStorage`) |
 | account | 2 | the user picked with nobody asked, by the command a game built for 19.0.0 sends (`hle/service/acc/acc.cpp`, `TrySelectUserWithoutInteraction`, and the acc:u0 table) |
 | ldn | 2 | the client process monitor a game asks ldn:u for on 18.0.0 (`hle/service/ldn/ldn.cpp`, `IUserServiceCreator`, `IClientProcessMonitor`) |
+| set | 4 | the language codes a game picks its text by (`hle/service/set/settings_server.cpp`, `available_language_codes`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -121,6 +122,24 @@ handle that is none.
 The line carries both results, the handle and the firmware the machine says it runs. The monitor
 and ldn:u are closed before the suite returns; nothing else of ldn is asked.
 
+## set
+
+A game picks the language of its text from set: the codes the console has,
+GetAvailableLanguageCodes2 (5, from 4.0.0), the console's own, GetLanguageCode (0), and
+MakeLanguageCode (2), which makes an index of the language enumeration into its code. reden answers
+all three from one table, refuses an index past it with ResultInvalidLanguage, Settings (105) 625,
+`0x4E269`, and counts with GetAvailableLanguageCodeCount2 (6) the most the list can hold, 0x40.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| set opens and lists its language codes | set, and 5 with room for 0x40 codes | it lists at least one | none |
+| GetLanguageCode is one of the codes set lists | 0 | a code that is not nought, in the list | exact |
+| MakeLanguageCode makes each index into the code listed there | 2 for every index the list has, and for the next | each the code at that index, the next refused with `0x4E269` | exact |
+| GetAvailableLanguageCodeCount2 leaves room for every code listed | 6 | at least as many as the list holds | exact |
+
+The count is held to room, not to the list's length: a console's count is the list's, reden's the
+buffer's, and a game sizes its buffer by it either way. Each line names the codes as text.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -135,6 +154,8 @@ and ldn:u are closed before the suite returns; nothing else of ldn is asked.
   reden answers as it answers 51.
 - **Q5.** What a console's RegisterClient answers a process that never initialised ldn (the suite
   does not ask Initialize first, as libnx does): reden answers success to any process.
+- **Q6.** The result a console gives MakeLanguageCode past its table (reden's `0x4E269`), and
+  whether its count (6) is the list's length or, as reden's, the most the list can hold.
 
 ## The judge, pinned
 
@@ -151,4 +172,6 @@ refused only on a machine older than 19.0.0; a stub's id of nought for one user,
 19.0.0 machine and 51 itself refused each fail. The ldn monitor passes when it comes and takes the
 process, and when 1 is refused on a machine older than 18.0.0; success with no object, a
 registration the kernel refuses (`0xE401`, InvalidHandle) and 1 refused on an 18.0.0 machine each
-fail.
+fail. set passes reden's table (the codes spelled as text) and fails a language not listed, a code
+of nought, an index made into another index's code, one past the table made into anything, and a
+count below the list.

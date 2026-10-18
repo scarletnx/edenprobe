@@ -24,6 +24,11 @@ static const struct {
     [SERVICE_LDN_OPENS] = { "ldn", "ldn:u opens" },
     [SERVICE_LDN_MONITOR] = { "ldn",
                               "CreateClientProcessMonitor hands out a monitor this process joins" },
+    [SERVICE_SET_OPENS] = { "set", "set opens and lists its language codes" },
+    [SERVICE_SET_LANGUAGE] = { "set", "GetLanguageCode is one of the codes set lists" },
+    [SERVICE_SET_MAKE] = { "set", "MakeLanguageCode makes each index into the code listed there" },
+    [SERVICE_SET_COUNT] = { "set",
+                            "GetAvailableLanguageCodeCount2 leaves room for every code listed" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -154,4 +159,76 @@ bool ServiceJudgeLdnMonitor(const ServiceLdnMonitor *seen, char *out, size_t out
              verdict, (unsigned)seen->create_rc, (unsigned)seen->handle, registered,
              seen->firmware18 ? "at least" : "older than");
     return joined || older;
+}
+
+void ServiceLanguageText(uint64_t code, char out[9]) {
+    uint32_t n = 0;
+    for (; n < 8u; ++n) {
+        const unsigned char c = (unsigned char)(code >> (8u * n));
+        if (c == 0u) {
+            break;
+        }
+        out[n] = c >= 0x20u && c < 0x7Fu ? (char)c : '?';
+    }
+    out[n] = '\0';
+}
+
+static int32_t Listed(const ServiceLanguages *seen) {
+    if (seen->listed < 0) {
+        return 0;
+    }
+    return seen->listed > (int32_t)SERVICE_LANGUAGES_MAX ? (int32_t)SERVICE_LANGUAGES_MAX
+                                                          : seen->listed;
+}
+
+bool ServiceJudgeLanguage(const ServiceLanguages *seen, char *out, size_t out_size) {
+    char code[9];
+    ServiceLanguageText(seen->language, code);
+    int32_t at = -1;
+    for (int32_t i = 0; i < Listed(seen) && at < 0; ++i) {
+        if (seen->codes[i] == seen->language) {
+            at = i;
+        }
+    }
+    const bool passed = seen->language_rc == 0u && seen->language != 0u && at >= 0;
+    if (passed) {
+        snprintf(out, out_size, "GetLanguageCode \"%s\", code %d of the %d listed", code,
+                 (int)at, (int)seen->listed);
+    } else {
+        snprintf(out, out_size, "GetLanguageCode 0x%x \"%s\" (%#llx), not among the %d listed",
+                 (unsigned)seen->language_rc, code, (unsigned long long)seen->language,
+                 (int)seen->listed);
+    }
+    return passed;
+}
+
+bool ServiceJudgeMakeLanguage(const ServiceLanguages *seen, char *out, size_t out_size) {
+    for (int32_t i = 0; i < Listed(seen); ++i) {
+        if (seen->made_rc[i] != 0u || seen->made[i] != seen->codes[i]) {
+            char made[9], listed[9];
+            ServiceLanguageText(seen->made[i], made);
+            ServiceLanguageText(seen->codes[i], listed);
+            snprintf(out, out_size, "index %d made 0x%x \"%s\", where the list has \"%s\"",
+                     (int)i, (unsigned)seen->made_rc[i], made, listed);
+            return false;
+        }
+    }
+    if (seen->past_rc != SERVICE_INVALID_LANGUAGE) {
+        snprintf(out, out_size,
+                 "the %d listed made right, but index %d answered 0x%x, not 0x%x (Settings 625)",
+                 (int)seen->listed, (int)seen->listed, (unsigned)seen->past_rc,
+                 (unsigned)SERVICE_INVALID_LANGUAGE);
+        return false;
+    }
+    snprintf(out, out_size, "the %d listed made right, index %d refused with 0x%x",
+             (int)seen->listed, (int)seen->listed, (unsigned)seen->past_rc);
+    return true;
+}
+
+bool ServiceJudgeLanguageCount(const ServiceLanguages *seen, char *out, size_t out_size) {
+    const bool passed = seen->count_rc == 0u && seen->count >= seen->listed && seen->listed > 0;
+    snprintf(out, out_size, "%s: GetAvailableLanguageCodeCount2 0x%x, %d; %d listed",
+             passed ? "room for every code" : "less room than codes", (unsigned)seen->count_rc,
+             (int)seen->count, (int)seen->listed);
+    return passed;
 }

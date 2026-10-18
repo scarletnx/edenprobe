@@ -427,10 +427,76 @@ static void RunLdn(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// set
+
+/// set's language codes, asked as a game asks before it picks the language of its text: the
+/// list (5, 4.0.0's), the console's own (0), each index made into a code (2), the count (6).
+static void RunSet(void) {
+    char detail[480];
+    static ServiceLanguages seen;
+    memset(&seen, 0, sizeof(seen));
+    seen.listed = -1;
+    seen.count = -1;
+    Service set;
+    memset(&set, 0, sizeof(set));
+    bool opens = false;
+    if (Start(SERVICE_SET_OPENS)) {
+        Result rc = smGetService(&set, "set");
+        const bool session = R_SUCCEEDED(rc);
+        if (session) {
+            rc = seen.list_rc = serviceDispatchOut(
+                &set, 5, seen.listed,
+                .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+                .buffers = { { seen.codes, sizeof(seen.codes) } }, );
+        }
+        opens = session && R_SUCCEEDED(rc) && seen.listed > 0;
+        snprintf(detail, sizeof(detail),
+                 "smGetService(\"set\") %s; GetAvailableLanguageCodes2 0x%x, %d listed",
+                 session ? "opened" : "refused", (unsigned)rc, (int)seen.listed);
+        Report(SERVICE_SET_OPENS, CHECK_NONE, opens, detail);
+        if (session && !opens) {
+            serviceClose(&set);
+        }
+    }
+    if (!opens) {
+        Skip(SERVICE_SET_LANGUAGE, REPORT_REASON_DEPENDS, "set listed no language codes");
+        Skip(SERVICE_SET_MAKE, REPORT_REASON_DEPENDS, "set listed no language codes");
+        Skip(SERVICE_SET_COUNT, REPORT_REASON_DEPENDS, "set listed no language codes");
+        return;
+    }
+    if (Start(SERVICE_SET_LANGUAGE)) {
+        seen.language_rc = serviceDispatchOut(&set, 0, seen.language);
+        const bool passed = ServiceJudgeLanguage(&seen, detail, sizeof(detail));
+        Report(SERVICE_SET_LANGUAGE, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_SET_MAKE)) {
+        const int32_t listed =
+            seen.listed > (int32_t)SERVICE_LANGUAGES_MAX ? (int32_t)SERVICE_LANGUAGES_MAX
+                                                         : seen.listed;
+        for (int32_t i = 0; i < listed; ++i) {
+            const u32 index = (u32)i;
+            seen.made_rc[i] = serviceDispatchInOut(&set, 2, index, seen.made[i]);
+        }
+        const u32 past = (u32)listed;
+        u64 made_past = 0;
+        seen.past_rc = serviceDispatchInOut(&set, 2, past, made_past);
+        const bool passed = ServiceJudgeMakeLanguage(&seen, detail, sizeof(detail));
+        Report(SERVICE_SET_MAKE, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_SET_COUNT)) {
+        seen.count_rc = serviceDispatchOut(&set, 6, seen.count);
+        const bool passed = ServiceJudgeLanguageCount(&seen, detail, sizeof(detail));
+        Report(SERVICE_SET_COUNT, CHECK_EXACT, passed, detail);
+    }
+    serviceClose(&set);
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
     RunFsp();
     RunAccount();
     RunLdn();
+    RunSet();
 }
