@@ -79,7 +79,7 @@ typedef enum {
 UiFamily UiFamilyOf(const char *suite);
 const char *UiFamilyName(UiFamily family);
 
-/// The most groups and cases the screens index. A run has up to 77 suites and about eight
+/// The most groups and cases the screens index. A run has up to 78 suites and about eight
 /// hundred cases, and the groups leave room for the families still growing; what does not fit
 /// is counted and the overview says so. Under 255, which marks a case with no group while the
 /// index is built.

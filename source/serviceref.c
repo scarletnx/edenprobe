@@ -142,6 +142,9 @@ static const struct {
     [SERVICE_NGC_MASK] = { "ngc", "a clean name masked comes back as it was sent" },
     [SERVICE_NGCT_CLEAN] = { "ngc",
                              "ngct:u matches nothing in a clean name and filters it back as sent" },
+    [SERVICE_LOCK_TAKEN] = { "am-lock",
+                             "a free lock is taken as libnx takes it, and held until unlocked" },
+    [SERVICE_LOCK_EVENT] = { "am-lock", "a lock's event is signaled while free and when unlocked" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1592,5 +1595,45 @@ bool ServiceJudgeApmBoost(const ServiceApmBoost *seen, char *out, size_t out_siz
              (unsigned)seen->fast_rc, (unsigned)seen->fast, (unsigned)seen->fast_read_rc,
              (unsigned)seen->normal_rc, (unsigned)seen->normal, (unsigned)seen->normal_read_rc,
              SERVICE_APM_CONFIG13, SERVICE_APM_CONFIG7);
+    return passed;
+}
+
+bool ServiceJudgeLockTaken(const ServiceLockTaken *seen, char *out, size_t out_size) {
+    const bool refused = seen->get_rc != 0u || seen->before_rc != 0u || seen->try_rc != 0u ||
+                         seen->locked_rc != 0u || seen->again_rc != 0u ||
+                         seen->unlock_rc != 0u || seen->after_rc != 0u;
+    const bool held = !seen->before && seen->took && seen->locked && !seen->again;
+    const bool passed = !refused && held && !seen->after;
+    snprintf(out, out_size,
+             "%s: accessor 0x%x; IsLocked 0x%x %d, TryLock 0x%x took %d, IsLocked 0x%x %d, TryLock "
+             "again 0x%x took %d, Unlock 0x%x, IsLocked 0x%x %d",
+             refused  ? "refused"
+             : !held  ? "not taken and held once"
+             : !passed ? "held after the unlock"
+                       : "taken, held and freed",
+             (unsigned)seen->get_rc, (unsigned)seen->before_rc, seen->before,
+             (unsigned)seen->try_rc, seen->took, (unsigned)seen->locked_rc, seen->locked,
+             (unsigned)seen->again_rc, seen->again, (unsigned)seen->unlock_rc,
+             (unsigned)seen->after_rc, seen->after);
+    return passed;
+}
+
+bool ServiceJudgeLockEvent(const ServiceLockEvent *seen, char *out, size_t out_size) {
+    const bool refused = seen->get_rc != 0u || seen->try_rc != 0u || !seen->took ||
+                         seen->clear_rc != 0u || seen->unlock_rc != 0u;
+    const bool waits = seen->free_rc == 0u && seen->held_rc == SERVICE_TIMED_OUT &&
+                       seen->unlocked_rc == 0u;
+    const bool passed = !refused && waits;
+    snprintf(out, out_size,
+             "%s: accessor 0x%x; free wait 0x%x, TryLock 0x%x took %d, cleared 0x%x, held wait "
+             "0x%x, Unlock 0x%x, unlocked wait 0x%x",
+             refused                    ? "refused"
+             : seen->free_rc != 0u      ? "not signaled while free"
+             : seen->held_rc != SERVICE_TIMED_OUT ? "signaled while held"
+             : seen->unlocked_rc != 0u  ? "not signaled by the unlock"
+                                        : "signaled free, cleared held, signaled unlocked",
+             (unsigned)seen->get_rc, (unsigned)seen->free_rc, (unsigned)seen->try_rc, seen->took,
+             (unsigned)seen->clear_rc, (unsigned)seen->held_rc, (unsigned)seen->unlock_rc,
+             (unsigned)seen->unlocked_rc);
     return passed;
 }

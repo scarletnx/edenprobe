@@ -39,6 +39,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | vi | 3 | the application display service every game opens first: the displays listed, the scaling modes converted, an indirect layer's memory (`hle/service/vi/application_display_service.cpp`) |
 | renderer | 3 | an audio renderer of the program's own: what it was opened with, the rendering time limit and the voice drop parameter (`hle/service/audio/audio_renderer.cpp`) |
 | ngc | 3 | the profanity filter a game runs a player's name through: ngc:u's version, check and mask, and ngct:u's match and filter (`hle/service/ngc/ngc.cpp`) |
+| am-lock | 2 | the lock accessors a game holds the home button off with: taken as libnx takes it, held, and their event (`hle/service/am/service/lock_accessor.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -637,6 +638,22 @@ by pointer, and the buffer it comes back in is filled with 0xEE first.
 
 Each case is skipped as `unavailable` when sm hands out no session to its service.
 
+## am-lock
+
+A game that must not be sent to the home menu for a moment, through a save or a purchase, takes a
+lock from its state getter: the home button's (GetHomeButtonReaderLockAccessor, 30) or a reader or
+writer lock (31 and 32). libnx's `appletLockAccessorTryLock` waits for nought on the lock's event
+before it asks TryLock (1), and `appletLockAccessorLock` waits on it for good, so a lock whose
+event is never signaled cannot be taken. reden signals the event when it makes the lock and on
+every Unlock (2), and IsLocked (4) says whether it is held (`lock_accessor.cpp` at 75c12299a6).
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| a free lock is taken as libnx takes it, and held until unlocked | 30; 4; libnx's TryLock; 4; libnx's TryLock again; 2; 4 | every step succeeds; free, taken, held, not taken again, free after the unlock | exact |
+| a lock's event is signaled while free and when unlocked | 31 for button 0; a wait of nought; 1 with no handle; the event cleared; a wait; 2; a wait | the free and unlocked waits succeed and the held one times out (`0xEA01`) | exact |
+
+The line carries every step's answer; both locks are unlocked and closed before the suite returns.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -710,6 +727,8 @@ Each case is skipped as `unavailable` when sm hands out no session to its servic
   (the suite sends mapped ones), and whether the pattern list's bit 1 is American English.
 - **Q31.** Whether a console's apm session keeps a configuration per mode as reden does, and
   whether its SetCpuBoostMode with FastLoad gives Boost mode Config13 (`0x92220009`).
+- **Q32.** Whether a console signals a lock accessor's event from the start, as reden does
+  and as libnx's TryLock needs, and whether a reader lock and a writer lock of one button share it.
 
 ## The judge, pinned
 
@@ -810,3 +829,7 @@ masked, a match and a filter that empties the text each fail.
 apm passes a configuration read back for its mode alone and fails a stub's fixed one, a write
 both modes take and a refusal; it passes Config13 for FastLoad and Config7 back, and fails Config7
 for FastLoad, Config13 kept after Normal and SetCpuBoostMode refused.
+am-lock passes a lock taken, held and freed, and fails a TryLock that timed out on its event,
+a lock taken twice, one held after its unlock and one not held; it passes an event signaled free
+and unlocked and fails one not signaled free, one the clear did not clear and an unlock that
+signals nothing.
