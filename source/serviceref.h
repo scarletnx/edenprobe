@@ -51,6 +51,13 @@ extern "C" {
 /// case has room for in one list.
 #define SERVICE_AOC_PAST_END SERVICE_RESULT(128, 37)
 #define SERVICE_AOC_LISTED 64u
+/// The add-on content base id reden gives a program with no control data: the program's base,
+/// its id with the low 13 bits cleared, and 0x1000 added (`file_sys/common_funcs.h`,
+/// `GetAOCBaseTitleID`). What the room case fills its array with first, to see a write past the
+/// room it names.
+#define SERVICE_AOC_BASE_MASK 0xFFFFFFFFFFFFE000ull
+#define SERVICE_AOC_BASE_OFFSET 0x1000ull
+#define SERVICE_AOC_UNTOUCHED 0x5A5A5A5Au
 
 /// The time the time cases date, 2023-11-14 22:13:20 in UTC, a Tuesday and the year's 318th day;
 /// and how long the steady clock case waits between its two readings, a second and a half, so a
@@ -147,6 +154,9 @@ typedef enum {
     SERVICE_NFP_FILTER,   ///< nfp: StartDetectionWithFilter answers as StartDetection
     SERVICE_AOC_OPENS,    ///< aoc: aoc:u opens and counts its add-on content (none tier)
     SERVICE_AOC_PAST,     ///< aoc: the list's end lists nothing, one past it is refused
+    SERVICE_AOC_NONE,     ///< aoc: no add-on content counted, none listed from 0
+    SERVICE_AOC_ROOM,     ///< aoc: a list for one into room for one, or for none, lists none
+    SERVICE_AOC_BASE,     ///< aoc: the base id is the program's base with 0x1000 added
     SERVICE_TIME_OPENS,   ///< time: time:u and its clocks (none tier)
     SERVICE_TIME_USER,    ///< time: the user clock is its context's offset past the steady clock
     SERVICE_TIME_STEADY,  ///< time: the steady clock counts seconds on one source
@@ -315,6 +325,36 @@ typedef struct {
     uint32_t past_rc;
 } ServiceAocList;
 bool ServiceJudgeAocPast(const ServiceAocList *seen, char *out, size_t out_size);
+
+/// aoc:u's count and its list from 0 for this program, which has no add-on content: the count
+/// CountAddOnContent (2) gave, what ListAddOnContent (3) from 0 with room for SERVICE_AOC_LISTED
+/// answered, and how many it listed. Passes when none is counted and the list succeeds with none:
+/// reden counts the add-on contents installed under the program's base id and lists their
+/// indices from the offset (`addon_content_manager.cpp`, `CountAddOnContent`, `ListAddOnContent`).
+typedef struct {
+    uint32_t count;
+    uint32_t list_rc, listed;
+} ServiceAocNone;
+bool ServiceJudgeAocNone(const ServiceAocNone *seen, char *out, size_t out_size);
+
+/// Two lists from 0 that fit their room: one index into room for one, and none into room for
+/// SERVICE_AOC_LISTED; what each answered, how many each listed, and whether the words past the
+/// room for one kept SERVICE_AOC_UNTOUCHED. Passes when both succeed with none listed and nothing
+/// past the room is written: reden lists the fewer of what it has past the offset and what is
+/// asked, here none. A list asked for more than its room is not asked: reden answers it as these,
+/// Ryujinx refuses it with InvalidBufferSize (166, 200).
+typedef struct {
+    uint32_t one_rc, one_listed;
+    uint32_t none_rc, none_listed;
+    bool past_kept;
+} ServiceAocRoom;
+bool ServiceJudgeAocRoom(const ServiceAocRoom *seen, char *out, size_t out_size);
+
+/// The program's id (svcGetInfo, InfoType_ProgramId) and GetAddOnContentBaseId (5): passes when
+/// both answer and the base id is the program's base with 0x1000 added, as reden answers a
+/// program with no control data (`addon_content_manager.cpp`, `GetAddOnContentBaseId`).
+bool ServiceJudgeAocBase(uint32_t info_rc, uint64_t program_id, uint32_t rc, uint64_t base_id,
+                         char *out, size_t out_size);
 
 /// A steady clock time point as the time service writes it: seconds, and the clock's source.
 typedef struct {

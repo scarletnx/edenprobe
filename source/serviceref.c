@@ -40,6 +40,9 @@ static const struct {
     [SERVICE_AOC_OPENS] = { "aoc", "aoc:u opens and counts this program's add-on content" },
     [SERVICE_AOC_PAST] = { "aoc",
                            "ListAddOnContent lists nothing at the end and refuses one past it" },
+    [SERVICE_AOC_NONE] = { "aoc", "aoc:u counts no add-on content and lists none from 0" },
+    [SERVICE_AOC_ROOM] = { "aoc", "a list for one into room for one, or for none, lists none" },
+    [SERVICE_AOC_BASE] = { "aoc", "the add-on content base id is the program's base and 0x1000" },
     [SERVICE_TIME_OPENS] = { "time", "time:u hands out the user clock, the steady clock and the "
                                      "time zones" },
     [SERVICE_TIME_USER] = { "time",
@@ -405,6 +408,51 @@ bool ServiceJudgeAocPast(const ServiceAocList *seen, char *out, size_t out_size)
              (unsigned)seen->end_listed, (unsigned)seen->count + 1u, (unsigned)seen->past_rc,
              (unsigned)SERVICE_AOC_PAST_END);
     return end && past;
+}
+
+bool ServiceJudgeAocNone(const ServiceAocNone *seen, char *out, size_t out_size) {
+    const bool passed = seen->count == 0u && seen->list_rc == 0u && seen->listed == 0u;
+    snprintf(out, out_size, "%s: %u add-on contents counted; from 0 0x%x, %u listed",
+             seen->count != 0u     ? "add-on content counted"
+             : seen->list_rc != 0u ? "the list from 0 refused"
+             : seen->listed != 0u  ? "add-on content listed"
+                                   : "none counted, none listed",
+             (unsigned)seen->count, (unsigned)seen->list_rc, (unsigned)seen->listed);
+    return passed;
+}
+
+bool ServiceJudgeAocRoom(const ServiceAocRoom *seen, char *out, size_t out_size) {
+    const bool listed = seen->one_listed != 0u || seen->none_listed != 0u;
+    const bool passed = seen->one_rc == 0u && seen->none_rc == 0u && !listed && seen->past_kept;
+    snprintf(out, out_size,
+             "%s: 1 asked into room for 1 0x%x, %u listed, past it %s; 0 asked into room for %u "
+             "0x%x, %u listed",
+             seen->one_rc != 0u    ? "a list of one refused"
+             : seen->none_rc != 0u ? "a list of none refused"
+             : listed              ? "something listed"
+             : !seen->past_kept    ? "written past the room"
+                                   : "none listed, nothing past the room",
+             (unsigned)seen->one_rc, (unsigned)seen->one_listed,
+             seen->past_kept ? "kept" : "written", (unsigned)SERVICE_AOC_LISTED,
+             (unsigned)seen->none_rc, (unsigned)seen->none_listed);
+    return passed;
+}
+
+bool ServiceJudgeAocBase(uint32_t info_rc, uint64_t program_id, uint32_t rc, uint64_t base_id,
+                         char *out, size_t out_size) {
+    const uint64_t expected = (program_id & SERVICE_AOC_BASE_MASK) + SERVICE_AOC_BASE_OFFSET;
+    const bool passed = info_rc == 0u && rc == 0u && base_id == expected;
+    snprintf(out, out_size,
+             "%s: program 0x%016llx (svcGetInfo 0x%x); GetAddOnContentBaseId 0x%x 0x%016llx, "
+             "its base and 0x1000 0x%016llx",
+             info_rc != 0u           ? "no program id"
+             : rc != 0u              ? "refused"
+             : passed                ? "the program's base with 0x1000 added"
+             : base_id == program_id ? "the program's own id"
+                                     : "another id",
+             (unsigned long long)program_id, (unsigned)info_rc, (unsigned)rc,
+             (unsigned long long)base_id, (unsigned long long)expected);
+    return passed;
 }
 
 static bool SourceNought(const uint8_t source[16]) {
