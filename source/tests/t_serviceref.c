@@ -1806,6 +1806,53 @@ static void CheckFsFile(void) {
                over_total, no_space, code);
 }
 
+static void CheckAccApp(void) {
+    ServiceAccQualified qualified = { 0u, 0u, 1u, true };
+    const bool every = ServiceJudgeAccQualified(&qualified, said, sizeof(said)) &&
+                       strcmp(said, "every user qualified: ListAllUsers 0x0 1 users, "
+                                    "ListQualifiedUsers 0x0 the same") == 0;
+    char every_said[480];
+    memcpy(every_said, said, sizeof(said));
+    // A stub's empty list, no user at all, and the qualified list refused.
+    qualified.same = false;
+    const bool empty = !ServiceJudgeAccQualified(&qualified, said, sizeof(said)) &&
+                       strstr(said, "other users qualified") == said;
+    qualified = (ServiceAccQualified){ 0u, 0u, 0u, true };
+    const bool nobody = !ServiceJudgeAccQualified(&qualified, said, sizeof(said));
+    qualified = (ServiceAccQualified){ 0u, SERVICE_RESULT(124, 1), 1u, true };
+    const bool refused = !ServiceJudgeAccQualified(&qualified, said, sizeof(said));
+    ServiceAccThumbnail thumb = { 0u, 0u, SERVICE_ACC_INVALID_LENGTH, SERVICE_ACC_INVALID_USER };
+    const bool checked = ServiceJudgeAccThumbnail(&thumb, said, sizeof(said)) &&
+                         strcmp(said, "taken at its size, refused short or for nobody: user 0x0; "
+                                      "0x24000 bytes 0x0, 0x1000 bytes 0x407c, user nought "
+                                      "0x287c") == 0;
+    char checked_said[480];
+    memcpy(checked_said, said, sizeof(said));
+    // A stub's success at every size and user, and the thumbnail itself refused.
+    thumb = (ServiceAccThumbnail){ 0u, 0u, 0u, 0u };
+    const bool stub = !ServiceJudgeAccThumbnail(&thumb, said, sizeof(said)) &&
+                      strstr(said, "a wrong size or user taken") == said;
+    thumb = (ServiceAccThumbnail){ 0u, 0u, SERVICE_ACC_INVALID_LENGTH, 0u };
+    const bool anyone = !ServiceJudgeAccThumbnail(&thumb, said, sizeof(said));
+    thumb = (ServiceAccThumbnail){ 0u, 0u, 0u, SERVICE_ACC_INVALID_USER };
+    const bool any_size = !ServiceJudgeAccThumbnail(&thumb, said, sizeof(said));
+    thumb = (ServiceAccThumbnail){ 0u, SERVICE_ACC_INVALID_LENGTH, SERVICE_ACC_INVALID_LENGTH,
+                                   SERVICE_ACC_INVALID_USER };
+    const bool untaken = !ServiceJudgeAccThumbnail(&thumb, said, sizeof(said)) &&
+                         strstr(said, "the thumbnail not taken") == said;
+    // InvalidUserId and InvalidArrayLength are Account (124) 20 and 32: 124 + 20 x 512 = 0x287C and
+    // 124 + 32 x 512 = 0x407C, worked out by hand.
+    const bool codes = SERVICE_ACC_INVALID_USER == 0x287Cu && SERVICE_ACC_INVALID_LENGTH == 0x407Cu;
+    CHECK_TRUE(SUITE, "service: acc-app passes every user qualified and a thumbnail checked",
+               CHECK_NONE,
+               every && empty && nobody && refused && checked && stub && anyone && any_size &&
+                   untaken && codes,
+               "every %d \"%.120s\", empty %d, nobody %d, refused %d, checked %d \"%.140s\", a "
+               "stub %d, anyone %d, any size %d, untaken %d, codes %d",
+               every, every_said, empty, nobody, refused, checked, checked_said, stub, anyone,
+               any_size, untaken, codes);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1846,4 +1893,5 @@ void RunReferenceService(void) {
     CheckTimePerm();
     CheckAudout();
     CheckFsFile();
+    CheckAccApp();
 }
