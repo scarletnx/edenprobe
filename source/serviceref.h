@@ -122,6 +122,8 @@ typedef enum {
     SERVICE_STATE_LOGO,   ///< am-state: 130 enqueues StartupLogoDisappeared
     SERVICE_STATE_VR,     ///< am-state: BeginVrMode3d and EndVrMode3d, read back
     SERVICE_STATE_REGION, ///< am-state: the settings platform region is Global
+    SERVICE_SELF_IDLE,    ///< am-self: the idle time detection extension reads back
+    SERVICE_SELF_SLEEP,   ///< am-self: auto sleep disabled reads back
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -392,6 +394,19 @@ bool ServiceJudgeVrMode(const ServiceVrMode *seen, char *out, size_t out_size);
 /// answer; a machine that says it is older than 9.0.0 may refuse it instead.
 bool ServiceJudgePlatformRegion(uint32_t rc, uint32_t region, bool firmware9, char *out,
                                 size_t out_size);
+
+/// A setting of ISelfController's written and read back: what it was, what the write asked for,
+/// what it read after, and what the four commands answered (the first read, the write, the read
+/// after, the write that puts it back). Passes when all four succeed and the read after the write
+/// gives what it asked for: reden keeps both settings it is given (`self_controller.cpp`,
+/// SetIdleTimeDetectionExtension and GetIdleTimeDetectionExtension, SetAutoSleepDisabled and
+/// IsAutoSleepDisabled). @p what names the setting on the line.
+typedef struct {
+    uint32_t before_rc, set_rc, after_rc, restore_rc;
+    uint32_t before, asked, after;
+} ServiceSelfSetting;
+bool ServiceJudgeSelfSetting(const char *what, const ServiceSelfSetting *seen, char *out,
+                             size_t out_size);
 
 #ifdef __cplusplus
 }

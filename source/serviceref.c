@@ -67,6 +67,9 @@ static const struct {
                              "EnableStartupLogoDisappearedMessage brings message 95" },
     [SERVICE_STATE_VR] = { "am-state", "BeginVrMode3d turns 3D VR mode on and EndVrMode3d off" },
     [SERVICE_STATE_REGION] = { "am-state", "the settings platform region is Global" },
+    [SERVICE_SELF_IDLE] = { "am-self",
+                            "the idle time detection extension set is the one read back" },
+    [SERVICE_SELF_SLEEP] = { "am-self", "auto sleep disabled is read back as set" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -750,4 +753,20 @@ bool ServiceJudgePlatformRegion(uint32_t rc, uint32_t region, bool firmware9, ch
                        : "another region",
              (unsigned)rc, (unsigned)region, firmware9 ? "at least" : "older than");
     return passed || older;
+}
+
+bool ServiceJudgeSelfSetting(const char *what, const ServiceSelfSetting *seen, char *out,
+                             size_t out_size) {
+    const bool refused = seen->before_rc != 0u || seen->set_rc != 0u || seen->after_rc != 0u ||
+                         seen->restore_rc != 0u;
+    const bool passed = !refused && seen->after == seen->asked;
+    snprintf(out, out_size, "%s: %s 0x%x %u, set to %u 0x%x, read 0x%x %u, put back 0x%x",
+             refused                       ? "refused"
+             : passed                      ? "read back as set"
+             : seen->after == seen->before ? "the setting before read back"
+                                           : "another setting read back",
+             what, (unsigned)seen->before_rc, (unsigned)seen->before, (unsigned)seen->asked,
+             (unsigned)seen->set_rc, (unsigned)seen->after_rc, (unsigned)seen->after,
+             (unsigned)seen->restore_rc);
+    return passed;
 }

@@ -745,6 +745,28 @@ static void CheckAmState(void) {
                refused_region);
 }
 
+static void CheckAmSelf(void) {
+    ServiceSelfSetting seen = { 0u, 0u, 0u, 0u, 0u, 1u, 1u };
+    const bool kept = ServiceJudgeSelfSetting("x", &seen, said, sizeof(said)) &&
+                      strcmp(said, "read back as set: x 0x0 0, set to 1 0x0, read 0x0 1, put back "
+                                   "0x0") == 0;
+    char kept_said[480];
+    memcpy(kept_said, said, sizeof(said));
+    // A stub: the write succeeds and the read stays nought.
+    seen.after = 0u;
+    const bool stub = !ServiceJudgeSelfSetting("x", &seen, said, sizeof(said)) &&
+                      strstr(said, "the setting before read back") == said;
+    seen.after = 2u;
+    const bool other = !ServiceJudgeSelfSetting("x", &seen, said, sizeof(said)) &&
+                       strstr(said, "another setting read back") == said;
+    seen = (ServiceSelfSetting){ 0u, SERVICE_RESULT(10, 221), 0u, 0u, 0u, 1u, 1u };
+    const bool refused = !ServiceJudgeSelfSetting("x", &seen, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: am-self passes a setting read back as set", CHECK_NONE,
+               kept && stub && other && refused,
+               "kept %d \"%.160s\", a stub %d, another %d, refused %d", kept, kept_said, stub,
+               other, refused);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -760,4 +782,5 @@ void RunReferenceService(void) {
     CheckFonts();
     CheckProfile();
     CheckAmState();
+    CheckAmSelf();
 }

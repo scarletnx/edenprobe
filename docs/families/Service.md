@@ -23,6 +23,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | pl | 3 | the shared fonts a game's text is drawn with: loaded, inside the shared memory behind their headers, and in order of priority (`hle/service/ns/platform_service_manager.cpp`, `DecryptSharedFont`, `GetSharedFontInOrderOfPriority`) |
 | profile | 4 | the profile a game shows in its menus: one base twice, the picture a 256x256 JPEG of the size told, and the user's existence (`hle/service/acc/acc.cpp`, `IProfileCommon`, and `acc/profile_picture.cpp`, `GetProfilePictureForGame`) |
 | am-state | 5 | what the application's state getter tells a game before its first frame: the mode and its resolution, the focus, the start-up logo's message, 3D VR mode, the platform region (`hle/service/am/service/common_state_getter.cpp`) |
+| am-self | 2 | two settings a game makes on its self controller, read back: the idle time detection extension and auto sleep (`hle/service/am/service/self_controller.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -307,6 +308,23 @@ The logo case's line carries every message it received and what ended them (Resu
 AM 3, `0x680`, when none was left). Messages left from before go with them: the program's own
 loop does not need them.
 
+## am-self
+
+A game that plays a long scene without input, a film or a race watched, tells its self controller,
+ISelfController, not to dim the screen or sleep: SetIdleTimeDetectionExtension (62) and, from
+5.0.0, SetAutoSleepDisabled (68), and reads them back with GetIdleTimeDetectionExtension (63) and
+IsAutoSleepDisabled (69). reden keeps both (`self_controller.cpp:298-349` at 75c12299a6); a
+machine that answers the reads with a stub's nought makes a game that checks believe its request
+did nothing.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| the idle time detection extension set is the one read back | 63, 62 to Extended (1) or None (0), whichever it was not, 63, 62 back | the read after the write is what was set | exact |
+| auto sleep disabled is read back as set | 69, 68 to the other, 69, 68 back; skipped as `unavailable` before 5.0.0 | the read after the write is what was set | exact |
+
+Both settings are put back as they were before the case returns; the line carries all four
+answers.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -338,6 +356,8 @@ loop does not need them.
 - **Q12.** Whether a console of 21.0.0 sends message 95 at once on 130 when the logo is long
   gone, as reden does, or only when it goes; whether its 3D VR mode shows on the screen while the
   case has it on; and the region a console sold in China answers (reden always says Global).
+- **Q13.** Whether a console lets an application set the idle time detection extension to None
+  after it was Extended, and keeps it until the application exits, as reden does.
 
 ## The judge, pinned
 
@@ -385,3 +405,5 @@ message 95 among the messages after 130, and fails 130 answered without it at an
 by hand: 128 + 3 x 512, 128 + 2 x 512); VR mode on then off, and not never on, never off or a
 stand-in, with 1000 refused passing only before 19.0.0; and the region Global, with 300 refused
 passing only before 9.0.0.
+am-self passes a setting read back as set, and fails a stub's read that stays as before,
+another value read back, and a refusal.
