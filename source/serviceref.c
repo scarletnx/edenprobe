@@ -116,6 +116,8 @@ static const struct {
     [SERVICE_IPC_CLONE] = { "ipc", "a clone of a session answers as the session does" },
     [SERVICE_IPC_CLOSE] = { "ipc",
                             "a Close is answered SessionClosed, and so is the next request" },
+    [SERVICE_HID_SAMPLING] = { "hid",
+                               "each npad entry numbers twice its state, the states one apart" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1268,5 +1270,25 @@ bool ServiceJudgeSessionClose(uint32_t open_rc, uint32_t close_rc, uint32_t afte
              : !stays      ? "the session answered after its Close"
                            : "SessionClosed both",
              (unsigned)open_rc, (unsigned)close_rc, (unsigned)after_rc);
+    return passed;
+}
+
+bool ServiceJudgeHidSampling(const ServiceHidSampling *seen, char *out, size_t out_size) {
+    const bool passed = seen->lifos > 0u && seen->doubled == seen->lifos &&
+                        seen->consecutive == seen->lifos;
+    const char *verdict = "doubled and one apart";
+    if (seen->lifos == 0u) {
+        verdict = "no npad LIFO with two entries";
+    } else if (seen->doubled != seen->lifos) {
+        verdict = "an entry not numbered twice its state";
+    } else if (seen->consecutive != seen->lifos) {
+        verdict = "two states not one apart";
+    }
+    snprintf(out, out_size,
+             "%s: %u LIFOs with two entries or more, %u doubled, %u one apart, %u torn; the first "
+             "newest entry 0x%llx, its state 0x%llx",
+             verdict, (unsigned)seen->lifos, (unsigned)seen->doubled, (unsigned)seen->consecutive,
+             (unsigned)seen->torn, (unsigned long long)seen->storage,
+             (unsigned long long)seen->state);
     return passed;
 }
