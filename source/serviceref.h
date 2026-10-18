@@ -114,6 +114,13 @@ extern "C" {
 /// The kernel's SessionClosed: a request on a session whose server closed it.
 #define SERVICE_SESSION_CLOSED 0xF601u
 
+/// nn::time::sf::ClockSnapshot, 0xD0 bytes: where the parts the time-snap suite reads are.
+#define SERVICE_SNAP_SIZE 0xD0
+#define SERVICE_SNAP_USER_TIME 0x40
+#define SERVICE_SNAP_STEADY 0x90
+#define SERVICE_SNAP_LOCATION 0xA8
+#define SERVICE_SNAP_TYPE 0xCD
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -188,6 +195,8 @@ typedef enum {
     SERVICE_IPC_CLONE,   ///< ipc: a clone of a session answers as the session
     SERVICE_IPC_CLOSE,   ///< ipc: a Close is answered SessionClosed, and so is what follows
     SERVICE_HID_SAMPLING, ///< hid: npad LIFO entries number twice their state, states one apart
+    SERVICE_SNAP_COHERENT, ///< time-snap: a snapshot holds the user clock and the location
+    SERVICE_SNAP_SPAN,     ///< time-snap: the span between snapshots is their steady difference
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -706,6 +715,26 @@ typedef struct {
     uint64_t storage, state;
 } ServiceHidSampling;
 bool ServiceJudgeHidSampling(const ServiceHidSampling *seen, char *out, size_t out_size);
+
+/// GetClockSnapshot (time:u 400) of the user clock (type 0), against the user clock's own context
+/// (ISystemClock 2) and the device's location (ITimeZoneService 0): what each answered, whether the
+/// snapshot's user context is the clock's, its user time against the context's offset plus the
+/// snapshot's steady time point (both of one source), whether its location is the device's, and its
+/// type. Passes when all succeed and agree: reden builds the snapshot from those
+/// (`psc/time/static.cpp`, GetClockSnapshotImpl).
+typedef struct {
+    uint32_t snap_rc, context_rc, name_rc;
+    bool same_context, same_source, same_name;
+    int64_t user_time, offset, steady;
+    uint32_t type;
+} ServiceSnapshot;
+bool ServiceJudgeSnapshot(const ServiceSnapshot *seen, char *out, size_t out_size);
+
+/// CalculateSpanBetween (501) of a snapshot and itself, and of it and a copy whose steady time
+/// point is five seconds later: nought and five seconds, in nanoseconds, as reden takes the span
+/// from the steady time points of one source.
+bool ServiceJudgeSnapSpan(uint32_t snap_rc, uint32_t same_rc, int64_t same, uint32_t later_rc,
+                          int64_t later, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

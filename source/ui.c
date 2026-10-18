@@ -424,6 +424,7 @@ static const struct {
     { "bsd-local", UI_FAMILY_SERVICE },
     { "ipc", UI_FAMILY_SERVICE },
     { "hid", UI_FAMILY_SERVICE },
+    { "time-snap", UI_FAMILY_SERVICE },
     { "nifm", UI_FAMILY_NET },
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
     { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },

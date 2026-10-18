@@ -118,6 +118,10 @@ static const struct {
                             "a Close is answered SessionClosed, and so is the next request" },
     [SERVICE_HID_SAMPLING] = { "hid",
                                "each npad entry numbers twice its state, the states one apart" },
+    [SERVICE_SNAP_COHERENT] = { "time-snap", "a clock snapshot holds the user clock, its time "
+                                             "and the location" },
+    [SERVICE_SNAP_SPAN] = { "time-snap",
+                            "the span between two snapshots is their steady clocks' difference" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1290,5 +1294,45 @@ bool ServiceJudgeHidSampling(const ServiceHidSampling *seen, char *out, size_t o
              verdict, (unsigned)seen->lifos, (unsigned)seen->doubled, (unsigned)seen->consecutive,
              (unsigned)seen->torn, (unsigned long long)seen->storage,
              (unsigned long long)seen->state);
+    return passed;
+}
+
+bool ServiceJudgeSnapshot(const ServiceSnapshot *seen, char *out, size_t out_size) {
+    const bool refused = seen->snap_rc != 0u || seen->context_rc != 0u || seen->name_rc != 0u;
+    const bool timed = seen->same_source && seen->user_time == seen->offset + seen->steady;
+    const bool passed =
+        !refused && seen->same_context && timed && seen->same_name && seen->type == 0u;
+    const char *verdict = "the user clock's, at its time, at the device's location";
+    if (refused) {
+        verdict = "refused";
+    } else if (!seen->same_context) {
+        verdict = "another user context";
+    } else if (!timed) {
+        verdict = "another user time";
+    } else if (!seen->same_name) {
+        verdict = "another location";
+    } else if (!passed) {
+        verdict = "another type";
+    }
+    snprintf(out, out_size,
+             "%s: GetClockSnapshot(0) 0x%x, the clock's context 0x%x %s, user time %lld against "
+             "%lld + %lld (%s source), location 0x%x %s, type %u",
+             verdict, (unsigned)seen->snap_rc, (unsigned)seen->context_rc,
+             seen->same_context ? "same" : "other", (long long)seen->user_time,
+             (long long)seen->offset, (long long)seen->steady, seen->same_source ? "one" : "two",
+             (unsigned)seen->name_rc, seen->same_name ? "same" : "other", (unsigned)seen->type);
+    return passed;
+}
+
+bool ServiceJudgeSnapSpan(uint32_t snap_rc, uint32_t same_rc, int64_t same, uint32_t later_rc,
+                          int64_t later, char *out, size_t out_size) {
+    const bool refused = snap_rc != 0u || same_rc != 0u || later_rc != 0u;
+    const bool passed = !refused && same == 0 && later == 5000000000ll;
+    snprintf(out, out_size,
+             "%s: GetClockSnapshot 0x%x, the span to itself 0x%x %lld ns, to five seconds later "
+             "0x%x %lld ns",
+             refused ? "refused" : passed ? "nought and five seconds" : "another span",
+             (unsigned)snap_rc, (unsigned)same_rc, (long long)same, (unsigned)later_rc,
+             (long long)later);
     return passed;
 }

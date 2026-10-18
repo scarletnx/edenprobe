@@ -75,6 +75,7 @@ its dependencies put it, not at the end.
 | bsd-local | exact | bsd:u without a network: a raw socket opened, a timeout out of range or short not refused as a BSD stack does, or an address's length not cut to its buffer (`hle/service/sockets/bsd.cpp`). |
 | ipc | exact | the IpcController and Close: no pointer buffer, a clone that does not serve the same object, or a Close not answered SessionClosed (`hle/service/sm/sm_controller.cpp`). |
 | hid | exact | the npad LIFOs: an entry's storage not numbered twice its state, or states not one apart (`hid_core/resources/ring_lifo.h`). |
+| time-snap | exact | the clock snapshot: not the user clock's context, time or location, or a span between two not their steady difference in nanoseconds (`hle/service/psc/time/static.cpp`). |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |
