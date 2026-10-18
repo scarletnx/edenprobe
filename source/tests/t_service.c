@@ -1866,6 +1866,72 @@ static void RunIpc(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// hid
+
+/// One entry of a LIFO read as libnx reads one: the storage's number before and after the copy of
+/// the state must agree, or the copy is tried again.
+static bool HidEntry(const HidNpadCommonStateAtomicStorage *entry, u64 *storage, u64 *state) {
+    for (int tries = 0; tries < 8; ++tries) {
+        const u64 before = __atomic_load_n(&entry->sampling_number, __ATOMIC_ACQUIRE);
+        const u64 sampled = __atomic_load_n(&entry->state.sampling_number, __ATOMIC_ACQUIRE);
+        const u64 after = __atomic_load_n(&entry->sampling_number, __ATOMIC_ACQUIRE);
+        if (before == after) {
+            *storage = before;
+            *state = sampled;
+            return true;
+        }
+    }
+    return false;
+}
+
+/// hid's shared memory as libnx mapped it at start, with no input asked: every npad LIFO the
+/// system keeps writing, a controller connected or not.
+static void RunHid(void) {
+    char detail[480];
+    HidSharedMemory *const shared = (HidSharedMemory *)hidGetSharedmemAddr();
+    if (shared == NULL) {
+        Skip(SERVICE_HID_SAMPLING, REPORT_REASON_UNAVAILABLE,
+             "hid's shared memory is not mapped in this program");
+        return;
+    }
+    if (Start(SERVICE_HID_SAMPLING)) {
+        ServiceHidSampling seen;
+        memset(&seen, 0, sizeof(seen));
+        for (int i = 0; i < 10; ++i) {
+            HidNpadInternalState *const npad = &shared->npad.entries[i].internal_state;
+            HidNpadCommonLifo *const lifos[7] = { &npad->full_key_lifo,  &npad->handheld_lifo,
+                                                  &npad->joy_dual_lifo,  &npad->joy_left_lifo,
+                                                  &npad->joy_right_lifo, &npad->palma_lifo,
+                                                  &npad->system_ext_lifo };
+            for (int k = 0; k < 7; ++k) {
+                HidNpadCommonLifo *const lifo = lifos[k];
+                const u64 count = __atomic_load_n(&lifo->header.count, __ATOMIC_ACQUIRE);
+                const u64 tail = __atomic_load_n(&lifo->header.tail, __ATOMIC_ACQUIRE);
+                if (count < 2u || tail >= 17u) {
+                    continue;
+                }
+                u64 storage = 0, state = 0, before_storage = 0, before_state = 0;
+                if (!HidEntry(&lifo->storage[tail], &storage, &state) ||
+                    !HidEntry(&lifo->storage[(tail + 16u) % 17u], &before_storage,
+                              &before_state)) {
+                    ++seen.torn;
+                    continue;
+                }
+                if (seen.lifos == 0u) {
+                    seen.storage = storage;
+                    seen.state = state;
+                }
+                ++seen.lifos;
+                seen.doubled += storage == state << 1 ? 1u : 0u;
+                seen.consecutive += before_state + 1u == state ? 1u : 0u;
+            }
+        }
+        const bool passed = ServiceJudgeHidSampling(&seen, detail, sizeof(detail));
+        Report(SERVICE_HID_SAMPLING, CHECK_EXACT, passed, detail);
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -1892,4 +1958,5 @@ void RunService(void) {
     RunAmMode();
     RunBsdLocal();
     RunIpc();
+    RunHid();
 }

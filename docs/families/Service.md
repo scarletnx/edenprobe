@@ -34,6 +34,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | am-mode | 2 | the state getter's modes: VR mode turned on and off, the boot mode, the controller update section (`hle/service/am/service/common_state_getter.cpp`) |
 | bsd-local | 4 | bsd:u with no network: a raw socket, a timeout out of range or short, an address into a short buffer (`hle/service/sockets/bsd.cpp`) |
 | ipc | 3 | what every session answers: its pointer buffer, a clone, a Close (`hle/service/sm/sm_controller.cpp`, `hle/service/service.cpp`) |
+| hid | 1 | the npad LIFOs of hid's shared memory, which every game reads its controllers from (`hid_core/resources/ring_lifo.h`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -519,6 +520,22 @@ smGetServiceOriginal, outside of libnx's own session to it.
 
 Every handle is closed before the suite returns.
 
+## hid
+
+Every game reads its controllers from hid's shared memory: per npad, seven LIFOs of seventeen
+entries, each entry a storage number before the state it holds. reden numbers the storage twice
+the state's sampling number (`state.sampling_number << 1`, `ring_lifo.h:50` at 75c12299a6) and
+counts each npad's states one per entry, an empty entry of a controller not connected too, since
+07f40d5cac (Eden #4442) stopped the empty one from taking the storage's doubled number. libnx
+reads an entry again while its storage number moves under the copy, and drops states that are not
+one apart.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| each npad entry numbers twice its state, the states one apart | the newest entry and the one before it of every npad LIFO with two entries or more, with no input asked | there is one at least, and in each the storage number is twice the state's and the state before is one less | exact |
+
+An entry whose storage number moves under eight copies in a row is counted as torn and left out.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -574,6 +591,8 @@ Every handle is closed before the suite returns.
   cut, as reden does and a BSD stack does, or the address's whole length, as Linux does.
 - **Q23.** Whether a console's set answers a Close with SessionClosed, as reden does and as libnx's
   serviceClose ignores, and how large its pointer buffer is.
+- **Q24.** Whether a console numbers an npad entry's storage twice its state, as reden does, and
+  keeps writing the LIFOs of an npad with nothing connected.
 
 ## The judge, pinned
 
@@ -653,3 +672,5 @@ and a write past the buffer.
 ipc passes the controller's answers and a Close, and fails no pointer buffer, a clone that
 answers otherwise or gives no handle, a Close answered as a success, and a session alive after
 it.
+hid passes npad entries doubled and one apart, and fails an entry numbered as its state, states
+not one apart, and no LIFO to read.

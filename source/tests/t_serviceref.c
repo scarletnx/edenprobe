@@ -1140,6 +1140,27 @@ static void CheckIpc(void) {
                room, room_said, none, same, other, handleless, closed, success, alive);
 }
 
+static void CheckHid(void) {
+    ServiceHidSampling seen = { 7u, 7u, 7u, 0u, 0x20u, 0x10u };
+    const bool doubled = ServiceJudgeHidSampling(&seen, said, sizeof(said)) &&
+                         strstr(said, "doubled and one apart: 7 LIFOs") == said;
+    char doubled_said[480];
+    memcpy(doubled_said, said, sizeof(said));
+    // The entry numbered as its state, the bug 07f40d5cac fixed the other way round.
+    seen.doubled = 6u;
+    const bool same = !ServiceJudgeHidSampling(&seen, said, sizeof(said)) &&
+                      strstr(said, "an entry not numbered twice its state") == said;
+    seen = (ServiceHidSampling){ 7u, 7u, 5u, 0u, 0x20u, 0x10u };
+    const bool apart = !ServiceJudgeHidSampling(&seen, said, sizeof(said)) &&
+                       strstr(said, "two states not one apart") == said;
+    seen = (ServiceHidSampling){ 0u, 0u, 0u, 0u, 0u, 0u };
+    const bool none = !ServiceJudgeHidSampling(&seen, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: hid passes npad entries doubled and one apart", CHECK_NONE,
+               doubled && same && apart && none,
+               "doubled %d \"%.160s\", one not doubled %d, not one apart %d, none %d", doubled,
+               doubled_said, same, apart, none);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1166,4 +1187,5 @@ void RunReferenceService(void) {
     CheckAmMode();
     CheckBsdLocal();
     CheckIpc();
+    CheckHid();
 }

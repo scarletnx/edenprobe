@@ -187,6 +187,7 @@ typedef enum {
     SERVICE_IPC_POINTER, ///< ipc: a session's pointer buffer has room
     SERVICE_IPC_CLONE,   ///< ipc: a clone of a session answers as the session
     SERVICE_IPC_CLOSE,   ///< ipc: a Close is answered SessionClosed, and so is what follows
+    SERVICE_HID_SAMPLING, ///< hid: npad LIFO entries number twice their state, states one apart
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -693,6 +694,18 @@ bool ServiceJudgeSessionClone(const ServiceSessionClone *seen, char *out, size_t
 /// client so (28ab4a1a01).
 bool ServiceJudgeSessionClose(uint32_t open_rc, uint32_t close_rc, uint32_t after_rc, char *out,
                               size_t out_size);
+
+/// The npad LIFOs of hid's shared memory (ten npads, seven LIFOs each) that hold two entries or
+/// more: how many there are, in how many the newest entry's storage number is twice its state's
+/// sampling number, in how many the state before it is one less, and how many reads moved under
+/// the copy every try. Passes when there is one at least and every one is doubled and one
+/// apart: reden's ring LIFO numbers the storage `state.sampling_number << 1` and each npad's
+/// state counts one per entry, an empty one too since 07f40d5cac (`ring_lifo.h:50`).
+typedef struct {
+    uint32_t lifos, doubled, consecutive, torn;
+    uint64_t storage, state;
+} ServiceHidSampling;
+bool ServiceJudgeHidSampling(const ServiceHidSampling *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }
