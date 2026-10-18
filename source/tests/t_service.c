@@ -1571,6 +1571,96 @@ static void RunAmStorage(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// mii
+
+/// One Mii as Get (3) gives it: the character, then where it comes from (0 the database, 1 the
+/// defaults).
+typedef struct {
+    MiiCharInfo info;
+    u32 source;
+} ServiceMiiElement;
+
+/// mii:u, as a game with Miis opens it to list the player's and the console's: the six default
+/// Miis counted and given, the database's state, and a default index past the last.
+static void RunMii(void) {
+    char detail[480];
+    const Result opened = miiInitialize(MiiServiceType_User);
+    MiiDatabase db;
+    memset(&db, 0, sizeof(db));
+    const Result database =
+        R_SUCCEEDED(opened) ? miiOpenDatabase(&db, MiiSpecialKeyCode_Normal) : opened;
+    if (R_FAILED(database)) {
+        char why[200];
+        snprintf(why, sizeof(why), "miiInitialize(User) 0x%x, miiOpenDatabase(Normal) 0x%x",
+                 (unsigned)opened, (unsigned)database);
+        Skip(SERVICE_MII_COUNT, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_MII_DEFAULTS, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_MII_STATE, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_MII_PAST, REPORT_REASON_UNAVAILABLE, "%s", why);
+        if (R_SUCCEEDED(opened)) {
+            miiExit();
+        }
+        return;
+    }
+    if (Start(SERVICE_MII_COUNT)) {
+        s32 count = -1;
+        const uint32_t rc = miiDatabaseGetCount(&db, &count, MiiSourceFlag_Default);
+        const bool passed = ServiceJudgeMiiCount(rc, count, detail, sizeof(detail));
+        Report(SERVICE_MII_COUNT, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_MII_DEFAULTS)) {
+        static ServiceMiiElement elements[SERVICE_MII_DEFAULT_COUNT + 2u];
+        memset(elements, 0, sizeof(elements));
+        ServiceMiiDefaults seen;
+        memset(&seen, 0, sizeof(seen));
+        const u32 flag = MiiSourceFlag_Default;
+        s32 count = -1;
+        seen.get_rc = serviceDispatchInOut(
+            &db.s, 3, flag, count,
+            .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+            .buffers = { { elements, sizeof(elements) } }, );
+        seen.count = count;
+        const u32 given = count > 0 && count <= (s32)SERVICE_MII_DEFAULT_COUNT ? (u32)count : 0u;
+        for (u32 i = 0; i < given; ++i) {
+            MiiCharInfo built;
+            memset(&built, 0, sizeof(built));
+            const uint32_t rc = serviceDispatchInOut(&db.s, 7, i, built);
+            if (rc != 0u && seen.built_rc == 0u) {
+                seen.built_rc = rc;
+            }
+            if (elements[i].source == 1u) {
+                ++seen.defaults;
+            }
+            // The create id comes first, and is new for every build.
+            if (rc == 0u && memcmp((const u8 *)&built + 16, (const u8 *)&elements[i].info + 16,
+                                   sizeof(built) - 16) == 0) {
+                ++seen.same;
+            }
+        }
+        const bool passed = ServiceJudgeMiiDefaults(&seen, detail, sizeof(detail));
+        Report(SERVICE_MII_DEFAULTS, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_MII_STATE)) {
+        bool updated = true, full = true;
+        const uint32_t updated_rc = miiDatabaseIsUpdated(&db, &updated, MiiSourceFlag_Default);
+        const uint32_t full_rc = miiDatabaseIsFull(&db, &full);
+        const bool passed =
+            ServiceJudgeMiiState(updated_rc, updated, full_rc, full, detail, sizeof(detail));
+        Report(SERVICE_MII_STATE, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_MII_PAST)) {
+        MiiCharInfo built;
+        memset(&built, 0, sizeof(built));
+        const u32 index = SERVICE_MII_DEFAULT_COUNT;
+        const uint32_t rc = serviceDispatchInOut(&db.s, 7, index, built);
+        const bool passed = ServiceJudgeMiiPast(rc, detail, sizeof(detail));
+        Report(SERVICE_MII_PAST, CHECK_EXACT, passed, detail);
+    }
+    miiDatabaseClose(&db);
+    miiExit();
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -1593,4 +1683,5 @@ void RunService(void) {
     RunAmAudio();
     RunAmChannel();
     RunAmStorage();
+    RunMii();
 }

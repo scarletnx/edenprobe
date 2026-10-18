@@ -30,6 +30,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | am-audio | 2 | the volumes a game expects for itself and a library applet, set and read back (`hle/service/am/service/audio_controller.cpp`) |
 | am-channel | 3 | the user channel an application's programs hand data through, and the program that ran before (`hle/service/am/service/application_functions.cpp`) |
 | am-storage | 3 | the storages a game hands a library applet its arguments in: size, bytes, and the end (`hle/service/am/library_applet_storage.cpp`) |
+| mii | 4 | the console's six default Miis a game lists with the player's, and the database's state (`hle/service/mii/mii_manager.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -442,6 +443,26 @@ InvalidOffset (`library_applet_storage.cpp:17-24` at 75c12299a6), before any byt
 
 Each case closes its storage before it returns.
 
+## mii
+
+A game with Miis (a racer, a fighter, a party game) opens mii:u, its database service
+(GetDatabaseService, 0), and lists the Miis it may show: the player's from the database and the
+console's six default ones. reden counts and gives the six for the default source, each the
+build BuildDefault makes of its index with a create id of its own, answers false to IsUpdated for
+a session that never asked the database and to IsFullDatabase for a database with room, and
+refuses a default index past the sixth with InvalidArgument (`mii_manager.cpp:55-72, 308-430` and
+`mii.cpp:71-142` at 75c12299a6).
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| the default source counts six Miis | GetCount (2) of the default source | it succeeds with 6 | exact |
+| the default source gives the six default Miis BuildDefault builds | Get (3) of the default source into room for eight, then BuildDefault (7) of each index | six Miis, each of source Default (1) and the same build past its create id | exact |
+| the database is neither updated nor full | IsUpdated (0) of the default source, IsFullDatabase (1) | both succeed with false | exact |
+| a default Mii past the sixth is refused | BuildDefault of index 6 | InvalidArgument (126, 1) | exact |
+
+The four skip as `unavailable` when mii:u or its database does not open; the session is closed
+after.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -489,6 +510,8 @@ Each case closes its storage before it returns.
   does, and whether an application launched from the home menu reads -1 as its previous program.
 - **Q19.** Whether a console refuses a read that runs past a storage's end with InvalidOffset, as
   reden does, or reads what is there.
+- **Q20.** Whether a console's default Miis come out of Get in BuildDefault's order, as reden
+  gives them, and whether each Get makes their create ids anew.
 
 ## The judge, pinned
 
@@ -558,3 +581,5 @@ nothing, other bytes, a channel not emptied by the pop, a queue, a clear that le
 index of 0.
 am-storage passes a storage that keeps its size and its end, and fails another size, other
 bytes read back, a read cut at the end and answered as a success, and a refusal of another kind.
+mii passes the six default Miis, and fails a count of nought, an empty or short list, a Mii of
+another source or build, a full database, and a seventh default built.

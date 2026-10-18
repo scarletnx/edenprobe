@@ -70,6 +70,7 @@ its dependencies put it, not at the end.
 | am-audio | exact | the audio controller: the expected master volumes or a changed main volume not read back as set (`hle/service/am/service/audio_controller.cpp`). |
 | am-channel | exact | the user channel: a storage unpopped not popped back, the order or the clear wrong, or a previous program index other than -1 (`hle/service/am/service/application_functions.cpp`). |
 | am-storage | exact | a library applet's storage: its size or bytes not kept, or an access past its end not refused with InvalidOffset (`hle/service/am/library_applet_storage.cpp`). |
+| mii | exact | mii:u's default Miis: not six, not given by Get, not BuildDefault's builds, the database said full, or a seventh built (`hle/service/mii/mii_manager.cpp`). |
 | nifm | exact | the network state a program is told: the connection status, the address, and a request's life from submitted to accepted (`hle/service/nifm/nifm.cpp`, `IRequest`, `HasConnection`). |
 | dns | exact | name resolution: the two serialisations sfdnsres writes, nsd's placeholder, and, signed in, the rewrite table and the loopback redirect (`hle/service/sockets/{sfdnsres,nsd}.cpp`, `core/online_initiator.cpp`, `ResolveUrl`). |
 | bsd | exact | sockets on the host: bind, datagrams, streams, a refused connect, a receive timeout (`SetSockOptImpl`, and `internal_network/network.cpp`), a connect that does not block, and the duplicate an ssl connection is handed, which shares the program's socket and dies with it (`hle/service/sockets/bsd.cpp`, `DuplicateSocketImpl`, `CloseImpl`). |

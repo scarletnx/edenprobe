@@ -98,6 +98,11 @@ static const struct {
                                 "a storage has the size asked and gives back what is written" },
     [SERVICE_STORAGE_WRITE_PAST] = { "am-storage", "a write past a storage's end is refused" },
     [SERVICE_STORAGE_READ_PAST] = { "am-storage", "a read past a storage's end is refused" },
+    [SERVICE_MII_COUNT] = { "mii", "the default source counts six Miis" },
+    [SERVICE_MII_DEFAULTS] = { "mii", "the default source gives the six Miis BuildDefault "
+                                      "builds" },
+    [SERVICE_MII_STATE] = { "mii", "the database is neither updated nor full" },
+    [SERVICE_MII_PAST] = { "mii", "a default Mii past the sixth is refused" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1084,5 +1089,54 @@ bool ServiceJudgeStoragePast(const char *what, uint32_t create_rc, uint32_t rc, 
                              : "refused otherwise",
              (unsigned)SERVICE_STORAGE_SIZE, (unsigned)create_rc, what,
              (unsigned)SERVICE_STORAGE_PAST, (unsigned)rc);
+    return passed;
+}
+
+bool ServiceJudgeMiiCount(uint32_t rc, int32_t count, char *out, size_t out_size) {
+    const bool passed = rc == 0u && count == (int32_t)SERVICE_MII_DEFAULT_COUNT;
+    snprintf(out, out_size, "%s: GetCount(Default) 0x%x, %d",
+             rc != 0u ? "refused" : passed ? "six default Miis" : "another count", (unsigned)rc,
+             (int)count);
+    return passed;
+}
+
+bool ServiceJudgeMiiDefaults(const ServiceMiiDefaults *seen, char *out, size_t out_size) {
+    const bool refused = seen->get_rc != 0u || seen->built_rc != 0u;
+    const bool six = seen->count == (int32_t)SERVICE_MII_DEFAULT_COUNT;
+    const bool sources = seen->defaults == SERVICE_MII_DEFAULT_COUNT;
+    const bool passed = !refused && six && sources && seen->same == SERVICE_MII_DEFAULT_COUNT;
+    const char *verdict = "the six default Miis";
+    if (refused) {
+        verdict = "refused";
+    } else if (!six) {
+        verdict = "another count of Miis";
+    } else if (!sources) {
+        verdict = "a Mii of another source";
+    } else if (!passed) {
+        verdict = "other Miis than BuildDefault builds";
+    }
+    snprintf(out, out_size,
+             "%s: Get(Default) 0x%x gave %d, %u of source Default, BuildDefault 0x%x, %u the same "
+             "past the create id",
+             verdict, (unsigned)seen->get_rc, (int)seen->count, (unsigned)seen->defaults,
+             (unsigned)seen->built_rc, (unsigned)seen->same);
+    return passed;
+}
+
+bool ServiceJudgeMiiState(uint32_t updated_rc, bool updated, uint32_t full_rc, bool full,
+                          char *out, size_t out_size) {
+    const bool refused = updated_rc != 0u || full_rc != 0u;
+    const bool passed = !refused && !updated && !full;
+    snprintf(out, out_size, "%s: IsUpdated(Default) 0x%x %d, IsFullDatabase 0x%x %d",
+             refused ? "refused" : passed ? "neither" : updated ? "updated" : "full",
+             (unsigned)updated_rc, updated ? 1 : 0, (unsigned)full_rc, full ? 1 : 0);
+    return passed;
+}
+
+bool ServiceJudgeMiiPast(uint32_t rc, char *out, size_t out_size) {
+    const bool passed = rc == SERVICE_MII_INVALID_ARGUMENT;
+    snprintf(out, out_size, "%s: BuildDefault(6) 0x%x",
+             passed ? "refused with InvalidArgument" : rc == 0u ? "built" : "refused otherwise",
+             (unsigned)rc);
     return passed;
 }
