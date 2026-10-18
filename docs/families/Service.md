@@ -18,6 +18,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | csrng | 2 | the random bytes a game seeds from (`hle/service/spl/spl_module.cpp`, `GenerateRandomBytes`) |
 | apm | 1 | apm and a session on it, which a game opens before it asks for the performance mode (`hle/service/apm/apm_interface.cpp`, `APM::OpenSession`) |
 | nfp | 2 | the detection a game built for 23.0.0 starts (`hle/service/nfp/nfp.cpp`, the IUser table) |
+| aoc | 2 | the add-on content list a game reads before it mounts one, past its end (`hle/service/aoc/addon_content_manager.cpp`, `ListAddOnContent`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -182,6 +183,22 @@ agree. Nothing here needs a person.
 
 25 is sent with the device first, where reden's handler reads it, and a filter word of nought after.
 
+## aoc
+
+A game asks aoc:u how many add-on contents it has, CountAddOnContent (2), and lists their indices,
+ListAddOnContent (3), from an offset, before it mounts one. reden 54cd5fb8eb refuses a list asked
+from past its end with ResultApplicationRecordNotFound, AM (128) 37, `0x4A80`, where it had
+answered ResultUnknown; asked from the end itself, the list is empty and succeeds. libnx has no
+client for aoc:u, so both commands are sent raw: the offset and the most indices wanted, then a
+word for the process id, which goes with the request.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| aoc:u opens and counts this program's add-on content | aoc:u and 2 | both answer | none |
+| ListAddOnContent lists nothing at the end and refuses one past it | 3 from the count, then from the count and one | the first succeeds with none listed, the second is refused with `0x4A80` | exact |
+
+The line carries the count, both answers and how many the first listed. Nothing is mounted.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -199,6 +216,8 @@ agree. Nothing here needs a person.
 - **Q6.** The result a console gives MakeLanguageCode past its table (reden's `0x4E269`), and
   whether its count (6) is the list's length or, as reden's, the most the list can hold.
 - **Q7.** The layout of 25's filter on a console: reden reads the device handle and nothing else.
+- **Q8.** Whether a console answers aoc:u for a program that is not an installed application, and
+  the result it gives a list from past the end: the expectation is reden's `0x4A80`.
 
 ## The judge, pinned
 
@@ -220,4 +239,6 @@ of nought, an index made into another index's code, one past the table made into
 count below the list. nfp passes 25 refusing as 3 refuses, and 25 refused on
 a machine older than 23.0.0; an unknown command's success where 3 refuses fails, at any firmware. csrng passes two buffers written whole and
 apart, and fails the same bytes twice, a buffer whose end was not written, a buffer of nought and a
-refusal.
+refusal. aoc passes an empty end and `0x4A80` past it, for none and for three add-on contents (the
+code worked out by hand: 128 + 37 x 512); a success past the end, another refusal there (reden's
+ResultUnknown before 54cd5fb8eb), the end refused and an end that lists one each fail.

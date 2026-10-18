@@ -46,6 +46,12 @@ extern "C" {
 #define SERVICE_RANDOM_SIZE 64u
 #define SERVICE_RANDOM_FILL 0xA5u
 
+/// aoc:u listing from past the end of its list: ResultApplicationRecordNotFound, AM (128) 37,
+/// which reden 54cd5fb8eb answers where it had answered ResultUnknown. The most indices the aoc
+/// case has room for in one list.
+#define SERVICE_AOC_PAST_END SERVICE_RESULT(128, 37)
+#define SERVICE_AOC_LISTED 64u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -67,6 +73,8 @@ typedef enum {
     SERVICE_APM_OPENS,    ///< apm: apm and a session (none tier)
     SERVICE_NFP_OPENS,    ///< nfp: libnx's nfpInitialize for a user (none tier)
     SERVICE_NFP_FILTER,   ///< nfp: StartDetectionWithFilter answers as StartDetection
+    SERVICE_AOC_OPENS,    ///< aoc: aoc:u opens and counts its add-on content (none tier)
+    SERVICE_AOC_PAST,     ///< aoc: the list's end lists nothing, one past it is refused
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -165,6 +173,17 @@ bool ServiceJudgeRandom(uint32_t rc1, uint32_t rc2, const uint8_t *first, const 
 /// refuse 25 instead.
 bool ServiceJudgeNfpFilter(uint32_t rc3, uint32_t rc25, int32_t devices, bool firmware23,
                            char *out, size_t out_size);
+
+/// aoc:u's CountAddOnContent (2) and ListAddOnContent (3) for this program: the count, and the
+/// list asked from the count as its offset, which is the list's end, and from one past it. Passes
+/// when the end lists nothing with success and one past it is refused with SERVICE_AOC_PAST_END,
+/// reden 54cd5fb8eb's ListAddOnContent.
+typedef struct {
+    uint32_t count;
+    uint32_t end_rc, end_listed;
+    uint32_t past_rc;
+} ServiceAocList;
+bool ServiceJudgeAocPast(const ServiceAocList *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }
