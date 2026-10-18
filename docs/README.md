@@ -22,7 +22,7 @@ leaves. The [README](../README.md) at the root says what edenprobe is.
     by MD5, and Q1 to Q5
   - **[Audio](./families/Audio.md)** - the audio renderer, and the listening sequence
   - **[Service](./families/Service.md)** - hwopus, am, fsp, account, ldn, set, csrng, apm, nfp,
-    aoc, time, pl, profile, am-state, am-self, am-functions, auddev, fsdir, am-audio, am-channel, am-storage, mii, am-mode and bsd-local: the commands a game sends, held to reden's answers
+    aoc, time, pl, profile, am-state, am-self, am-functions, auddev, fsdir, am-audio, am-channel, am-storage, mii, am-mode, bsd-local and ipc: the commands a game sends, held to reden's answers
   - **[Net](./families/Net.md)** - nifm to friend, the net file and the fixture
 
 ## Running it

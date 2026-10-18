@@ -1109,6 +1109,37 @@ static void CheckBsdLocal(void) {
                raw, raw_said, opened, edom, usec, sec, shorter, taken, cut, whole, past);
 }
 
+static void CheckIpc(void) {
+    const bool room = ServiceJudgePointerBuffer(0u, 0u, 0x8000u, said, sizeof(said)) &&
+                      strcmp(said, "room in it: set opened 0x0, QueryPointerBufferSize 0x0, "
+                                   "0x8000") == 0;
+    char room_said[480];
+    memcpy(room_said, said, sizeof(said));
+    const bool none = !ServiceJudgePointerBuffer(0u, 0u, 0u, said, sizeof(said));
+    ServiceSessionClone seen = { 0u, 0u, 0u, 0u, true, 0x53552d6e65ull, 0x53552d6e65ull };
+    const bool same = ServiceJudgeSessionClone(&seen, said, sizeof(said));
+    // A clone that answers nought, as a session of no object would.
+    seen.cloned = 0u;
+    const bool other = !ServiceJudgeSessionClone(&seen, said, sizeof(said)) &&
+                       strstr(said, "another answer") == said;
+    seen = (ServiceSessionClone){ 0u, 0u, 0u, 0u, false, 1u, 1u };
+    const bool handleless = !ServiceJudgeSessionClone(&seen, said, sizeof(said));
+    const bool closed = ServiceJudgeSessionClose(0u, SERVICE_SESSION_CLOSED, SERVICE_SESSION_CLOSED,
+                                                 said, sizeof(said));
+    // A Close answered as a success, and a session that keeps answering after it.
+    const bool success = !ServiceJudgeSessionClose(0u, 0u, SERVICE_SESSION_CLOSED, said,
+                                                   sizeof(said)) &&
+                         strstr(said, "the Close answered otherwise") == said;
+    const bool alive =
+        !ServiceJudgeSessionClose(0u, SERVICE_SESSION_CLOSED, 0u, said, sizeof(said)) &&
+        strstr(said, "the session answered after its Close") == said;
+    CHECK_TRUE(SUITE, "service: ipc passes the controller's answers and a Close", CHECK_NONE,
+               room && none && same && other && handleless && closed && success && alive,
+               "room %d \"%.160s\", none %d, same %d, another %d, no handle %d, closed %d, a "
+               "success %d, alive %d",
+               room, room_said, none, same, other, handleless, closed, success, alive);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1134,4 +1165,5 @@ void RunReferenceService(void) {
     CheckMii();
     CheckAmMode();
     CheckBsdLocal();
+    CheckIpc();
 }

@@ -33,6 +33,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | mii | 4 | the console's six default Miis a game lists with the player's, and the database's state (`hle/service/mii/mii_manager.cpp`) |
 | am-mode | 2 | the state getter's modes: VR mode turned on and off, the boot mode, the controller update section (`hle/service/am/service/common_state_getter.cpp`) |
 | bsd-local | 4 | bsd:u with no network: a raw socket, a timeout out of range or short, an address into a short buffer (`hle/service/sockets/bsd.cpp`) |
+| ipc | 3 | what every session answers: its pointer buffer, a clone, a Close (`hle/service/sm/sm_controller.cpp`, `hle/service/service.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -499,6 +500,25 @@ address cut to the buffer it is read into, with the length cut. reden answers so
 The four skip as `unavailable` when socketInitializeDefault fails; every socket is closed and the
 driver let go before the suite returns.
 
+## ipc
+
+Every service session answers the IpcController's commands besides its own: a game's IPC layer
+asks QueryPointerBufferSize (3) before it sends a pointer buffer and clones a session with
+CloneCurrentObject (2) to call it from another thread, and every session ends with a Close
+(CMIF message type 2). reden answers the program's pointer buffer, 0x8000 for an NRO, serves the
+same object on a clone, and answers a Close by closing the session, so the client reads
+SessionClosed (0xF601) for it and for anything sent after (`sm_controller.cpp` and, from
+28ab4a1a01, `service.cpp:128-133` at 75c12299a6). The three ask set, opened by name with
+smGetServiceOriginal, outside of libnx's own session to it.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| a session of set has a pointer buffer | QueryPointerBufferSize | it succeeds with a size above nought | exact |
+| a clone of a session answers as the session does | CloneCurrentObject, GetLanguageCode (0) on both | all succeed, the clone is a handle, and the two codes are the same and not nought | exact |
+| a Close is answered SessionClosed, and so is the next request | a Close (cmifMakeCloseRequest) with svcSendSyncRequest, then GetLanguageCode on the handle | 0xF601 for both | exact |
+
+Every handle is closed before the suite returns.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -552,6 +572,8 @@ driver let go before the suite returns.
   each time, as reden does.
 - **Q22.** Whether a console's bsd:u answers getsockname into a short buffer with the length
   cut, as reden does and a BSD stack does, or the address's whole length, as Linux does.
+- **Q23.** Whether a console's set answers a Close with SessionClosed, as reden does and as libnx's
+  serviceClose ignores, and how large its pointer buffer is.
 
 ## The judge, pinned
 
@@ -628,3 +650,6 @@ a mode stuck on, a maintenance boot and an update running.
 bsd-local passes the answers of a BSD stack, and fails a raw socket opened, a timeout out of
 range taken or refused as EINVAL, a short timeout taken, the whole length said for a cut address,
 and a write past the buffer.
+ipc passes the controller's answers and a Close, and fails no pointer buffer, a clone that
+answers otherwise or gives no handle, a Close answered as a success, and a session alive after
+it.

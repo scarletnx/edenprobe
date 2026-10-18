@@ -111,6 +111,9 @@ extern "C" {
 #define SERVICE_EINVAL 22
 #define SERVICE_EDOM 33
 
+/// The kernel's SessionClosed: a request on a session whose server closed it.
+#define SERVICE_SESSION_CLOSED 0xF601u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -181,6 +184,9 @@ typedef enum {
     SERVICE_BSD_TIMEOUT_RANGE, ///< bsd-local: a timeout out of range is EDOM
     SERVICE_BSD_TIMEOUT_SHORT, ///< bsd-local: a timeout shorter than a timeval is EINVAL
     SERVICE_BSD_NAME_SHORT,    ///< bsd-local: getsockname into 8 bytes says 8
+    SERVICE_IPC_POINTER, ///< ipc: a session's pointer buffer has room
+    SERVICE_IPC_CLONE,   ///< ipc: a clone of a session answers as the session
+    SERVICE_IPC_CLOSE,   ///< ipc: a Close is answered SessionClosed, and so is what follows
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -665,6 +671,28 @@ typedef struct {
     bool past_kept;
 } ServiceNameShort;
 bool ServiceJudgeNameShort(const ServiceNameShort *seen, char *out, size_t out_size);
+
+/// QueryPointerBufferSize (IpcController 3) on a session of set: a size above nought, since set
+/// takes its language codes in a pointer buffer; reden answers the program's (0x8000 for an NRO,
+/// `sm_controller.cpp`).
+bool ServiceJudgePointerBuffer(uint32_t open_rc, uint32_t rc, uint32_t size, char *out,
+                               size_t out_size);
+
+/// CloneCurrentObject (IpcController 2) of a session of set, and GetLanguageCode (0) asked on both:
+/// what each step answered, whether the clone is a handle, and the two codes. Passes when all
+/// succeed and the codes are the same and not nought, as reden's clone serves the same object.
+typedef struct {
+    uint32_t open_rc, clone_rc, first_rc, clone_ask_rc;
+    bool handle;
+    uint64_t first, cloned;
+} ServiceSessionClone;
+bool ServiceJudgeSessionClone(const ServiceSessionClone *seen, char *out, size_t out_size);
+
+/// A CMIF Close sent with svcSendSyncRequest on a session of set, then GetLanguageCode on the same
+/// handle: SessionClosed (0xF601) for both, as reden's server closes the session and answers the
+/// client so (28ab4a1a01).
+bool ServiceJudgeSessionClose(uint32_t open_rc, uint32_t close_rc, uint32_t after_rc, char *out,
+                              size_t out_size);
 
 #ifdef __cplusplus
 }
