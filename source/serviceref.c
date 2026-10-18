@@ -32,6 +32,7 @@ static const struct {
     [SERVICE_CSRNG_OPENS] = { "csrng", "csrng opens" },
     [SERVICE_RANDOM] = { "csrng",
                          "GenerateRandomBytes fills the buffer, and differently each time" },
+    [SERVICE_APM_OPENS] = { "apm", "apm opens, with a session" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {

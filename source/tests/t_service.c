@@ -522,6 +522,23 @@ static void RunCsrng(void) {
     csrngExit();
 }
 
+// ---------------------------------------------------------------------------------------------
+// apm
+
+/// apm and a session on it, as libnx opens them before a game asks for the performance mode.
+static void RunApm(void) {
+    char detail[480];
+    if (Start(SERVICE_APM_OPENS)) {
+        const Result rc = apmInitialize();
+        snprintf(detail, sizeof(detail), "apmInitialize (apm and OpenSession) returned 0x%x",
+                 (unsigned)rc);
+        Report(SERVICE_APM_OPENS, CHECK_NONE, R_SUCCEEDED(rc), detail);
+        if (R_SUCCEEDED(rc)) {
+            apmExit();
+        }
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -530,4 +547,5 @@ void RunService(void) {
     RunLdn();
     RunSet();
     RunCsrng();
+    RunApm();
 }

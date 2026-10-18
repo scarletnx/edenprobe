@@ -473,6 +473,7 @@ static void CheckFamilies(void) {
         { "am", UI_FAMILY_SERVICE },         { "fsp", UI_FAMILY_SERVICE },
         { "account", UI_FAMILY_SERVICE },    { "ldn", UI_FAMILY_SERVICE },
         { "set", UI_FAMILY_SERVICE },        { "csrng", UI_FAMILY_SERVICE },
+        { "apm", UI_FAMILY_SERVICE },
         { "nifm", UI_FAMILY_NET },
         { "dns", UI_FAMILY_NET },           { "bsd", UI_FAMILY_NET },
         { "ssl", UI_FAMILY_NET },           { "acc", UI_FAMILY_NET },
@@ -487,7 +488,7 @@ static void CheckFamilies(void) {
         }
     }
     CHECK_TRUE(SUITE, "every suite a run reports is shown under its own family", CHECK_NONE,
-               wrong == 0u && count == 54u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
+               wrong == 0u && count == 55u && UiFamilyOf("weird") == UI_FAMILY_OTHER &&
                    UiFamilyOf(NULL) == UI_FAMILY_OTHER,
                "%u of %u suites under the wrong family, the first %s", (unsigned)wrong,
                (unsigned)count, first);
