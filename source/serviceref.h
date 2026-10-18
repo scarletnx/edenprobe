@@ -52,6 +52,12 @@ extern "C" {
 #define SERVICE_AOC_PAST_END SERVICE_RESULT(128, 37)
 #define SERVICE_AOC_LISTED 64u
 
+/// The time the time cases date, 2023-11-14 22:13:20 in UTC, a Tuesday and the year's 318th day;
+/// and how long the steady clock case waits between its two readings, a second and a half, so a
+/// clock that counts seconds has moved by one or two.
+#define SERVICE_TIME_KNOWN 1700000000
+#define SERVICE_TIME_WAIT_NS 1500000000ull
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -75,6 +81,12 @@ typedef enum {
     SERVICE_NFP_FILTER,   ///< nfp: StartDetectionWithFilter answers as StartDetection
     SERVICE_AOC_OPENS,    ///< aoc: aoc:u opens and counts its add-on content (none tier)
     SERVICE_AOC_PAST,     ///< aoc: the list's end lists nothing, one past it is refused
+    SERVICE_TIME_OPENS,   ///< time: time:u and its clocks (none tier)
+    SERVICE_TIME_USER,    ///< time: the user clock is its context's offset past the steady clock
+    SERVICE_TIME_STEADY,  ///< time: the steady clock counts seconds on one source
+    SERVICE_TIME_UTC,     ///< time: ToCalendarTime under UTC dates two known times
+    SERVICE_TIME_POSIX,   ///< time: ToPosixTime under UTC turns the date back
+    SERVICE_TIME_MY_RULE, ///< time: the device's location loads, and its rule is the service's own
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -184,6 +196,74 @@ typedef struct {
     uint32_t past_rc;
 } ServiceAocList;
 bool ServiceJudgeAocPast(const ServiceAocList *seen, char *out, size_t out_size);
+
+/// A steady clock time point as the time service writes it: seconds, and the clock's source.
+typedef struct {
+    int64_t seconds;
+    uint8_t source[16];
+} ServiceTimePoint;
+
+/// The user clock (time:u GetStandardUserSystemClock, 0): its context, GetSystemClockContext (2),
+/// then the steady clock's time point (GetStandardSteadyClock, 2, GetCurrentTimePoint, 0), then
+/// the user clock's GetCurrentTime (0), in that order. Passes when all three succeed, the context
+/// is on the steady clock's source, which is not nought, and the time is the context's offset
+/// past the time point, or a second more for one that went by between the two: reden's
+/// SystemClockCore::GetCurrentTime.
+typedef struct {
+    uint32_t context_rc, steady_rc, time_rc;
+    int64_t offset;
+    ServiceTimePoint context, steady;
+    int64_t time;
+} ServiceUserClock;
+bool ServiceJudgeUserClock(const ServiceUserClock *seen, char *out, size_t out_size);
+
+/// Two readings of the steady clock SERVICE_TIME_WAIT_NS apart. Passes when both succeed on the
+/// same source, not nought, the second one or two seconds past the first.
+bool ServiceJudgeSteadyClock(uint32_t first_rc, const ServiceTimePoint *first, uint32_t second_rc,
+                             const ServiceTimePoint *second, char *out, size_t out_size);
+
+/// A date as ToCalendarTime writes it (nn::time::CalendarTime and CalendarAdditionalInfo), in the
+/// console's layout.
+typedef struct {
+    uint16_t year;
+    uint8_t month, day, hour, minute, second, pad;
+} ServiceCalendarTime;
+typedef struct {
+    uint32_t day_of_week, day_of_year;
+    char zone[8];
+    uint32_t dst;
+    int32_t utc_offset;
+} ServiceCalendarInfo;
+
+/// LoadTimeZoneRule (4) for "UTC", then ToCalendarTime (100) under it of 0 and of
+/// SERVICE_TIME_KNOWN. Passes when all succeed with 1970-01-01 00:00:00, a Thursday, the year's
+/// first day, and 2023-11-14 22:13:20, a Tuesday, its 318th, both named UTC, no daylight saving
+/// and no offset.
+typedef struct {
+    uint32_t load_rc;
+    uint32_t rc[2];
+    ServiceCalendarTime date[2];
+    ServiceCalendarInfo info[2];
+} ServiceUtcDates;
+bool ServiceJudgeUtcDates(const ServiceUtcDates *seen, char *out, size_t out_size);
+
+/// ToPosixTime (201) under the UTC rule of 2023-11-14 22:13:20: what it answered, how many times
+/// it wrote and the first. Passes when it succeeds with one, SERVICE_TIME_KNOWN.
+bool ServiceJudgeUtcPosix(uint32_t load_rc, uint32_t rc, int32_t count, int64_t first, char *out,
+                          size_t out_size);
+
+/// The device's location, GetDeviceLocationName (0), loaded as a rule with LoadTimeZoneRule (4);
+/// then the user clock's time dated twice, ToCalendarTimeWithMyRule (101) and ToCalendarTime (100)
+/// under the loaded rule. Passes when all succeed, the name is not empty, and the two dates and
+/// their additional information agree: the service's own rule is the device location's.
+typedef struct {
+    uint32_t name_rc, load_rc, time_rc, mine_rc, loaded_rc;
+    char name[0x24];
+    int64_t time;
+    ServiceCalendarTime mine_date, loaded_date;
+    ServiceCalendarInfo mine_info, loaded_info;
+} ServiceMyRule;
+bool ServiceJudgeMyRule(const ServiceMyRule *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

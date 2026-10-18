@@ -649,6 +649,162 @@ static void RunAoc(void) {
     serviceClose(&aoc);
 }
 
+// ---------------------------------------------------------------------------------------------
+// time
+
+/// One steady clock reading, GetCurrentTimePoint (0).
+static Result SteadyPoint(Service *steady, ServiceTimePoint *point) {
+    TimeSteadyClockTimePoint raw;
+    memset(&raw, 0, sizeof(raw));
+    const Result rc = serviceDispatchOut(steady, 0, raw);
+    point->seconds = raw.time_point;
+    memcpy(point->source, &raw.source_id, sizeof(point->source));
+    return rc;
+}
+
+/// LoadTimeZoneRule (4) for @p name into @p rule.
+static Result LoadRule(Service *zones, const TimeLocationName *name, TimeZoneRule *rule) {
+    return serviceDispatchIn(zones, 4, *name,
+                             .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+                             .buffers = { { rule, sizeof(*rule) } }, );
+}
+
+/// ToCalendarTime (100) of @p time under @p rule.
+static Result DateUnder(Service *zones, const TimeZoneRule *rule, int64_t time,
+                        ServiceCalendarTime *date, ServiceCalendarInfo *info) {
+    struct {
+        ServiceCalendarTime date;
+        ServiceCalendarInfo info;
+    } out;
+    memset(&out, 0, sizeof(out));
+    const Result rc = serviceDispatchInOut(zones, 100, time, out,
+                                           .buffer_attrs = { SfBufferAttr_HipcMapAlias |
+                                                             SfBufferAttr_In },
+                                           .buffers = { { rule, sizeof(*rule) } }, );
+    *date = out.date;
+    *info = out.info;
+    return rc;
+}
+
+/// time:u of this suite's own, and the clocks a game reads at start: the user clock, the steady
+/// clock and the time zone service. The user clock's time against its context and the steady
+/// clock, the steady clock across a second and a half, and dates under the UTC rule and the
+/// device's own.
+static void RunTime(void) {
+    char detail[480];
+    Service timesrv, user, steady, zones;
+    memset(&timesrv, 0, sizeof(timesrv));
+    memset(&user, 0, sizeof(user));
+    memset(&steady, 0, sizeof(steady));
+    memset(&zones, 0, sizeof(zones));
+    bool opens = false;
+    if (Start(SERVICE_TIME_OPENS)) {
+        Result rc = smGetService(&timesrv, "time:u");
+        const bool session = R_SUCCEEDED(rc);
+        Result user_rc = 0, steady_rc = 0, zones_rc = 0;
+        if (session) {
+            user_rc = serviceDispatch(&timesrv, 0, .out_num_objects = 1, .out_objects = &user, );
+            steady_rc =
+                serviceDispatch(&timesrv, 2, .out_num_objects = 1, .out_objects = &steady, );
+            zones_rc = serviceDispatch(&timesrv, 3, .out_num_objects = 1, .out_objects = &zones, );
+        }
+        opens = session && R_SUCCEEDED(user_rc) && R_SUCCEEDED(steady_rc) &&
+                R_SUCCEEDED(zones_rc) && serviceIsActive(&user) && serviceIsActive(&steady) &&
+                serviceIsActive(&zones);
+        snprintf(detail, sizeof(detail),
+                 "smGetService(\"time:u\") 0x%x; GetStandardUserSystemClock 0x%x, "
+                 "GetStandardSteadyClock 0x%x, GetTimeZoneService 0x%x",
+                 (unsigned)rc, (unsigned)user_rc, (unsigned)steady_rc, (unsigned)zones_rc);
+        Report(SERVICE_TIME_OPENS, CHECK_NONE, opens, detail);
+    }
+    if (!opens) {
+        Skip(SERVICE_TIME_USER, REPORT_REASON_DEPENDS, "time:u handed out no clocks");
+        Skip(SERVICE_TIME_STEADY, REPORT_REASON_DEPENDS, "time:u handed out no clocks");
+        Skip(SERVICE_TIME_UTC, REPORT_REASON_DEPENDS, "time:u handed out no clocks");
+        Skip(SERVICE_TIME_POSIX, REPORT_REASON_DEPENDS, "time:u handed out no clocks");
+        Skip(SERVICE_TIME_MY_RULE, REPORT_REASON_DEPENDS, "time:u handed out no clocks");
+    } else {
+        if (Start(SERVICE_TIME_USER)) {
+            ServiceUserClock seen;
+            memset(&seen, 0, sizeof(seen));
+            TimeSystemClockContext context;
+            memset(&context, 0, sizeof(context));
+            seen.context_rc = serviceDispatchOut(&user, 2, context);
+            seen.offset = context.offset;
+            seen.context.seconds = context.timestamp.time_point;
+            memcpy(seen.context.source, &context.timestamp.source_id, 16);
+            seen.steady_rc = SteadyPoint(&steady, &seen.steady);
+            seen.time_rc = serviceDispatchOut(&user, 0, seen.time);
+            const bool passed = ServiceJudgeUserClock(&seen, detail, sizeof(detail));
+            Report(SERVICE_TIME_USER, CHECK_EXACT, passed, detail);
+        }
+        if (Start(SERVICE_TIME_STEADY)) {
+            ServiceTimePoint first, second;
+            memset(&first, 0, sizeof(first));
+            memset(&second, 0, sizeof(second));
+            const uint32_t first_rc = SteadyPoint(&steady, &first);
+            svcSleepThread((s64)SERVICE_TIME_WAIT_NS);
+            const uint32_t second_rc = SteadyPoint(&steady, &second);
+            const bool passed = ServiceJudgeSteadyClock(first_rc, &first, second_rc, &second,
+                                                        detail, sizeof(detail));
+            Report(SERVICE_TIME_STEADY, CHECK_EXACT, passed, detail);
+        }
+        static TimeZoneRule rule;
+        TimeLocationName utc;
+        memset(&utc, 0, sizeof(utc));
+        strcpy(utc.name, "UTC");
+        if (Start(SERVICE_TIME_UTC)) {
+            ServiceUtcDates seen;
+            memset(&seen, 0, sizeof(seen));
+            seen.load_rc = LoadRule(&zones, &utc, &rule);
+            seen.rc[0] = DateUnder(&zones, &rule, 0, &seen.date[0], &seen.info[0]);
+            seen.rc[1] = DateUnder(&zones, &rule, SERVICE_TIME_KNOWN, &seen.date[1], &seen.info[1]);
+            const bool passed = ServiceJudgeUtcDates(&seen, detail, sizeof(detail));
+            Report(SERVICE_TIME_UTC, CHECK_EXACT, passed, detail);
+        }
+        if (Start(SERVICE_TIME_POSIX)) {
+            const uint32_t utc_rc = LoadRule(&zones, &utc, &rule);
+            const ServiceCalendarTime date = { 2023, 11, 14, 22, 13, 20, 0 };
+            s64 times[4] = { 0, 0, 0, 0 };
+            s32 count = -1;
+            const uint32_t rc = serviceDispatchInOut(
+                &zones, 201, date, count,
+                .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_In,
+                                  SfBufferAttr_HipcPointer | SfBufferAttr_Out },
+                .buffers = { { &rule, sizeof(rule) }, { times, sizeof(times) } }, );
+            const bool passed =
+                ServiceJudgeUtcPosix(utc_rc, rc, count, times[0], detail, sizeof(detail));
+            Report(SERVICE_TIME_POSIX, CHECK_EXACT, passed, detail);
+        }
+        if (Start(SERVICE_TIME_MY_RULE)) {
+            ServiceMyRule seen;
+            memset(&seen, 0, sizeof(seen));
+            TimeLocationName name;
+            memset(&name, 0, sizeof(name));
+            seen.name_rc = serviceDispatchOut(&zones, 0, name);
+            memcpy(seen.name, name.name, sizeof(seen.name));
+            seen.load_rc = LoadRule(&zones, &name, &rule);
+            seen.time_rc = serviceDispatchOut(&user, 0, seen.time);
+            struct {
+                ServiceCalendarTime date;
+                ServiceCalendarInfo info;
+            } mine;
+            memset(&mine, 0, sizeof(mine));
+            seen.mine_rc = serviceDispatchInOut(&zones, 101, seen.time, mine);
+            seen.mine_date = mine.date;
+            seen.mine_info = mine.info;
+            seen.loaded_rc =
+                DateUnder(&zones, &rule, seen.time, &seen.loaded_date, &seen.loaded_info);
+            const bool passed = ServiceJudgeMyRule(&seen, detail, sizeof(detail));
+            Report(SERVICE_TIME_MY_RULE, CHECK_EXACT, passed, detail);
+        }
+    }
+    serviceClose(&zones);
+    serviceClose(&steady);
+    serviceClose(&user);
+    serviceClose(&timesrv);
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -660,4 +816,5 @@ void RunService(void) {
     RunApm();
     RunNfp();
     RunAoc();
+    RunTime();
 }

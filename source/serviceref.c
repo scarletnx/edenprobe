@@ -4,6 +4,7 @@
 #include "serviceref.h"
 
 #include <stdio.h>
+#include <string.h>
 
 static const struct {
     const char *suite;
@@ -39,6 +40,16 @@ static const struct {
     [SERVICE_AOC_OPENS] = { "aoc", "aoc:u opens and counts this program's add-on content" },
     [SERVICE_AOC_PAST] = { "aoc",
                            "ListAddOnContent lists nothing at the end and refuses one past it" },
+    [SERVICE_TIME_OPENS] = { "time", "time:u hands out the user clock, the steady clock and the "
+                                     "time zones" },
+    [SERVICE_TIME_USER] = { "time",
+                            "the user clock's time is its context's offset past the steady clock" },
+    [SERVICE_TIME_STEADY] = { "time", "the steady clock counts seconds on one source" },
+    [SERVICE_TIME_UTC] = { "time", "ToCalendarTime under UTC dates the epoch and a known time" },
+    [SERVICE_TIME_POSIX] = { "time",
+                             "ToPosixTime under UTC turns the known date back into its time" },
+    [SERVICE_TIME_MY_RULE] = { "time",
+                               "the device's location loads as the rule the service dates with" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -313,4 +324,149 @@ bool ServiceJudgeAocPast(const ServiceAocList *seen, char *out, size_t out_size)
              (unsigned)seen->end_listed, (unsigned)seen->count + 1u, (unsigned)seen->past_rc,
              (unsigned)SERVICE_AOC_PAST_END);
     return end && past;
+}
+
+static bool SourceNought(const uint8_t source[16]) {
+    for (uint32_t i = 0; i < 16u; ++i) {
+        if (source[i] != 0u) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool SameSource(const uint8_t a[16], const uint8_t b[16]) {
+    for (uint32_t i = 0; i < 16u; ++i) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ServiceJudgeUserClock(const ServiceUserClock *seen, char *out, size_t out_size) {
+    const int64_t past = seen->time - (seen->offset + seen->steady.seconds);
+    const bool refused = seen->context_rc != 0u || seen->steady_rc != 0u || seen->time_rc != 0u;
+    const bool nought = SourceNought(seen->steady.source);
+    const bool source = SameSource(seen->context.source, seen->steady.source);
+    const bool passed = !refused && !nought && source && (past == 0 || past == 1);
+    const char *const verdict = refused   ? "refused"
+                                : nought  ? "the steady clock's source is nought"
+                                : !source ? "the context is on another source"
+                                : passed  ? "the offset past the steady clock"
+                                          : "another time";
+    snprintf(out, out_size,
+             "%s: context 0x%x offset %lld at %lld, steady 0x%x at %lld, source %02x%02x%02x%02x "
+             "(context's %02x%02x%02x%02x); GetCurrentTime 0x%x %lld, %lld past offset + steady",
+             verdict, (unsigned)seen->context_rc, (long long)seen->offset,
+             (long long)seen->context.seconds, (unsigned)seen->steady_rc,
+             (long long)seen->steady.seconds, seen->steady.source[0], seen->steady.source[1],
+             seen->steady.source[2], seen->steady.source[3], seen->context.source[0],
+             seen->context.source[1], seen->context.source[2], seen->context.source[3],
+             (unsigned)seen->time_rc, (long long)seen->time, (long long)past);
+    return passed;
+}
+
+bool ServiceJudgeSteadyClock(uint32_t first_rc, const ServiceTimePoint *first, uint32_t second_rc,
+                             const ServiceTimePoint *second, char *out, size_t out_size) {
+    const int64_t moved = second->seconds - first->seconds;
+    const bool refused = first_rc != 0u || second_rc != 0u;
+    const bool nought = SourceNought(first->source);
+    const bool source = SameSource(first->source, second->source);
+    const bool passed = !refused && !nought && source && (moved == 1 || moved == 2);
+    const char *const verdict = refused   ? "refused"
+                                : nought  ? "the source is nought"
+                                : !source ? "two sources"
+                                : passed  ? "seconds on one source"
+                                          : "not a second's count";
+    snprintf(out, out_size,
+             "%s: 0x%x at %lld, 0x%x at %lld %llu ms later, moved %lld; source %02x%02x%02x%02x",
+             verdict, (unsigned)first_rc, (long long)first->seconds, (unsigned)second_rc,
+             (long long)second->seconds, (unsigned long long)(SERVICE_TIME_WAIT_NS / 1000000u),
+             (long long)moved, first->source[0], first->source[1], first->source[2],
+             first->source[3]);
+    return passed;
+}
+
+static bool DateIs(const ServiceCalendarTime *date, const ServiceCalendarInfo *info, uint16_t year,
+                   uint8_t month, uint8_t day, uint8_t hour, uint8_t minute, uint8_t second,
+                   uint32_t day_of_week, uint32_t day_of_year) {
+    return date->year == year && date->month == month && date->day == day && date->hour == hour &&
+           date->minute == minute && date->second == second && info->day_of_week == day_of_week &&
+           info->day_of_year == day_of_year &&
+           strncmp(info->zone, "UTC", sizeof(info->zone)) == 0 &&
+           info->dst == 0u && info->utc_offset == 0;
+}
+
+static void DateText(const ServiceCalendarTime *date, const ServiceCalendarInfo *info, char *out,
+                     size_t out_size) {
+    char zone[9];
+    memcpy(zone, info->zone, 8);
+    zone[8] = '\0';
+    snprintf(out, out_size, "%04u-%02u-%02u %02u:%02u:%02u wday %u yday %u \"%s\" dst %u %+d",
+             (unsigned)date->year, (unsigned)date->month, (unsigned)date->day,
+             (unsigned)date->hour, (unsigned)date->minute, (unsigned)date->second,
+             (unsigned)info->day_of_week, (unsigned)info->day_of_year, zone, (unsigned)info->dst,
+             (int)info->utc_offset);
+}
+
+bool ServiceJudgeUtcDates(const ServiceUtcDates *seen, char *out, size_t out_size) {
+    const bool refused = seen->load_rc != 0u || seen->rc[0] != 0u || seen->rc[1] != 0u;
+    const bool epoch = DateIs(&seen->date[0], &seen->info[0], 1970, 1, 1, 0, 0, 0, 4, 0);
+    const bool known = DateIs(&seen->date[1], &seen->info[1], 2023, 11, 14, 22, 13, 20, 2, 317);
+    const bool passed = !refused && epoch && known;
+    char first[96], second[96];
+    DateText(&seen->date[0], &seen->info[0], first, sizeof(first));
+    DateText(&seen->date[1], &seen->info[1], second, sizeof(second));
+    snprintf(out, out_size, "%s: rule 0x%x; 0 0x%x %s; %d 0x%x %s",
+             refused  ? "refused"
+             : passed ? "both dates right"
+             : !epoch ? "the epoch dated otherwise"
+                      : "the known time dated otherwise",
+             (unsigned)seen->load_rc, (unsigned)seen->rc[0], first, SERVICE_TIME_KNOWN,
+             (unsigned)seen->rc[1], second);
+    return passed;
+}
+
+bool ServiceJudgeUtcPosix(uint32_t load_rc, uint32_t rc, int32_t count, int64_t first, char *out,
+                          size_t out_size) {
+    const bool passed = load_rc == 0u && rc == 0u && count == 1 && first == SERVICE_TIME_KNOWN;
+    snprintf(out, out_size, "%s: rule 0x%x; 2023-11-14 22:13:20 0x%x, %d times, the first %lld",
+             load_rc != 0u || rc != 0u ? "refused"
+             : passed                  ? "the known time back"
+             : count != 1              ? "not one time"
+                                       : "another time",
+             (unsigned)load_rc, (unsigned)rc, (int)count, (long long)first);
+    return passed;
+}
+
+bool ServiceJudgeMyRule(const ServiceMyRule *seen, char *out, size_t out_size) {
+    const bool refused = seen->name_rc != 0u || seen->load_rc != 0u || seen->time_rc != 0u ||
+                         seen->mine_rc != 0u || seen->loaded_rc != 0u;
+    const bool named =
+        memchr(seen->name, '\0', sizeof(seen->name)) != NULL && seen->name[0] != '\0';
+    const bool same = memcmp(&seen->mine_date, &seen->loaded_date, sizeof(seen->mine_date)) == 0 &&
+                      seen->mine_info.day_of_week == seen->loaded_info.day_of_week &&
+                      seen->mine_info.day_of_year == seen->loaded_info.day_of_year &&
+                      memcmp(seen->mine_info.zone, seen->loaded_info.zone, 8) == 0 &&
+                      seen->mine_info.dst == seen->loaded_info.dst &&
+                      seen->mine_info.utc_offset == seen->loaded_info.utc_offset;
+    const bool passed = !refused && named && same;
+    char name[0x25];
+    memcpy(name, seen->name, sizeof(seen->name));
+    name[sizeof(seen->name)] = '\0';
+    char mine[96], loaded[96];
+    DateText(&seen->mine_date, &seen->mine_info, mine, sizeof(mine));
+    DateText(&seen->loaded_date, &seen->loaded_info, loaded, sizeof(loaded));
+    snprintf(out, out_size,
+             "%s: location 0x%x \"%.36s\", loaded 0x%x; time 0x%x %lld; my rule 0x%x %s; the "
+             "loaded rule 0x%x %s",
+             refused  ? "refused"
+             : !named ? "no location name"
+             : passed ? "the same date under both"
+                      : "two dates",
+             (unsigned)seen->name_rc, name, (unsigned)seen->load_rc, (unsigned)seen->time_rc,
+             (long long)seen->time, (unsigned)seen->mine_rc, mine, (unsigned)seen->loaded_rc,
+             loaded);
+    return passed;
 }

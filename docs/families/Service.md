@@ -19,6 +19,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | apm | 1 | apm and a session on it, which a game opens before it asks for the performance mode (`hle/service/apm/apm_interface.cpp`, `APM::OpenSession`) |
 | nfp | 2 | the detection a game built for 23.0.0 starts (`hle/service/nfp/nfp.cpp`, the IUser table) |
 | aoc | 2 | the add-on content list a game reads before it mounts one, past its end (`hle/service/aoc/addon_content_manager.cpp`, `ListAddOnContent`) |
+| time | 6 | the clocks and dates a game reads at start: the user clock against its context and the steady clock, the steady clock's seconds, dates under UTC and under the device's rule (`hle/service/psc/time/clocks/system_clock_core.cpp`, `GetCurrentTime`, and `hle/service/glue/time/time_zone.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -199,6 +200,34 @@ word for the process id, which goes with the request.
 
 The line carries the count, both answers and how many the first listed. Nothing is mounted.
 
+## time
+
+A game reads the time at start, for its clock, its daily events and the dates on its saves, from
+time:u: the user's clock, GetStandardUserSystemClock (0), the steady clock, GetStandardSteadyClock
+(2), and the time zones, GetTimeZoneService (3). reden's user clock tells its time as the
+context's offset past the steady clock's time point, and refuses with ResultClockMismatch when the
+context was set on another source of the steady clock (`SystemClockCore::GetCurrentTime`,
+`system_clock_core.cpp:23-35` at 75c12299a6). The time zone service dates a time under a
+rule it loads by the location's name, LoadTimeZoneRule (4), ToCalendarTime (100) and ToPosixTime
+(201), or under the device's own, ToCalendarTimeWithMyRule (101) (`glue/time/time_zone.cpp`).
+
+The suite opens time:u for itself and the three objects; libnx's own, opened at start, are not
+asked. The dates are worked out by hand: 0 is 1970-01-01 00:00:00, a Thursday (4), the year's
+first day (0); 1700000000 is 19675 days and 80000 seconds later, 2023-11-14 22:13:20, a Tuesday
+(2), the year's 318th day (317, as the service counts from nought).
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| time:u hands out the user clock, the steady clock and the time zones | time:u, then 0, 2 and 3 | all three objects come | none |
+| the user clock's time is its context's offset past the steady clock | the user clock's GetSystemClockContext (2), the steady clock's GetCurrentTimePoint (0), the user clock's GetCurrentTime (0) | the context on the steady clock's source, not nought, and the time its offset past the time point, or one second more | exact |
+| the steady clock counts seconds on one source | GetCurrentTimePoint twice, a second and a half apart | the same source, not nought, one or two seconds on | exact |
+| ToCalendarTime under UTC dates the epoch and a known time | LoadTimeZoneRule("UTC"), then 100 of 0 and of 1700000000 | both dates, weekdays and days of the year as worked out, named UTC, no daylight saving, no offset | exact |
+| ToPosixTime under UTC turns the known date back into its time | LoadTimeZoneRule("UTC"), then 201 of 2023-11-14 22:13:20 | one time, 1700000000 | exact |
+| the device's location loads as the rule the service dates with | GetDeviceLocationName (0), 4 of that name, the user clock's time, then 101 and 100 under the loaded rule | the name not empty, and both dates and their information the same | exact |
+
+Each line carries what each command answered and what it wrote, the dates as text. Nothing is
+set: the clocks and the location are only read.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -218,6 +247,10 @@ The line carries the count, both answers and how many the first listed. Nothing 
 - **Q7.** The layout of 25's filter on a console: reden reads the device handle and nothing else.
 - **Q8.** Whether a console answers aoc:u for a program that is not an installed application, and
   the result it gives a list from past the end: the expectation is reden's `0x4A80`.
+- **Q9.** Whether a console's steady clock moves by whole seconds between two readings taken a
+  second and a half apart, as reden's does (it rounds nanoseconds down to seconds), and whether the
+  user clock's context is ever on another source than the steady clock's on a console that keeps
+  its time (reden's never is).
 
 ## The judge, pinned
 
@@ -242,3 +275,10 @@ apart, and fails the same bytes twice, a buffer whose end was not written, a buf
 refusal. aoc passes an empty end and `0x4A80` past it, for none and for three add-on contents (the
 code worked out by hand: 128 + 37 x 512); a success past the end, another refusal there (reden's
 ResultUnknown before 54cd5fb8eb), the end refused and an end that lists one each fail.
+time passes a user clock its context's offset past the steady clock, and a second
+more, and fails two seconds more, a context on another source and a stand-in's noughts; a steady
+clock one or two seconds on, and not one standing still, one counting nanoseconds or two sources;
+the epoch and 1700000000 dated as worked out by hand, and not a day of the year counted from one,
+another weekday, an offset or a stand-in; 1700000000 back from its date, and not no time or a time
+three hours off; and the device's rule dating as the service's own, but not two offsets or no
+name.
