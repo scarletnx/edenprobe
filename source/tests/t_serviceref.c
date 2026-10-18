@@ -479,6 +479,20 @@ static void CheckAocMore(void) {
                indexed, high, own, kept, base_refused, no_info);
 }
 
+static void CheckAocPrepare(void) {
+    // reden's stub: success for any index.
+    const bool reden = ServiceJudgeAocPrepare(0u, said, sizeof(said)) &&
+                       strcmp(said, "prepared with success: PrepareAddOnContent(1) 0x0") == 0;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+    // A refusal, as no record past the list's end.
+    const bool refused = !ServiceJudgeAocPrepare(SERVICE_AOC_PAST_END, said, sizeof(said)) &&
+                         strstr(said, "refused") == said;
+    CHECK_TRUE(SUITE, "service: aoc passes a prepare of a missing index answered with success",
+               CHECK_NONE, reden && refused, "reden %d \"%.160s\", refused %d", reden, reden_said,
+               refused);
+}
+
 static void CheckTime(void) {
     // reden: the context's offset past the steady clock, on its source.
     ServiceUserClock clock;
@@ -1344,6 +1358,7 @@ void RunReferenceService(void) {
     CheckNfpFilter();
     CheckAocPast();
     CheckAocMore();
+    CheckAocPrepare();
     CheckTime();
     CheckFonts();
     CheckProfile();

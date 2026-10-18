@@ -21,7 +21,7 @@ family reports can be believed without them.
   was allowed to is not painted as a difference. Every line is the none tier, because none of it is
   a claim about a machine. On a computer (`make -f host.mk host-run`) the suite has one case more: a
   backward seek that drops a buffered line, which needs the C library's own stream buffer.
-- **reference**, three hundred and thirty cases, no hardware involved either: the other half of
+- **reference**, three hundred and thirty one cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the

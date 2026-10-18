@@ -58,6 +58,9 @@ extern "C" {
 #define SERVICE_AOC_BASE_MASK 0xFFFFFFFFFFFFE000ull
 #define SERVICE_AOC_BASE_OFFSET 0x1000ull
 #define SERVICE_AOC_UNTOUCHED 0x5A5A5A5Au
+/// The index the prepare case asks aoc:u to prepare, which a program with no add-on content does
+/// not have: the first an add-on content can take.
+#define SERVICE_AOC_MISSING 1u
 
 /// The time the time cases date, 2023-11-14 22:13:20 in UTC, a Tuesday and the year's 318th day;
 /// and how long the steady clock case waits between its two readings, a second and a half, so a
@@ -157,6 +160,7 @@ typedef enum {
     SERVICE_AOC_NONE,     ///< aoc: no add-on content counted, none listed from 0
     SERVICE_AOC_ROOM,     ///< aoc: a list for one into room for one, or for none, lists none
     SERVICE_AOC_BASE,     ///< aoc: the base id is the program's base with 0x1000 added
+    SERVICE_AOC_PREPARE,  ///< aoc: PrepareAddOnContent of an index not installed succeeds
     SERVICE_TIME_OPENS,   ///< time: time:u and its clocks (none tier)
     SERVICE_TIME_USER,    ///< time: the user clock is its context's offset past the steady clock
     SERVICE_TIME_STEADY,  ///< time: the steady clock counts seconds on one source
@@ -355,6 +359,11 @@ bool ServiceJudgeAocRoom(const ServiceAocRoom *seen, char *out, size_t out_size)
 /// program with no control data (`addon_content_manager.cpp`, `GetAddOnContentBaseId`).
 bool ServiceJudgeAocBase(uint32_t info_rc, uint64_t program_id, uint32_t rc, uint64_t base_id,
                          char *out, size_t out_size);
+
+/// PrepareAddOnContent (7) of SERVICE_AOC_MISSING, which this program does not have: passes when
+/// it succeeds, as reden's, which prepares nothing and answers success for any index
+/// (`addon_content_manager.cpp`, `PrepareAddOnContent`, a stub there).
+bool ServiceJudgeAocPrepare(uint32_t rc, char *out, size_t out_size);
 
 /// A steady clock time point as the time service writes it: seconds, and the clock's source.
 typedef struct {

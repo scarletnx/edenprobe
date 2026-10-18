@@ -622,8 +622,9 @@ static Result AocList(Service *aoc, uint32_t offset, uint32_t *listed) {
 
 /// aoc:u, asked for this program's add-on content as a game asks before it mounts one:
 /// CountAddOnContent (2), then ListAddOnContent (3) from the count, the list's end, and from one
-/// past it; from 0 into room for all of them, for one into room for one, and for none; and
-/// GetAddOnContentBaseId (5) beside the program's id. The program has no add-on content.
+/// past it; from 0 into room for all of them, for one into room for one, and for none;
+/// GetAddOnContentBaseId (5) beside the program's id; and PrepareAddOnContent (7) of an index it
+/// does not have. The program has no add-on content.
 static void RunAoc(void) {
     char detail[480];
     Service aoc;
@@ -651,6 +652,7 @@ static void RunAoc(void) {
         Skip(SERVICE_AOC_NONE, REPORT_REASON_DEPENDS, "aoc:u did not count its add-on content");
         Skip(SERVICE_AOC_ROOM, REPORT_REASON_DEPENDS, "aoc:u did not count its add-on content");
         Skip(SERVICE_AOC_BASE, REPORT_REASON_DEPENDS, "aoc:u did not count its add-on content");
+        Skip(SERVICE_AOC_PREPARE, REPORT_REASON_DEPENDS, "aoc:u did not count its add-on content");
         return;
     }
     if (Start(SERVICE_AOC_PAST)) {
@@ -698,6 +700,20 @@ static void RunAoc(void) {
         const bool passed =
             ServiceJudgeAocBase(info_rc, program_id, rc, base_id, detail, sizeof(detail));
         Report(SERVICE_AOC_BASE, CHECK_EXACT, passed, detail);
+    }
+    if (count != 0u) {
+        Skip(SERVICE_AOC_PREPARE, REPORT_REASON_DEPENDS,
+             "%u add-on contents: index %u may be one of them", (unsigned)count,
+             (unsigned)SERVICE_AOC_MISSING);
+    } else if (Start(SERVICE_AOC_PREPARE)) {
+        const struct {
+            s32 index;
+            u32 pad;
+            u64 pid;
+        } in = { (s32)SERVICE_AOC_MISSING, 0u, 0 };
+        const uint32_t rc = serviceDispatchIn(&aoc, 7, in, .in_send_pid = true, );
+        const bool passed = ServiceJudgeAocPrepare(rc, detail, sizeof(detail));
+        Report(SERVICE_AOC_PREPARE, CHECK_EXACT, passed, detail);
     }
     serviceClose(&aoc);
 }
