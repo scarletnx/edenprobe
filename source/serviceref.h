@@ -168,6 +168,13 @@ extern "C" {
 #define SERVICE_TIME_CLOCK_WRITES 4u
 #define SERVICE_TIME_SETTING_WRITES 3u
 
+/// audout refusing a device name it does not have, NotFound, and a Start of an out already
+/// started, OperationFailed: Audio (153) 1 and 2 (reden `audio/errors.h`).
+#define SERVICE_AUDIO_NOT_FOUND SERVICE_RESULT(153, 1)
+#define SERVICE_AUDIO_FAILED SERVICE_RESULT(153, 2)
+/// The released tags the started case reads at once: room past the two it appends.
+#define SERVICE_AUDOUT_TAGS 4u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -269,6 +276,9 @@ typedef enum {
     SERVICE_TZ_BACK,    ///< time-zone: a local date turned back gives the time it came from
     SERVICE_TIME_PERM_CLOCKS,   ///< time-perm: time:u may not set a clock
     SERVICE_TIME_PERM_SETTINGS, ///< time-perm: time:u may not set correction, offset or location
+    SERVICE_AUDOUT_OPENS,   ///< audout: one output, opened at 48 kHz stereo, stopped, volume kept
+    SERVICE_AUDOUT_STOPPED, ///< audout: buffers on a stopped out wait, held and not flushed
+    SERVICE_AUDOUT_STARTED, ///< audout: an out starts once, and its Stop gives every buffer back
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -1046,6 +1056,48 @@ bool ServiceJudgeTimeClocks(const ServiceTimeWrites *seen, char *out, size_t out
 /// The settings: SetStandardUserSystemClockAutomaticCorrectionEnabled (101),
 /// SetStandardSteadyClockInternalOffset (50) and the time zone service's SetDeviceLocationName (1).
 bool ServiceJudgeTimeSettings(const ServiceTimeWrites *seen, char *out, size_t out_size);
+
+/// audout:u and the out libnx's audoutInitialize opened: ListAudioOuts (0), an OpenAudioOutAuto
+/// (3) with a name it does not have, what the open gave (rate, channels, PCM format, state), and
+/// the volume (GetAudioOutVolume, 13) at first and after SetAudioOutVolume (12) to a half, in
+/// thousandths. Passes when it lists one output, "DeviceOut", refuses the other name as
+/// SERVICE_AUDIO_NOT_FOUND, opened 48 kHz stereo PCM16 stopped at full volume, and reads the half
+/// back: reden's audio out (`audio_core/out/audio_out_system.cpp`).
+typedef struct {
+    uint32_t list_rc, other_rc, volume_rc, set_rc, after_rc;
+    uint32_t listed;
+    char name[16];
+    uint32_t rate, channels, format, state;
+    int32_t volume, after;
+} ServiceAudoutOpen;
+bool ServiceJudgeAudoutOpen(const ServiceAudoutOpen *seen, char *out, size_t out_size);
+
+/// Two buffers appended (AppendAudioOutBufferAuto, 7) to the out before it is started, then
+/// GetAudioOutBufferCount (9), ContainsAudioOutBuffer (6) of one of them and of another tag,
+/// GetReleasedAudioOutBuffersAuto (8), FlushAudioOutBuffers (11) and the count again. Passes when
+/// every call succeeds, both are counted, the one appended is held and the other tag not, none is
+/// released, the flush says it flushed nothing and both are still counted: reden flushes only a
+/// started out (`audio_out_system.cpp`, `FlushAudioOutBuffers`).
+typedef struct {
+    uint32_t append_rc, count_rc, contains_rc, released_rc, flush_rc, after_rc;
+    uint32_t count, released, after;
+    bool held, other, flushed;
+} ServiceAudoutStopped;
+bool ServiceJudgeAudoutStopped(const ServiceAudoutStopped *seen, char *out, size_t out_size);
+
+/// Start (1), GetAudioOutState (0), Start again, Stop (2), the state, the released tags and the
+/// count: what each answered and gave, with the two tags appended. Passes when the first Start
+/// succeeds and the state is Started (0), the second is refused as SERVICE_AUDIO_FAILED, the Stop
+/// succeeds with the state Stopped (1), both tags come back released in the order appended and
+/// none is counted: reden refuses a Start of an out not stopped and releases every buffer when it
+/// stops (`audio_out_system.cpp`, `Start`, `Stop`).
+typedef struct {
+    uint32_t start_rc, again_rc, stop_rc, state_rc, released_rc;
+    uint32_t started, stopped, count, released;
+    uint64_t tags[SERVICE_AUDOUT_TAGS];
+    uint64_t first, second;
+} ServiceAudoutStarted;
+bool ServiceJudgeAudoutStarted(const ServiceAudoutStarted *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

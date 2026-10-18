@@ -158,6 +158,12 @@ static const struct {
     [SERVICE_TIME_PERM_SETTINGS] = { "time-perm",
                                      "time:u may not set automatic correction, the steady clock's "
                                      "offset or the device's location" },
+    [SERVICE_AUDOUT_OPENS] = { "audout",
+                               "one output, opened at 48 kHz stereo, stopped, its volume kept" },
+    [SERVICE_AUDOUT_STOPPED] = { "audout",
+                                 "buffers appended to a stopped out wait, held and not flushed" },
+    [SERVICE_AUDOUT_STARTED] = { "audout",
+                                 "an out starts once, and its Stop gives every buffer back" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1805,4 +1811,74 @@ bool ServiceJudgeTimeSettings(const ServiceTimeWrites *seen, char *out, size_t o
     };
     const bool denied = TimeWrites(names, seen, out, out_size);
     return TimeVerdict(denied, seen, out, out_size);
+}
+
+bool ServiceJudgeAudoutOpen(const ServiceAudoutOpen *seen, char *out, size_t out_size) {
+    const bool refused = seen->list_rc != 0u || seen->volume_rc != 0u || seen->set_rc != 0u ||
+                         seen->after_rc != 0u;
+    const bool listed = seen->listed == 1u && strcmp(seen->name, "DeviceOut") == 0;
+    const bool other = seen->other_rc == SERVICE_AUDIO_NOT_FOUND;
+    const bool opened = seen->rate == 48000u && seen->channels == 2u && seen->format == 2u &&
+                        seen->state == 1u;
+    const bool volume = seen->volume == 1000 && seen->after == 500;
+    const bool passed = !refused && listed && other && opened && volume;
+    snprintf(out, out_size,
+             "%s: ListAudioOuts 0x%x %u \"%s\", another name 0x%x, opened %u Hz %u channels format "
+             "%u state %u, volume %d/1000 (0x%x), set to 500 (0x%x), read %d (0x%x)",
+             refused  ? "refused"
+             : !listed ? "another list"
+             : !other  ? "another name not refused as NotFound"
+             : !opened ? "opened otherwise"
+             : !volume ? "another volume"
+                       : "DeviceOut, opened as asked, its volume kept",
+             (unsigned)seen->list_rc, (unsigned)seen->listed, seen->name,
+             (unsigned)seen->other_rc, (unsigned)seen->rate, (unsigned)seen->channels,
+             (unsigned)seen->format, (unsigned)seen->state, (int)seen->volume,
+             (unsigned)seen->volume_rc, (unsigned)seen->set_rc, (int)seen->after,
+             (unsigned)seen->after_rc);
+    return passed;
+}
+
+bool ServiceJudgeAudoutStopped(const ServiceAudoutStopped *seen, char *out, size_t out_size) {
+    const bool refused = seen->append_rc != 0u || seen->count_rc != 0u || seen->contains_rc != 0u ||
+                         seen->released_rc != 0u || seen->flush_rc != 0u || seen->after_rc != 0u;
+    const bool waiting = seen->count == 2u && seen->held && !seen->other && seen->released == 0u;
+    const bool kept = !seen->flushed && seen->after == 2u;
+    const bool passed = !refused && waiting && kept;
+    snprintf(out, out_size,
+             "%s: appended 0x%x, counted %u (0x%x), held %d and another %d (0x%x), released %u "
+             "(0x%x), flushed %d (0x%x), counted %u after (0x%x)",
+             refused  ? "refused"
+             : !waiting ? "not waiting as appended"
+             : !kept    ? "flushed while stopped"
+                        : "waiting, held, not flushed",
+             (unsigned)seen->append_rc, (unsigned)seen->count, (unsigned)seen->count_rc,
+             seen->held, seen->other, (unsigned)seen->contains_rc, (unsigned)seen->released,
+             (unsigned)seen->released_rc, seen->flushed, (unsigned)seen->flush_rc,
+             (unsigned)seen->after, (unsigned)seen->after_rc);
+    return passed;
+}
+
+bool ServiceJudgeAudoutStarted(const ServiceAudoutStarted *seen, char *out, size_t out_size) {
+    const bool refused = seen->start_rc != 0u || seen->stop_rc != 0u || seen->state_rc != 0u ||
+                         seen->released_rc != 0u;
+    const bool once = seen->started == 0u && seen->again_rc == SERVICE_AUDIO_FAILED;
+    const bool back = seen->stopped == 1u && seen->released == 2u &&
+                      seen->tags[0] == seen->first && seen->tags[1] == seen->second &&
+                      seen->count == 0u;
+    const bool passed = !refused && once && back;
+    snprintf(out, out_size,
+             "%s: Start 0x%x state %u, again 0x%x, Stop 0x%x state %u (0x%x), released %u (0x%x) "
+             "%s%s, counted %u",
+             refused ? "refused"
+             : !once  ? "not started once"
+             : !back  ? "not every buffer back"
+                      : "started once, every buffer back",
+             (unsigned)seen->start_rc, (unsigned)seen->started, (unsigned)seen->again_rc,
+             (unsigned)seen->stop_rc, (unsigned)seen->stopped, (unsigned)seen->state_rc,
+             (unsigned)seen->released, (unsigned)seen->released_rc,
+             seen->released >= 1u && seen->tags[0] == seen->first ? "first" : "-",
+             seen->released >= 2u && seen->tags[1] == seen->second ? " second" : "",
+             (unsigned)seen->count);
+    return passed;
 }

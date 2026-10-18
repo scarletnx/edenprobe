@@ -1657,6 +1657,75 @@ static void CheckTimePerm(void) {
                denied, denied_said, taken, other, moved, kept, located, none, code);
 }
 
+static void CheckAudout(void) {
+    ServiceAudoutOpen open = { 0u, SERVICE_AUDIO_NOT_FOUND, 0u, 0u, 0u, 1u, "DeviceOut",
+                               48000u, 2u, 2u, 1u, 1000, 500 };
+    const bool opens = ServiceJudgeAudoutOpen(&open, said, sizeof(said)) &&
+                       strstr(said, "DeviceOut, opened as asked, its volume kept") == said;
+    char opens_said[480];
+    memcpy(opens_said, said, sizeof(said));
+    // Another name opened, a mono out, and a stub's volume of nought.
+    open.other_rc = 0u;
+    const bool any_name = !ServiceJudgeAudoutOpen(&open, said, sizeof(said)) &&
+                          strstr(said, "another name not refused as NotFound") == said;
+    open.other_rc = SERVICE_AUDIO_NOT_FOUND;
+    open.channels = 1u;
+    const bool mono = !ServiceJudgeAudoutOpen(&open, said, sizeof(said)) &&
+                      strstr(said, "opened otherwise") == said;
+    open.channels = 2u;
+    open.after = 0;
+    const bool stub = !ServiceJudgeAudoutOpen(&open, said, sizeof(said)) &&
+                      strstr(said, "another volume") == said;
+    open.after = 500;
+    open.listed = 2u;
+    const bool two = !ServiceJudgeAudoutOpen(&open, said, sizeof(said));
+    ServiceAudoutStopped stopped = { 0u, 0u, 0u, 0u, 0u, 0u, 2u, 0u, 2u, true, false, false };
+    const bool waits = ServiceJudgeAudoutStopped(&stopped, said, sizeof(said)) &&
+                       strcmp(said, "waiting, held, not flushed: appended 0x0, counted 2 (0x0), "
+                                    "held 1 and another 0 (0x0), released 0 (0x0), flushed 0 "
+                                    "(0x0), counted 2 after (0x0)") == 0;
+    char waits_said[480];
+    memcpy(waits_said, said, sizeof(said));
+    // A flush of a stopped out that takes both, a tag held that was never appended, one released.
+    stopped.flushed = true;
+    stopped.after = 0u;
+    const bool flushed = !ServiceJudgeAudoutStopped(&stopped, said, sizeof(said)) &&
+                         strstr(said, "flushed while stopped") == said;
+    stopped = (ServiceAudoutStopped){ 0u, 0u, 0u, 0u, 0u, 0u, 2u, 0u, 2u, true, true, false };
+    const bool anything = !ServiceJudgeAudoutStopped(&stopped, said, sizeof(said)) &&
+                          strstr(said, "not waiting as appended") == said;
+    stopped = (ServiceAudoutStopped){ 0u, 0u, 0u, 0u, 0u, 0u, 2u, 1u, 2u, true, false, false };
+    const bool early = !ServiceJudgeAudoutStopped(&stopped, said, sizeof(said));
+    ServiceAudoutStarted started = { 0u, SERVICE_AUDIO_FAILED, 0u, 0u, 0u, 0u, 1u, 0u, 2u,
+                                     { 0x10u, 0x20u, 0u, 0u }, 0x10u, 0x20u };
+    const bool once = ServiceJudgeAudoutStarted(&started, said, sizeof(said)) &&
+                      strstr(said, "started once, every buffer back") == said;
+    // A second Start taken, the tags back in the other order, and one still counted.
+    started.again_rc = 0u;
+    const bool twice = !ServiceJudgeAudoutStarted(&started, said, sizeof(said)) &&
+                       strstr(said, "not started once") == said;
+    started.again_rc = SERVICE_AUDIO_FAILED;
+    started.tags[0] = 0x20u;
+    started.tags[1] = 0x10u;
+    const bool swapped = !ServiceJudgeAudoutStarted(&started, said, sizeof(said)) &&
+                         strstr(said, "not every buffer back") == said;
+    started.tags[0] = 0x10u;
+    started.tags[1] = 0x20u;
+    started.count = 1u;
+    const bool counted = !ServiceJudgeAudoutStarted(&started, said, sizeof(said));
+    // NotFound and OperationFailed are Audio (153) 1 and 2: 0x299 and 0x499, worked out by hand.
+    const bool codes = SERVICE_AUDIO_NOT_FOUND == 0x299u && SERVICE_AUDIO_FAILED == 0x499u;
+    CHECK_TRUE(SUITE, "service: audout passes one output opened, buffers held and given back",
+               CHECK_NONE,
+               opens && any_name && mono && stub && two && waits && flushed && anything && early &&
+                   once && twice && swapped && counted && codes,
+               "opens %d \"%.120s\", any name %d, mono %d, a stub %d, two %d, waits %d \"%.120s\", "
+               "flushed %d, anything held %d, early %d, once %d, twice %d, swapped %d, counted %d, "
+               "codes %d",
+               opens, opens_said, any_name, mono, stub, two, waits, waits_said, flushed, anything,
+               early, once, twice, swapped, counted, codes);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1695,4 +1764,5 @@ void RunReferenceService(void) {
     CheckSetSys();
     CheckTimeZone();
     CheckTimePerm();
+    CheckAudout();
 }
