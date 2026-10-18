@@ -2382,6 +2382,70 @@ static void RunNgc(void) {
     serviceClose(&ngct);
 }
 
+// ---------------------------------------------------------------------------------------------
+// am-lock
+
+/// IsLocked (4) on an accessor.
+static Result LockIsLocked(AppletLockAccessor *a, bool *locked) {
+    u8 out = 0xEEu;
+    const Result rc = serviceDispatchOut(&a->s, 4, out);
+    *locked = (out & 1u) != 0u;
+    return rc;
+}
+
+/// The lock accessors of the state getter, which a game takes around a moment the home button
+/// must wait for (a save, a purchase): the home button's, taken as libnx takes it, and a reader
+/// lock's event, waited on as libnx waits.
+static void RunAmLock(void) {
+    char detail[480];
+    if (Start(SERVICE_LOCK_TAKEN)) {
+        ServiceLockTaken seen;
+        memset(&seen, 0, sizeof(seen));
+        AppletLockAccessor a;
+        memset(&a, 0, sizeof(a));
+        seen.get_rc = appletGetHomeButtonReaderLockAccessor(&a);
+        if (R_SUCCEEDED(seen.get_rc)) {
+            seen.before_rc = LockIsLocked(&a, &seen.before);
+            seen.try_rc = appletLockAccessorTryLock(&a, &seen.took);
+            seen.locked_rc = LockIsLocked(&a, &seen.locked);
+            seen.again_rc = appletLockAccessorTryLock(&a, &seen.again);
+            seen.unlock_rc = appletLockAccessorUnlock(&a);
+            seen.after_rc = LockIsLocked(&a, &seen.after);
+            appletLockAccessorClose(&a);
+        }
+        const bool passed = ServiceJudgeLockTaken(&seen, detail, sizeof(detail));
+        Report(SERVICE_LOCK_TAKEN, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_LOCK_EVENT)) {
+        ServiceLockEvent seen;
+        memset(&seen, 0, sizeof(seen));
+        AppletLockAccessor a;
+        memset(&a, 0, sizeof(a));
+        seen.get_rc = appletGetReaderLockAccessorEx(&a, 0);
+        if (R_SUCCEEDED(seen.get_rc)) {
+            seen.free_rc = eventWait(&a.event, 0);
+            // TryLock (1) asking for no handle, as libnx's own does.
+            const u8 no_handle = 0;
+            u8 took = 0;
+            Handle unused = INVALID_HANDLE;
+            seen.try_rc = serviceDispatchInOut(&a.s, 1, no_handle, took,
+                                               .out_handle_attrs = { SfOutHandleAttr_HipcCopy },
+                                               .out_handles = &unused, );
+            seen.took = (took & 1u) != 0u;
+            if (unused != INVALID_HANDLE) {
+                svcCloseHandle(unused);
+            }
+            seen.clear_rc = eventClear(&a.event);
+            seen.held_rc = eventWait(&a.event, 0);
+            seen.unlock_rc = appletLockAccessorUnlock(&a);
+            seen.unlocked_rc = eventWait(&a.event, 0);
+            appletLockAccessorClose(&a);
+        }
+        const bool passed = ServiceJudgeLockEvent(&seen, detail, sizeof(detail));
+        Report(SERVICE_LOCK_EVENT, CHECK_EXACT, passed, detail);
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -2413,4 +2477,5 @@ void RunService(void) {
     RunVi();
     RunRenderer();
     RunNgc();
+    RunAmLock();
 }

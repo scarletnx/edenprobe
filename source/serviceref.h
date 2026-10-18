@@ -148,6 +148,10 @@ extern "C" {
 /// (bit 1). reden reads none of it.
 #define SERVICE_NGC_LANGUAGES 0x2u
 
+/// A wait that timed out: the kernel's TimedOut, Kernel (1) 117, what an event not signaled answers
+/// a wait of nought.
+#define SERVICE_TIMED_OUT SERVICE_RESULT(1, 117)
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -239,6 +243,8 @@ typedef enum {
     SERVICE_NGC_CHECK,  ///< ngc: a version, and nothing found in a clean name
     SERVICE_NGC_MASK,   ///< ngc: a clean name masked comes back as it was sent
     SERVICE_NGCT_CLEAN, ///< ngc: ngct:u matches nothing and filters the name back unchanged
+    SERVICE_LOCK_TAKEN, ///< am-lock: a free lock is taken as libnx takes it, held until unlocked
+    SERVICE_LOCK_EVENT, ///< am-lock: a lock's event is signaled while free and when unlocked
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -906,6 +912,28 @@ typedef struct {
     uint32_t fast, normal;
 } ServiceApmBoost;
 bool ServiceJudgeApmBoost(const ServiceApmBoost *seen, char *out, size_t out_size);
+
+/// A home button lock (GetHomeButtonReaderLockAccessor, 30) taken as libnx takes it, which waits
+/// on the lock's event for nought before TryLock (1), then IsLocked (4) and a second take, and the
+/// Unlock (2): what each step answered, and what IsLocked and the two takes said. Passes when
+/// every step succeeds, the lock is free, taken, held, not taken twice and free again: reden
+/// signals a lock's event when it makes it and keeps it signaled (`lock_accessor.cpp`).
+typedef struct {
+    uint32_t get_rc, before_rc, try_rc, locked_rc, again_rc, unlock_rc, after_rc;
+    bool before, took, locked, again, after;
+} ServiceLockTaken;
+bool ServiceJudgeLockTaken(const ServiceLockTaken *seen, char *out, size_t out_size);
+
+/// A reader lock (GetReaderLockAccessorEx, 31) and its event, each wait of nought: on the free
+/// lock, after a TryLock (1) and the event cleared, and after the Unlock (2). Passes when the free
+/// lock's wait succeeds, the held one's times out (SERVICE_TIMED_OUT) and the unlocked one's
+/// succeeds again, with every call succeeding: reden signals the event at the start and on every
+/// Unlock.
+typedef struct {
+    uint32_t get_rc, free_rc, try_rc, clear_rc, held_rc, unlock_rc, unlocked_rc;
+    bool took;
+} ServiceLockEvent;
+bool ServiceJudgeLockEvent(const ServiceLockEvent *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

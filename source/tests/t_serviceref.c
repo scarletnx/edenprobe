@@ -1441,6 +1441,55 @@ static void CheckApm(void) {
                codes);
 }
 
+static void CheckAmLock(void) {
+    ServiceLockTaken seen = { 0u, 0u, 0u, 0u, 0u, 0u, 0u, false, true, true, false, false };
+    const bool freed = ServiceJudgeLockTaken(&seen, said, sizeof(said)) &&
+                       strcmp(said, "taken, held and freed: accessor 0x0; IsLocked 0x0 0, TryLock "
+                                    "0x0 took 1, IsLocked 0x0 1, TryLock again 0x0 took 0, Unlock "
+                                    "0x0, IsLocked 0x0 0") == 0;
+    char freed_said[480];
+    memcpy(freed_said, said, sizeof(said));
+    // libnx's wait on an event never signaled, a lock taken twice, and one still held after.
+    seen.try_rc = SERVICE_TIMED_OUT;
+    seen.took = false;
+    const bool unsignaled = !ServiceJudgeLockTaken(&seen, said, sizeof(said)) &&
+                            strstr(said, "refused") == said;
+    seen = (ServiceLockTaken){ 0u, 0u, 0u, 0u, 0u, 0u, 0u, false, true, true, true, false };
+    const bool twice = !ServiceJudgeLockTaken(&seen, said, sizeof(said)) &&
+                       strstr(said, "not taken and held once") == said;
+    seen = (ServiceLockTaken){ 0u, 0u, 0u, 0u, 0u, 0u, 0u, false, true, true, false, true };
+    const bool kept = !ServiceJudgeLockTaken(&seen, said, sizeof(said)) &&
+                      strstr(said, "held after the unlock") == said;
+    seen = (ServiceLockTaken){ 0u, 0u, 0u, 0u, 0u, 0u, 0u, false, true, false, false, false };
+    const bool unheld = !ServiceJudgeLockTaken(&seen, said, sizeof(said));
+    ServiceLockEvent ev = { 0u, 0u, 0u, 0u, SERVICE_TIMED_OUT, 0u, 0u, true };
+    const bool signaled = ServiceJudgeLockEvent(&ev, said, sizeof(said)) &&
+                          strstr(said, "signaled free, cleared held, signaled unlocked") == said;
+    // An event made unsignaled, one the clear does not clear, and an unlock that signals nothing.
+    ev.free_rc = SERVICE_TIMED_OUT;
+    const bool unsignaled_free = !ServiceJudgeLockEvent(&ev, said, sizeof(said)) &&
+                                 strstr(said, "not signaled while free") == said;
+    ev = (ServiceLockEvent){ 0u, 0u, 0u, 0u, 0u, 0u, 0u, true };
+    const bool uncleared = !ServiceJudgeLockEvent(&ev, said, sizeof(said)) &&
+                           strstr(said, "signaled while held") == said;
+    ev = (ServiceLockEvent){ 0u, 0u, 0u, 0u, SERVICE_TIMED_OUT, 0u, SERVICE_TIMED_OUT, true };
+    const bool silent = !ServiceJudgeLockEvent(&ev, said, sizeof(said)) &&
+                        strstr(said, "not signaled by the unlock") == said;
+    ev = (ServiceLockEvent){ 0u, 0u, 0u, 0u, SERVICE_TIMED_OUT, 0u, 0u, false };
+    const bool untaken = !ServiceJudgeLockEvent(&ev, said, sizeof(said));
+    // TimedOut is Kernel (1) 117: 1 + 117 x 512 = 0xEA01, worked out by hand.
+    const bool code = SERVICE_TIMED_OUT == 0xEA01u;
+    CHECK_TRUE(SUITE, "service: am-lock passes a lock taken, held and freed, and its event",
+               CHECK_NONE,
+               freed && unsignaled && twice && kept && unheld && signaled && unsignaled_free &&
+                   uncleared && silent && untaken && code,
+               "freed %d \"%.160s\", an unsignaled event %d, twice %d, kept %d, unheld %d, "
+               "signaled %d, unsignaled free %d, uncleared %d, silent unlock %d, untaken %d, "
+               "code %d",
+               freed, freed_said, unsignaled, twice, kept, unheld, signaled, unsignaled_free,
+               uncleared, silent, untaken, code);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1475,4 +1524,5 @@ void RunReferenceService(void) {
     CheckRenderer();
     CheckNgc();
     CheckApm();
+    CheckAmLock();
 }
