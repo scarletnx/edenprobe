@@ -164,6 +164,14 @@ static const struct {
                                  "buffers appended to a stopped out wait, held and not flushed" },
     [SERVICE_AUDOUT_STARTED] = { "audout",
                                  "an out starts once, and its Stop gives every buffer back" },
+    [SERVICE_FILE_SIZE] = { "fs-file",
+                            "a file grown reads nought past what it held, and shrunk ends there" },
+    [SERVICE_FILE_RENAME] = { "fs-file",
+                              "a file renamed is found by its new name alone, not onto another" },
+    [SERVICE_FILE_CLEAN] = { "fs-file",
+                             "a directory with a file is not deleted, and cleaned is left empty" },
+    [SERVICE_FILE_STAMP] = { "fs-file", "a file just written is dated by the clock" },
+    [SERVICE_FILE_SPACE] = { "fs-file", "the memory card's free space is within its total" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1880,5 +1888,98 @@ bool ServiceJudgeAudoutStarted(const ServiceAudoutStarted *seen, char *out, size
              seen->released >= 1u && seen->tags[0] == seen->first ? "first" : "-",
              seen->released >= 2u && seen->tags[1] == seen->second ? " second" : "",
              (unsigned)seen->count);
+    return passed;
+}
+
+bool ServiceJudgeFileSize(const ServiceFileSize *seen, char *out, size_t out_size) {
+    const bool refused = seen->make_rc != 0u || seen->write_rc != 0u || seen->grow_rc != 0u ||
+                         seen->grown_rc != 0u || seen->cut_rc != 0u || seen->cut_size_rc != 0u;
+    const bool grown = seen->grown == 16 && seen->grown_read == 16u && seen->grown_bytes;
+    const bool cut = seen->cut == 2 && seen->cut_read == 2u && seen->cut_bytes;
+    const bool passed = !refused && grown && cut;
+    snprintf(out, out_size,
+             "%s: made 0x%x, written 0x%x; grown 0x%x to %lld (0x%x), read %llu, bytes %s; cut "
+             "0x%x to %lld (0x%x), read %llu, bytes %s",
+             refused ? "refused"
+             : !grown ? "not grown with nought after its bytes"
+             : !cut   ? "not cut"
+                      : "grown with nought, cut",
+             (unsigned)seen->make_rc, (unsigned)seen->write_rc, (unsigned)seen->grow_rc,
+             (long long)seen->grown, (unsigned)seen->grown_rc,
+             (unsigned long long)seen->grown_read, seen->grown_bytes ? "as written" : "other",
+             (unsigned)seen->cut_rc, (long long)seen->cut, (unsigned)seen->cut_size_rc,
+             (unsigned long long)seen->cut_read, seen->cut_bytes ? "as written" : "other");
+    return passed;
+}
+
+bool ServiceJudgeFileRename(const ServiceFileRename *seen, char *out, size_t out_size) {
+    const bool refused = seen->make_rc != 0u || seen->rename_rc != 0u || seen->new_rc != 0u ||
+                         seen->size_rc != 0u || seen->other_rc != 0u;
+    const bool moved = seen->old_rc == SERVICE_PATH_NOT_FOUND && seen->new_type == 1u &&
+                       seen->size == 4;
+    const bool kept = seen->onto_rc == SERVICE_PATH_TAKEN && seen->other_type == 1u;
+    const bool passed = !refused && moved && kept;
+    snprintf(out, out_size,
+             "%s: made 0x%x, renamed 0x%x; old name 0x%x, new name 0x%x type %u size %lld (0x%x); "
+             "onto it 0x%x, the other 0x%x type %u",
+             refused ? "refused"
+             : !moved ? "not moved to its new name"
+             : !kept  ? "renamed onto another"
+                      : "found by its new name, not renamed onto another",
+             (unsigned)seen->make_rc, (unsigned)seen->rename_rc, (unsigned)seen->old_rc,
+             (unsigned)seen->new_rc, (unsigned)seen->new_type, (long long)seen->size,
+             (unsigned)seen->size_rc, (unsigned)seen->onto_rc, (unsigned)seen->other_rc,
+             (unsigned)seen->other_type);
+    return passed;
+}
+
+bool ServiceJudgeFileClean(const ServiceFileClean *seen, char *out, size_t out_size) {
+    const bool refused = seen->make_rc != 0u || seen->file_rc != 0u || seen->clean_rc != 0u ||
+                         seen->dir_rc != 0u || seen->count_rc != 0u;
+    const bool held = seen->delete_rc != 0u && seen->file_type == 1u;
+    const bool clean = seen->dir_type == 0u && seen->count == 0 && seen->again_rc == 0u;
+    const bool passed = !refused && held && clean;
+    snprintf(out, out_size,
+             "%s: made 0x%x; deleted 0x%x, its file 0x%x type %u; cleaned 0x%x, the directory 0x%x "
+             "type %u with %lld entries (0x%x); deleted 0x%x",
+             refused ? "refused"
+             : !held  ? "deleted with its file"
+             : !clean ? "not left empty"
+                      : "not deleted full, cleaned empty",
+             (unsigned)seen->make_rc, (unsigned)seen->delete_rc, (unsigned)seen->file_rc,
+             (unsigned)seen->file_type, (unsigned)seen->clean_rc, (unsigned)seen->dir_rc,
+             (unsigned)seen->dir_type, (long long)seen->count, (unsigned)seen->count_rc,
+             (unsigned)seen->again_rc);
+    return passed;
+}
+
+/// A time stamp within the slack of the clock.
+static bool StampNear(uint64_t now, uint64_t t) {
+    return t + SERVICE_STAMP_SLACK >= now && t <= now + SERVICE_STAMP_SLACK;
+}
+
+bool ServiceJudgeFileStamp(const ServiceFileStamp *seen, char *out, size_t out_size) {
+    const bool refused = seen->clock_rc != 0u || seen->make_rc != 0u || seen->stamp_rc != 0u;
+    const bool near = seen->now != 0u && StampNear(seen->now, seen->created) &&
+                      StampNear(seen->now, seen->modified) && StampNear(seen->now, seen->accessed);
+    const bool passed = !refused && near;
+    snprintf(out, out_size,
+             "%s: clock %llu (0x%x), made 0x%x, GetFileTimeStampRaw 0x%x created %llu modified "
+             "%llu accessed %llu",
+             refused ? "refused" : near ? "dated by the clock" : "dated otherwise",
+             (unsigned long long)seen->now, (unsigned)seen->clock_rc, (unsigned)seen->make_rc,
+             (unsigned)seen->stamp_rc, (unsigned long long)seen->created,
+             (unsigned long long)seen->modified, (unsigned long long)seen->accessed);
+    return passed;
+}
+
+bool ServiceJudgeFileSpace(uint32_t free_rc, int64_t free_size, uint32_t total_rc,
+                           int64_t total_size, char *out, size_t out_size) {
+    const bool refused = free_rc != 0u || total_rc != 0u;
+    const bool within = free_size > 0 && free_size <= total_size;
+    const bool passed = !refused && within;
+    snprintf(out, out_size, "%s: free %lld (0x%x), total %lld (0x%x)",
+             refused ? "refused" : within ? "free within the total" : "free not within the total",
+             (long long)free_size, (unsigned)free_rc, (long long)total_size, (unsigned)total_rc);
     return passed;
 }

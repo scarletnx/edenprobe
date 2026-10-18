@@ -1726,6 +1726,86 @@ static void CheckAudout(void) {
                early, once, twice, swapped, counted, codes);
 }
 
+static void CheckFsFile(void) {
+    ServiceFileSize size = { 0u, 0u, 0u, 0u, 0u, 0u, 16, 2, 16u, 2u, true, true };
+    const bool sized = ServiceJudgeFileSize(&size, said, sizeof(said)) &&
+                       strstr(said, "grown with nought, cut") == said;
+    char sized_said[480];
+    memcpy(sized_said, said, sizeof(said));
+    // Growth that is not nought, a cut that keeps the size, and SetSize refused.
+    size.grown_bytes = false;
+    const bool garbage = !ServiceJudgeFileSize(&size, said, sizeof(said)) &&
+                         strstr(said, "not grown with nought after its bytes") == said;
+    size = (ServiceFileSize){ 0u, 0u, 0u, 0u, 0u, 0u, 16, 16, 16u, 16u, true, true };
+    const bool uncut = !ServiceJudgeFileSize(&size, said, sizeof(said)) &&
+                       strstr(said, "not cut") == said;
+    size = (ServiceFileSize){ 0u, 0u, SERVICE_RESULT(2, 6001), 0u, 0u, 0u, 4, 2, 4u, 2u, true,
+                              true };
+    const bool size_refused = !ServiceJudgeFileSize(&size, said, sizeof(said));
+    ServiceFileRename rename = { 0u, 0u, SERVICE_PATH_NOT_FOUND, 0u, 0u, SERVICE_PATH_TAKEN, 0u,
+                                 1u, 1u, 4 };
+    const bool renamed = ServiceJudgeFileRename(&rename, said, sizeof(said)) &&
+                         strcmp(said, "found by its new name, not renamed onto another: made 0x0, "
+                                      "renamed 0x0; old name 0x202, new name 0x0 type 1 size 4 "
+                                      "(0x0); onto it 0x402, the other 0x0 type 1") == 0;
+    char renamed_said[480];
+    memcpy(renamed_said, said, sizeof(said));
+    // A copy that leaves the old name, a rename onto another that succeeds, and an empty file.
+    rename.old_rc = 0u;
+    const bool copied = !ServiceJudgeFileRename(&rename, said, sizeof(said)) &&
+                        strstr(said, "not moved to its new name") == said;
+    rename.old_rc = SERVICE_PATH_NOT_FOUND;
+    rename.onto_rc = 0u;
+    const bool over = !ServiceJudgeFileRename(&rename, said, sizeof(said)) &&
+                      strstr(said, "renamed onto another") == said;
+    rename.onto_rc = SERVICE_PATH_TAKEN;
+    rename.size = 0;
+    const bool emptied = !ServiceJudgeFileRename(&rename, said, sizeof(said));
+    ServiceFileClean clean = { 0u, 0xFFFFFFFFu, 0u, 0u, 0u, 0u, 0u, 1u, 0u, 0 };
+    const bool cleaned = ServiceJudgeFileClean(&clean, said, sizeof(said)) &&
+                         strstr(said, "not deleted full, cleaned empty") == said;
+    // A delete that takes the file with it, a clean that leaves the file, and one that takes the
+    // directory too.
+    clean.delete_rc = 0u;
+    const bool full = !ServiceJudgeFileClean(&clean, said, sizeof(said)) &&
+                      strstr(said, "deleted with its file") == said;
+    clean = (ServiceFileClean){ 0u, 0xFFFFFFFFu, 0u, 0u, 0u, 0u, 0u, 1u, 0u, 1 };
+    const bool left = !ServiceJudgeFileClean(&clean, said, sizeof(said)) &&
+                      strstr(said, "not left empty") == said;
+    clean = (ServiceFileClean){ 0u, 0xFFFFFFFFu, 0u, 0u, SERVICE_PATH_NOT_FOUND, 0u, 0u, 1u, 0xEEu,
+                                0 };
+    const bool gone = !ServiceJudgeFileClean(&clean, said, sizeof(said));
+    ServiceFileStamp stamp = { 0u, 0u, 0u, 1792000000u, 1792000000u, 1792000001u, 1791999950u };
+    const bool dated = ServiceJudgeFileStamp(&stamp, said, sizeof(said)) &&
+                       strstr(said, "dated by the clock") == said;
+    // A stub's noughts, a time a day off, and the clock not read.
+    stamp.created = stamp.modified = stamp.accessed = 0u;
+    const bool undated = !ServiceJudgeFileStamp(&stamp, said, sizeof(said)) &&
+                         strstr(said, "dated otherwise") == said;
+    stamp = (ServiceFileStamp){ 0u, 0u, 0u, 1792000000u, 1792000000u, 1792086400u, 1792000000u };
+    const bool day = !ServiceJudgeFileStamp(&stamp, said, sizeof(said));
+    stamp = (ServiceFileStamp){ 0u, 0u, 0u, 0u, 0u, 0u, 0u };
+    const bool clockless = !ServiceJudgeFileStamp(&stamp, said, sizeof(said));
+    const bool space = ServiceJudgeFileSpace(0u, 1000, 0u, 4000, said, sizeof(said)) &&
+                       strstr(said, "free within the total") == said;
+    const bool over_total = !ServiceJudgeFileSpace(0u, 5000, 0u, 4000, said, sizeof(said));
+    const bool no_space = !ServiceJudgeFileSpace(0u, 0, 0u, 4000, said, sizeof(said));
+    // PathAlreadyExists is Fs (2) 2: 2 + 2 x 512 = 0x402, worked out by hand.
+    const bool code = SERVICE_PATH_TAKEN == 0x402u;
+    CHECK_TRUE(SUITE, "service: fs-file passes files resized, renamed, cleaned, dated and space",
+               CHECK_NONE,
+               sized && garbage && uncut && size_refused && renamed && copied && over &&
+                   emptied && cleaned && full && left && gone && dated && undated && day &&
+                   clockless && space && over_total && no_space && code,
+               "sized %d \"%.80s\", garbage %d, uncut %d, refused %d, renamed %d \"%.80s\", "
+               "copied %d, over %d, emptied %d, cleaned %d, full %d, left %d, gone %d, dated %d, "
+               "undated %d, a day off %d, no clock %d, space %d, over the total %d, none %d, "
+               "code %d",
+               sized, sized_said, garbage, uncut, size_refused, renamed, renamed_said, copied,
+               over, emptied, cleaned, full, left, gone, dated, undated, day, clockless, space,
+               over_total, no_space, code);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1765,4 +1845,5 @@ void RunReferenceService(void) {
     CheckTimeZone();
     CheckTimePerm();
     CheckAudout();
+    CheckFsFile();
 }

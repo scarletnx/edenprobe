@@ -175,6 +175,11 @@ extern "C" {
 /// The released tags the started case reads at once: room past the two it appends.
 #define SERVICE_AUDOUT_TAGS 4u
 
+/// The file system refusing a path already taken: Fs (2) 2, PathAlreadyExists.
+#define SERVICE_PATH_TAKEN SERVICE_RESULT(2, 2)
+/// How far the fs-file suite lets a file's time stamps be from the user clock: two minutes.
+#define SERVICE_STAMP_SLACK 120u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -279,6 +284,11 @@ typedef enum {
     SERVICE_AUDOUT_OPENS,   ///< audout: one output, opened at 48 kHz stereo, stopped, volume kept
     SERVICE_AUDOUT_STOPPED, ///< audout: buffers on a stopped out wait, held and not flushed
     SERVICE_AUDOUT_STARTED, ///< audout: an out starts once, and its Stop gives every buffer back
+    SERVICE_FILE_SIZE,   ///< fs-file: a file grown reads nought past its bytes, shrunk ends there
+    SERVICE_FILE_RENAME, ///< fs-file: a file renamed is found by its new name alone
+    SERVICE_FILE_CLEAN,  ///< fs-file: a directory with a file not deleted; cleaned, kept empty
+    SERVICE_FILE_STAMP,  ///< fs-file: a file just written is dated by the clock
+    SERVICE_FILE_SPACE,  ///< fs-file: the memory card's free space is within its total
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -1098,6 +1108,58 @@ typedef struct {
     uint64_t first, second;
 } ServiceAudoutStarted;
 bool ServiceJudgeAudoutStarted(const ServiceAudoutStarted *seen, char *out, size_t out_size);
+
+/// A file made of four bytes, grown to 16 (IFile SetSize, 3) and cut to 2: what each step answered,
+/// the sizes GetSize (4) gave after each, how much each read of 16 from 0 read, and whether the
+/// bytes were the four with nought after them and then the first two. Passes when every step
+/// succeeds with those sizes and bytes: reden resizes the host file (`fsp/fs_i_file.cpp`).
+typedef struct {
+    uint32_t make_rc, write_rc, grow_rc, grown_rc, cut_rc, cut_size_rc;
+    int64_t grown, cut;
+    uint64_t grown_read, cut_read;
+    bool grown_bytes, cut_bytes;
+} ServiceFileSize;
+bool ServiceJudgeFileSize(const ServiceFileSize *seen, char *out, size_t out_size);
+
+/// RenameFile (5) of a file of four bytes to a free name, then of another file onto that name:
+/// what each answered, GetEntryType (7) of the old name and of the new one, the size under the
+/// new name, and the other file's type after its refused rename. Passes when the first rename
+/// succeeds, the old name is gone (SERVICE_PATH_NOT_FOUND), the new one is a file of four bytes,
+/// and the second rename is refused as SERVICE_PATH_TAKEN with the other file still there: reden
+/// (`filesystem.cpp`, `VfsDirectoryServiceWrapper::RenameFile`).
+typedef struct {
+    uint32_t make_rc, rename_rc, old_rc, new_rc, size_rc, onto_rc, other_rc;
+    uint32_t new_type, other_type;
+    int64_t size;
+} ServiceFileRename;
+bool ServiceJudgeFileRename(const ServiceFileRename *seen, char *out, size_t out_size);
+
+/// DeleteDirectory (3) of a directory holding a file, CleanDirectoryRecursively (13) of it, and
+/// DeleteDirectory again: what each answered, the file's type after the refused delete, the
+/// directory's type and its entry count after the clean. Passes when the first delete is refused
+/// (any refusal: reden answers ResultUnknown) with the file still there, the clean succeeds and
+/// leaves the directory with nothing in it, and the second delete succeeds.
+typedef struct {
+    uint32_t make_rc, delete_rc, file_rc, clean_rc, dir_rc, count_rc, again_rc;
+    uint32_t file_type, dir_type;
+    int64_t count;
+} ServiceFileClean;
+bool ServiceJudgeFileClean(const ServiceFileClean *seen, char *out, size_t out_size);
+
+/// GetFileTimeStampRaw (14) of a file just written, against the user clock read before it: what
+/// each answered and the three times. Passes when both succeed and the created, modified and
+/// accessed times are each within SERVICE_STAMP_SLACK seconds of the clock: reden dates a file by
+/// the host's stat of it (`vfs_real.cpp`, `GetFileTimeStamp`).
+typedef struct {
+    uint32_t clock_rc, make_rc, stamp_rc;
+    uint64_t now, created, modified, accessed;
+} ServiceFileStamp;
+bool ServiceJudgeFileStamp(const ServiceFileStamp *seen, char *out, size_t out_size);
+
+/// GetFreeSpaceSize (11) and GetTotalSpaceSize (12) of the memory card's root. Passes when both
+/// succeed and the free space is above nought and no more than the total.
+bool ServiceJudgeFileSpace(uint32_t free_rc, int64_t free_size, uint32_t total_rc,
+                           int64_t total_size, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

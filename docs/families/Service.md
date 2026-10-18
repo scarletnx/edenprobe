@@ -44,6 +44,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | time-zone | 3 | time:u's time zone service: every location name it counts listed with the device's, the device's location with when it was set, and a local date turned back (`hle/service/glue/time/time_zone.cpp`, `psc/time/time_zone_service.cpp`) |
 | time-perm | 2 | what time:u, an application's time service, may not write: a clock, automatic correction, the steady clock's offset, the device's location (`hle/service/psc/time/system_clock.cpp`, `steady_clock.cpp`, `static.cpp`, `glue/time/time_zone.cpp`) |
 | audout | 3 | the plain PCM output: one output listed and opened as asked, its volume kept, buffers held while stopped and given back when it stops (`audio_core/out/audio_out_system.cpp`) |
+| fs-file | 5 | a game's own files on the memory card, as a save writer handles them: resized, renamed into place, a directory cleaned, a file's time stamp, the free space (`hle/service/filesystem/fsp/fs_i_file.cpp`, `fs_i_filesystem.cpp`, `filesystem.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -735,6 +736,31 @@ The third case appends its own two buffers when the second did not leave them. T
 back as it was read, the out is stopped and closed before the suite returns, and all three are
 skipped as `unavailable` when `audoutInitialize` fails.
 
+## fs-file
+
+A game that writes a save grows or cuts a file to the size of what it writes (IFile SetSize, 3),
+writes a new copy beside the old one and renames it into place (RenameFile, 5), clears a directory
+of what it held (CleanDirectoryRecursively, 13), reads when a file was written
+(GetFileTimeStampRaw, 14), and checks the room left first (GetFreeSpaceSize, 11, and
+GetTotalSpaceSize, 12). reden does each on the host's files (`fsp/fs_i_file.cpp`,
+`fsp/fs_i_filesystem.cpp`, `filesystem.cpp` and `vfs_real.cpp` at 75c12299a6): a file grown reads
+nought past its bytes, a rename onto a name taken is PathAlreadyExists (`0x402`), a directory that
+holds a file is not deleted (reden's answer is ResultUnknown, `0xFFFFFFFF`, where a console's
+would be DirectoryNotEmpty, so the case takes any refusal), and a file is dated by the host's clock.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| a file grown reads nought past what it held, and shrunk ends there | four bytes written, 3 to 16, 4, a read of 16; 3 to 2, 4, a read of 16 | sizes 16 and 2; the four bytes then nought, then the first two alone | exact |
+| a file renamed is found by its new name alone, not onto another | 5 of a four-byte file to a free name; 7 of both names; its size; 5 of another file onto it; 7 of that one | the old name is `0x202`, the new one a file of four bytes; the second 5 is `0x402` and the other file still there | exact |
+| a directory with a file is not deleted, and cleaned is left empty | DeleteDirectory (3) of it; 7 of the file; 13; 7 and the entry count of the directory; 3 again | the first 3 refused with the file kept; the directory there and empty; the second 3 succeeds | exact |
+| a file just written is dated by the clock | the user clock; a file written; 14 | its created, modified and accessed times each within two minutes of the clock | exact |
+| the memory card's free space is within its total | 11 and 12 of the root | both succeed, the free space above nought and no more than the total | exact |
+
+Each file is made at its size and written inside it: a write past the end of a file not opened to
+append is refused on a console (FileExtensionWithoutOpenModeAllowAppend, `0x307202`), which reden
+does not check. Everything is made under `/edenprobe/service/file` on the card, which the suite
+deletes before and after; all five are skipped as `unavailable` when the card is not mounted.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -819,6 +845,9 @@ skipped as `unavailable` when `audoutInitialize` fails.
   (`0x274`), as reden's does.
 - **Q36.** Whether a console's audout refuses a second Start with OperationFailed and
   flushes nothing while stopped, as reden and Ryujinx do.
+- **Q37.** What a console answers DeleteDirectory of a directory that holds a file (reden's
+  ResultUnknown), and whether its GetFileTimeStampRaw lays out created, modified and accessed in
+  that order and sets the flag after them.
 
 ## The judge, pinned
 
@@ -937,3 +966,10 @@ mono out, a stub's volume and two outputs; it passes buffers held while stopped 
 that takes them, a tag held that was never appended and one released early; it passes a single
 Start and every buffer back, and fails a second Start taken, the tags back swapped and one still
 counted.
+fs-file passes a file grown with nought and cut, and fails a growth not nought, a cut that keeps the
+size and SetSize refused; it passes a rename to a free name refused onto a taken one, and fails a
+copy that keeps the old name, a rename onto another and an emptied file; it passes a full
+directory kept and cleaned empty, and fails a delete that takes the file, a clean that leaves it
+and one that takes the directory; it passes stamps within two minutes of the clock and fails a
+stub's noughts, a day off and no clock; and it passes the free space within the total and fails
+more than the total and none.
