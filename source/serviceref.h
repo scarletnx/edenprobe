@@ -81,6 +81,12 @@ extern "C" {
 #define SERVICE_AM_LOGO_GONE 95u
 #define SERVICE_AM_MESSAGES 16u
 
+/// The events an application's functions hand out that a game asks for at start, by command:
+/// GetGpuErrorDetectedSystemEvent (130, 8.0.0+), GetFriendInvitationStorageChannelEvent (140),
+/// GetNotificationStorageChannelEvent (150) and GetHealthWarningDisappearedSystemEvent (160), the
+/// last three 9.0.0+ (libnx applet.c).
+#define SERVICE_START_EVENTS 4u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -124,6 +130,9 @@ typedef enum {
     SERVICE_STATE_REGION, ///< am-state: the settings platform region is Global
     SERVICE_SELF_IDLE,    ///< am-self: the idle time detection extension reads back
     SERVICE_SELF_SLEEP,   ///< am-self: auto sleep disabled reads back
+    SERVICE_FUNC_LANGUAGE, ///< am-functions: GetDesiredLanguage is a code set lists
+    SERVICE_FUNC_EVENTS,   ///< am-functions: the events asked for at start are handed out
+    SERVICE_FUNC_CHANNELS, ///< am-functions: the friend invitation and user channels are empty
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -407,6 +416,30 @@ typedef struct {
 } ServiceSelfSetting;
 bool ServiceJudgeSelfSetting(const char *what, const ServiceSelfSetting *seen, char *out,
                              size_t out_size);
+
+/// IApplicationFunctions' GetDesiredLanguage (21), and the codes set lists
+/// (GetAvailableLanguageCodes2, 5). Passes when both succeed and the code is one of the list's,
+/// not nought: reden converts the application language it picks into a settings code.
+bool ServiceJudgeDesiredLanguage(uint32_t rc, uint64_t code, uint32_t list_rc, int32_t listed,
+                                 const uint64_t *codes, char *out, size_t out_size);
+
+/// One start event: whether it was asked (the machine's firmware has the command), what the
+/// command answered and the handle it gave.
+typedef struct {
+    bool asked;
+    uint32_t rc, handle;
+} ServiceStartEvent;
+/// Passes when every event asked was handed out, a success with a handle that is not nought, and
+/// at least one was asked; an unknown command's success gives no handle and fails.
+bool ServiceJudgeStartEvents(const ServiceStartEvent events[SERVICE_START_EVENTS], char *out,
+                             size_t out_size);
+
+/// TryPopFromFriendInvitationStorageChannel (141, 9.0.0+) and PopLaunchParameter (1) of the user
+/// channel (1), with nothing pushed to either: what each answered and whether it gave a storage.
+/// Passes when each one asked is refused with SERVICE_AM_NO_DATA, reden's answer for an empty
+/// channel.
+bool ServiceJudgeEmptyChannels(bool friend_asked, uint32_t friend_rc, bool friend_storage,
+                               uint32_t user_rc, bool user_storage, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

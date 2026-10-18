@@ -413,6 +413,7 @@ static const struct {
     { "profile", UI_FAMILY_SERVICE },
     { "am-state", UI_FAMILY_SERVICE },
     { "am-self", UI_FAMILY_SERVICE },
+    { "am-functions", UI_FAMILY_SERVICE },
     { "nifm", UI_FAMILY_NET },
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
     { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },

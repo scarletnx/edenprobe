@@ -24,6 +24,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | profile | 4 | the profile a game shows in its menus: one base twice, the picture a 256x256 JPEG of the size told, and the user's existence (`hle/service/acc/acc.cpp`, `IProfileCommon`, and `acc/profile_picture.cpp`, `GetProfilePictureForGame`) |
 | am-state | 5 | what the application's state getter tells a game before its first frame: the mode and its resolution, the focus, the start-up logo's message, 3D VR mode, the platform region (`hle/service/am/service/common_state_getter.cpp`) |
 | am-self | 2 | two settings a game makes on its self controller, read back: the idle time detection extension and auto sleep (`hle/service/am/service/self_controller.cpp`) |
+| am-functions | 3 | what an application's functions tell a game before its title screen: the language, the events it waits on, the channels a launch may fill (`hle/service/am/service/application_functions.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -325,6 +326,27 @@ did nothing.
 Both settings are put back as they were before the case returns; the line carries all four
 answers.
 
+## am-functions
+
+Before its title screen a game asks its own functions, IApplicationFunctions, which language to
+show, GetDesiredLanguage (21); the events it will wait on, GetGpuErrorDetectedSystemEvent (130, from 8.0.0),
+GetFriendInvitationStorageChannelEvent (140), GetNotificationStorageChannelEvent (150) and
+GetHealthWarningDisappearedSystemEvent (160), the last three from 9.0.0 (libnx `applet.c`); and
+what a launch left for it, TryPopFromFriendInvitationStorageChannel (141) and PopLaunchParameter
+(1). reden (`application_functions.cpp` at 75c12299a6) converts the language it picks into a
+settings code; hands out an event for each of the four; and refuses an empty channel with ResultNoDataInChannel, AM 2, `0x480`.
+
+The suite needs the application's functions, which only a program running as an application has;
+anywhere else every case is skipped as `unavailable`.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| GetDesiredLanguage is one of the codes set lists | 21, and set's 5 | a code that is not nought, in set's list | exact |
+| the events an application asks for at start are handed out | 130, 140, 150 and 160, each the firmware has | each one a success with a handle | exact |
+| nothing waits in the friend invitation channel or the user channel | 141, then 1 with the user channel (1) | both refused with `0x480`, 141 only when the firmware has it | exact |
+
+Each event handed out is closed at once; a storage handed out is closed without being read.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -358,6 +380,8 @@ answers.
   case has it on; and the region a console sold in China answers (reden always says Global).
 - **Q13.** Whether a console lets an application set the idle time detection extension to None
   after it was Extended, and keeps it until the application exits, as reden does.
+- **Q14.** Whether a console's user channel is ever filled for a program nobody launched with
+  one.
 
 ## The judge, pinned
 
@@ -407,3 +431,8 @@ stand-in, with 1000 refused passing only before 19.0.0; and the region Global, w
 passing only before 9.0.0.
 am-self passes a setting read back as set, and fails a stub's read that stays as before,
 another value read back, and a refusal.
+am-functions passes a desired language set lists, and fails one it does not list and
+a code of nought; every start event handed out, also with the three of 9.0.0 newer than the
+firmware, and fails an unknown command's success with no handle and nothing asked; and two
+empty channels refused with `0x480`, the friend one only when asked, failing a stub's success,
+a storage in the user channel and another result.
