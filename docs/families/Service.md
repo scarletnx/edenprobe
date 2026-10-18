@@ -32,6 +32,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | am-storage | 3 | the storages a game hands a library applet its arguments in: size, bytes, and the end (`hle/service/am/library_applet_storage.cpp`) |
 | mii | 4 | the console's six default Miis a game lists with the player's, and the database's state (`hle/service/mii/mii_manager.cpp`) |
 | am-mode | 2 | the state getter's modes: VR mode turned on and off, the boot mode, the controller update section (`hle/service/am/service/common_state_getter.cpp`) |
+| bsd-local | 4 | bsd:u with no network: a raw socket, a timeout out of range or short, an address into a short buffer (`hle/service/sockets/bsd.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -479,6 +480,25 @@ normal boot and IsInControllerFirmwareUpdateSection (55) with false (`common_sta
 
 VR mode is left off.
 
+## bsd-local
+
+A game's socket layer (the SDK's, libnx's here) opens bsd:u and expects the answers of the BSD
+stack behind it, before any network is up: no raw socket other than ICMP on the user's service,
+EDOM for a timeval out of range and EINVAL for one too short in SO_RCVTIMEO and SO_SNDTIMEO, and an
+address cut to the buffer it is read into, with the length cut. reden answers so since a41a98028a
+(the raw socket), afe7a00cde (the timeouts) and 1b7f7eedcb (the address), in `bsd.cpp` at
+75c12299a6. The net family asks bsd with a network; these four need none.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| a raw socket on bsd:u is refused with EINVAL | socket(AF_INET, SOCK_RAW, 0) | -1, errno EINVAL | exact |
+| a socket timeout out of range is EDOM | on a UDP socket, SO_RCVTIMEO {0, 1000000}, SO_SNDTIMEO {-1, 0} | each -1, errno EDOM | exact |
+| a socket timeout shorter than a timeval is EINVAL | SO_RCVTIMEO with 4 bytes | -1, errno EINVAL | exact |
+| getsockname into 8 bytes writes 8 and says 8 | a UDP socket bound to 127.0.0.1 port 0, getsockname with a length of 8 into 16 bytes | it succeeds, says 8, and the 8 bytes past stay as they were | exact |
+
+The four skip as `unavailable` when socketInitializeDefault fails; every socket is closed and the
+driver let go before the suite returns.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -530,6 +550,8 @@ VR mode is left off.
   gives them, and whether each Get makes their create ids anew.
 - **Q21.** Whether a console lets an application turn VR mode on and back off, and reads it back
   each time, as reden does.
+- **Q22.** Whether a console's bsd:u answers getsockname into a short buffer with the length
+  cut, as reden does and a BSD stack does, or the address's whole length, as Linux does.
 
 ## The judge, pinned
 
@@ -603,3 +625,6 @@ mii passes the six default Miis, and fails a count of nought, an empty or short 
 another source or build, a full database, and a seventh default built.
 am-mode passes VR mode as turned and a normal boot, and fails a stub's read that stays off,
 a mode stuck on, a maintenance boot and an update running.
+bsd-local passes the answers of a BSD stack, and fails a raw socket opened, a timeout out of
+range taken or refused as EINVAL, a short timeout taken, the whole length said for a cut address,
+and a write past the buffer.

@@ -106,6 +106,12 @@ static const struct {
     [SERVICE_MODE_VR] = { "am-mode", "VR mode turned on reads on, and off once turned off" },
     [SERVICE_MODE_BOOT] = { "am-mode",
                             "the boot is normal and no controller firmware update is running" },
+    [SERVICE_BSD_RAW] = { "bsd-local", "a raw socket on bsd:u is refused with EINVAL" },
+    [SERVICE_BSD_TIMEOUT_RANGE] = { "bsd-local", "a socket timeout out of range is EDOM" },
+    [SERVICE_BSD_TIMEOUT_SHORT] = { "bsd-local",
+                                    "a socket timeout shorter than a timeval is EINVAL" },
+    [SERVICE_BSD_NAME_SHORT] = { "bsd-local",
+                                 "getsockname into 8 bytes writes 8 and says 8" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1169,5 +1175,51 @@ bool ServiceJudgeBootMode(uint32_t boot_rc, uint32_t mode, uint32_t section_rc, 
              : section   ? "in a controller firmware update"
                          : "a normal boot, no update",
              (unsigned)boot_rc, (unsigned)mode, (unsigned)section_rc, section ? 1 : 0);
+    return passed;
+}
+
+bool ServiceJudgeRawSocket(int fd, int err, char *out, size_t out_size) {
+    const bool passed = fd == -1 && err == SERVICE_EINVAL;
+    snprintf(out, out_size, "%s: socket(AF_INET, SOCK_RAW, 0) %d, errno %d",
+             passed ? "refused with EINVAL" : fd >= 0 ? "opened" : "refused otherwise", fd, err);
+    return passed;
+}
+
+bool ServiceJudgeTimeoutRange(const ServiceTimeoutRange *seen, char *out, size_t out_size) {
+    const bool usec = seen->usec_ret == -1 && seen->usec_errno == SERVICE_EDOM;
+    const bool sec = seen->sec_ret == -1 && seen->sec_errno == SERVICE_EDOM;
+    const bool passed = seen->socket_fd >= 0 && usec && sec;
+    snprintf(out, out_size,
+             "%s: socket %d, SO_RCVTIMEO {0, 1000000} %d errno %d, SO_SNDTIMEO {-1, 0} %d errno %d",
+             seen->socket_fd < 0 ? "no socket"
+             : passed            ? "both EDOM"
+             : !usec             ? "a tv_usec of a second not EDOM"
+                                 : "a negative tv_sec not EDOM",
+             seen->socket_fd, seen->usec_ret, seen->usec_errno, seen->sec_ret, seen->sec_errno);
+    return passed;
+}
+
+bool ServiceJudgeTimeoutShort(int socket_fd, int ret, int err, char *out, size_t out_size) {
+    const bool passed = socket_fd >= 0 && ret == -1 && err == SERVICE_EINVAL;
+    snprintf(out, out_size, "%s: socket %d, SO_RCVTIMEO with 4 bytes %d errno %d",
+             socket_fd < 0 ? "no socket"
+             : passed      ? "refused with EINVAL"
+             : ret == 0    ? "accepted"
+                           : "refused otherwise",
+             socket_fd, ret, err);
+    return passed;
+}
+
+bool ServiceJudgeNameShort(const ServiceNameShort *seen, char *out, size_t out_size) {
+    const bool named = seen->socket_fd >= 0 && seen->bind_ret == 0 && seen->name_ret == 0;
+    const bool passed = named && seen->length == 8u && seen->past_kept;
+    snprintf(out, out_size,
+             "%s: socket %d, bind %d errno %d, getsockname %d errno %d, length %u, past them %s",
+             !named                ? "no name"
+             : seen->length != 8u  ? "another length"
+             : !seen->past_kept    ? "written past the buffer"
+                                   : "8 bytes, and 8 said",
+             seen->socket_fd, seen->bind_ret, seen->bind_errno, seen->name_ret, seen->name_errno,
+             (unsigned)seen->length, seen->past_kept ? "kept" : "written");
     return passed;
 }

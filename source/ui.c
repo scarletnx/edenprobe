@@ -421,6 +421,7 @@ static const struct {
     { "am-storage", UI_FAMILY_SERVICE },
     { "mii", UI_FAMILY_SERVICE },
     { "am-mode", UI_FAMILY_SERVICE },
+    { "bsd-local", UI_FAMILY_SERVICE },
     { "nifm", UI_FAMILY_NET },
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
     { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },

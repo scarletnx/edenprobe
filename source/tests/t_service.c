@@ -1,10 +1,16 @@
 // SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <arpa/inet.h>
+#include <errno.h>
+#include <netinet/in.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/time.h>
+#include <unistd.h>
 #include <switch.h>
 
 #include "../check.h"
@@ -1696,6 +1702,96 @@ static void RunAmMode(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// bsd-local
+
+/// bsd:u with no network: what a game's socket layer is told about a socket it may not open, a
+/// timeout it sets out of range or short, and an address read into a buffer smaller than it.
+static void RunBsdLocal(void) {
+    char detail[480];
+    const Result sockets = socketInitializeDefault();
+    if (R_FAILED(sockets)) {
+        char why[200];
+        snprintf(why, sizeof(why), "socketInitializeDefault() returned 0x%x", (unsigned)sockets);
+        Skip(SERVICE_BSD_RAW, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_BSD_TIMEOUT_RANGE, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_BSD_TIMEOUT_SHORT, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_BSD_NAME_SHORT, REPORT_REASON_UNAVAILABLE, "%s", why);
+        return;
+    }
+    if (Start(SERVICE_BSD_RAW)) {
+        errno = 0;
+        const int fd = socket(AF_INET, SOCK_RAW, 0);
+        const int err = errno;
+        if (fd >= 0) {
+            close(fd);
+        }
+        const bool passed = ServiceJudgeRawSocket(fd, err, detail, sizeof(detail));
+        Report(SERVICE_BSD_RAW, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_BSD_TIMEOUT_RANGE)) {
+        ServiceTimeoutRange seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
+        if (seen.socket_fd >= 0) {
+            const struct timeval usec = { 0, 1000000 };
+            errno = 0;
+            seen.usec_ret =
+                setsockopt(seen.socket_fd, SOL_SOCKET, SO_RCVTIMEO, &usec, sizeof(usec));
+            seen.usec_errno = errno;
+            const struct timeval sec = { -1, 0 };
+            errno = 0;
+            seen.sec_ret = setsockopt(seen.socket_fd, SOL_SOCKET, SO_SNDTIMEO, &sec, sizeof(sec));
+            seen.sec_errno = errno;
+            close(seen.socket_fd);
+        }
+        const bool passed = ServiceJudgeTimeoutRange(&seen, detail, sizeof(detail));
+        Report(SERVICE_BSD_TIMEOUT_RANGE, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_BSD_TIMEOUT_SHORT)) {
+        const int fd = socket(AF_INET, SOCK_DGRAM, 0);
+        int ret = 0, err = 0;
+        if (fd >= 0) {
+            const u32 four = 1;
+            errno = 0;
+            ret = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &four, sizeof(four));
+            err = errno;
+            close(fd);
+        }
+        const bool passed = ServiceJudgeTimeoutShort(fd, ret, err, detail, sizeof(detail));
+        Report(SERVICE_BSD_TIMEOUT_SHORT, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_BSD_NAME_SHORT)) {
+        ServiceNameShort seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
+        if (seen.socket_fd >= 0) {
+            struct sockaddr_in at;
+            memset(&at, 0, sizeof(at));
+            at.sin_family = AF_INET;
+            at.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            errno = 0;
+            seen.bind_ret = bind(seen.socket_fd, (const struct sockaddr *)&at, sizeof(at));
+            seen.bind_errno = errno;
+            u8 name[16];
+            memset(name, 0xEE, sizeof(name));
+            socklen_t length = 8;
+            errno = 0;
+            seen.name_ret = getsockname(seen.socket_fd, (struct sockaddr *)name, &length);
+            seen.name_errno = errno;
+            seen.length = (uint32_t)length;
+            seen.past_kept = true;
+            for (size_t i = 8; i < sizeof(name); ++i) {
+                seen.past_kept = seen.past_kept && name[i] == 0xEE;
+            }
+            close(seen.socket_fd);
+        }
+        const bool passed = ServiceJudgeNameShort(&seen, detail, sizeof(detail));
+        Report(SERVICE_BSD_NAME_SHORT, CHECK_EXACT, passed, detail);
+    }
+    socketExit();
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -1720,4 +1816,5 @@ void RunService(void) {
     RunAmStorage();
     RunMii();
     RunAmMode();
+    RunBsdLocal();
 }

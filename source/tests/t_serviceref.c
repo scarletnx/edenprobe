@@ -1075,6 +1075,40 @@ static void CheckAmMode(void) {
                turned, turned_said, stub, stuck, normal, maintenance, updating);
 }
 
+static void CheckBsdLocal(void) {
+    const bool raw = ServiceJudgeRawSocket(-1, SERVICE_EINVAL, said, sizeof(said)) &&
+                     strcmp(said,
+                            "refused with EINVAL: socket(AF_INET, SOCK_RAW, 0) -1, errno 22") == 0;
+    char raw_said[480];
+    memcpy(raw_said, said, sizeof(said));
+    const bool opened = !ServiceJudgeRawSocket(3, 0, said, sizeof(said));
+    ServiceTimeoutRange range = { 3, -1, SERVICE_EDOM, -1, SERVICE_EDOM };
+    const bool edom = ServiceJudgeTimeoutRange(&range, said, sizeof(said));
+    // A tv_usec of a second refused as EINVAL, and a negative tv_sec taken.
+    range.usec_errno = SERVICE_EINVAL;
+    const bool usec = !ServiceJudgeTimeoutRange(&range, said, sizeof(said)) &&
+                      strstr(said, "a tv_usec of a second not EDOM") == said;
+    range = (ServiceTimeoutRange){ 3, -1, SERVICE_EDOM, 0, 0 };
+    const bool sec = !ServiceJudgeTimeoutRange(&range, said, sizeof(said)) &&
+                     strstr(said, "a negative tv_sec not EDOM") == said;
+    const bool shorter = ServiceJudgeTimeoutShort(3, -1, SERVICE_EINVAL, said, sizeof(said));
+    const bool taken = !ServiceJudgeTimeoutShort(3, 0, 0, said, sizeof(said));
+    ServiceNameShort name = { 3, 0, 0, 0, 0, 8u, true };
+    const bool cut = ServiceJudgeNameShort(&name, said, sizeof(said));
+    // The whole length said for 8 bytes written, and a write past them.
+    name.length = 16u;
+    const bool whole = !ServiceJudgeNameShort(&name, said, sizeof(said)) &&
+                       strstr(said, "another length") == said;
+    name = (ServiceNameShort){ 3, 0, 0, 0, 0, 8u, false };
+    const bool past = !ServiceJudgeNameShort(&name, said, sizeof(said)) &&
+                      strstr(said, "written past the buffer") == said;
+    CHECK_TRUE(SUITE, "service: bsd-local passes the answers of a BSD stack", CHECK_NONE,
+               raw && opened && edom && usec && sec && shorter && taken && cut && whole && past,
+               "raw %d \"%.120s\", opened %d, EDOM %d, usec EINVAL %d, sec taken %d, short %d, "
+               "short taken %d, cut %d, whole length %d, past %d",
+               raw, raw_said, opened, edom, usec, sec, shorter, taken, cut, whole, past);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1099,4 +1133,5 @@ void RunReferenceService(void) {
     CheckAmStorage();
     CheckMii();
     CheckAmMode();
+    CheckBsdLocal();
 }
