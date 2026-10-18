@@ -50,6 +50,9 @@ static const struct {
                              "ToPosixTime under UTC turns the known date back into its time" },
     [SERVICE_TIME_MY_RULE] = { "time",
                                "the device's location loads as the rule the service dates with" },
+    [SERVICE_PL_OPENS] = { "pl", "pl:u opens and maps its shared fonts" },
+    [SERVICE_PL_FONTS] = { "pl", "the six shared fonts are loaded, each inside behind its header" },
+    [SERVICE_PL_ORDER] = { "pl", "the fonts in order of priority are the six, as told one by one" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -468,5 +471,95 @@ bool ServiceJudgeMyRule(const ServiceMyRule *seen, char *out, size_t out_size) {
              (unsigned)seen->name_rc, name, (unsigned)seen->load_rc, (unsigned)seen->time_rc,
              (long long)seen->time, (unsigned)seen->mine_rc, mine, (unsigned)seen->loaded_rc,
              loaded);
+    return passed;
+}
+
+static uint32_t Little32(const uint8_t *b) {
+    return (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24;
+}
+
+static uint32_t Big32(const uint8_t *b) {
+    return (uint32_t)b[0] << 24 | (uint32_t)b[1] << 16 | (uint32_t)b[2] << 8 | (uint32_t)b[3];
+}
+
+/// A TrueType (00 01 00 00, "true"), OpenType ("OTTO") or collection ("ttcf") file's first word.
+static bool FontStart(const uint8_t start[4]) {
+    const uint32_t word = Big32(start);
+    return word == 0x00010000u || word == 0x74727565u || word == 0x4F54544Fu ||
+           word == 0x74746366u;
+}
+
+bool ServiceJudgeFonts(const ServiceFont fonts[SERVICE_FONTS], char *out, size_t out_size) {
+    const char *verdict = "six fonts, each inside behind its header";
+    uint32_t failed = SERVICE_FONTS;
+    for (uint32_t i = 0; i < SERVICE_FONTS && failed == SERVICE_FONTS; ++i) {
+        const ServiceFont *f = &fonts[i];
+        const bool inside = f->offset >= 8u && f->offset <= SERVICE_FONT_MEMORY &&
+                            f->size <= SERVICE_FONT_MEMORY - f->offset;
+        const char *wrong =
+            f->request_rc != 0u || f->state_rc != 0u || f->size_rc != 0u || f->offset_rc != 0u
+                ? "refused"
+            : f->state != 1u                              ? "not loaded"
+            : f->size == 0u                               ? "empty"
+            : !inside                                     ? "outside the memory"
+            : Little32(f->header) != SERVICE_FONT_MAGIC   ? "behind another magic"
+            : !FontStart(f->start)                        ? "not a font"
+                                                          : NULL;
+        if (wrong != NULL) {
+            failed = i;
+            verdict = wrong;
+        }
+    }
+    int at = snprintf(out, out_size, "%s%s", failed == SERVICE_FONTS ? "" : "font ",
+                      failed == SERVICE_FONTS ? verdict : "");
+    if (failed != SERVICE_FONTS) {
+        at += snprintf(out + at, out_size - (size_t)at, "%u %s", (unsigned)failed, verdict);
+    }
+    for (uint32_t i = 0; i < SERVICE_FONTS && at > 0 && (size_t)at < out_size; ++i) {
+        const ServiceFont *f = &fonts[i];
+        // The four results ORed: nought when all four succeeded.
+        at += snprintf(out + at, out_size - (size_t)at,
+                       "%s %u: %x %u %#x@%#x %08x le %#x be %#x %02x%02x%02x%02x",
+                       i == 0u ? ":" : ";", (unsigned)i,
+                       (unsigned)(f->request_rc | f->state_rc | f->size_rc | f->offset_rc),
+                       (unsigned)f->state, (unsigned)f->size, (unsigned)f->offset,
+                       (unsigned)Little32(f->header),
+                       (unsigned)(Little32(f->header + 4) ^ SERVICE_FONT_KEY),
+                       (unsigned)(Big32(f->header + 4) ^ SERVICE_FONT_KEY), f->start[0],
+                       f->start[1], f->start[2], f->start[3]);
+    }
+    return failed == SERVICE_FONTS;
+}
+
+bool ServiceJudgeFontOrder(const ServiceFontOrder *seen, const ServiceFont fonts[SERVICE_FONTS],
+                           char *out, size_t out_size) {
+    uint32_t listed = 0, told = 0;
+    const uint32_t count = seen->count < SERVICE_FONTS ? seen->count : SERVICE_FONTS;
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint32_t type = seen->types[i];
+        if (type < SERVICE_FONTS && (listed & (1u << type)) == 0u) {
+            listed |= 1u << type;
+            if (seen->offsets[i] == fonts[type].offset && seen->sizes[i] == fonts[type].size) {
+                ++told;
+            }
+        }
+    }
+    const bool refused = seen->language_rc != 0u || seen->rc != 0u;
+    const bool all = seen->count == SERVICE_FONTS && listed == (1u << SERVICE_FONTS) - 1u;
+    const bool passed = !refused && seen->loaded != 0u && all && told == SERVICE_FONTS;
+    char language[9];
+    ServiceLanguageText(seen->language, language);
+    snprintf(out, out_size,
+             "%s: language 0x%x \"%s\"; 0x%x, loaded %u, %u listed: %u %u %u %u %u %u; %u of 6 "
+             "where their types were told",
+             refused              ? "refused"
+             : seen->loaded == 0u ? "not loaded"
+             : !all               ? "not the six once each"
+             : passed             ? "the six, as told"
+                                  : "another offset or size",
+             (unsigned)seen->language_rc, language, (unsigned)seen->rc, (unsigned)seen->loaded,
+             (unsigned)seen->count, (unsigned)seen->types[0], (unsigned)seen->types[1],
+             (unsigned)seen->types[2], (unsigned)seen->types[3], (unsigned)seen->types[4],
+             (unsigned)seen->types[5], (unsigned)told);
     return passed;
 }

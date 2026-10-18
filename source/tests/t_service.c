@@ -805,6 +805,102 @@ static void RunTime(void) {
     serviceClose(&timesrv);
 }
 
+// ---------------------------------------------------------------------------------------------
+// pl
+
+/// pl:u of this suite's own, its shared memory mapped as libnx's plInitialize maps it, and the six
+/// shared fonts asked for one by one, as a game's text library asks before it draws, then in the
+/// order of priority for the console's language.
+static void RunPl(void) {
+    char detail[480];
+    Service pl;
+    memset(&pl, 0, sizeof(pl));
+    SharedMemory memory;
+    memset(&memory, 0, sizeof(memory));
+    const uint8_t *base = NULL;
+    bool handed = false;
+    bool opens = false;
+    if (Start(SERVICE_PL_OPENS)) {
+        Result rc = smGetService(&pl, "pl:u");
+        const bool session = R_SUCCEEDED(rc);
+        Handle handle = 0;
+        Result handle_rc = 0, map_rc = 0;
+        if (session) {
+            handle_rc = serviceDispatch(&pl, 4, .out_handle_attrs = { SfOutHandleAttr_HipcCopy },
+                                        .out_handles = &handle, );
+        }
+        if (session && R_SUCCEEDED(handle_rc)) {
+            handed = true;
+            shmemLoadRemote(&memory, handle, SERVICE_FONT_MEMORY, Perm_R);
+            map_rc = shmemMap(&memory);
+            base = R_SUCCEEDED(map_rc) ? (const uint8_t *)shmemGetAddr(&memory) : NULL;
+        }
+        opens = base != NULL;
+        snprintf(detail, sizeof(detail),
+                 "smGetService(\"pl:u\") 0x%x; GetSharedMemoryNativeHandle 0x%x, handle %x; "
+                 "mapped 0x%x",
+                 (unsigned)rc, (unsigned)handle_rc, (unsigned)handle, (unsigned)map_rc);
+        Report(SERVICE_PL_OPENS, CHECK_NONE, opens, detail);
+    }
+    if (!opens) {
+        Skip(SERVICE_PL_FONTS, REPORT_REASON_DEPENDS, "pl:u's shared memory is not mapped");
+        Skip(SERVICE_PL_ORDER, REPORT_REASON_DEPENDS, "pl:u's shared memory is not mapped");
+    } else {
+        static ServiceFont fonts[SERVICE_FONTS];
+        memset(fonts, 0, sizeof(fonts));
+        bool told = false;
+        if (Start(SERVICE_PL_FONTS)) {
+            for (u32 type = 0; type < SERVICE_FONTS; ++type) {
+                ServiceFont *f = &fonts[type];
+                f->request_rc = serviceDispatchIn(&pl, 0, type);
+                f->state_rc = serviceDispatchInOut(&pl, 1, type, f->state);
+                f->size_rc = serviceDispatchInOut(&pl, 2, type, f->size);
+                f->offset_rc = serviceDispatchInOut(&pl, 3, type, f->offset);
+                if (f->offset >= 8u && f->offset <= SERVICE_FONT_MEMORY - 4u) {
+                    memcpy(f->header, base + f->offset - 8u, sizeof(f->header));
+                    memcpy(f->start, base + f->offset, sizeof(f->start));
+                }
+            }
+            told = true;
+            const bool passed = ServiceJudgeFonts(fonts, detail, sizeof(detail));
+            Report(SERVICE_PL_FONTS, CHECK_EXACT, passed, detail);
+        }
+        if (!told) {
+            Skip(SERVICE_PL_ORDER, REPORT_REASON_DEPENDS, "the fonts were not asked one by one");
+        } else if (Start(SERVICE_PL_ORDER)) {
+            ServiceFontOrder seen;
+            memset(&seen, 0, sizeof(seen));
+            Service set;
+            memset(&set, 0, sizeof(set));
+            seen.language_rc = smGetService(&set, "set");
+            if (R_SUCCEEDED(seen.language_rc)) {
+                seen.language_rc = serviceDispatchOut(&set, 0, seen.language);
+                serviceClose(&set);
+            }
+            struct {
+                u8 loaded;
+                u32 count;
+            } said = { 0, 0 };
+            seen.rc = serviceDispatchInOut(
+                &pl, 5, seen.language, said,
+                .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out,
+                                  SfBufferAttr_HipcMapAlias | SfBufferAttr_Out,
+                                  SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+                .buffers = { { seen.types, sizeof(seen.types) },
+                             { seen.offsets, sizeof(seen.offsets) },
+                             { seen.sizes, sizeof(seen.sizes) } }, );
+            seen.loaded = said.loaded;
+            seen.count = said.count;
+            const bool passed = ServiceJudgeFontOrder(&seen, fonts, detail, sizeof(detail));
+            Report(SERVICE_PL_ORDER, CHECK_EXACT, passed, detail);
+        }
+    }
+    if (handed) {
+        shmemClose(&memory);
+    }
+    serviceClose(&pl);
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -817,4 +913,5 @@ void RunService(void) {
     RunNfp();
     RunAoc();
     RunTime();
+    RunPl();
 }
