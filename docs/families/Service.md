@@ -26,6 +26,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | am-self | 2 | two settings a game makes on its self controller, read back: the idle time detection extension and auto sleep (`hle/service/am/service/self_controller.cpp`) |
 | am-functions | 3 | what an application's functions tell a game before its title screen: the language, the events it waits on, the channels a launch may fill (`hle/service/am/service/application_functions.cpp`) |
 | auddev | 3 | the audio device service a game with a renderer asks: the active output among those listed, and its volume read back as set (`hle/service/audio/audio_device.cpp`, `audio_core/renderer/audio_device.cpp`) |
+| fsdir | 3 | a game's own files on the memory card: a directory renamed with what it holds, listed, and deleted with it (`hle/service/filesystem/fsp/fs_i_filesystem.cpp`, `RenameDirectory`, and `hle/service/filesystem/filesystem.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -365,6 +366,26 @@ AudioTvOutput the active one, and keeps the volume set on that one (`audio_devic
 
 The volume is put back as it was before the case returns; the line carries all four answers.
 
+## fsdir
+
+A game that keeps its own files moves a directory to replace an old one, lists what a directory
+holds, and deletes one with what is in it: IFileSystem's RenameDirectory (6), OpenDirectory (9)
+with IDirectory's GetEntryCount (1) and Read (0), and DeleteDirectoryRecursively (4). reden
+1f03dee126 (#4312) made a directory renamed inside its own parent keep what it holds, where the
+rename had left a save without its files.
+
+The suite works on the memory card libnx mounted at start, under `/edenprobe/service/directory`,
+which it deletes first, so a run left half done does not change the next.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| a directory renamed takes what it holds | CreateDirectory `directory` and `directory/a`, CreateFile `a/f` of 16 bytes, RenameDirectory `a` to `b`, then GetEntryType of `b`, `a` and `b/f` | `b` a directory, `a` not there (`0x202`), `b/f` a file | exact |
+| the renamed directory lists its one file, once | OpenDirectory `b`, GetEntryCount, Read with room for four, Read again | a count of one, `f` as a file of 16 bytes, then nothing | exact |
+| DeleteDirectoryRecursively takes a directory and what it holds | 4 of `directory`, then GetEntryType of it | it succeeds and the directory is not there | exact |
+
+The second and third cases are skipped as `depends` when the rename did not come back as a
+directory.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -403,6 +424,9 @@ The volume is put back as it was before the case returns; the line carries all f
 - **Q15.** Which output a console names active when it is docked, handheld and with
   headphones (reden always AudioTvOutput), and whether it keeps a volume set on an output that
   is not the active one.
+- **Q16.** Whether a console's memory card keeps a directory's entries in the order they were
+  made when it lists them (the case makes one), and the result it gives a rename whose new name
+  is already there.
 
 ## The judge, pinned
 
@@ -460,3 +484,8 @@ a storage in the user channel and another result.
 auddev passes reden's three outputs with AudioTvOutput active, and fails an active one
 not listed, no active name and a stand-in's empty list; and a volume read back as set, failing
 the volume before read back, another and a refusal.
+fsdir passes a directory renamed with what it holds, and fails the old one left, the
+file lost or found as a directory and a refused rename; the one file listed once, failing it
+listed twice, as a
+directory, with no size and a count of two; and a directory gone with what it held, failing
+one still there and a refused delete.

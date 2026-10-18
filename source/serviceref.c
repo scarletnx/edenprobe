@@ -80,6 +80,10 @@ static const struct {
     [SERVICE_AUDDEV_OPENS] = { "auddev", "audren:u hands out the audio device service" },
     [SERVICE_AUDDEV_ACTIVE] = { "auddev", "the active output is one of the devices listed" },
     [SERVICE_AUDDEV_VOLUME] = { "auddev", "a volume set on the active device reads back" },
+    [SERVICE_DIR_RENAME] = { "fsdir", "a directory renamed takes what it holds" },
+    [SERVICE_DIR_LIST] = { "fsdir", "the renamed directory lists its one file, once" },
+    [SERVICE_DIR_DELETE] = { "fsdir",
+                             "DeleteDirectoryRecursively takes a directory and what it holds" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -886,5 +890,59 @@ bool ServiceJudgeAudioVolume(uint32_t before_rc, float before, uint32_t set_rc, 
                                : "another volume reads back",
              (unsigned)before_rc, (double)before, (double)asked, (unsigned)set_rc,
              (unsigned)after_rc, (double)after, (unsigned)restore_rc);
+    return passed;
+}
+
+bool ServiceJudgeDirRename(const ServiceDirRename *seen, char *out, size_t out_size) {
+    const bool made = seen->make_rc == 0u && seen->file_rc == 0u;
+    const bool moved = seen->rename_rc == 0u && seen->new_rc == 0u && seen->new_type == 0u;
+    const bool gone = seen->old_rc == SERVICE_PATH_NOT_FOUND;
+    const bool inside = seen->inside_rc == 0u && seen->inside_type == 1u;
+    const bool passed = made && moved && gone && inside;
+    snprintf(out, out_size,
+             "%s: directory 0x%x, file 0x%x; RenameDirectory 0x%x; the new name 0x%x type %u, "
+             "the old 0x%x, the file under the new 0x%x type %u (0 directory, 1 file)",
+             !made    ? "the directory or its file not made"
+             : !moved ? "the new name not a directory"
+             : !gone  ? "the old name still there"
+             : inside ? "renamed with what it holds"
+                      : "renamed without what it held",
+             (unsigned)seen->make_rc, (unsigned)seen->file_rc, (unsigned)seen->rename_rc,
+             (unsigned)seen->new_rc, (unsigned)seen->new_type, (unsigned)seen->old_rc,
+             (unsigned)seen->inside_rc, (unsigned)seen->inside_type);
+    return passed;
+}
+
+bool ServiceJudgeDirList(const ServiceDirList *seen, const char *file, char *out,
+                         size_t out_size) {
+    const bool refused = seen->open_rc != 0u || seen->count_rc != 0u || seen->read_rc != 0u ||
+                         seen->again_rc != 0u;
+    const bool entry = seen->read == 1 && strncmp(seen->name, file, sizeof(seen->name)) == 0 &&
+                       seen->type == 1 && seen->size == SERVICE_DIR_FILE_SIZE;
+    const bool passed = !refused && seen->count == 1 && entry && seen->again == 0;
+    char name[17];
+    memcpy(name, seen->name, 16);
+    name[16] = '\0';
+    snprintf(out, out_size,
+             "%s: open 0x%x; GetEntryCount 0x%x %lld; Read 0x%x %lld, \"%s\" type %d %lld bytes; "
+             "again 0x%x %lld",
+             refused            ? "refused"
+             : seen->count != 1 ? "another count"
+             : !entry           ? "not the file it holds"
+             : passed           ? "its one file, once"
+                                : "the file again",
+             (unsigned)seen->open_rc, (unsigned)seen->count_rc, (long long)seen->count,
+             (unsigned)seen->read_rc, (long long)seen->read, name, (int)seen->type,
+             (long long)seen->size, (unsigned)seen->again_rc, (long long)seen->again);
+    return passed;
+}
+
+bool ServiceJudgeDirDelete(uint32_t delete_rc, uint32_t gone_rc, char *out, size_t out_size) {
+    const bool passed = delete_rc == 0u && gone_rc == SERVICE_PATH_NOT_FOUND;
+    snprintf(out, out_size, "%s: DeleteDirectoryRecursively 0x%x; GetEntryType after 0x%x",
+             delete_rc != 0u ? "refused"
+             : passed        ? "gone with what it held"
+                             : "still there",
+             (unsigned)delete_rc, (unsigned)gone_rc);
     return passed;
 }
