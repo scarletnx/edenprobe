@@ -1490,6 +1490,65 @@ static void CheckAmLock(void) {
                uncleared, silent, untaken, code);
 }
 
+static void CheckSetSys(void) {
+    ServiceSetsysValue color = { 0u, 0u, 0u, 0u, 0, 1, 1 };
+    ServiceSetsysValue layout = { 0u, 0u, 0u, 0u, 1, 3, 3 };
+    const bool look = ServiceJudgeSetsysLook(&color, &layout, said, sizeof(said)) &&
+                      strcmp(said, "read back as set: color set 0 (0x0), set to 1 (0x0), read 1 "
+                                   "(0x0), put back 0x0; read back as set: keyboard layout 1 "
+                                   "(0x0), set to 3 (0x0), read 3 (0x0), put back 0x0") == 0;
+    char look_said[480];
+    memcpy(look_said, said, sizeof(said));
+    // A stub's nought read back for the layout, and the color set refused.
+    layout.after = 0;
+    const bool stub = !ServiceJudgeSetsysLook(&color, &layout, said, sizeof(said)) &&
+                      strstr(said, "another value read back: keyboard layout") != NULL;
+    layout.after = 1;
+    const bool before = !ServiceJudgeSetsysLook(&color, &layout, said, sizeof(said)) &&
+                        strstr(said, "the value before read back: keyboard layout") != NULL;
+    layout.after = 3;
+    color.set_rc = SERVICE_RESULT(105, 1);
+    const bool refused = !ServiceJudgeSetsysLook(&color, &layout, said, sizeof(said)) &&
+                         strstr(said, "refused: color set") == said;
+    ServiceSetsysValue volume = { 0u, 0u, 0u, 0u, 1000, 250, 250 };
+    const bool vibrates = ServiceJudgeSetsysValue("x", &volume, said, sizeof(said));
+    volume.after = 0;
+    const bool silent = !ServiceJudgeSetsysValue("x", &volume, said, sizeof(said));
+    ServiceSetsysFlags flags;
+    memset(&flags, 0, sizeof(flags));
+    for (uint32_t i = 0; i < SERVICE_SETSYS_FLAG_COUNT; ++i) {
+        flags.before[i] = i == 2u;
+        flags.after[i] = i != 2u;
+        flags.back[i] = i == 2u;
+    }
+    const bool turned = ServiceJudgeSetsysFlags(&flags, said, sizeof(said)) &&
+                        strcmp(said, "turned over and put back: lock screen 0->1->0 (0x0), quest "
+                                     "0->1->0 (0x0), battery percentage 1->0->1 (0x0), auto mute "
+                                     "0->1->0 (0x0)") == 0;
+    char turned_said[480];
+    memcpy(turned_said, said, sizeof(said));
+    // A stub's false for the quest flag, a flag stuck at its write, and auto mute refused.
+    flags.after[1] = false;
+    const bool unturned = !ServiceJudgeSetsysFlags(&flags, said, sizeof(said)) &&
+                          strstr(said, "a flag not turned over") == said;
+    flags.after[1] = true;
+    flags.back[0] = true;
+    const bool stuck = !ServiceJudgeSetsysFlags(&flags, said, sizeof(said)) &&
+                       strstr(said, "a flag not put back") == said;
+    flags.back[0] = false;
+    flags.rc[3] = SERVICE_RESULT(105, 1);
+    const bool flag_refused = !ServiceJudgeSetsysFlags(&flags, said, sizeof(said)) &&
+                              strstr(said, "refused") == said;
+    CHECK_TRUE(SUITE, "service: set-sys passes settings read back as set and flags put back",
+               CHECK_NONE,
+               look && stub && before && refused && vibrates && silent && turned && unturned &&
+                   stuck && flag_refused,
+               "look %d \"%.120s\", a stub %d, the value before %d, refused %d, a volume %d, a "
+               "stub's volume %d, flags %d \"%.120s\", unturned %d, stuck %d, a flag refused %d",
+               look, look_said, stub, before, refused, vibrates, silent, turned, turned_said,
+               unturned, stuck, flag_refused);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1525,4 +1584,5 @@ void RunReferenceService(void) {
     CheckNgc();
     CheckApm();
     CheckAmLock();
+    CheckSetSys();
 }

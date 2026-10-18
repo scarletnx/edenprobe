@@ -40,6 +40,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | renderer | 3 | an audio renderer of the program's own: what it was opened with, the rendering time limit and the voice drop parameter (`hle/service/audio/audio_renderer.cpp`) |
 | ngc | 3 | the profanity filter a game runs a player's name through: ngc:u's version, check and mask, and ngct:u's match and filter (`hle/service/ngc/ngc.cpp`) |
 | am-lock | 2 | the lock accessors a game holds the home button off with: taken as libnx takes it, held, and their event (`hle/service/am/service/lock_accessor.cpp`) |
+| set-sys | 3 | the system settings a homebrew program reads and writes on set:sys: the color set, the keyboard layout, the vibration volume and four flags (`hle/service/set/system_settings_server.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -654,6 +655,24 @@ every Unlock (2), and IsLocked (4) says whether it is held (`lock_accessor.cpp` 
 
 The line carries every step's answer; both locks are unlocked and closed before the suite returns.
 
+## set-sys
+
+A homebrew program reaches set:sys, which an application cannot: it draws in the console's theme
+(GetColorSetId, 23), picks its own keyboard's layout (GetKeyboardLayout, 136), and reads how hard a
+pad vibrates (GetVibrationMasterVolume, 35) and the flags of the settings menu. reden keeps every
+system setting it is given and saves them (`system_settings_server.cpp` at 75c12299a6), so each one
+the suite sets reads back as set.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| the color set and the keyboard layout set are the ones read back | 23, 24 with the other theme, 23, 24 back; 136, 137 with English (UK) or French, 136, 137 back | every step succeeds and both reads after are what was set | exact |
+| the vibration master volume set is the one read back | 35, 36 with a quarter or a half, 35, 36 back | every step succeeds and the read after is what was set | exact |
+| four flags turned over are read back, and put back | the lock screen (7, 8), quest (47, 48), battery percentage (99, 100) and speaker auto mute (45, 46) flags: read, turned over, read, put back, read | every step succeeds, each flag reads turned over and then as it was | exact |
+
+Every setting is put back as it was read, or to the console's default when the first read failed,
+so a run leaves the settings as it found them; the line carries every answer, the volume in
+thousandths. All three are skipped as `unavailable` when set:sys does not open.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -729,6 +748,8 @@ The line carries every step's answer; both locks are unlocked and closed before 
   whether its SetCpuBoostMode with FastLoad gives Boost mode Config13 (`0x92220009`).
 - **Q32.** Whether a console signals a lock accessor's event from the start, as reden does
   and as libnx's TryLock needs, and whether a reader lock and a writer lock of one button share it.
+- **Q33.** Whether a console's set:sys takes each of these writes from a homebrew program and
+  gives it back at once, as reden does.
 
 ## The judge, pinned
 
@@ -833,3 +854,6 @@ am-lock passes a lock taken, held and freed, and fails a TryLock that timed out 
 a lock taken twice, one held after its unlock and one not held; it passes an event signaled free
 and unlocked and fails one not signaled free, one the clear did not clear and an unlock that
 signals nothing.
+set-sys passes two settings read back as set, and fails a stub's nought, the value before and a
+refusal; it passes a volume read back and fails one of nought; it passes four flags turned over and
+put back, and fails a flag not turned over, one not put back and a refusal.

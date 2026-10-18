@@ -2446,6 +2446,120 @@ static void RunAmLock(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// set-sys
+
+/// One of the flags the set-sys suite turns over: libnx's read and write of it.
+typedef struct {
+    Result (*get)(bool *out);
+    Result (*set)(bool flag);
+} SetsysFlag;
+
+/// A volume in thousandths, for the line.
+static int32_t SetsysMilli(float v) {
+    return (int32_t)(v * 1000.0f + (v < 0.0f ? -0.5f : 0.5f));
+}
+
+/// set:sys as a homebrew program reaches it: the theme it draws with (the color set), the
+/// keyboard layout its own keyboard picks, how hard a pad vibrates, and four flags, each set to
+/// another value, read back, and put back as it was.
+static void RunSetSys(void) {
+    char detail[480];
+    const Result opened = setsysInitialize();
+    if (R_FAILED(opened)) {
+        Skip(SERVICE_SETSYS_LOOK, REPORT_REASON_UNAVAILABLE, "setsysInitialize returned 0x%x",
+             (unsigned)opened);
+        Skip(SERVICE_SETSYS_VIBRATION, REPORT_REASON_UNAVAILABLE, "setsysInitialize returned 0x%x",
+             (unsigned)opened);
+        Skip(SERVICE_SETSYS_FLAGS, REPORT_REASON_UNAVAILABLE, "setsysInitialize returned 0x%x",
+             (unsigned)opened);
+        return;
+    }
+    if (Start(SERVICE_SETSYS_LOOK)) {
+        ServiceSetsysValue color, layout;
+        memset(&color, 0, sizeof(color));
+        memset(&layout, 0, sizeof(layout));
+        ColorSetId id = (ColorSetId)-1;
+        color.before_rc = setsysGetColorSetId(&id);
+        color.before = (int32_t)id;
+        color.asked = color.before == ColorSetId_Dark ? ColorSetId_Light : ColorSetId_Dark;
+        color.set_rc = setsysSetColorSetId((ColorSetId)color.asked);
+        id = (ColorSetId)-1;
+        color.after_rc = setsysGetColorSetId(&id);
+        color.after = (int32_t)id;
+        const bool known = color.before_rc == 0u &&
+                           (color.before == ColorSetId_Light || color.before == ColorSetId_Dark);
+        color.restore_rc =
+            setsysSetColorSetId(known ? (ColorSetId)color.before : ColorSetId_Light);
+        SetKeyboardLayout k = (SetKeyboardLayout)-1;
+        layout.before_rc = setsysGetKeyboardLayout(&k);
+        layout.before = (int32_t)k;
+        layout.asked = layout.before == SetKeyboardLayout_EnglishUk ? SetKeyboardLayout_French
+                                                                    : SetKeyboardLayout_EnglishUk;
+        layout.set_rc = setsysSetKeyboardLayout((SetKeyboardLayout)layout.asked);
+        k = (SetKeyboardLayout)-1;
+        layout.after_rc = setsysGetKeyboardLayout(&k);
+        layout.after = (int32_t)k;
+        const bool layout_known = layout.before_rc == 0u && layout.before >= 0 &&
+                                  layout.before < 32;
+        layout.restore_rc = setsysSetKeyboardLayout(
+            layout_known ? (SetKeyboardLayout)layout.before : SetKeyboardLayout_EnglishUs);
+        const bool passed = ServiceJudgeSetsysLook(&color, &layout, detail, sizeof(detail));
+        Report(SERVICE_SETSYS_LOOK, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_SETSYS_VIBRATION)) {
+        // GetVibrationMasterVolume (35), SetVibrationMasterVolume (36) to a quarter or a half, 35
+        // again, 36 back.
+        ServiceSetsysValue seen;
+        memset(&seen, 0, sizeof(seen));
+        float before = -1.0f, after = -1.0f;
+        seen.before_rc = setsysGetVibrationMasterVolume(&before);
+        const float asked = before == 0.25f ? 0.5f : 0.25f;
+        seen.set_rc = setsysSetVibrationMasterVolume(asked);
+        seen.after_rc = setsysGetVibrationMasterVolume(&after);
+        const bool known = seen.before_rc == 0u && before >= 0.0f && before <= 1.0f;
+        seen.restore_rc = setsysSetVibrationMasterVolume(known ? before : 1.0f);
+        seen.before = SetsysMilli(before);
+        seen.asked = SetsysMilli(asked);
+        seen.after = SetsysMilli(after);
+        const bool passed =
+            ServiceJudgeSetsysValue("vibration master volume", &seen, detail, sizeof(detail));
+        Report(SERVICE_SETSYS_VIBRATION, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_SETSYS_FLAGS)) {
+        static const SetsysFlag flags[SERVICE_SETSYS_FLAG_COUNT] = {
+            { setsysGetLockScreenFlag, setsysSetLockScreenFlag },
+            { setsysGetQuestFlag, setsysSetQuestFlag },
+            { setsysGetBatteryPercentageFlag, setsysSetBatteryPercentageFlag },
+            { setsysGetSpeakerAutoMuteFlag, setsysSetSpeakerAutoMuteFlag },
+        };
+        ServiceSetsysFlags seen;
+        memset(&seen, 0, sizeof(seen));
+        for (uint32_t i = 0; i < SERVICE_SETSYS_FLAG_COUNT; ++i) {
+            bool before = false, after = false, back = false;
+            Result rc = flags[i].get(&before);
+            if (R_SUCCEEDED(rc)) {
+                // Only a flag read first is written, so a refused read changes nothing.
+                rc = flags[i].set(!before);
+                const Result after_rc = flags[i].get(&after);
+                const Result back_rc = flags[i].set(before);
+                const Result read_rc = flags[i].get(&back);
+                rc = R_FAILED(rc)         ? rc
+                     : R_FAILED(after_rc) ? after_rc
+                     : R_FAILED(back_rc)  ? back_rc
+                                          : read_rc;
+            }
+            seen.rc[i] = rc;
+            seen.before[i] = before;
+            seen.after[i] = after;
+            seen.back[i] = back;
+        }
+        const bool passed = ServiceJudgeSetsysFlags(&seen, detail, sizeof(detail));
+        Report(SERVICE_SETSYS_FLAGS, CHECK_EXACT, passed, detail);
+    }
+    setsysExit();
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -2478,4 +2592,5 @@ void RunService(void) {
     RunRenderer();
     RunNgc();
     RunAmLock();
+    RunSetSys();
 }

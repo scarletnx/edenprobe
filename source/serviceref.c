@@ -145,6 +145,11 @@ static const struct {
     [SERVICE_LOCK_TAKEN] = { "am-lock",
                              "a free lock is taken as libnx takes it, and held until unlocked" },
     [SERVICE_LOCK_EVENT] = { "am-lock", "a lock's event is signaled while free and when unlocked" },
+    [SERVICE_SETSYS_LOOK] = { "set-sys",
+                              "the color set and the keyboard layout set are the ones read back" },
+    [SERVICE_SETSYS_VIBRATION] = { "set-sys",
+                                   "the vibration master volume set is the one read back" },
+    [SERVICE_SETSYS_FLAGS] = { "set-sys", "four flags turned over are read back, and put back" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1635,5 +1640,58 @@ bool ServiceJudgeLockEvent(const ServiceLockEvent *seen, char *out, size_t out_s
              (unsigned)seen->get_rc, (unsigned)seen->free_rc, (unsigned)seen->try_rc, seen->took,
              (unsigned)seen->clear_rc, (unsigned)seen->held_rc, (unsigned)seen->unlock_rc,
              (unsigned)seen->unlocked_rc);
+    return passed;
+}
+
+bool ServiceJudgeSetsysValue(const char *what, const ServiceSetsysValue *seen, char *out,
+                             size_t out_size) {
+    const bool refused = seen->before_rc != 0u || seen->set_rc != 0u || seen->after_rc != 0u ||
+                         seen->restore_rc != 0u;
+    const bool kept = seen->after == seen->asked;
+    const bool passed = !refused && kept;
+    snprintf(out, out_size, "%s: %s %d (0x%x), set to %d (0x%x), read %d (0x%x), put back 0x%x",
+             refused                       ? "refused"
+             : kept                        ? "read back as set"
+             : seen->after == seen->before ? "the value before read back"
+                                           : "another value read back",
+             what, (int)seen->before, (unsigned)seen->before_rc, (int)seen->asked,
+             (unsigned)seen->set_rc, (int)seen->after, (unsigned)seen->after_rc,
+             (unsigned)seen->restore_rc);
+    return passed;
+}
+
+bool ServiceJudgeSetsysLook(const ServiceSetsysValue *color, const ServiceSetsysValue *layout,
+                            char *out, size_t out_size) {
+    char first[200], second[200];
+    const bool a = ServiceJudgeSetsysValue("color set", color, first, sizeof(first));
+    const bool b = ServiceJudgeSetsysValue("keyboard layout", layout, second, sizeof(second));
+    snprintf(out, out_size, "%s; %s", first, second);
+    return a && b;
+}
+
+bool ServiceJudgeSetsysFlags(const ServiceSetsysFlags *seen, char *out, size_t out_size) {
+    static const char *const names[SERVICE_SETSYS_FLAG_COUNT] = { "lock screen", "quest",
+                                                                 "battery percentage",
+                                                                 "auto mute" };
+    bool refused = false, turned = true, back = true;
+    size_t n = 0;
+    for (uint32_t i = 0; i < SERVICE_SETSYS_FLAG_COUNT; ++i) {
+        refused = refused || seen->rc[i] != 0u;
+        turned = turned && seen->after[i] != seen->before[i];
+        back = back && seen->back[i] == seen->before[i];
+        n += (size_t)snprintf(out + (n < out_size ? n : out_size), n < out_size ? out_size - n : 0u,
+                              "%s %s %d->%d->%d (0x%x)", i == 0u ? ":" : ",", names[i],
+                              seen->before[i], seen->after[i], seen->back[i],
+                              (unsigned)seen->rc[i]);
+    }
+    const bool passed = !refused && turned && back;
+    char flags[400];
+    snprintf(flags, sizeof(flags), "%s", out);
+    snprintf(out, out_size, "%s%s",
+             refused  ? "refused"
+             : !turned ? "a flag not turned over"
+             : !back   ? "a flag not put back"
+                       : "turned over and put back",
+             flags);
     return passed;
 }
