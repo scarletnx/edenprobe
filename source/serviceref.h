@@ -147,6 +147,8 @@ typedef enum {
     SERVICE_DIR_RENAME,   ///< fsdir: a directory renamed takes what it holds
     SERVICE_DIR_LIST,     ///< fsdir: the directory lists its one file, once
     SERVICE_DIR_DELETE,   ///< fsdir: DeleteDirectoryRecursively takes it all
+    SERVICE_AUDIOCTL_EXPECTED, ///< am-audio: the expected master volumes set are read back
+    SERVICE_AUDIOCTL_CHANGE,   ///< am-audio: the main applet volume changed is read back
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -502,6 +504,26 @@ bool ServiceJudgeDirList(const ServiceDirList *seen, const char *file, char *out
 /// DeleteDirectoryRecursively of the parent, then GetEntryType of it. Passes when the delete
 /// succeeds and the parent is not there.
 bool ServiceJudgeDirDelete(uint32_t delete_rc, uint32_t gone_rc, char *out, size_t out_size);
+
+/// IAudioController's expected master volumes, set and read back: what they were, what the write
+/// asked for and what they read after, with what each step answered (the first read, the write,
+/// the read after, the write that puts them back). Passes when every step succeeds and both
+/// volumes read after are the ones asked: reden keeps them on the controller
+/// (`audio_controller.cpp`, SetExpectedMasterVolume and the two Get commands).
+typedef struct {
+    uint32_t before_rc, set_rc, after_rc, restore_rc;
+    float main_before, library_before, main_asked, library_asked, main_after, library_after;
+} ServiceExpectedVolume;
+bool ServiceJudgeExpectedVolume(const ServiceExpectedVolume *seen, char *out, size_t out_size);
+
+/// ChangeMainAppletMasterVolume (3) read back with GetMainAppletExpectedMasterVolume (1), and
+/// SetTransparentVolumeRate (4) accepted. Passes when every step succeeds and the main volume
+/// read after is the one asked: reden sets the main volume it is given and keeps the rate.
+typedef struct {
+    uint32_t change_rc, after_rc, rate_rc, restore_rc;
+    float before, asked, after;
+} ServiceMainVolume;
+bool ServiceJudgeMainVolume(const ServiceMainVolume *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

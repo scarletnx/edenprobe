@@ -1346,6 +1346,63 @@ static void RunFsdir(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// am-audio
+
+/// The application's audio controller, as libnx opened it at start: the volumes a game expects
+/// the system to play it and a library applet at, set the way a game does before it shows the
+/// keyboard or an error, read back, and put back as they were.
+static void RunAmAudio(void) {
+    char detail[480];
+    Service *const controller = appletGetServiceSession_AudioController();
+    if (controller == NULL || !serviceIsActive(controller)) {
+        Skip(SERVICE_AUDIOCTL_EXPECTED, REPORT_REASON_UNAVAILABLE,
+             "this program has no IAudioController");
+        Skip(SERVICE_AUDIOCTL_CHANGE, REPORT_REASON_UNAVAILABLE,
+             "this program has no IAudioController");
+        return;
+    }
+    if (Start(SERVICE_AUDIOCTL_EXPECTED)) {
+        // GetMainAppletExpectedMasterVolume (1) and GetLibraryAppletExpectedMasterVolume (2),
+        // SetExpectedMasterVolume (0) to a half and a quarter, the two reads again.
+        ServiceExpectedVolume seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.main_before = seen.library_before = -1.0f;
+        seen.main_after = seen.library_after = -1.0f;
+        seen.before_rc = appletGetExpectedMasterVolume(&seen.main_before, &seen.library_before);
+        seen.main_asked = 0.5f;
+        seen.library_asked = 0.25f;
+        seen.set_rc = appletSetExpectedMasterVolume(seen.main_asked, seen.library_asked);
+        seen.after_rc = appletGetExpectedMasterVolume(&seen.main_after, &seen.library_after);
+        const bool known = seen.before_rc == 0u && seen.main_before >= 0.0f &&
+                           seen.main_before <= 1.0f && seen.library_before >= 0.0f &&
+                           seen.library_before <= 1.0f;
+        seen.restore_rc = appletSetExpectedMasterVolume(known ? seen.main_before : 1.0f,
+                                                        known ? seen.library_before : 1.0f);
+        const bool passed = ServiceJudgeExpectedVolume(&seen, detail, sizeof(detail));
+        Report(SERVICE_AUDIOCTL_EXPECTED, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_AUDIOCTL_CHANGE)) {
+        // ChangeMainAppletMasterVolume (3) to three quarters with no fade, the main read (1),
+        // SetTransparentVolumeRate (4) to a half, then the volumes as they were.
+        ServiceMainVolume seen;
+        memset(&seen, 0, sizeof(seen));
+        float library = -1.0f;
+        seen.before = seen.after = -1.0f;
+        const uint32_t before_rc = appletGetExpectedMasterVolume(&seen.before, &library);
+        seen.asked = 0.75f;
+        seen.change_rc = appletChangeMainAppletMasterVolume(seen.asked, 0);
+        seen.after_rc = appletGetExpectedMasterVolume(&seen.after, NULL);
+        seen.rate_rc = appletSetTransparentVolumeRate(0.5f);
+        const bool known = before_rc == 0u && seen.before >= 0.0f && seen.before <= 1.0f &&
+                           library >= 0.0f && library <= 1.0f;
+        seen.restore_rc =
+            appletSetExpectedMasterVolume(known ? seen.before : 1.0f, known ? library : 1.0f);
+        const bool passed = ServiceJudgeMainVolume(&seen, detail, sizeof(detail));
+        Report(SERVICE_AUDIOCTL_CHANGE, CHECK_EXACT, passed, detail);
+    }
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -1365,4 +1422,5 @@ void RunService(void) {
     RunAmFunctions();
     RunAuddev();
     RunFsdir();
+    RunAmAudio();
 }
