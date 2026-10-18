@@ -36,6 +36,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | ipc | 3 | what every session answers: its pointer buffer, a clone, a Close (`hle/service/sm/sm_controller.cpp`, `hle/service/service.cpp`) |
 | hid | 1 | the npad LIFOs of hid's shared memory, which every game reads its controllers from (`hid_core/resources/ring_lifo.h`) |
 | time-snap | 2 | the clock snapshot a game dates a save or times a wait across a sleep with, and the span between two (`hle/service/psc/time/static.cpp`) |
+| vi | 3 | the application display service every game opens first: the displays listed, the scaling modes converted, an indirect layer's memory (`hle/service/vi/application_display_service.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -554,6 +555,25 @@ point when both are of one source, and takes the span from the two steady time p
 The suite opens time:u of its own and closes it before it returns; the two skip as `unavailable`
 when it or its clocks do not open.
 
+## vi
+
+Every game opens the application display service before its first frame, through vi:u, and asks
+it about the display and its layer. reden lists one display, "Default", with a limited layer
+count of one and 1920x1080 (`vi_types.h`, DisplayInfo), converts the five scaling modes a game
+names (none, freeze, scale to window, scale and crop, preserve aspect ratio) to the window's own
+numbering, 3, 0, 1, 2 and 4, refusing the next with OperationFailed, and gives an indirect layer's
+image memory as its RGBA bytes rounded up to 0x20000, aligned to 0x1000
+(`application_display_service.cpp` at 75c12299a6).
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| ListDisplays lists the default display alone | ListDisplays (1000) into room for four | one display, "Default", limited to one layer, 1920x1080 | exact |
+| each scaling mode converts to the window's, and one past it is refused | ConvertScalingMode (2102) of 0 to 5 | 3, 0, 1, 2 and 4, then OperationFailed (114, 1) | exact |
+| an indirect layer's image needs its bytes rounded to 0x20000 | GetIndirectLayerImageRequiredMemoryInfo (2460) of 1280x720 | 0x3A0000, alignment 0x1000 | exact |
+
+The suite takes vi through libnx's viInitialize, which only counts one more user when the program
+already has it, and lets go with viExit.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -613,6 +633,8 @@ when it or its clocks do not open.
   keeps writing the LIFOs of an npad with nothing connected.
 - **Q25.** Whether a console's snapshot gives the user time as the context's offset plus its own
   steady time point, as reden does, and the span in nanoseconds.
+- **Q26.** Whether a console lists only the default display to an application, as reden does, and
+  reckons an indirect layer's memory in blocks of 0x20000.
 
 ## The judge, pinned
 
@@ -696,3 +718,6 @@ hid passes npad entries doubled and one apart, and fails an entry numbered as it
 not one apart, and no LIFO to read.
 time-snap passes a snapshot of the user clock and its span, and fails another user time,
 context or location, a span in seconds, and a span to itself above nought.
+vi passes the default display, the scaling table and the rounding, and fails five displays
+listed, a smaller default display, the game's numbering given back, a sixth mode taken, and an
+unrounded size.

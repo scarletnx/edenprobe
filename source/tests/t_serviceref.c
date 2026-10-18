@@ -1187,6 +1187,34 @@ static void CheckTimeSnap(void) {
                whole, whole_said, time, context, location, span, seconds, itself);
 }
 
+static void CheckVi(void) {
+    ServiceDisplayList seen = { 0u, 1, true, 1u, 1u, 1920u, 1080u };
+    const bool one = ServiceJudgeDisplayList(&seen, said, sizeof(said)) &&
+                     strstr(said, "the default display alone") == said;
+    char one_said[480];
+    memcpy(one_said, said, sizeof(said));
+    // Every display Switchbrew names listed, and the default one in the docked size halved.
+    seen.count = 5;
+    const bool five = !ServiceJudgeDisplayList(&seen, said, sizeof(said));
+    seen = (ServiceDisplayList){ 0u, 1, true, 1u, 1u, 1280u, 720u };
+    const bool small = !ServiceJudgeDisplayList(&seen, said, sizeof(said));
+    const uint32_t ok[6] = { 0u, 0u, 0u, 0u, 0u, SERVICE_VI_OPERATION_FAILED };
+    const uint64_t window[6] = { 3u, 0u, 1u, 2u, 4u, 0u };
+    const bool table = ServiceJudgeScalingModes(ok, window, said, sizeof(said));
+    // The game's own numbering given back, and the sixth taken.
+    const uint64_t same[6] = { 0u, 1u, 2u, 3u, 4u, 0u };
+    const bool identity = !ServiceJudgeScalingModes(ok, same, said, sizeof(said));
+    const uint32_t taken[6] = { 0u, 0u, 0u, 0u, 0u, 0u };
+    const bool past = !ServiceJudgeScalingModes(taken, window, said, sizeof(said));
+    const bool rounded = ServiceJudgeIndirectMemory(0u, 0x3A0000, 0x1000, said, sizeof(said));
+    const bool exact = !ServiceJudgeIndirectMemory(0u, 1280 * 720 * 4, 0x1000, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: vi passes the default display, the scaling table and the rounding",
+               CHECK_NONE, one && five && small && table && identity && past && rounded && exact,
+               "one %d \"%.160s\", five %d, small %d, table %d, identity %d, past %d, rounded %d, "
+               "exact %d",
+               one, one_said, five, small, table, identity, past, rounded, exact);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1215,4 +1243,5 @@ void RunReferenceService(void) {
     CheckIpc();
     CheckHid();
     CheckTimeSnap();
+    CheckVi();
 }

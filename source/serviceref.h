@@ -121,6 +121,9 @@ extern "C" {
 #define SERVICE_SNAP_LOCATION 0xA8
 #define SERVICE_SNAP_TYPE 0xCD
 
+/// vi's OperationFailed (`hle/service/vi/vi_results.h`).
+#define SERVICE_VI_OPERATION_FAILED SERVICE_RESULT(114, 1)
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -197,6 +200,9 @@ typedef enum {
     SERVICE_HID_SAMPLING, ///< hid: npad LIFO entries number twice their state, states one apart
     SERVICE_SNAP_COHERENT, ///< time-snap: a snapshot holds the user clock and the location
     SERVICE_SNAP_SPAN,     ///< time-snap: the span between snapshots is their steady difference
+    SERVICE_VI_DISPLAYS, ///< vi: ListDisplays lists the default display alone
+    SERVICE_VI_SCALING,  ///< vi: ConvertScalingMode's table, and the mode past it refused
+    SERVICE_VI_INDIRECT, ///< vi: the memory an indirect layer's image needs
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -735,6 +741,30 @@ bool ServiceJudgeSnapshot(const ServiceSnapshot *seen, char *out, size_t out_siz
 /// from the steady time points of one source.
 bool ServiceJudgeSnapSpan(uint32_t snap_rc, uint32_t same_rc, int64_t same, uint32_t later_rc,
                           int64_t later, char *out, size_t out_size);
+
+/// ListDisplays (1000) into room for four: what it answered, how many it listed, and the first
+/// one's name, layer limit, layer count and size. Passes when it lists one, "Default", with a
+/// limited layer count of one and 1920x1080, reden's DisplayInfo (`vi_types.h`).
+typedef struct {
+    uint32_t rc;
+    int64_t count;
+    bool named;
+    uint32_t limited;
+    uint64_t layers, width, height;
+} ServiceDisplayList;
+bool ServiceJudgeDisplayList(const ServiceDisplayList *seen, char *out, size_t out_size);
+
+/// ConvertScalingMode (2102) of the modes 0 to 5 a game names (none, freeze, scale to window,
+/// scale and crop, preserve aspect ratio, then one past): what each answered and gave. Passes when
+/// the five give 3, 0, 1, 2 and 4, the window's own numbering, and the sixth is OperationFailed, as
+/// reden's table (`application_display_service.cpp`, ConvertScalingMode).
+bool ServiceJudgeScalingModes(const uint32_t rc[6], const uint64_t converted[6], char *out,
+                              size_t out_size);
+
+/// GetIndirectLayerImageRequiredMemoryInfo (2460) of 1280x720: 0x3A0000, its RGBA bytes rounded up
+/// to 0x20000, with an alignment of 0x1000, as reden reckons it.
+bool ServiceJudgeIndirectMemory(uint32_t rc, int64_t size, int64_t alignment, char *out,
+                                size_t out_size);
 
 #ifdef __cplusplus
 }

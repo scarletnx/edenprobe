@@ -122,6 +122,11 @@ static const struct {
                                              "and the location" },
     [SERVICE_SNAP_SPAN] = { "time-snap",
                             "the span between two snapshots is their steady clocks' difference" },
+    [SERVICE_VI_DISPLAYS] = { "vi", "ListDisplays lists the default display alone" },
+    [SERVICE_VI_SCALING] = { "vi", "each scaling mode converts to the window's, and one past it is "
+                                   "refused" },
+    [SERVICE_VI_INDIRECT] = { "vi",
+                              "an indirect layer's image needs its bytes rounded to 0x20000" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1334,5 +1339,55 @@ bool ServiceJudgeSnapSpan(uint32_t snap_rc, uint32_t same_rc, int64_t same, uint
              refused ? "refused" : passed ? "nought and five seconds" : "another span",
              (unsigned)snap_rc, (unsigned)same_rc, (long long)same, (unsigned)later_rc,
              (long long)later);
+    return passed;
+}
+
+bool ServiceJudgeDisplayList(const ServiceDisplayList *seen, char *out, size_t out_size) {
+    const bool one = seen->rc == 0u && seen->count == 1;
+    const bool info = seen->named && seen->limited == 1u && seen->layers == 1u &&
+                      seen->width == 1920u && seen->height == 1080u;
+    const bool passed = one && info;
+    snprintf(out, out_size,
+             "%s: ListDisplays 0x%x, %lld listed; the first %s, limited %u, %llu layers, "
+             "%llux%llu",
+             seen->rc != 0u ? "refused"
+             : !one         ? "another count"
+             : !info        ? "another display"
+                            : "the default display alone",
+             (unsigned)seen->rc, (long long)seen->count, seen->named ? "Default" : "another name",
+             (unsigned)seen->limited, (unsigned long long)seen->layers,
+             (unsigned long long)seen->width, (unsigned long long)seen->height);
+    return passed;
+}
+
+bool ServiceJudgeScalingModes(const uint32_t rc[6], const uint64_t converted[6], char *out,
+                              size_t out_size) {
+    static const uint64_t WINDOW[5] = { 3u, 0u, 1u, 2u, 4u };
+    bool table = true;
+    for (int i = 0; i < 5; ++i) {
+        table = table && rc[i] == 0u && converted[i] == WINDOW[i];
+    }
+    const bool past = rc[5] == SERVICE_VI_OPERATION_FAILED;
+    const bool passed = table && past;
+    snprintf(out, out_size,
+             "%s: 0 to 4 gave %llu %llu %llu %llu %llu (0x%x 0x%x 0x%x 0x%x 0x%x), 5 answered 0x%x",
+             passed  ? "the window's numbering, and 5 refused"
+             : !table ? "another table"
+                      : "5 not refused with OperationFailed",
+             (unsigned long long)converted[0], (unsigned long long)converted[1],
+             (unsigned long long)converted[2], (unsigned long long)converted[3],
+             (unsigned long long)converted[4], (unsigned)rc[0], (unsigned)rc[1], (unsigned)rc[2],
+             (unsigned)rc[3], (unsigned)rc[4], (unsigned)rc[5]);
+    return passed;
+}
+
+bool ServiceJudgeIndirectMemory(uint32_t rc, int64_t size, int64_t alignment, char *out,
+                                size_t out_size) {
+    const bool passed = rc == 0u && size == 0x3A0000 && alignment == 0x1000;
+    snprintf(out, out_size,
+             "%s: GetIndirectLayerImageRequiredMemoryInfo(1280, 720) 0x%x, size 0x%llx, alignment "
+             "0x%llx",
+             rc != 0u ? "refused" : passed ? "rounded to 0x20000" : "another size",
+             (unsigned)rc, (unsigned long long)size, (unsigned long long)alignment);
     return passed;
 }
