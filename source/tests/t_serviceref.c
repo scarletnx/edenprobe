@@ -240,6 +240,66 @@ static void CheckLdnMonitor(void) {
                reden, reden_said, none, zero_handle, not_registered, invalid, new_refused, old);
 }
 
+/// reden's language table, the first few codes as the console spells them, little-endian.
+static uint64_t Code(const char *text) {
+    uint64_t code = 0;
+    for (uint32_t i = 0; i < 8u && text[i] != '\0'; ++i) {
+        code |= (uint64_t)(unsigned char)text[i] << (8u * i);
+    }
+    return code;
+}
+
+static void CheckLanguages(void) {
+    static ServiceLanguages seen;
+    memset(&seen, 0, sizeof(seen));
+    static const char *const TABLE[] = { "ja", "en-US", "fr", "de", "it", "es" };
+    seen.listed = 6;
+    for (uint32_t i = 0; i < 6u; ++i) {
+        seen.codes[i] = seen.made[i] = Code(TABLE[i]);
+    }
+    seen.language = Code("en-US");
+    seen.past_rc = SERVICE_INVALID_LANGUAGE;
+    seen.count = (int32_t)SERVICE_LANGUAGES_MAX; // reden counts what the list can hold
+    char text[9];
+    ServiceLanguageText(Code("zh-Hant"), text);
+    const bool spelled = strcmp(text, "zh-Hant") == 0 && SERVICE_INVALID_LANGUAGE == 0x4E269u;
+
+    const bool language = ServiceJudgeLanguage(&seen, said, sizeof(said)) &&
+                          strcmp(said, "GetLanguageCode \"en-US\", code 1 of the 6 listed") == 0;
+    ServiceLanguages other = seen;
+    other.language = Code("pt-BR");
+    const bool unlisted = !ServiceJudgeLanguage(&other, said, sizeof(said)) &&
+                          strstr(said, "\"pt-BR\"") != NULL;
+    other.language = 0u; // a stub's code of nought
+    const bool zero = !ServiceJudgeLanguage(&other, said, sizeof(said));
+
+    const bool made = ServiceJudgeMakeLanguage(&seen, said, sizeof(said)) &&
+                      strcmp(said, "the 6 listed made right, index 6 refused with 0x4e269") == 0;
+    other = seen;
+    other.made[3] = Code("fr");
+    const bool wrong = !ServiceJudgeMakeLanguage(&other, said, sizeof(said)) &&
+                       strcmp(said, "index 3 made 0x0 \"fr\", where the list has \"de\"") == 0;
+    other = seen;
+    other.past_rc = 0u; // one past the table made into something
+    const bool past = !ServiceJudgeMakeLanguage(&other, said, sizeof(said)) &&
+                      strstr(said, "index 6 answered 0x0, not 0x4e269") != NULL;
+
+    const bool room = ServiceJudgeLanguageCount(&seen, said, sizeof(said));
+    other = seen;
+    other.count = 5;
+    const bool less = !ServiceJudgeLanguageCount(&other, said, sizeof(said)) &&
+                      strstr(said, "less room than codes") == said;
+    other.count = 6;
+    const bool exact = ServiceJudgeLanguageCount(&other, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: set passes reden's language codes and fails what strays from them",
+               CHECK_NONE,
+               spelled && language && unlisted && zero && made && wrong && past && room && less &&
+                   exact,
+               "spelled %d, language %d, unlisted %d, zero %d, made %d, wrong %d, past %d, "
+               "room %d, less %d, exact %d",
+               spelled, language, unlisted, zero, made, wrong, past, room, less, exact);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -247,4 +307,5 @@ void RunReferenceService(void) {
     CheckTempEmpty();
     CheckSelectUser();
     CheckLdnMonitor();
+    CheckLanguages();
 }

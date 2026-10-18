@@ -36,6 +36,12 @@ extern "C" {
 /// The file system's answer for a path that is not there: Fs (2) 1, PathNotFound.
 #define SERVICE_PATH_NOT_FOUND SERVICE_RESULT(2, 1)
 
+/// set refusing a language past its table: Settings (105) 625, ResultInvalidLanguage (reden
+/// settings_server.cpp). The most codes GetAvailableLanguageCodes2 can list, 0x40, is reden's
+/// POST_4_0_0_MAX_ENTRIES.
+#define SERVICE_INVALID_LANGUAGE SERVICE_RESULT(105, 625)
+#define SERVICE_LANGUAGES_MAX 0x40u
+
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
@@ -48,6 +54,10 @@ typedef enum {
     SERVICE_SELECT_USER,  ///< account: 52 answers as 51 does
     SERVICE_LDN_OPENS,    ///< ldn: ldn:u opens (none tier)
     SERVICE_LDN_MONITOR,  ///< ldn: CreateClientProcessMonitor and its RegisterClient
+    SERVICE_SET_OPENS,    ///< set: set opens and lists its language codes (none tier)
+    SERVICE_SET_LANGUAGE, ///< set: GetLanguageCode is one of them
+    SERVICE_SET_MAKE,     ///< set: MakeLanguageCode gives the list's code at each index
+    SERVICE_SET_COUNT,    ///< set: GetAvailableLanguageCodeCount2 leaves room for the list
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -112,6 +122,26 @@ typedef struct {
     bool firmware18;
 } ServiceLdnMonitor;
 bool ServiceJudgeLdnMonitor(const ServiceLdnMonitor *seen, char *out, size_t out_size);
+
+/// set's language codes: what GetAvailableLanguageCodes2 (5) listed, GetLanguageCode (0), what
+/// MakeLanguageCode (2) made of each index of the list and of the first index past it, and
+/// GetAvailableLanguageCodeCount2 (6). reden lists its table, answers the console's language from
+/// it, makes each index into the table's code and refuses one past it with
+/// SERVICE_INVALID_LANGUAGE, and counts the most the list can hold.
+typedef struct {
+    uint32_t list_rc, language_rc, past_rc, count_rc;
+    int32_t listed;
+    uint64_t codes[SERVICE_LANGUAGES_MAX];
+    uint64_t language;
+    uint32_t made_rc[SERVICE_LANGUAGES_MAX];
+    uint64_t made[SERVICE_LANGUAGES_MAX];
+    int32_t count;
+} ServiceLanguages;
+/// The code as text: up to eight characters, '?' for a byte that is not printable.
+void ServiceLanguageText(uint64_t code, char out[9]);
+bool ServiceJudgeLanguage(const ServiceLanguages *seen, char *out, size_t out_size);
+bool ServiceJudgeMakeLanguage(const ServiceLanguages *seen, char *out, size_t out_size);
+bool ServiceJudgeLanguageCount(const ServiceLanguages *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }
