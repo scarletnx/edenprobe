@@ -41,6 +41,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | ngc | 3 | the profanity filter a game runs a player's name through: ngc:u's version, check and mask, and ngct:u's match and filter (`hle/service/ngc/ngc.cpp`) |
 | am-lock | 2 | the lock accessors a game holds the home button off with: taken as libnx takes it, held, and their event (`hle/service/am/service/lock_accessor.cpp`) |
 | set-sys | 3 | the system settings a homebrew program reads and writes on set:sys: the color set, the keyboard layout, the vibration volume and four flags (`hle/service/set/system_settings_server.cpp`) |
+| time-zone | 3 | time:u's time zone service: every location name it counts listed with the device's, the device's location with when it was set, and a local date turned back (`hle/service/glue/time/time_zone.cpp`, `psc/time/time_zone_service.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -673,6 +674,27 @@ Every setting is put back as it was read, or to the console's default when the f
 so a run leaves the settings as it found them; the line carries every answer, the volume in
 thousandths. All three are skipped as `unavailable` when set:sys does not open.
 
+## time-zone
+
+A game's settings or calendar lists the locations a console can be set to (GetTotalLocationNameCount,
+2, and LoadLocationNameList, 3), reads where the device is and when that was set
+(GetDeviceLocationNameAndUpdatedTime, 6), and turns a local date back into the time it came from
+under the device's rule (ToPosixTimeWithMyRule, 202). reden lists the names of its time zone binary,
+answers the device's location with the steady clock time it was set at, and gives back every time a
+local date can be, one or two around a change of offset (`glue/time/time_zone.cpp`,
+`psc/time/time_zone_service.cpp` at 75c12299a6). The rule's version (5) goes on the line unjudged:
+reden's is its binary's date with a line break, `230326\n`.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| as many location names are listed as counted, the device's among them | 0; 2; 3 sixteen at a time from 0 until it gives fewer | every call succeeds, as many are listed as counted, none is empty, the device's is listed | exact |
+| the device's location comes with when it was set | 0 and 6 | both succeed with the same name, not an empty one | exact |
+| a local date turned back gives the time it came from | the user clock's time (0), 101 with it, 202 with the date, and 5 for the line | every call succeeds and 202 gives one or two times with the clock's among them | exact |
+
+The names are asked for in at most 128 calls, past the six hundred or so a database holds. The
+suite opens time:u itself, as the time suite does; all three are skipped as `unavailable` when it
+hands out no time zone service.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -750,6 +772,9 @@ thousandths. All three are skipped as `unavailable` when set:sys does not open.
   and as libnx's TryLock needs, and whether a reader lock and a writer lock of one button share it.
 - **Q33.** Whether a console's set:sys takes each of these writes from a homebrew program and
   gives it back at once, as reden does.
+- **Q34.** How many location names a console counts, what its GetTimeZoneRuleVersion answers
+  (reden's is `230326\n`), and whether GetDeviceLocationNameAndUpdatedTime dates the location by
+  the steady clock.
 
 ## The judge, pinned
 
@@ -857,3 +882,7 @@ signals nothing.
 set-sys passes two settings read back as set, and fails a stub's nought, the value before and a
 refusal; it passes a volume read back and fails one of nought; it passes four flags turned over and
 put back, and fails a flag not turned over, one not put back and a refusal.
+time-zone passes every name listed with the device's, and fails a list cut short, empty names, the
+device's missing and none counted; it passes the device's location twice and fails an empty one and
+another; it passes the time back, first or second of two, and fails a time an hour off, no time back and
+202 refused.

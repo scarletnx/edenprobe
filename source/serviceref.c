@@ -150,6 +150,10 @@ static const struct {
     [SERVICE_SETSYS_VIBRATION] = { "set-sys",
                                    "the vibration master volume set is the one read back" },
     [SERVICE_SETSYS_FLAGS] = { "set-sys", "four flags turned over are read back, and put back" },
+    [SERVICE_TZ_LIST] = { "time-zone",
+                          "as many location names are listed as counted, the device's among them" },
+    [SERVICE_TZ_UPDATED] = { "time-zone", "the device's location comes with when it was set" },
+    [SERVICE_TZ_BACK] = { "time-zone", "a local date turned back gives the time it came from" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1693,5 +1697,65 @@ bool ServiceJudgeSetsysFlags(const ServiceSetsysFlags *seen, char *out, size_t o
              : !back   ? "a flag not put back"
                        : "turned over and put back",
              flags);
+    return passed;
+}
+
+bool ServiceJudgeTzList(const ServiceTzList *seen, char *out, size_t out_size) {
+    const bool refused = seen->name_rc != 0u || seen->count_rc != 0u || seen->list_rc != 0u;
+    const bool all = seen->count > 0 && seen->listed == seen->count;
+    const bool passed = !refused && all && seen->empty == 0u && seen->found;
+    snprintf(out, out_size,
+             "%s: device \"%s\" (0x%x), count %d (0x%x), listed %d (0x%x), %u empty, the device's "
+             "%s",
+             refused                        ? "refused"
+             : seen->count <= 0             ? "no name counted"
+             : !all                         ? "another number listed"
+             : seen->empty != 0u            ? "an empty name listed"
+             : !seen->found                 ? "the device's not listed"
+                                            : "every name listed, the device's among them",
+             seen->device, (unsigned)seen->name_rc, (int)seen->count, (unsigned)seen->count_rc,
+             (int)seen->listed, (unsigned)seen->list_rc, (unsigned)seen->empty,
+             seen->found ? "listed" : "not listed");
+    return passed;
+}
+
+bool ServiceJudgeTzUpdated(const ServiceTzUpdated *seen, char *out, size_t out_size) {
+    const bool refused = seen->name_rc != 0u || seen->updated_rc != 0u;
+    const bool same = seen->name[0] != '\0' && strcmp(seen->name, seen->updated) == 0;
+    const bool passed = !refused && same;
+    snprintf(out, out_size,
+             "%s: GetDeviceLocationName \"%s\" (0x%x), GetDeviceLocationNameAndUpdatedTime \"%s\" "
+             "(0x%x) at %lld s, source %02x%02x%02x%02x",
+             refused ? "refused" : same ? "the device's location" : "another location",
+             seen->name, (unsigned)seen->name_rc, seen->updated, (unsigned)seen->updated_rc,
+             (long long)seen->seconds, seen->source[0], seen->source[1], seen->source[2],
+             seen->source[3]);
+    return passed;
+}
+
+/// A version for the line: printable, a line break or another control byte as '.'.
+static void TzShown(const char *v, char *shown, size_t shown_size) {
+    size_t i = 0;
+    for (; i + 1u < shown_size && v[i] != '\0'; ++i) {
+        shown[i] = v[i] >= 0x20 && v[i] < 0x7F ? v[i] : '.';
+    }
+    shown[i] = '\0';
+}
+
+bool ServiceJudgeTzBack(const ServiceTzBack *seen, char *out, size_t out_size) {
+    const bool refused = seen->now_rc != 0u || seen->date_rc != 0u || seen->back_rc != 0u ||
+                         seen->version_rc != 0u;
+    const bool counted = seen->count == 1 || seen->count == 2;
+    const bool back = counted && (seen->times[0] == seen->now ||
+                                  (seen->count == 2 && seen->times[1] == seen->now));
+    const bool passed = !refused && back;
+    char version[0x12];
+    TzShown(seen->version, version, sizeof(version));
+    snprintf(out, out_size,
+             "%s: now %lld (0x%x), dated 0x%x, back 0x%x %d times %lld %lld, version \"%s\" (0x%x)",
+             refused ? "refused" : !back ? "another time back" : "the time back",
+             (long long)seen->now, (unsigned)seen->now_rc, (unsigned)seen->date_rc,
+             (unsigned)seen->back_rc, (int)seen->count, (long long)seen->times[0],
+             (long long)seen->times[1], version, (unsigned)seen->version_rc);
     return passed;
 }
