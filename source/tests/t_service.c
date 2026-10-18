@@ -539,6 +539,54 @@ static void RunApm(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// nfp
+
+/// nfp for a user, opened as libnx opens it, asked to start detecting on a device by the old
+/// command (3) and by the one a game built for 23.0.0 sends (25). With no device ListDevices finds,
+/// both are asked for a handle of nought, and both should refuse it alike.
+static void RunNfp(void) {
+    char detail[480];
+    bool opens = false;
+    if (Start(SERVICE_NFP_OPENS)) {
+        const Result rc = nfpInitialize(NfpServiceType_User);
+        opens = R_SUCCEEDED(rc);
+        snprintf(detail, sizeof(detail), "nfpInitialize(User) returned 0x%x", (unsigned)rc);
+        Report(SERVICE_NFP_OPENS, CHECK_NONE, opens, detail);
+    }
+    if (!opens) {
+        Skip(SERVICE_NFP_FILTER, REPORT_REASON_DEPENDS, "nfp did not open");
+        return;
+    }
+    if (Start(SERVICE_NFP_FILTER)) {
+        NfcDeviceHandle handles[4];
+        memset(handles, 0, sizeof(handles));
+        s32 devices = 0;
+        if (R_FAILED(nfpListDevices(&devices, handles, 4))) {
+            devices = 0;
+        }
+        const NfcDeviceHandle handle = handles[0];
+        const Result rc3 = nfpStartDetection(&handle);
+        if (R_SUCCEEDED(rc3)) {
+            nfpStopDetection(&handle);
+        }
+        // The device first, where reden's one handler reads it; the filter after it, nought.
+        const struct {
+            NfcDeviceHandle handle;
+            u32 filter;
+            u32 pad;
+        } in = { handle, 0, 0 };
+        const Result rc25 = serviceDispatchIn(nfpGetServiceSession_Interface(), 25, in);
+        if (R_SUCCEEDED(rc25)) {
+            nfpStopDetection(&handle);
+        }
+        const bool passed = ServiceJudgeNfpFilter(rc3, rc25, devices, hosversionAtLeast(23, 0, 0),
+                                                  detail, sizeof(detail));
+        Report(SERVICE_NFP_FILTER, CHECK_EXACT, passed, detail);
+    }
+    nfpExit();
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -548,4 +596,5 @@ void RunService(void) {
     RunSet();
     RunCsrng();
     RunApm();
+    RunNfp();
 }
