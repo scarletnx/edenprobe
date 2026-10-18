@@ -44,6 +44,8 @@ typedef enum {
     SERVICE_SAVE_SIZE,    ///< am: ExtendSaveData, then GetSaveDataSize reads it back
     SERVICE_TEMP_OPENS,   ///< fsp: the temporary storage opens (none tier)
     SERVICE_TEMP_EMPTY,   ///< fsp: what the launch before left there is gone
+    SERVICE_ACC_OPENS,    ///< account: acc:u0 and its user count (none tier)
+    SERVICE_SELECT_USER,  ///< account: 52 answers as 51 does
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -82,6 +84,19 @@ bool ServiceJudgeSaveSize(const ServiceSaveSize *seen, char *out, size_t out_siz
 /// is reden f3af5d0c25's rule: the storage is emptied once at each launch of the application.
 bool ServiceJudgeTempEmpty(uint64_t promised, uint32_t found_rc, uint64_t found, char *out,
                            size_t out_size);
+
+/// acc:u0's TrySelectUserWithoutInteractionDeprecated (51) and TrySelectUserWithoutInteraction
+/// (52, 19.0.0+), both asked with no network account required, and how many users there are.
+/// Passes when 52 answers what 51 answers, reden 87e5d0b6e4's two handlers: the user when there
+/// is exactly one, an id of nought otherwise. A machine that says it is older than 19.0.0 may
+/// refuse 52 instead, as a console of that age would, and passes that way too.
+typedef struct {
+    uint32_t rc51, rc52;
+    uint64_t uid51[2], uid52[2];
+    int32_t users;
+    bool firmware19;
+} ServiceSelectUser;
+bool ServiceJudgeSelectUser(const ServiceSelectUser *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

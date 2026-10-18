@@ -340,8 +340,53 @@ static void RunFsp(void) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// account
+
+/// acc:u0's two commands that pick the user with nobody asked, the old one and the one a game
+/// built for 19.0.0 or later sends, each with no network account required.
+static void RunAccount(void) {
+    char detail[480];
+    Account account;
+    memset(&account, 0, sizeof(account));
+    s32 users = -1;
+    bool opens = false;
+    if (Start(SERVICE_ACC_OPENS)) {
+        char said[240];
+        Result rc = AccountOpen(&account, said, sizeof(said));
+        if (R_SUCCEEDED(rc)) {
+            rc = serviceDispatchOut(account.service, 0, users);
+        }
+        opens = R_SUCCEEDED(rc) && account.service != NULL;
+        snprintf(detail, sizeof(detail), "%s; GetUserCount 0x%x, %d users", said, (unsigned)rc,
+                 (int)users);
+        Report(SERVICE_ACC_OPENS, CHECK_NONE, opens, detail);
+    }
+
+    if (!opens) {
+        Skip(SERVICE_SELECT_USER, REPORT_REASON_DEPENDS, "acc:u0 did not open");
+    } else if (Start(SERVICE_SELECT_USER)) {
+        ServiceSelectUser seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.users = users;
+        seen.firmware19 = hosversionAtLeast(19, 0, 0);
+        const u8 network = 0;
+        AccountUid uid51, uid52;
+        memset(&uid51, 0, sizeof(uid51));
+        memset(&uid52, 0, sizeof(uid52));
+        seen.rc51 = serviceDispatchInOut(account.service, 51, network, uid51);
+        seen.rc52 = serviceDispatchInOut(account.service, 52, network, uid52);
+        memcpy(seen.uid51, uid51.uid, sizeof(seen.uid51));
+        memcpy(seen.uid52, uid52.uid, sizeof(seen.uid52));
+        const bool passed = ServiceJudgeSelectUser(&seen, detail, sizeof(detail));
+        Report(SERVICE_SELECT_USER, CHECK_EXACT, passed, detail);
+    }
+    AccountClose(&account);
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
     RunFsp();
+    RunAccount();
 }
