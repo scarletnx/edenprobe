@@ -37,6 +37,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | hid | 1 | the npad LIFOs of hid's shared memory, which every game reads its controllers from (`hid_core/resources/ring_lifo.h`) |
 | time-snap | 2 | the clock snapshot a game dates a save or times a wait across a sleep with, and the span between two (`hle/service/psc/time/static.cpp`) |
 | vi | 3 | the application display service every game opens first: the displays listed, the scaling modes converted, an indirect layer's memory (`hle/service/vi/application_display_service.cpp`) |
+| renderer | 3 | an audio renderer of the program's own: what it was opened with, the rendering time limit and the voice drop parameter (`hle/service/audio/audio_renderer.cpp`) |
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -574,6 +575,24 @@ image memory as its RGBA bytes rounded up to 0x20000, aligned to 0x1000
 The suite takes vi through libnx's viInitialize, which only counts one more user when the program
 already has it, and lets go with viExit.
 
+## renderer
+
+A game's audio library opens its renderer at start and may tune it in play: the share of the
+frame the renderer may take (SetRenderingTimeLimit, 8) and how readily it drops voices that would
+take longer (SetVoiceDropParameter, 12). reden keeps what the renderer was opened with, answers
+GetSampleRate (0), GetSampleCount (1) and GetMixBufferCount (2) from it, starts the limit at 100
+percent and the drop parameter at 1, and reads back what was set (`audio_renderer.cpp` and
+`audio_core/renderer/system.cpp` at 75c12299a6). The audio family plays through a renderer; this
+suite opens one of its own, at 48 kHz with a final mix of 2 buffers, and closes it.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| a renderer gives the rate, frame and mix buffers it opened with | 0, 1 and 2 | 48000, 240 and 2 | exact |
+| the rendering time limit set is read back | 9, 8 to 70, 9, 8 back | 100 at first, then 70 | exact |
+| the voice drop parameter set is read back | 13, 12 to a half, 13, 12 back | 1 at first, then a half (in thousandths on the line) | exact |
+
+The three skip as `unavailable` when audrenInitialize fails.
+
 ## The open questions
 
 - **Q1.** The console's limit and result: reden's 24 and `0x3026F` are read from the firmware, not
@@ -635,6 +654,8 @@ already has it, and lets go with viExit.
   steady time point, as reden does, and the span in nanoseconds.
 - **Q26.** Whether a console lists only the default display to an application, as reden does, and
   reckons an indirect layer's memory in blocks of 0x20000.
+- **Q27.** Whether a console starts a renderer's voice drop parameter at 1 and its rendering time
+  limit at 100, as reden does, and reads both back as set.
 
 ## The judge, pinned
 
@@ -721,3 +742,5 @@ context or location, a span in seconds, and a span to itself above nought.
 vi passes the default display, the scaling table and the rounding, and fails five displays
 listed, a smaller default display, the game's numbering given back, a sixth mode taken, and an
 unrounded size.
+renderer passes its parameters and two settings kept, and fails another frame or mix count, a
+stub's nought read back, and a first read that is not the default.

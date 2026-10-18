@@ -203,6 +203,9 @@ typedef enum {
     SERVICE_VI_DISPLAYS, ///< vi: ListDisplays lists the default display alone
     SERVICE_VI_SCALING,  ///< vi: ConvertScalingMode's table, and the mode past it refused
     SERVICE_VI_INDIRECT, ///< vi: the memory an indirect layer's image needs
+    SERVICE_RENDERER_PARAMS, ///< renderer: the rate, frame and mix buffers it was opened with
+    SERVICE_RENDERER_LIMIT,  ///< renderer: the rendering time limit set reads back
+    SERVICE_RENDERER_DROP,   ///< renderer: the voice drop parameter set reads back
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -765,6 +768,26 @@ bool ServiceJudgeScalingModes(const uint32_t rc[6], const uint64_t converted[6],
 /// to 0x20000, with an alignment of 0x1000, as reden reckons it.
 bool ServiceJudgeIndirectMemory(uint32_t rc, int64_t size, int64_t alignment, char *out,
                                 size_t out_size);
+
+/// GetSampleRate (0), GetSampleCount (1) and GetMixBufferCount (2) of a renderer opened at
+/// 48 kHz with 2 mix buffers: what each answered and gave. Passes when they give 48000, 240 (a
+/// 5 ms frame) and 2, the parameters reden's renderer keeps (`audio_renderer.cpp`).
+typedef struct {
+    uint32_t rate_rc, count_rc, mix_rc;
+    uint32_t rate, count, mix;
+} ServiceRendererParams;
+bool ServiceJudgeRendererParams(const ServiceRendererParams *seen, char *out, size_t out_size);
+
+/// A renderer setting read, set, read back and put back: the rendering time limit (9 and 8, in
+/// percent, 100 at first) or the voice drop parameter (13 and 12, a float, 1 at first). Values in
+/// thousandths of the setting. Passes when every step succeeds, the first read is the default and
+/// the read after the write is what was set, as reden keeps both on the renderer.
+typedef struct {
+    uint32_t before_rc, set_rc, after_rc, restore_rc;
+    int32_t before, asked, after, initial;
+} ServiceRendererSetting;
+bool ServiceJudgeRendererSetting(const char *what, const ServiceRendererSetting *seen, char *out,
+                                 size_t out_size);
 
 #ifdef __cplusplus
 }

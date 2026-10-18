@@ -2083,6 +2083,96 @@ static void RunVi(void) {
     viExit();
 }
 
+// ---------------------------------------------------------------------------------------------
+// renderer
+
+/// A renderer setting in thousandths: a float's, or a percent's as it is.
+static int32_t RendererMilli(float v) {
+    return (int32_t)(v * 1000.0f + (v < 0.0f ? -0.5f : 0.5f));
+}
+
+/// An audio renderer of the program's own, opened as a game's audio library opens one at start
+/// (48 kHz, 24 voices, a final mix of 2 buffers, one sink), asked what it was opened with and two
+/// settings a game may change in play, each put back; closed before the suite returns.
+static void RunRenderer(void) {
+    char detail[480];
+    const AudioRendererConfig config = {
+        .output_rate = AudioRendererOutputRate_48kHz,
+        .num_voices = 24,
+        .num_effects = 0,
+        .num_sinks = 1,
+        .num_mix_objs = 1,
+        .num_mix_buffers = 2,
+    };
+    const Result opened = audrenInitialize(&config);
+    Service *const renderer = R_SUCCEEDED(opened) ? audrenGetServiceSession_AudioRenderer() : NULL;
+    if (renderer == NULL || !serviceIsActive(renderer)) {
+        char why[200];
+        snprintf(why, sizeof(why), "audrenInitialize returned 0x%x", (unsigned)opened);
+        Skip(SERVICE_RENDERER_PARAMS, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_RENDERER_LIMIT, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_RENDERER_DROP, REPORT_REASON_UNAVAILABLE, "%s", why);
+        if (R_SUCCEEDED(opened)) {
+            audrenExit();
+        }
+        return;
+    }
+    if (Start(SERVICE_RENDERER_PARAMS)) {
+        ServiceRendererParams seen;
+        memset(&seen, 0, sizeof(seen));
+        u32 v = 0;
+        seen.rate_rc = serviceDispatchOut(renderer, 0, v);
+        seen.rate = v;
+        v = 0;
+        seen.count_rc = serviceDispatchOut(renderer, 1, v);
+        seen.count = v;
+        v = 0;
+        seen.mix_rc = serviceDispatchOut(renderer, 2, v);
+        seen.mix = v;
+        const bool passed = ServiceJudgeRendererParams(&seen, detail, sizeof(detail));
+        Report(SERVICE_RENDERER_PARAMS, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_RENDERER_LIMIT)) {
+        // GetRenderingTimeLimit (9), SetRenderingTimeLimit (8) to 70 percent, 9, 8 back.
+        ServiceRendererSetting seen;
+        memset(&seen, 0, sizeof(seen));
+        u32 before = 0xEEEEu, after = 0xEEEEu;
+        seen.before_rc = serviceDispatchOut(renderer, 9, before);
+        const u32 asked = 70;
+        seen.set_rc = serviceDispatchIn(renderer, 8, asked);
+        seen.after_rc = serviceDispatchOut(renderer, 9, after);
+        const u32 back = before <= 100u ? before : 100u;
+        seen.restore_rc = serviceDispatchIn(renderer, 8, back);
+        seen.before = (int32_t)before;
+        seen.asked = (int32_t)asked;
+        seen.after = (int32_t)after;
+        seen.initial = 100;
+        const bool passed =
+            ServiceJudgeRendererSetting("GetRenderingTimeLimit", &seen, detail, sizeof(detail));
+        Report(SERVICE_RENDERER_LIMIT, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_RENDERER_DROP)) {
+        // GetVoiceDropParameter (13), SetVoiceDropParameter (12) to a half, 13, 12 back.
+        ServiceRendererSetting seen;
+        memset(&seen, 0, sizeof(seen));
+        float before = -1.0f, after = -1.0f;
+        seen.before_rc = serviceDispatchOut(renderer, 13, before);
+        const float asked = 0.5f;
+        seen.set_rc = serviceDispatchIn(renderer, 12, asked);
+        seen.after_rc = serviceDispatchOut(renderer, 13, after);
+        const float back = before >= 0.0f && before <= 1.0f ? before : 1.0f;
+        seen.restore_rc = serviceDispatchIn(renderer, 12, back);
+        seen.before = RendererMilli(before);
+        seen.asked = RendererMilli(asked);
+        seen.after = RendererMilli(after);
+        seen.initial = 1000;
+        const bool passed =
+            ServiceJudgeRendererSetting("GetVoiceDropParameter", &seen, detail, sizeof(detail));
+        Report(SERVICE_RENDERER_DROP, CHECK_EXACT, passed, detail);
+    }
+    audrenExit();
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -2112,4 +2202,5 @@ void RunService(void) {
     RunHid();
     RunTimeSnap();
     RunVi();
+    RunRenderer();
 }

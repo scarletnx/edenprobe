@@ -127,6 +127,10 @@ static const struct {
                                    "refused" },
     [SERVICE_VI_INDIRECT] = { "vi",
                               "an indirect layer's image needs its bytes rounded to 0x20000" },
+    [SERVICE_RENDERER_PARAMS] = { "renderer", "a renderer gives the rate, frame and mix buffers "
+                                              "it opened with" },
+    [SERVICE_RENDERER_LIMIT] = { "renderer", "the rendering time limit set is read back" },
+    [SERVICE_RENDERER_DROP] = { "renderer", "the voice drop parameter set is read back" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -1389,5 +1393,35 @@ bool ServiceJudgeIndirectMemory(uint32_t rc, int64_t size, int64_t alignment, ch
              "0x%llx",
              rc != 0u ? "refused" : passed ? "rounded to 0x20000" : "another size",
              (unsigned)rc, (unsigned long long)size, (unsigned long long)alignment);
+    return passed;
+}
+
+bool ServiceJudgeRendererParams(const ServiceRendererParams *seen, char *out, size_t out_size) {
+    const bool refused = seen->rate_rc != 0u || seen->count_rc != 0u || seen->mix_rc != 0u;
+    const bool passed =
+        !refused && seen->rate == 48000u && seen->count == 240u && seen->mix == 2u;
+    snprintf(out, out_size,
+             "%s: GetSampleRate 0x%x %u, GetSampleCount 0x%x %u, GetMixBufferCount 0x%x %u",
+             refused ? "refused" : passed ? "as opened" : "other parameters",
+             (unsigned)seen->rate_rc, (unsigned)seen->rate, (unsigned)seen->count_rc,
+             (unsigned)seen->count, (unsigned)seen->mix_rc, (unsigned)seen->mix);
+    return passed;
+}
+
+bool ServiceJudgeRendererSetting(const char *what, const ServiceRendererSetting *seen, char *out,
+                                 size_t out_size) {
+    const bool refused = seen->before_rc != 0u || seen->set_rc != 0u || seen->after_rc != 0u ||
+                         seen->restore_rc != 0u;
+    const bool initial = seen->before == seen->initial;
+    const bool kept = seen->after == seen->asked;
+    const bool passed = !refused && initial && kept;
+    snprintf(out, out_size, "%s: %s %d (0x%x), set to %d (0x%x), read %d (0x%x), put back 0x%x",
+             refused   ? "refused"
+             : !initial ? "another value at first"
+             : !kept    ? "the write not read back"
+                        : "the default, then as set",
+             what, (int)seen->before, (unsigned)seen->before_rc, (int)seen->asked,
+             (unsigned)seen->set_rc, (int)seen->after, (unsigned)seen->after_rc,
+             (unsigned)seen->restore_rc);
     return passed;
 }

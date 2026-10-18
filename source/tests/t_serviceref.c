@@ -1215,6 +1215,34 @@ static void CheckVi(void) {
                one, one_said, five, small, table, identity, past, rounded, exact);
 }
 
+static void CheckRenderer(void) {
+    ServiceRendererParams params = { 0u, 0u, 0u, 48000u, 240u, 2u };
+    const bool opened = ServiceJudgeRendererParams(&params, said, sizeof(said)) &&
+                        strstr(said, "as opened") == said;
+    char opened_said[480];
+    memcpy(opened_said, said, sizeof(said));
+    // A frame of 32 kHz's, and the mix buffers of another renderer.
+    params.count = 160u;
+    const bool frame = !ServiceJudgeRendererParams(&params, said, sizeof(said));
+    params = (ServiceRendererParams){ 0u, 0u, 0u, 48000u, 240u, 6u };
+    const bool mixes = !ServiceJudgeRendererParams(&params, said, sizeof(said));
+    ServiceRendererSetting seen = { 0u, 0u, 0u, 0u, 1000, 500, 500, 1000 };
+    const bool kept = ServiceJudgeRendererSetting("x", &seen, said, sizeof(said)) &&
+                      strstr(said, "the default, then as set") == said;
+    // A stub's nought read back, and a first read that is not the default.
+    seen.after = 0;
+    const bool stub = !ServiceJudgeRendererSetting("x", &seen, said, sizeof(said)) &&
+                      strstr(said, "the write not read back") == said;
+    seen = (ServiceRendererSetting){ 0u, 0u, 0u, 0u, 0, 500, 500, 1000 };
+    const bool initial = !ServiceJudgeRendererSetting("x", &seen, said, sizeof(said)) &&
+                         strstr(said, "another value at first") == said;
+    CHECK_TRUE(SUITE, "service: renderer passes its parameters and two settings kept", CHECK_NONE,
+               opened && frame && mixes && kept && stub && initial,
+               "opened %d \"%.160s\", another frame %d, other mixes %d, kept %d, a stub %d, "
+               "another first %d",
+               opened, opened_said, frame, mixes, kept, stub, initial);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1244,4 +1272,5 @@ void RunReferenceService(void) {
     CheckHid();
     CheckTimeSnap();
     CheckVi();
+    CheckRenderer();
 }
