@@ -1853,6 +1853,28 @@ static void CheckAccApp(void) {
                any_size, untaken, codes);
 }
 
+static void CheckRendererState(void) {
+    ServiceRendererState seen = { 0u, 0u, 0u, 0u, 0u, 1u, 0u, 1u };
+    const bool states = ServiceJudgeRendererState(&seen, said, sizeof(said)) &&
+                        strcmp(said, "stopped, started, stopped: GetState 1 (0x0), Start 0x0, 0 "
+                                     "(0x0), Stop 0x0, 1 (0x0)") == 0;
+    char states_said[480];
+    memcpy(states_said, said, sizeof(said));
+    // A state that stays stopped, one still started after Stop, and Start refused.
+    seen.started = 1u;
+    const bool stuck = !ServiceJudgeRendererState(&seen, said, sizeof(said)) &&
+                       strstr(said, "other states") == said;
+    seen = (ServiceRendererState){ 0u, 0u, 0u, 0u, 0u, 1u, 0u, 0u };
+    const bool running = !ServiceJudgeRendererState(&seen, said, sizeof(said));
+    seen = (ServiceRendererState){ 0u, SERVICE_RESULT(153, 2), 0u, 0u, 0u, 1u, 0u, 1u };
+    const bool refused = !ServiceJudgeRendererState(&seen, said, sizeof(said)) &&
+                         strstr(said, "refused") == said;
+    CHECK_TRUE(SUITE, "service: renderer passes a renderer stopped, started and stopped",
+               CHECK_NONE, states && stuck && running && refused,
+               "states %d \"%.160s\", stuck %d, running after Stop %d, refused %d", states,
+               states_said, stuck, running, refused);
+}
+
 void RunReferenceService(void) {
     CheckCases();
     CheckOpus();
@@ -1894,4 +1916,5 @@ void RunReferenceService(void) {
     CheckAudout();
     CheckFsFile();
     CheckAccApp();
+    CheckRendererState();
 }

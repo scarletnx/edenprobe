@@ -138,6 +138,8 @@ static const struct {
                                               "it opened with" },
     [SERVICE_RENDERER_LIMIT] = { "renderer", "the rendering time limit set is read back" },
     [SERVICE_RENDERER_DROP] = { "renderer", "the voice drop parameter set is read back" },
+    [SERVICE_RENDERER_STATE] = { "renderer",
+                                 "a renderer is stopped until started, and stopped again" },
     [SERVICE_NGC_CHECK] = { "ngc", "ngc:u has a version and finds no word in a clean name" },
     [SERVICE_NGC_MASK] = { "ngc", "a clean name masked comes back as it was sent" },
     [SERVICE_NGCT_CLEAN] = { "ngc",
@@ -2012,5 +2014,19 @@ bool ServiceJudgeAccThumbnail(const ServiceAccThumbnail *seen, char *out, size_t
                         : "taken at its size, refused short or for nobody",
              (unsigned)seen->user_rc, SERVICE_ACC_THUMBNAIL_SIZE, (unsigned)seen->stored_rc,
              (unsigned)seen->short_rc, (unsigned)seen->nobody_rc);
+    return passed;
+}
+
+bool ServiceJudgeRendererState(const ServiceRendererState *seen, char *out, size_t out_size) {
+    const bool refused = seen->before_rc != 0u || seen->start_rc != 0u ||
+                         seen->started_rc != 0u || seen->stop_rc != 0u || seen->stopped_rc != 0u;
+    const bool states = seen->before == 1u && seen->started == 0u && seen->stopped == 1u;
+    const bool passed = !refused && states;
+    snprintf(out, out_size,
+             "%s: GetState %u (0x%x), Start 0x%x, %u (0x%x), Stop 0x%x, %u (0x%x)",
+             refused ? "refused" : states ? "stopped, started, stopped" : "other states",
+             (unsigned)seen->before, (unsigned)seen->before_rc, (unsigned)seen->start_rc,
+             (unsigned)seen->started, (unsigned)seen->started_rc, (unsigned)seen->stop_rc,
+             (unsigned)seen->stopped, (unsigned)seen->stopped_rc);
     return passed;
 }

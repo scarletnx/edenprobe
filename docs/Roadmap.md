@@ -77,7 +77,7 @@ its dependencies put it, not at the end.
 | hid | exact | the npad LIFOs: an entry's storage not numbered twice its state, or states not one apart (`hid_core/resources/ring_lifo.h`). |
 | time-snap | exact | the clock snapshot: not the user clock's context, time or location, or a span between two not their steady difference in nanoseconds (`hle/service/psc/time/static.cpp`). |
 | vi | exact | the application display service: another display list, a scaling mode not converted to the window's numbering, or an indirect layer's memory not rounded to 0x20000 (`hle/service/vi/application_display_service.cpp`). |
-| renderer | exact | an audio renderer's parameters not the ones it opened with, or the rendering time limit or voice drop parameter not starting at the default and read back as set (`hle/service/audio/audio_renderer.cpp`). |
+| renderer | exact | an audio renderer's parameters not the ones it opened with, the rendering time limit or voice drop parameter not starting at the default and read back as set, or its state not following Start and Stop (`hle/service/audio/audio_renderer.cpp`). |
 | ngc | exact | the profanity filter: no version, a word found in a clean name, or a clean name not given back as it was sent (`hle/service/ngc/ngc.cpp`). |
 | am-lock | exact | the state getter's lock accessors: a free lock libnx cannot take, a lock taken twice or held after its unlock, or its event not signaled (`hle/service/am/service/lock_accessor.cpp`). |
 | set-sys | exact | set:sys's settings: the color set, the keyboard layout, the vibration volume or a flag not read back as set (`hle/service/set/system_settings_server.cpp`). |

@@ -277,6 +277,7 @@ typedef enum {
     SERVICE_RENDERER_PARAMS, ///< renderer: the rate, frame and mix buffers it was opened with
     SERVICE_RENDERER_LIMIT,  ///< renderer: the rendering time limit set reads back
     SERVICE_RENDERER_DROP,   ///< renderer: the voice drop parameter set reads back
+    SERVICE_RENDERER_STATE,  ///< renderer: stopped until started, and stopped again
     SERVICE_NGC_CHECK,  ///< ngc: a version, and nothing found in a clean name
     SERVICE_NGC_MASK,   ///< ngc: a clean name masked comes back as it was sent
     SERVICE_NGCT_CLEAN, ///< ngc: ngct:u matches nothing and filters the name back unchanged
@@ -917,6 +918,15 @@ typedef struct {
 } ServiceRendererSetting;
 bool ServiceJudgeRendererSetting(const char *what, const ServiceRendererSetting *seen, char *out,
                                  size_t out_size);
+
+/// GetState (3) before Start (5), after it and after Stop (6), with what each answered. Passes
+/// when every call succeeds and the state is 1, then 0, then 1: reden answers whether the renderer
+/// is not active (`audio_renderer.cpp`, `GetState`).
+typedef struct {
+    uint32_t before_rc, start_rc, started_rc, stop_rc, stopped_rc;
+    uint32_t before, started, stopped;
+} ServiceRendererState;
+bool ServiceJudgeRendererState(const ServiceRendererState *seen, char *out, size_t out_size);
 
 /// ngc:u's version of its word lists (GetContentVersion, 0) and what Check (1) and Check2 (4)
 /// found in a clean name, with what each answered. Passes when every call succeeds, the version is
