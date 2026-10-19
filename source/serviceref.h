@@ -201,6 +201,9 @@ typedef enum {
     SERVICE_SELECT_USER,  ///< account: 52 answers as 51 does
     SERVICE_LDN_OPENS,    ///< ldn: ldn:u opens (none tier)
     SERVICE_LDN_MONITOR,  ///< ldn: CreateClientProcessMonitor and its RegisterClient
+    SERVICE_LDN_STATES,   ///< ldn: the state after each step, from Initialize to Finalize
+    SERVICE_LDN_EVENT,    ///< ldn: the state change event, when a network comes and goes
+    SERVICE_LDN_REFUSED,  ///< ldn: commands out of their state refused as BadState
     SERVICE_SET_OPENS,    ///< set: set opens and lists its language codes (none tier)
     SERVICE_SET_LANGUAGE, ///< set: GetLanguageCode is one of them
     SERVICE_SET_MAKE,     ///< set: MakeLanguageCode gives the list's code at each index
@@ -365,6 +368,71 @@ typedef struct {
     bool firmware18;
 } ServiceLdnMonitor;
 bool ServiceJudgeLdnMonitor(const ServiceLdnMonitor *seen, char *out, size_t out_size);
+
+/// ldn:u's answers the ldn cases expect, LDN (203) in reden's `ldn_results.h`: BadState (32), a
+/// command out of the state it needs. Disabled (22), AirplaneModeEnabled (23) and NoIpAddress (33)
+/// are an Initialize refused by a machine with no wireless to give, which skips the cases.
+#define SERVICE_LDN_WRONG_STATE SERVICE_RESULT(203, 32)
+#define SERVICE_LDN_DISABLED SERVICE_RESULT(203, 22)
+#define SERVICE_LDN_AIRPLANE SERVICE_RESULT(203, 23)
+#define SERVICE_LDN_NO_ADDRESS SERVICE_RESULT(203, 33)
+/// The network every ldn case that hosts creates, as a game's CreateNetwork (202) carries it: the
+/// local communication id and scene of its intent, room for four nodes, and node 0's user name
+/// and local communication version.
+#define SERVICE_LDN_LOCAL_ID 0x01000000000ED000ull
+#define SERVICE_LDN_SCENE 0x5Au
+#define SERVICE_LDN_ROOM 4u
+#define SERVICE_LDN_USER "edenprobe"
+#define SERVICE_LDN_VERSION 3
+/// The steps the state case walks, in order: Initialize, OpenAccessPoint (200), CreateNetwork,
+/// DestroyNetwork (204), CloseAccessPoint (201), OpenStation (300), CloseStation (301), Finalize
+/// (401). The event case walks all of them but Finalize.
+#define SERVICE_LDN_STEPS 8u
+/// The commands the BadState case asks out of their state, and the steps it takes between them.
+#define SERVICE_LDN_ASKS 13u
+#define SERVICE_LDN_BETWEEN 4u
+
+/// ldn:u's state (GetState, 0) on an object of its own (CreateUserLocalCommunicationService, 0)
+/// before Initialize and after each step of SERVICE_LDN_STEPS, with what each step and each
+/// GetState answered. Passes when every one succeeds, the states are Initialized (1),
+/// AccessPointOpened (2), AccessPointCreated (3), 2, 1, StationOpened (4) and 1 after the first
+/// seven, and None (0) or Error (6) before Initialize and after Finalize: reden walks the seven
+/// (`lan_discovery.cpp`) and answers Error to an object not initialized
+/// (`user_local_communication_service.cpp`, `GetState`), where Ryujinx answers None.
+typedef struct {
+    uint32_t before_rc, before;
+    uint32_t step_rc[SERVICE_LDN_STEPS];
+    uint32_t state_rc[SERVICE_LDN_STEPS];
+    uint32_t state[SERVICE_LDN_STEPS];
+} ServiceLdnStates;
+bool ServiceJudgeLdnStates(const ServiceLdnStates *seen, char *out, size_t out_size);
+
+/// The state change event (AttachStateChangeEvent, 100) of an object of its own, cleared before
+/// each of the state case's steps but Finalize and waited on for a moment after it: what 100 and
+/// each step answered and whether the event was signaled after it. Passes when all of them
+/// succeed and it was signaled after CreateNetwork and after DestroyNetwork: reden signals it
+/// when node 0 joins the network it creates and when the network goes (`lan_discovery.cpp`,
+/// `UpdateNodes`, `DestroyNetwork`) and at no other step, where Ryujinx signals each change.
+typedef struct {
+    uint32_t attach_rc;
+    uint32_t step_rc[SERVICE_LDN_STEPS - 1u];
+    bool signaled[SERVICE_LDN_STEPS - 1u];
+} ServiceLdnEvent;
+bool ServiceJudgeLdnEvent(const ServiceLdnEvent *seen, char *out, size_t out_size);
+
+/// Commands asked out of the state they need, on an object of its own: OpenAccessPoint,
+/// OpenStation, CloseAccessPoint, CloseStation and GetNetworkInfo (1) before Initialize;
+/// CreateNetwork, GetNetworkInfo, GetSecurityParameter (4), GetNetworkConfig (5) and
+/// GetNetworkInfoLatestUpdate (101, eight entries) once initialized; GetNetworkInfo with the
+/// access point open; CreateNetwork and GetNetworkInfo as a station. between holds Initialize,
+/// OpenAccessPoint, CloseAccessPoint and OpenStation, asked in between. Passes when those
+/// succeed and every command asked is refused as SERVICE_LDN_WRONG_STATE, as reden's
+/// lan_discovery and Ryujinx both refuse them.
+typedef struct {
+    uint32_t asked[SERVICE_LDN_ASKS];
+    uint32_t between[SERVICE_LDN_BETWEEN];
+} ServiceLdnRefused;
+bool ServiceJudgeLdnRefused(const ServiceLdnRefused *seen, char *out, size_t out_size);
 
 /// set's language codes: what GetAvailableLanguageCodes2 (5) listed, GetLanguageCode (0), what
 /// MakeLanguageCode (2) made of each index of the list and of the first index past it, and

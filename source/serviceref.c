@@ -25,6 +25,11 @@ static const struct {
     [SERVICE_LDN_OPENS] = { "ldn", "ldn:u opens" },
     [SERVICE_LDN_MONITOR] = { "ldn",
                               "CreateClientProcessMonitor hands out a monitor this process joins" },
+    [SERVICE_LDN_STATES] = { "ldn",
+                             "ldn:u's state follows each step from Initialize to Finalize" },
+    [SERVICE_LDN_EVENT] = { "ldn",
+                            "the state change event is signaled when a network comes and goes" },
+    [SERVICE_LDN_REFUSED] = { "ldn", "a command out of its state is refused as BadState" },
     [SERVICE_SET_OPENS] = { "set", "set opens and lists its language codes" },
     [SERVICE_SET_LANGUAGE] = { "set", "GetLanguageCode is one of the codes set lists" },
     [SERVICE_SET_MAKE] = { "set", "MakeLanguageCode makes each index into the code listed there" },
@@ -307,6 +312,161 @@ bool ServiceJudgeLdnMonitor(const ServiceLdnMonitor *seen, char *out, size_t out
              verdict, (unsigned)seen->create_rc, (unsigned)seen->handle, registered,
              seen->firmware18 ? "at least" : "older than");
     return joined || older;
+}
+
+static const char *const LDN_STEP_NAMES[SERVICE_LDN_STEPS] = {
+    "Initialize",       "OpenAccessPoint", "CreateNetwork", "DestroyNetwork",
+    "CloseAccessPoint", "OpenStation",     "CloseStation",  "Finalize",
+};
+
+/// The state reden's lan_discovery is in after each step but Finalize.
+static const uint32_t LDN_STEP_STATES[SERVICE_LDN_STEPS - 1u] = { 1u, 2u, 3u, 2u, 1u, 4u, 1u };
+
+/// None, or the Error reden answers for an object not initialized.
+static bool LdnIdle(uint32_t state) {
+    return state == 0u || state == 6u;
+}
+
+bool ServiceJudgeLdnStates(const ServiceLdnStates *seen, char *out, size_t out_size) {
+    uint32_t refused = SERVICE_LDN_STEPS, unread = SERVICE_LDN_STEPS, other = SERVICE_LDN_STEPS;
+    for (uint32_t i = 0; i < SERVICE_LDN_STEPS; ++i) {
+        const bool expected = i + 1u < SERVICE_LDN_STEPS ? seen->state[i] == LDN_STEP_STATES[i]
+                                                         : LdnIdle(seen->state[i]);
+        if (refused == SERVICE_LDN_STEPS && seen->step_rc[i] != 0u) {
+            refused = i;
+        }
+        if (unread == SERVICE_LDN_STEPS && seen->state_rc[i] != 0u) {
+            unread = i;
+        }
+        if (other == SERVICE_LDN_STEPS && !expected) {
+            other = i;
+        }
+    }
+    char verdict[64];
+    if (refused < SERVICE_LDN_STEPS) {
+        snprintf(verdict, sizeof(verdict), "%s refused", LDN_STEP_NAMES[refused]);
+    } else if (seen->before_rc != 0u || unread < SERVICE_LDN_STEPS) {
+        snprintf(verdict, sizeof(verdict), "GetState refused");
+    } else if (!LdnIdle(seen->before)) {
+        snprintf(verdict, sizeof(verdict), "another state before Initialize");
+    } else if (other < SERVICE_LDN_STEPS) {
+        snprintf(verdict, sizeof(verdict), "another state after %s", LDN_STEP_NAMES[other]);
+    } else {
+        snprintf(verdict, sizeof(verdict), "each step's state, as reden walks them");
+    }
+    snprintf(out, out_size, "%s: before %u (0x%x)", verdict, (unsigned)seen->before,
+             (unsigned)seen->before_rc);
+    for (uint32_t i = 0; i < SERVICE_LDN_STEPS; ++i) {
+        const size_t n = strlen(out);
+        snprintf(out + n, out_size - n, ", %s 0x%x %u", LDN_STEP_NAMES[i],
+                 (unsigned)seen->step_rc[i], (unsigned)seen->state[i]);
+    }
+    if (unread < SERVICE_LDN_STEPS) {
+        const size_t n = strlen(out);
+        snprintf(out + n, out_size - n, "; GetState after %s 0x%x", LDN_STEP_NAMES[unread],
+                 (unsigned)seen->state_rc[unread]);
+    }
+    return refused == SERVICE_LDN_STEPS && unread == SERVICE_LDN_STEPS &&
+           other == SERVICE_LDN_STEPS && seen->before_rc == 0u && LdnIdle(seen->before);
+}
+
+bool ServiceJudgeLdnEvent(const ServiceLdnEvent *seen, char *out, size_t out_size) {
+    uint32_t refused = SERVICE_LDN_STEPS - 1u;
+    for (uint32_t i = 0; i + 1u < SERVICE_LDN_STEPS && refused == SERVICE_LDN_STEPS - 1u; ++i) {
+        if (seen->step_rc[i] != 0u) {
+            refused = i;
+        }
+    }
+    // CreateNetwork and DestroyNetwork are the third and fourth steps.
+    const bool created = seen->signaled[2], gone = seen->signaled[3];
+    char verdict[64];
+    if (seen->attach_rc != 0u) {
+        snprintf(verdict, sizeof(verdict), "AttachStateChangeEvent refused");
+    } else if (refused < SERVICE_LDN_STEPS - 1u) {
+        snprintf(verdict, sizeof(verdict), "%s refused", LDN_STEP_NAMES[refused]);
+    } else if (!created) {
+        snprintf(verdict, sizeof(verdict), "not signaled when the network was created");
+    } else if (!gone) {
+        snprintf(verdict, sizeof(verdict), "not signaled when the network went");
+    } else {
+        snprintf(verdict, sizeof(verdict), "signaled when the network was created and went");
+    }
+    snprintf(out, out_size, "%s: AttachStateChangeEvent 0x%x; signaled after", verdict,
+             (unsigned)seen->attach_rc);
+    bool any = false;
+    for (uint32_t i = 0; i + 1u < SERVICE_LDN_STEPS; ++i) {
+        if (seen->signaled[i]) {
+            const size_t n = strlen(out);
+            snprintf(out + n, out_size - n, "%s %s", any ? "," : "", LDN_STEP_NAMES[i]);
+            any = true;
+        }
+    }
+    if (!any) {
+        const size_t n = strlen(out);
+        snprintf(out + n, out_size - n, " no step");
+    }
+    if (refused < SERVICE_LDN_STEPS - 1u) {
+        const size_t n = strlen(out);
+        snprintf(out + n, out_size - n, "; %s 0x%x", LDN_STEP_NAMES[refused],
+                 (unsigned)seen->step_rc[refused]);
+    }
+    return seen->attach_rc == 0u && refused == SERVICE_LDN_STEPS - 1u && created && gone;
+}
+
+static const char *const LDN_ASK_NAMES[SERVICE_LDN_ASKS] = {
+    "OpenAccessPoint before Initialize",
+    "OpenStation before Initialize",
+    "CloseAccessPoint before Initialize",
+    "CloseStation before Initialize",
+    "GetNetworkInfo before Initialize",
+    "CreateNetwork once initialized",
+    "GetNetworkInfo once initialized",
+    "GetSecurityParameter once initialized",
+    "GetNetworkConfig once initialized",
+    "GetNetworkInfoLatestUpdate once initialized",
+    "GetNetworkInfo with the access point open",
+    "CreateNetwork as a station",
+    "GetNetworkInfo as a station",
+};
+
+static const char *const LDN_BETWEEN_NAMES[SERVICE_LDN_BETWEEN] = {
+    "Initialize",
+    "OpenAccessPoint",
+    "CloseAccessPoint",
+    "OpenStation",
+};
+
+bool ServiceJudgeLdnRefused(const ServiceLdnRefused *seen, char *out, size_t out_size) {
+    uint32_t step = SERVICE_LDN_BETWEEN, ask = SERVICE_LDN_ASKS;
+    for (uint32_t i = SERVICE_LDN_BETWEEN; i > 0u; --i) {
+        if (seen->between[i - 1u] != 0u) {
+            step = i - 1u;
+        }
+    }
+    for (uint32_t i = SERVICE_LDN_ASKS; i > 0u; --i) {
+        if (seen->asked[i - 1u] != SERVICE_LDN_WRONG_STATE) {
+            ask = i - 1u;
+        }
+    }
+    char verdict[80];
+    if (step < SERVICE_LDN_BETWEEN) {
+        snprintf(verdict, sizeof(verdict), "%s refused", LDN_BETWEEN_NAMES[step]);
+    } else if (ask < SERVICE_LDN_ASKS) {
+        snprintf(verdict, sizeof(verdict), "%s answered 0x%x", LDN_ASK_NAMES[ask],
+                 (unsigned)seen->asked[ask]);
+    } else {
+        snprintf(verdict, sizeof(verdict), "every command out of its state refused as BadState");
+    }
+    const uint32_t *a = seen->asked, *b = seen->between;
+    snprintf(out, out_size,
+             "%s: before Initialize 0x%x 0x%x 0x%x 0x%x 0x%x; initialized 0x%x 0x%x 0x%x 0x%x "
+             "0x%x; access point 0x%x; station 0x%x 0x%x; Initialize 0x%x, OpenAccessPoint 0x%x, "
+             "CloseAccessPoint 0x%x, OpenStation 0x%x",
+             verdict, (unsigned)a[0], (unsigned)a[1], (unsigned)a[2], (unsigned)a[3],
+             (unsigned)a[4], (unsigned)a[5], (unsigned)a[6], (unsigned)a[7], (unsigned)a[8],
+             (unsigned)a[9], (unsigned)a[10], (unsigned)a[11], (unsigned)a[12], (unsigned)b[0],
+             (unsigned)b[1], (unsigned)b[2], (unsigned)b[3]);
+    return step == SERVICE_LDN_BETWEEN && ask == SERVICE_LDN_ASKS;
 }
 
 void ServiceLanguageText(uint64_t code, char out[9]) {

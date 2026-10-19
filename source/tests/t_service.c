@@ -393,9 +393,244 @@ static void RunAccount(void) {
 // ---------------------------------------------------------------------------------------------
 // ldn
 
+/// One IUserLocalCommunicationService of ldn:u's, the object a game's ldn library sends every
+/// command to (CreateUserLocalCommunicationService, 0), asked without libnx's ldnInitialize so
+/// that a case may ask it before Initialize.
+static Result LdnCreate(Service *creator, Service *out) {
+    memset(out, 0, sizeof(*out));
+    return serviceDispatch(creator, 0, .out_num_objects = 1, .out_objects = out, );
+}
+
+static Result LdnGetState(Service *s, uint32_t *state) {
+    *state = 0xEEu;
+    return serviceDispatchOut(s, 0, *state);
+}
+
+/// Initialize as libnx's ldnInitialize sends it: 402 with the version libnx gives this firmware
+/// and the process id, or 400 before 7.0.0.
+static Result LdnInitialize(Service *s) {
+    if (!hosversionAtLeast(7, 0, 0)) {
+        const u64 reserved = 0;
+        return serviceDispatchIn(s, 400, reserved, .in_send_pid = true, );
+    }
+    const s32 version = hosversionAtLeast(20, 0, 0)   ? 4
+                        : hosversionAtLeast(19, 0, 0) ? 3
+                        : hosversionAtLeast(18, 0, 0) ? 2
+                                                      : 1;
+    const struct {
+        s32 version;
+        u32 pad;
+        u64 reserved;
+    } in = { version, 0, 0 };
+    return serviceDispatchIn(s, 402, in, .in_send_pid = true, );
+}
+
+/// CreateNetwork (202) of the network serviceref.h's SERVICE_LDN_* describe, laid out as libnx's
+/// ldnCreateNetwork lays it: Product security with a passphrase of sixteen bytes, the user name,
+/// and the channel left to the service.
+static Result LdnCreateNetwork(Service *s) {
+    struct {
+        LdnSecurityConfig sec_config;
+        LdnUserConfig user_config;
+        u32 pad;
+        LdnNetworkConfig network_config;
+    } in;
+    memset(&in, 0, sizeof(in));
+    in.sec_config.security_mode = LdnSecurityMode_Product;
+    in.sec_config.passphrase_size = 16;
+    memset(in.sec_config.passphrase, 0x5A, 16);
+    strcpy(in.user_config.user_name, SERVICE_LDN_USER);
+    in.network_config.intent_id.local_communication_id = (s64)SERVICE_LDN_LOCAL_ID;
+    in.network_config.intent_id.scene_id = SERVICE_LDN_SCENE;
+    in.network_config.node_count_max = SERVICE_LDN_ROOM;
+    in.network_config.local_communication_version = SERVICE_LDN_VERSION;
+    return serviceDispatchIn(s, 202, in);
+}
+
+/// The state case's steps by their number in SERVICE_LDN_STEPS.
+static Result LdnStep(Service *s, uint32_t step) {
+    switch (step) {
+    case 0:
+        return LdnInitialize(s);
+    case 1:
+        return serviceDispatch(s, 200);
+    case 2:
+        return LdnCreateNetwork(s);
+    case 3:
+        return serviceDispatch(s, 204);
+    case 4:
+        return serviceDispatch(s, 201);
+    case 5:
+        return serviceDispatch(s, 300);
+    case 6:
+        return serviceDispatch(s, 301);
+    default:
+        return serviceDispatch(s, 401);
+    }
+}
+
+static LdnNetworkInfo g_ldn_info[2];
+
+static Result LdnAskInfo(Service *s, LdnNetworkInfo *out) {
+    memset(out, 0, sizeof(*out));
+    return serviceDispatch(s, 1,
+                           .buffer_attrs = { SfBufferAttr_FixedSize | SfBufferAttr_HipcPointer |
+                                             SfBufferAttr_Out },
+                           .buffers = { { out, sizeof(*out) } }, );
+}
+
+/// GetNetworkInfoLatestUpdate (101): the network and count entries of node updates, both
+/// pointer buffers as libnx's ldnGetNetworkInfoAndHistory sends them.
+static Result LdnAskLatest(Service *s, LdnNetworkInfo *info, LdnNodeLatestUpdate *updates,
+                           size_t count) {
+    memset(info, 0, sizeof(*info));
+    memset(updates, 0xEE, count * sizeof(*updates));
+    return serviceDispatch(s, 101,
+                           .buffer_attrs = { SfBufferAttr_FixedSize | SfBufferAttr_HipcPointer |
+                                                 SfBufferAttr_Out,
+                                             SfBufferAttr_HipcPointer | SfBufferAttr_Out },
+                           .buffers = { { info, sizeof(*info) },
+                                        { updates, count * sizeof(*updates) } }, );
+}
+
+/// Finalize (401) and close: every case leaves ldn:u as it found it.
+static void LdnDone(Service *s) {
+    serviceDispatch(s, 401);
+    serviceClose(s);
+}
+
+/// An object of ldn:u's for the case id, or the case failed with what 0 answered.
+static bool LdnMade(ServiceCaseId id, Service *creator, Service *s) {
+    const Result made = LdnCreate(creator, s);
+    if (R_SUCCEEDED(made)) {
+        return true;
+    }
+    char detail[96];
+    snprintf(detail, sizeof(detail), "CreateUserLocalCommunicationService returned 0x%x",
+             (unsigned)made);
+    Report(id, CHECK_EXACT, false, detail);
+    return false;
+}
+
+/// Whether Initialize's answer lets the case go on. A refusal that says the machine has no
+/// wireless to give (Disabled, AirplaneModeEnabled, NoIpAddress) skips it as unavailable, with
+/// what GetState and GetIpv4Address (2) answer after it; any other answer is the case's to judge.
+static bool LdnUp(ServiceCaseId id, Service *s, Result initialized) {
+    if (initialized != SERVICE_LDN_DISABLED && initialized != SERVICE_LDN_AIRPLANE &&
+        initialized != SERVICE_LDN_NO_ADDRESS) {
+        return true;
+    }
+    uint32_t state = 0;
+    const Result state_rc = LdnGetState(s, &state);
+    struct {
+        u32 address, mask;
+    } ip = { 0, 0 };
+    const Result ip_rc = serviceDispatchOut(s, 2, ip);
+    Skip(id, REPORT_REASON_UNAVAILABLE,
+         "no wireless to give: Initialize 0x%x, then GetState %u (0x%x), GetIpv4Address 0x%x "
+         "(%08x, %08x)",
+         (unsigned)initialized, (unsigned)state, (unsigned)state_rc, (unsigned)ip_rc,
+         (unsigned)ip.address, (unsigned)ip.mask);
+    return false;
+}
+
+/// ldn:u for one console alone, with no other near and no network joined, as a game's local
+/// play sets it up: the states an object walks through, its state change event, and the commands
+/// it refuses out of their state. Each case asks an object of its own and finalizes and closes it
+/// before it ends.
+static void RunLdnLocal(Service *creator) {
+    char detail[480];
+    if (creator == NULL) {
+        Skip(SERVICE_LDN_STATES, REPORT_REASON_DEPENDS, "ldn:u did not open");
+        Skip(SERVICE_LDN_EVENT, REPORT_REASON_DEPENDS, "ldn:u did not open");
+        Skip(SERVICE_LDN_REFUSED, REPORT_REASON_DEPENDS, "ldn:u did not open");
+        return;
+    }
+    Service s;
+    if (Start(SERVICE_LDN_STATES) && LdnMade(SERVICE_LDN_STATES, creator, &s)) {
+        ServiceLdnStates seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.before_rc = LdnGetState(&s, &seen.before);
+        seen.step_rc[0] = LdnInitialize(&s);
+        if (LdnUp(SERVICE_LDN_STATES, &s, seen.step_rc[0])) {
+            seen.state_rc[0] = LdnGetState(&s, &seen.state[0]);
+            for (uint32_t i = 1; i < SERVICE_LDN_STEPS; ++i) {
+                seen.step_rc[i] = LdnStep(&s, i);
+                seen.state_rc[i] = LdnGetState(&s, &seen.state[i]);
+            }
+            const bool passed = ServiceJudgeLdnStates(&seen, detail, sizeof(detail));
+            Report(SERVICE_LDN_STATES, CHECK_EXACT, passed, detail);
+        }
+        LdnDone(&s);
+    }
+    if (Start(SERVICE_LDN_EVENT) && LdnMade(SERVICE_LDN_EVENT, creator, &s)) {
+        ServiceLdnEvent seen;
+        memset(&seen, 0, sizeof(seen));
+        Handle handle = INVALID_HANDLE;
+        seen.attach_rc = serviceDispatch(&s, 100, .out_handle_attrs = { SfOutHandleAttr_HipcCopy },
+                                         .out_handles = &handle, );
+        Event event;
+        memset(&event, 0, sizeof(event));
+        const bool attached = R_SUCCEEDED(seen.attach_rc) && handle != INVALID_HANDLE;
+        if (attached) {
+            eventLoadRemote(&event, handle, true);
+        }
+        bool up = true;
+        for (uint32_t i = 0; i + 1u < SERVICE_LDN_STEPS && up; ++i) {
+            if (attached) {
+                eventClear(&event);
+            }
+            seen.step_rc[i] = LdnStep(&s, i);
+            up = i != 0u || LdnUp(SERVICE_LDN_EVENT, &s, seen.step_rc[0]);
+            // The service signals before it answers: a twentieth of a second is only for the
+            // scheduler to run the waiter.
+            seen.signaled[i] = up && attached && R_SUCCEEDED(eventWait(&event, 50000000ull));
+        }
+        if (up) {
+            const bool passed = ServiceJudgeLdnEvent(&seen, detail, sizeof(detail));
+            Report(SERVICE_LDN_EVENT, CHECK_EXACT, passed, detail);
+        }
+        if (attached) {
+            eventClose(&event);
+        }
+        LdnDone(&s);
+    }
+    if (Start(SERVICE_LDN_REFUSED) && LdnMade(SERVICE_LDN_REFUSED, creator, &s)) {
+        ServiceLdnRefused seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.asked[0] = serviceDispatch(&s, 200);
+        seen.asked[1] = serviceDispatch(&s, 300);
+        seen.asked[2] = serviceDispatch(&s, 201);
+        seen.asked[3] = serviceDispatch(&s, 301);
+        seen.asked[4] = LdnAskInfo(&s, &g_ldn_info[0]);
+        seen.between[0] = LdnInitialize(&s);
+        if (LdnUp(SERVICE_LDN_REFUSED, &s, seen.between[0])) {
+            LdnSecurityParameter security;
+            LdnNetworkConfig config;
+            LdnNodeLatestUpdate updates[8];
+            seen.asked[5] = LdnCreateNetwork(&s);
+            seen.asked[6] = LdnAskInfo(&s, &g_ldn_info[0]);
+            seen.asked[7] = serviceDispatchOut(&s, 4, security);
+            seen.asked[8] = serviceDispatchOut(&s, 5, config);
+            seen.asked[9] = LdnAskLatest(&s, &g_ldn_info[0], updates, 8);
+            seen.between[1] = serviceDispatch(&s, 200);
+            seen.asked[10] = LdnAskInfo(&s, &g_ldn_info[0]);
+            seen.between[2] = serviceDispatch(&s, 201);
+            seen.between[3] = serviceDispatch(&s, 300);
+            seen.asked[11] = LdnCreateNetwork(&s);
+            seen.asked[12] = LdnAskInfo(&s, &g_ldn_info[0]);
+            serviceDispatch(&s, 301);
+            const bool passed = ServiceJudgeLdnRefused(&seen, detail, sizeof(detail));
+            Report(SERVICE_LDN_REFUSED, CHECK_EXACT, passed, detail);
+        }
+        LdnDone(&s);
+    }
+}
+
 /// ldn:u's monitor of the client process, which libnx's ldnInitialize asks for on 18.0.0 and
 /// later, then registers this process with: CreateClientProcessMonitor (1) and the monitor's
-/// RegisterClient (0, a word of nought and the process id), as libnx sends them.
+/// RegisterClient (0, a word of nought and the process id), as libnx sends them; then ldn:u for
+/// one console alone.
 static void RunLdn(void) {
     char detail[480];
     Service creator;
@@ -428,6 +663,7 @@ static void RunLdn(void) {
         const bool passed = ServiceJudgeLdnMonitor(&seen, detail, sizeof(detail));
         Report(SERVICE_LDN_MONITOR, CHECK_EXACT, passed, detail);
     }
+    RunLdnLocal(opens ? &creator : NULL);
     if (opens) {
         serviceClose(&creator);
     }
