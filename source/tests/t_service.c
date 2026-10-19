@@ -534,16 +534,113 @@ static bool LdnUp(ServiceCaseId id, Service *s, Result initialized) {
     return false;
 }
 
+/// An object that hosts the network serviceref.h's SERVICE_LDN_* describe, for the case id:
+/// Initialize, OpenAccessPoint and CreateNetwork, the first of them refused or CreateNetwork's
+/// answer left in created for the case to judge. False when the object could not be made or
+/// Initialize skipped the case.
+static bool LdnHost(ServiceCaseId id, Service *creator, Service *s, uint32_t *created) {
+    if (!LdnMade(id, creator, s)) {
+        return false;
+    }
+    const Result up = LdnInitialize(s);
+    if (!LdnUp(id, s, up)) {
+        LdnDone(s);
+        return false;
+    }
+    *created = R_FAILED(up) ? up : serviceDispatch(s, 200);
+    if (R_SUCCEEDED(*created)) {
+        *created = LdnCreateNetwork(s);
+    }
+    return true;
+}
+
+static void LdnKeepNode(const LdnNodeInfo *in, ServiceLdnNode *out) {
+    out->address = in->ip_addr.addr;
+    memcpy(out->mac, in->mac_addr.addr, sizeof(out->mac));
+    out->id = in->node_id;
+    out->connected = in->is_connected;
+    memcpy(out->name, in->user_name, sizeof(out->name));
+    out->name[sizeof(out->name) - 1u] = '\0';
+    out->version = in->local_communication_version;
+}
+
+/// What the network case keeps of GetNetworkInfo's network; the SSID as it came, so that the
+/// judge sees where it ends.
+static void LdnKeepNetwork(const LdnNetworkInfo *in, ServiceLdnNetwork *out) {
+    out->local_id = (uint64_t)in->network_id.intent_id.local_communication_id;
+    out->scene = in->network_id.intent_id.scene_id;
+    memcpy(out->session, in->network_id.session_id.random, sizeof(out->session));
+    memcpy(out->bssid, in->common.bssid.addr, sizeof(out->bssid));
+    out->ssid_length = in->common.ssid.len;
+    memcpy(out->ssid, in->common.ssid.str, sizeof(out->ssid));
+    out->channel = in->common.channel;
+    out->link_level = in->common.link_level;
+    out->network_type = in->common.network_type;
+    out->security_mode = in->security_mode;
+    out->room = in->node_count_max;
+    out->nodes = in->node_count;
+    for (uint32_t i = 0; i < SERVICE_LDN_NODES; ++i) {
+        LdnKeepNode(&in->nodes[i], &out->node[i]);
+    }
+}
+
+static Result LdnAskAdvertise(Service *s, const void *data, size_t size) {
+    return serviceDispatch(s, 206,
+                           .buffer_attrs = { SfBufferAttr_HipcAutoSelect | SfBufferAttr_In },
+                           .buffers = { { data, size } }, );
+}
+
+/// Scan (102) on the Default channel, as libnx's ldnScan sends it, into count networks.
+static Result LdnAskScan(Service *s, const LdnScanFilter *filter, LdnNetworkInfo *out,
+                         size_t count, s16 *found) {
+    const struct {
+        s16 channel;
+        u8 pad[6];
+        LdnScanFilter filter;
+    } in = { 0, { 0 }, *filter };
+    *found = -1;
+    return serviceDispatchInOut(s, 102, in, *found,
+                                .buffer_attrs = { SfBufferAttr_HipcAutoSelect | SfBufferAttr_Out },
+                                .buffers = { { out, count * sizeof(*out) } }, );
+}
+
+/// Connect (302) to network as libnx's ldnConnect sends it: Product security with a passphrase
+/// of sixteen bytes, the user name and version of SERVICE_LDN_*, no option.
+static Result LdnAskConnect(Service *s, const LdnNetworkInfo *network) {
+    struct {
+        LdnSecurityConfig sec_config;
+        LdnUserConfig user_config;
+        s32 version;
+        u32 option;
+    } in;
+    memset(&in, 0, sizeof(in));
+    in.sec_config.security_mode = LdnSecurityMode_Product;
+    in.sec_config.passphrase_size = 16;
+    memset(in.sec_config.passphrase, 0x5A, 16);
+    strcpy(in.user_config.user_name, SERVICE_LDN_USER);
+    in.version = SERVICE_LDN_VERSION;
+    return serviceDispatchIn(s, 302, in,
+                             .buffer_attrs = { SfBufferAttr_FixedSize | SfBufferAttr_HipcPointer |
+                                               SfBufferAttr_In },
+                             .buffers = { { network, sizeof(*network) } }, );
+}
+
 /// ldn:u for one console alone, with no other near and no network joined, as a game's local
-/// play sets it up: the states an object walks through, its state change event, and the commands
-/// it refuses out of their state. Each case asks an object of its own and finalizes and closes it
-/// before it ends.
+/// play sets it up: the states an object walks through, its state change event, the commands it
+/// refuses out of their state, the network it creates and what it carries, and a station with
+/// nothing to find. Each case asks an object of its own and finalizes and closes it before it
+/// ends.
 static void RunLdnLocal(Service *creator) {
     char detail[480];
     if (creator == NULL) {
         Skip(SERVICE_LDN_STATES, REPORT_REASON_DEPENDS, "ldn:u did not open");
         Skip(SERVICE_LDN_EVENT, REPORT_REASON_DEPENDS, "ldn:u did not open");
         Skip(SERVICE_LDN_REFUSED, REPORT_REASON_DEPENDS, "ldn:u did not open");
+        Skip(SERVICE_LDN_NETWORK, REPORT_REASON_DEPENDS, "ldn:u did not open");
+        Skip(SERVICE_LDN_UPDATES, REPORT_REASON_DEPENDS, "ldn:u did not open");
+        Skip(SERVICE_LDN_CONFIG, REPORT_REASON_DEPENDS, "ldn:u did not open");
+        Skip(SERVICE_LDN_ADVERTISE, REPORT_REASON_DEPENDS, "ldn:u did not open");
+        Skip(SERVICE_LDN_STATION, REPORT_REASON_DEPENDS, "ldn:u did not open");
         return;
     }
     Service s;
@@ -622,6 +719,126 @@ static void RunLdnLocal(Service *creator) {
             serviceDispatch(&s, 301);
             const bool passed = ServiceJudgeLdnRefused(&seen, detail, sizeof(detail));
             Report(SERVICE_LDN_REFUSED, CHECK_EXACT, passed, detail);
+        }
+        LdnDone(&s);
+    }
+    uint32_t created = 0;
+    if (Start(SERVICE_LDN_NETWORK) && LdnHost(SERVICE_LDN_NETWORK, creator, &s, &created)) {
+        ServiceLdnNetwork seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.create_rc = created;
+        seen.info_rc = LdnAskInfo(&s, &g_ldn_info[0]);
+        LdnKeepNetwork(&g_ldn_info[0], &seen);
+        const bool passed = ServiceJudgeLdnNetwork(&seen, detail, sizeof(detail));
+        Report(SERVICE_LDN_NETWORK, CHECK_EXACT, passed, detail);
+        LdnDone(&s);
+    }
+    if (Start(SERVICE_LDN_UPDATES) && LdnHost(SERVICE_LDN_UPDATES, creator, &s, &created)) {
+        ServiceLdnUpdates seen;
+        memset(&seen, 0, sizeof(seen));
+        static LdnNodeLatestUpdate updates[SERVICE_LDN_NODES + 1u];
+        seen.create_rc = created;
+        seen.info_rc = LdnAskInfo(&s, &g_ldn_info[0]);
+        seen.nine_rc = LdnAskLatest(&s, &g_ldn_info[1], updates, SERVICE_LDN_NODES + 1u);
+        seen.none_rc = LdnAskLatest(&s, &g_ldn_info[1], updates, 0);
+        seen.first_rc = LdnAskLatest(&s, &g_ldn_info[1], updates, SERVICE_LDN_NODES);
+        seen.same = memcmp(&g_ldn_info[0], &g_ldn_info[1], sizeof(g_ldn_info[0])) == 0;
+        for (uint32_t i = 0; i < SERVICE_LDN_NODES; ++i) {
+            seen.first[i] = updates[i].state_change;
+        }
+        seen.second_rc = LdnAskLatest(&s, &g_ldn_info[1], updates, SERVICE_LDN_NODES);
+        for (uint32_t i = 0; i < SERVICE_LDN_NODES; ++i) {
+            seen.second[i] = updates[i].state_change;
+        }
+        const bool passed = ServiceJudgeLdnUpdates(&seen, detail, sizeof(detail));
+        Report(SERVICE_LDN_UPDATES, CHECK_EXACT, passed, detail);
+        LdnDone(&s);
+    }
+    if (Start(SERVICE_LDN_CONFIG) && LdnHost(SERVICE_LDN_CONFIG, creator, &s, &created)) {
+        ServiceLdnConfig seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.create_rc = created;
+        seen.info_rc = LdnAskInfo(&s, &g_ldn_info[0]);
+        const LdnNetworkInfo *network = &g_ldn_info[0];
+        seen.node_address = network->nodes[0].ip_addr.addr;
+        memcpy(seen.network_random, network->server_random, sizeof(seen.network_random));
+        memcpy(seen.network_session, network->network_id.session_id.random,
+               sizeof(seen.network_session));
+        seen.network_channel = network->common.channel;
+        struct {
+            u32 address, mask;
+        } ip = { 0, 0 };
+        seen.address_rc = serviceDispatchOut(&s, 2, ip);
+        seen.address = ip.address;
+        seen.mask = ip.mask;
+        LdnSecurityParameter security;
+        memset(&security, 0xEE, sizeof(security));
+        seen.security_rc = serviceDispatchOut(&s, 4, security);
+        memcpy(seen.random, security.server_random, sizeof(seen.random));
+        memcpy(seen.session, security.session_id.random, sizeof(seen.session));
+        LdnNetworkConfig config;
+        memset(&config, 0xEE, sizeof(config));
+        seen.config_rc = serviceDispatchOut(&s, 5, config);
+        seen.local_id = (uint64_t)config.intent_id.local_communication_id;
+        seen.scene = config.intent_id.scene_id;
+        seen.channel = config.channel;
+        seen.room = config.node_count_max;
+        seen.version = config.local_communication_version;
+        s16 reason = 0x7EEE;
+        seen.reason_rc = serviceDispatchOut(&s, 3, reason);
+        seen.reason = reason;
+        const bool passed = ServiceJudgeLdnConfig(&seen, detail, sizeof(detail));
+        Report(SERVICE_LDN_CONFIG, CHECK_EXACT, passed, detail);
+        LdnDone(&s);
+    }
+    if (Start(SERVICE_LDN_ADVERTISE) && LdnHost(SERVICE_LDN_ADVERTISE, creator, &s, &created)) {
+        ServiceLdnAdvertise seen;
+        memset(&seen, 0, sizeof(seen));
+        static u8 data[SERVICE_LDN_ADVERTISE_MAX + 1u];
+        for (uint32_t i = 0; i < sizeof(data); ++i) {
+            data[i] = (u8)(i * 7u + 3u);
+        }
+        const LdnNetworkInfo *network = &g_ldn_info[0];
+        seen.create_rc = created;
+        seen.full_rc = LdnAskAdvertise(&s, data, SERVICE_LDN_ADVERTISE_MAX);
+        seen.full_info_rc = LdnAskInfo(&s, &g_ldn_info[0]);
+        seen.full_size = network->advertise_data_size;
+        seen.full_same = memcmp(network->advertise_data, data, SERVICE_LDN_ADVERTISE_MAX) == 0;
+        seen.over_rc = LdnAskAdvertise(&s, data, SERVICE_LDN_ADVERTISE_MAX + 1u);
+        seen.over_info_rc = LdnAskInfo(&s, &g_ldn_info[0]);
+        seen.over_size = network->advertise_data_size;
+        seen.over_same = memcmp(network->advertise_data, data, SERVICE_LDN_ADVERTISE_MAX) == 0;
+        seen.empty_rc = LdnAskAdvertise(&s, NULL, 0);
+        seen.empty_info_rc = LdnAskInfo(&s, &g_ldn_info[0]);
+        seen.empty_size = network->advertise_data_size;
+        const bool passed = ServiceJudgeLdnAdvertise(&seen, detail, sizeof(detail));
+        Report(SERVICE_LDN_ADVERTISE, CHECK_EXACT, passed, detail);
+        LdnDone(&s);
+    }
+    if (Start(SERVICE_LDN_STATION) && LdnMade(SERVICE_LDN_STATION, creator, &s)) {
+        const Result up = LdnInitialize(&s);
+        if (LdnUp(SERVICE_LDN_STATION, &s, up)) {
+            ServiceLdnStation seen;
+            memset(&seen, 0, sizeof(seen));
+            seen.open_rc = R_FAILED(up) ? up : serviceDispatch(&s, 300);
+            LdnScanFilter filter;
+            memset(&filter, 0, sizeof(filter));
+            filter.network_id.intent_id.local_communication_id = (s64)SERVICE_LDN_LOCAL_ID;
+            filter.flags = LdnScanFilterFlag_LocalCommunicationId;
+            static LdnNetworkInfo found[4];
+            s16 count = -1, none = -1;
+            const u64 begun = armGetSystemTick();
+            seen.scan_rc = LdnAskScan(&s, &filter, found, 4, &count);
+            seen.ms = (uint32_t)(armTicksToNs(armGetSystemTick() - begun) / 1000000u);
+            seen.found = count;
+            seen.empty_rc = LdnAskScan(&s, &filter, found, 0, &none);
+            // A network with nothing in it: no node to join.
+            memset(&g_ldn_info[0], 0, sizeof(g_ldn_info[0]));
+            seen.connect_rc = LdnAskConnect(&s, &g_ldn_info[0]);
+            seen.state_rc = LdnGetState(&s, &seen.state);
+            serviceDispatch(&s, 301);
+            const bool passed = ServiceJudgeLdnStation(&seen, detail, sizeof(detail));
+            Report(SERVICE_LDN_STATION, CHECK_EXACT, passed, detail);
         }
         LdnDone(&s);
     }

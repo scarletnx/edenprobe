@@ -13,7 +13,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | am | 2 | the size of an application's account save: where the request carries the user, and whether the size is kept (`hle/service/am/service/application_functions.cpp`, `ExtendSaveData`, `GetSaveDataSize`) |
 | fsp | 2 | the temporary storage left as the launch before left it (`core.cpp`, `Load`, and `hle/service/filesystem/filesystem.cpp`, `InitTempStorage`) |
 | account | 2 | the user picked with nobody asked, by the command a game built for 19.0.0 sends (`hle/service/acc/acc.cpp`, `TrySelectUserWithoutInteraction`, and the acc:u0 table) |
-| ldn | 5 | the client process monitor a game asks ldn:u for on 18.0.0 (`hle/service/ldn/ldn.cpp`, `IUserServiceCreator`, `IClientProcessMonitor`), and ldn:u for one console alone: its states, its state change event, BadState (`lan_discovery.cpp`) |
+| ldn | 10 | the client process monitor a game asks ldn:u for on 18.0.0 (`hle/service/ldn/ldn.cpp`, `IUserServiceCreator`, `IClientProcessMonitor`), and ldn:u for one console alone: its states, its state change event, BadState, the network it creates and what it carries, and a station with nothing near (`lan_discovery.cpp`) |
 | set | 4 | the language codes a game picks its text by (`hle/service/set/settings_server.cpp`, `available_language_codes`) |
 | csrng | 2 | the random bytes a game seeds from (`hle/service/spl/spl_module.cpp`, `GenerateRandomBytes`) |
 | apm | 3 | apm and a session on it, which a game opens before it asks for the performance mode, and the configurations a session and SetCpuBoostMode set (`hle/service/apm/apm_interface.cpp`, `APM::OpenSession`, `apm_controller.cpp`) |
@@ -152,6 +152,11 @@ handle that is none.
 | ldn:u's state follows each step from Initialize to Finalize | GetState (0), then Initialize, OpenAccessPoint (200), CreateNetwork (202), DestroyNetwork (204), CloseAccessPoint (201), OpenStation (300), CloseStation (301) and Finalize (401), each followed by 0 | every command succeeds; 1, 2, 3, 2, 1, 4 and 1 after the first seven; None (0) or Error (6) before Initialize and after Finalize | exact |
 | the state change event is signaled when a network comes and goes | AttachStateChangeEvent (100), then the first seven steps above, the event cleared before each and waited on for a twentieth of a second after it | 100 and every step succeed; signaled after 202 and after 204 | exact |
 | a command out of its state is refused as BadState | before Initialize: 200, 300, 201, 301 and GetNetworkInfo (1); initialized: 202, 1, GetSecurityParameter (4), GetNetworkConfig (5) and GetNetworkInfoLatestUpdate (101); with the access point open: 1; as a station: 202 and 1 | each one `0x40CB` (BadState), with Initialize, 200, 201 and 300 between them succeeding | exact |
+| the network created is the one asked, with this console as node 0 | Initialize, 200, 202, then 1 | the intent asked, a session id, type Ldn (2), an SSID of 1 to 32 characters ending at its length, channel 1, 6 or 11, Product (1), room 4 and one node; node 0 with id 0, connected, "edenprobe", version 3, a unicast MAC that is the BSSID; nodes 1 to 7 with their ids, not connected | exact |
+| node 0's connection is read once, into one to eight entries | a network created, 1, then 101 into nine entries, into none, and twice into eight | nine `0x64CB` (InvalidBufferCount), none `0xC0CB` (BadInput); the first eight say node 0 connected (1) and nothing else, with 1's network; the second say nothing | exact |
+| the network's address, security parameter and config read back | a network created, 1, GetIpv4Address (2), 4, 5, GetDisconnectReason (3) | the mask a run of ones from the top bit, the address's network and host parts not nought; 4's server random and session id the network's; 5 the intent, room and version asked with the network's channel; reason 0 | exact |
+| advertise data up to 384 bytes is carried, and past it refused | a network created, SetAdvertiseData (206) of 384 bytes, of 385, of none, 1 after each | 384 carried as given; 385 `0x14CB` (AdvertiseDataTooLarge) with the 384 still carried; none leaves 0 carried | exact |
+| a station finds no network near and joins none with no node | Initialize, 300, Scan (102) into room for four and into none, Connect (302) to a network with no node, 0 | 300 and the Scan succeed and find nothing; no room `0xC0CB`; the Connect `0x3CCB` (InvalidNodeCount); state 4 | exact |
 
 The monitor's line carries both results, the handle and the firmware the machine says it runs.
 
@@ -170,7 +175,19 @@ the Qt frontend's). Before Initialize and after Finalize reden answers Error (6)
 creates and when the network goes, Ryujinx at every change of state; the case holds the two, and
 its line names every step it was signaled after. What reden takes in any state (DestroyNetwork,
 Disconnect, Scan, SetAdvertiseData, an OpenAccessPoint with the station open) is not asked out of
-it. The monitor and ldn:u are closed before the suite returns.
+it.
+
+The five cases after them each create the same network, as a game's CreateNetwork asks it:
+Product security, the user name "edenprobe", the local communication id `0x01000000000ED000`,
+scene `0x5A`, room for four nodes, version 3, and the channel left to the service. reden answers
+from the network it keeps: node 0 is this console, the channel for the Default asked is 6 (in
+Ryujinx too), advertise data is kept up to 384 bytes, and a node's change stays until
+GetNetworkInfoLatestUpdate reads it. With no room joined, reden's node 0 carries the address
+255.255.255.255 and the MAC 02:00:FF:FF:FF:FF while GetIpv4Address gives the interface's; a
+console's MAC is its radio's, so the network case holds a unicast MAC that is the BSSID and not
+its form, and no case holds node 0's address. The station's Scan waits for replies, a second in
+reden: the line says how long it took, and nothing judges it. The monitor and ldn:u are closed
+before the suite returns.
 
 ## set
 
@@ -896,6 +913,19 @@ account suite opens it; both cases are skipped as `unavailable` when it does not
 - **Q42.** What a console answers DestroyNetwork, Disconnect, Scan and SetAdvertiseData out of
   their state, and OpenAccessPoint with the station open: reden takes them all, Ryujinx refuses
   them as BadState, and no case asks them so.
+- **Q43.** Which channel a console's CreateNetwork picks for the Default: reden and Ryujinx put
+  6, and the network case takes 1, 6 or 11.
+- **Q44.** What a console answers SetAdvertiseData past 384 bytes: reden AdvertiseDataTooLarge
+  (`0x14CB`), Ryujinx InvalidArgument (`0xC0CB`); Ryujinx also refuses an empty buffer, which
+  reden and libnx take as a reset.
+- **Q45.** What a console's Connect answers a network with no node: reden refuses it as
+  InvalidNodeCount (`0x3CCB`) before it sends anything.
+- **Q46.** Whether a console's node 0 carries the address GetIpv4Address gives: reden, with no
+  room joined, carries 255.255.255.255 and gives the interface's.
+- **Q47.** What a console's CreateNetwork answers a room of nought or of nine: reden takes any,
+  Ryujinx refuses past eight, and libnx says one to eight; no case asks it.
+- **Q48.** How long a console's Scan takes with nothing near, and whether it takes fewer than
+  eight entries of GetNetworkInfoLatestUpdate (libnx says eight).
 
 ## The judge, pinned
 
@@ -1033,3 +1063,16 @@ is created and goes, and at every change, and fails one not signaled when the ne
 signaled, refused, and a step refused. ldn's BadState passes every command out of its state refused
 so, and fails an OpenStation taken before Initialize, a CreateNetwork as a station refused another
 way, a GetNetworkInfo answered with the access point open, and a step between refused.
+The ldn network passes reden's with no room and a console's with a radio's MAC, and fails the
+Default channel kept, no session id, an SSID past its length or empty, an empty node 0, a MAC that
+is not the BSSID or not unicast, a room of eight, free nodes with no ids, and each field of the
+intent, type, security, node count and node 0 off by itself. ldn's updates pass node 0 connected
+read once, and fail nine or none taken, the change never kept or kept after it was read, another
+network and a stray change. ldn's config passes the address in host order, reden's and a link
+local one, and fails it in network order or swapped, a mask of nought, a host part alone, the
+network's own address, a server random or session that is not the network's, the channel asked
+kept, the id, scene, room or version asked not given back, and a reason. ldn's advertise data
+passes 384 carried, 385 refused and none clearing, and fails 385 taken or refused another way, a
+refusal that changes or cuts the data, an empty buffer refused or leaving data, and the 384 cut
+short or otherwise. The ldn station passes nothing found in any time, and fails a network found, no
+room taken, a Connect that succeeds or fails another way, a scan refused, and a state that moved.

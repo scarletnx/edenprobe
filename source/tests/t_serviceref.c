@@ -374,6 +374,385 @@ static void CheckLdnRefused(void) {
                reden, reden_said, station, create, open, between);
 }
 
+static void CheckLdnNetwork(void) {
+    // reden with no room: node 0 at 255.255.255.255, its MAC 02:00 and that address.
+    ServiceLdnNetwork seen;
+    memset(&seen, 0, sizeof(seen));
+    static const uint8_t FAKE[6] = { 0x02u, 0x00u, 0xFFu, 0xFFu, 0xFFu, 0xFFu };
+    seen.local_id = SERVICE_LDN_LOCAL_ID;
+    seen.scene = SERVICE_LDN_SCENE;
+    seen.session[0] = 0x1234u;
+    seen.session[1] = 0x5678u;
+    memcpy(seen.bssid, FAKE, sizeof(FAKE));
+    seen.ssid_length = 18u;
+    strcpy(seen.ssid, "YuzuFakeSsidForLdn");
+    seen.channel = 6;
+    seen.link_level = 2;
+    seen.network_type = 2u;
+    seen.security_mode = 1u;
+    seen.room = (int8_t)SERVICE_LDN_ROOM;
+    seen.nodes = 1u;
+    seen.node[0].address = 0xFFFFFFFFu;
+    memcpy(seen.node[0].mac, FAKE, sizeof(FAKE));
+    seen.node[0].connected = 1u;
+    strcpy(seen.node[0].name, SERVICE_LDN_USER);
+    seen.node[0].version = SERVICE_LDN_VERSION;
+    for (uint32_t i = 1; i < SERVICE_LDN_NODES; ++i) {
+        seen.node[i].id = (int8_t)i;
+    }
+    const bool reden =
+        ServiceJudgeLdnNetwork(&seen, said, sizeof(said)) &&
+        strstr(said, "the network asked, with this console as node 0: CreateNetwork 0x0, "
+                     "GetNetworkInfo 0x0; intent 1000000000ed000 scene 5a, session 1234, type 2, "
+                     "SSID 18 \"YuzuFakeSsidForLdn\", channel 6") == said &&
+        strstr(said, "node 0 255.255.255.255 02:00:ff:ff:ff:ff (02:00 and its address) id 0 "
+                     "connected 1 \"edenprobe\" version 3, BSSID the same; free nodes") != NULL;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+    // A console's: a radio's MAC, channel 11, 32 characters of SSID.
+    ServiceLdnNetwork radio = seen;
+    static const uint8_t RADIO[6] = { 0x98u, 0xB6u, 0xE9u, 0x12u, 0x34u, 0x56u };
+    memcpy(radio.bssid, RADIO, sizeof(RADIO));
+    memcpy(radio.node[0].mac, RADIO, sizeof(RADIO));
+    radio.channel = 11;
+    radio.ssid_length = 32u;
+    memset(radio.ssid, 'a', 32u);
+    radio.ssid[32] = '\0';
+    const bool console = ServiceJudgeLdnNetwork(&radio, said, sizeof(said)) &&
+                         strstr(said, "(another form)") != NULL;
+    // The Default channel kept, no session id, an SSID past its length, a stub's empty node 0,
+    // a MAC that is not the BSSID or not unicast, a room of eight, free nodes with no ids.
+    ServiceLdnNetwork v = seen;
+    v.channel = 0;
+    const bool channel = !ServiceJudgeLdnNetwork(&v, said, sizeof(said)) &&
+                         strstr(said, "a channel that is not 1, 6 or 11") == said;
+    v = seen;
+    v.session[0] = v.session[1] = 0u;
+    const bool session = !ServiceJudgeLdnNetwork(&v, said, sizeof(said)) &&
+                         strstr(said, "no session id") == said;
+    v = seen;
+    v.ssid[18] = 'x';
+    const bool ssid = !ServiceJudgeLdnNetwork(&v, said, sizeof(said)) &&
+                      strstr(said, "an SSID that does not end at its length") == said;
+    v = seen;
+    memset(&v.node[0], 0, sizeof(v.node[0]));
+    const bool empty = !ServiceJudgeLdnNetwork(&v, said, sizeof(said)) &&
+                       strstr(said, "node 0 is not this console as asked") == said;
+    v = seen;
+    v.bssid[5] = 0x00u;
+    const bool bssid = !ServiceJudgeLdnNetwork(&v, said, sizeof(said)) &&
+                       strstr(said, "node 0's MAC is not a unicast BSSID") == said &&
+                       strstr(said, "BSSID another") != NULL;
+    v = seen;
+    v.bssid[0] = v.node[0].mac[0] = 0x03u;
+    const bool multicast = !ServiceJudgeLdnNetwork(&v, said, sizeof(said));
+    v = seen;
+    v.room = 8;
+    const bool room = !ServiceJudgeLdnNetwork(&v, said, sizeof(said)) &&
+                      strstr(said, "another room or node count") == said;
+    v = seen;
+    for (uint32_t i = 1; i < SERVICE_LDN_NODES; ++i) {
+        v.node[i].id = 0;
+    }
+    const bool ids = !ServiceJudgeLdnNetwork(&v, said, sizeof(said)) &&
+                     strstr(said, "a free node otherwise") == said &&
+                     strstr(said, "node 1 id 0 connected 0") != NULL;
+    // One field off at a time: the id or scene asked, the type, an empty SSID, the security, no
+    // node counted, node 0 not connected or of another id, name or version, a free node joined.
+    bool each = true;
+    v = seen;
+    v.local_id = 0u;
+    each = each && !ServiceJudgeLdnNetwork(&v, said, sizeof(said)) &&
+           strstr(said, "another intent") == said;
+    v = seen;
+    v.scene = 0u;
+    each = each && !ServiceJudgeLdnNetwork(&v, said, sizeof(said));
+    v = seen;
+    v.network_type = 1u;
+    each = each && !ServiceJudgeLdnNetwork(&v, said, sizeof(said)) &&
+           strstr(said, "another network type") == said;
+    v = seen;
+    v.ssid_length = 0u;
+    v.ssid[0] = '\0';
+    each = each && !ServiceJudgeLdnNetwork(&v, said, sizeof(said));
+    v = seen;
+    v.security_mode = 2u;
+    each = each && !ServiceJudgeLdnNetwork(&v, said, sizeof(said)) &&
+           strstr(said, "another security mode") == said;
+    v = seen;
+    v.nodes = 0u;
+    each = each && !ServiceJudgeLdnNetwork(&v, said, sizeof(said));
+    v = seen;
+    v.node[0].connected = 0u;
+    each = each && !ServiceJudgeLdnNetwork(&v, said, sizeof(said));
+    v = seen;
+    v.node[0].id = 1;
+    each = each && !ServiceJudgeLdnNetwork(&v, said, sizeof(said));
+    v = seen;
+    strcpy(v.node[0].name, "edenprob");
+    each = each && !ServiceJudgeLdnNetwork(&v, said, sizeof(said));
+    v = seen;
+    v.node[0].version = 0;
+    each = each && !ServiceJudgeLdnNetwork(&v, said, sizeof(said));
+    v = seen;
+    v.node[5].connected = 1u;
+    each = each && !ServiceJudgeLdnNetwork(&v, said, sizeof(said)) &&
+           strstr(said, "node 5 id 5 connected 1") != NULL;
+    CHECK_TRUE(SUITE, "service: ldn passes the network asked, with this console as node 0",
+               CHECK_NONE,
+               reden && console && channel && session && ssid && empty && bssid && multicast &&
+                   room && ids && each,
+               "reden %d \"%.200s\", console %d, channel %d, session %d, SSID %d, empty node %d, "
+               "BSSID %d, multicast %d, room %d, ids %d, each field %d",
+               reden, reden_said, console, channel, session, ssid, empty, bssid, multicast, room,
+               ids, each);
+}
+
+static void CheckLdnUpdates(void) {
+    // reden: node 0 connected in the first read of eight, nothing in the second.
+    ServiceLdnUpdates seen;
+    memset(&seen, 0, sizeof(seen));
+    seen.nine_rc = SERVICE_LDN_TOO_MANY;
+    seen.none_rc = SERVICE_LDN_NO_ROOM;
+    seen.first[0] = 1u;
+    seen.same = true;
+    const bool reden =
+        ServiceJudgeLdnUpdates(&seen, said, sizeof(said)) &&
+        strcmp(said, "node 0 connected, read once: CreateNetwork 0x0, GetNetworkInfo 0x0; nine "
+                     "0x64cb, none 0xc0cb; first 0x0 1 0 0 0 0 0 0 0 (the same network), second "
+                     "0x0 0 0 0 0 0 0 0 0") == 0;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+    // Nine taken, none taken, the change never kept, kept after it was read, another network.
+    ServiceLdnUpdates v = seen;
+    v.nine_rc = 0u;
+    const bool nine = !ServiceJudgeLdnUpdates(&v, said, sizeof(said)) &&
+                      strstr(said, "nine entries not refused as InvalidBufferCount") == said;
+    v = seen;
+    v.none_rc = 0u;
+    const bool none = !ServiceJudgeLdnUpdates(&v, said, sizeof(said)) &&
+                      strstr(said, "no entry not refused as BadInput") == said;
+    v = seen;
+    v.first[0] = 0u;
+    const bool never = !ServiceJudgeLdnUpdates(&v, said, sizeof(said)) &&
+                       strstr(said, "the first read is not node 0 connected alone") == said;
+    v = seen;
+    v.second[0] = 1u;
+    const bool kept = !ServiceJudgeLdnUpdates(&v, said, sizeof(said)) &&
+                      strstr(said, "the second read still says something") == said;
+    v = seen;
+    v.same = false;
+    const bool other = !ServiceJudgeLdnUpdates(&v, said, sizeof(said)) &&
+                       strstr(said, "the first read carries another network") == said;
+    v = seen;
+    v.first[3] = 2u;
+    const bool stray = !ServiceJudgeLdnUpdates(&v, said, sizeof(said));
+    // InvalidBufferCount and BadInput are LDN (203) 50 and 96, by hand.
+    const bool codes = SERVICE_LDN_TOO_MANY == 0x64CBu && SERVICE_LDN_NO_ROOM == 0xC0CBu;
+    CHECK_TRUE(SUITE, "service: ldn passes node 0's connection read once, into one to eight",
+               CHECK_NONE, reden && nine && none && never && kept && other && stray && codes,
+               "reden %d \"%.200s\", nine %d, none %d, never %d, kept %d, another network %d, "
+               "a stray change %d, codes %d",
+               reden, reden_said, nine, none, never, kept, other, stray, codes);
+}
+
+static void CheckLdnConfig(void) {
+    // reden: the interface's address turned around (192.168.1.21/16), the network's parameter.
+    ServiceLdnConfig seen;
+    memset(&seen, 0, sizeof(seen));
+    seen.address = 0xC0A80115u;
+    seen.mask = 0xFFFF0000u;
+    seen.node_address = 0xFFFFFFFFu;
+    seen.session[0] = seen.network_session[0] = 0x1234u;
+    seen.local_id = SERVICE_LDN_LOCAL_ID;
+    seen.scene = SERVICE_LDN_SCENE;
+    seen.channel = seen.network_channel = 6;
+    seen.room = (int8_t)SERVICE_LDN_ROOM;
+    seen.version = SERVICE_LDN_VERSION;
+    const bool reden =
+        ServiceJudgeLdnConfig(&seen, said, sizeof(said)) &&
+        strstr(said, "the address, the network's security parameter, the config asked: "
+                     "GetIpv4Address 0x0 192.168.1.21 mask 255.255.0.0, node 0 255.255.255.255; "
+                     "GetSecurityParameter 0x0 the network's;") == said;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+    // The address and mask in network order, or swapped; a mask of nought; the session not the
+    // network's; the channel asked (Default) and not the network's; a reason.
+    ServiceLdnConfig v = seen;
+    v.address = 0x1501A8C0u;
+    v.mask = 0x0000FFFFu;
+    const bool order = !ServiceJudgeLdnConfig(&v, said, sizeof(said)) &&
+                       strstr(said, "an address and mask that are not a host's in host order") ==
+                           said;
+    v = seen;
+    v.address = 0xFFFF0000u;
+    v.mask = 0xC0A80115u;
+    const bool swapped = !ServiceJudgeLdnConfig(&v, said, sizeof(said));
+    v = seen;
+    v.mask = 0u;
+    const bool nought = !ServiceJudgeLdnConfig(&v, said, sizeof(said));
+    v = seen;
+    v.session[0] = 0u;
+    const bool session = !ServiceJudgeLdnConfig(&v, said, sizeof(said)) &&
+                         strstr(said, "a security parameter that is not the network's") == said;
+    v = seen;
+    v.channel = 0;
+    const bool channel = !ServiceJudgeLdnConfig(&v, said, sizeof(said)) &&
+                         strstr(said, "a config that is not the one asked") == said;
+    v = seen;
+    v.reason = 3;
+    const bool reason = !ServiceJudgeLdnConfig(&v, said, sizeof(said)) &&
+                        strstr(said, "a disconnect reason") == said;
+    // A console's own address, 169.254.x.y/16 in host order, passes.
+    v = seen;
+    v.address = 0xA9FE0102u;
+    const bool local = ServiceJudgeLdnConfig(&v, said, sizeof(said));
+    // A host part alone, the network's own address, another server random, and the id, scene,
+    // room or version asked not given back.
+    bool each = true;
+    v = seen;
+    v.address = 0x00000115u;
+    each = each && !ServiceJudgeLdnConfig(&v, said, sizeof(said));
+    v = seen;
+    v.address = 0xC0A80000u;
+    each = each && !ServiceJudgeLdnConfig(&v, said, sizeof(said));
+    v = seen;
+    v.random[0] = 1u;
+    each = each && !ServiceJudgeLdnConfig(&v, said, sizeof(said)) &&
+           strstr(said, "a security parameter that is not the network's") == said;
+    v = seen;
+    v.local_id = 0u;
+    each = each && !ServiceJudgeLdnConfig(&v, said, sizeof(said));
+    v = seen;
+    v.scene = 0u;
+    each = each && !ServiceJudgeLdnConfig(&v, said, sizeof(said));
+    v = seen;
+    v.room = 8;
+    each = each && !ServiceJudgeLdnConfig(&v, said, sizeof(said));
+    v = seen;
+    v.version = 0;
+    each = each && !ServiceJudgeLdnConfig(&v, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: ldn passes the address in host order and the network's config",
+               CHECK_NONE,
+               reden && order && swapped && nought && session && channel && reason && local &&
+                   each,
+               "reden %d \"%.200s\", network order %d, swapped %d, no mask %d, session %d, "
+               "channel %d, reason %d, link local %d, each field %d",
+               reden, reden_said, order, swapped, nought, session, channel, reason, local, each);
+}
+
+static void CheckLdnAdvertise(void) {
+    // reden: the 384 carried, the 385 refused and nothing changed, none clears.
+    ServiceLdnAdvertise seen;
+    memset(&seen, 0, sizeof(seen));
+    seen.over_rc = SERVICE_LDN_TOO_MUCH;
+    seen.full_size = seen.over_size = SERVICE_LDN_ADVERTISE_MAX;
+    seen.full_same = seen.over_same = true;
+    const bool reden =
+        ServiceJudgeLdnAdvertise(&seen, said, sizeof(said)) &&
+        strcmp(said, "384 bytes carried, 385 refused, none clears: 384 bytes 0x0, carried 384 (as "
+                     "given, 0x0); 385 0x14cb, carried 384 (the 384, 0x0); none 0x0, carried 0 "
+                     "(0x0); CreateNetwork 0x0") == 0;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+    // 385 taken, 385 refused another way, 385 refused but cut to 384 of its own, an empty buffer
+    // refused or keeping the data, the 384 cut short.
+    ServiceLdnAdvertise v = seen;
+    v.over_rc = 0u;
+    const bool taken = !ServiceJudgeLdnAdvertise(&v, said, sizeof(said)) &&
+                       strstr(said, "385 bytes not refused as too large") == said;
+    v = seen;
+    v.over_rc = SERVICE_LDN_NO_ROOM;
+    const bool other = !ServiceJudgeLdnAdvertise(&v, said, sizeof(said));
+    v = seen;
+    v.over_same = false;
+    const bool changed = !ServiceJudgeLdnAdvertise(&v, said, sizeof(said)) &&
+                         strstr(said, "the 385 refused changed the data") == said;
+    v = seen;
+    v.empty_rc = SERVICE_LDN_NO_ROOM;
+    const bool empty = !ServiceJudgeLdnAdvertise(&v, said, sizeof(said)) &&
+                       strstr(said, "refused") == said;
+    v = seen;
+    v.empty_size = SERVICE_LDN_ADVERTISE_MAX;
+    const bool left = !ServiceJudgeLdnAdvertise(&v, said, sizeof(said)) &&
+                      strstr(said, "an empty buffer left data carried") == said;
+    v = seen;
+    v.full_size = 256u;
+    const bool short_ = !ServiceJudgeLdnAdvertise(&v, said, sizeof(said)) &&
+                        strstr(said, "the 384 bytes not carried as given") == said;
+    // Other bytes than given, and a refusal that cut what was carried.
+    v = seen;
+    v.full_same = false;
+    const bool bytes = !ServiceJudgeLdnAdvertise(&v, said, sizeof(said)) &&
+                       strstr(said, "the 384 bytes not carried as given") == said;
+    v = seen;
+    v.over_size = 0u;
+    const bool cut = !ServiceJudgeLdnAdvertise(&v, said, sizeof(said)) &&
+                     strstr(said, "the 385 refused changed the data") == said;
+    // AdvertiseDataTooLarge is LDN (203) 10, by hand.
+    const bool code = SERVICE_LDN_TOO_MUCH == 0x14CBu;
+    CHECK_TRUE(SUITE, "service: ldn passes advertise data of 384 carried and 385 refused",
+               CHECK_NONE,
+               reden && taken && other && changed && empty && left && short_ && bytes && cut &&
+                   code,
+               "reden %d \"%.200s\", 385 taken %d, another refusal %d, changed %d, empty refused "
+               "%d, left %d, cut short %d, other bytes %d, cut by the refusal %d, code %d",
+               reden, reden_said, taken, other, changed, empty, left, short_, bytes, cut, code);
+}
+
+static void CheckLdnStation(void) {
+    // reden: a second for nothing, no room refused, a network with no node refused.
+    ServiceLdnStation seen;
+    memset(&seen, 0, sizeof(seen));
+    seen.empty_rc = SERVICE_LDN_NO_ROOM;
+    seen.connect_rc = SERVICE_LDN_NODELESS;
+    seen.state = 4u;
+    seen.ms = 1003u;
+    const bool reden =
+        ServiceJudgeLdnStation(&seen, said, sizeof(said)) &&
+        strcmp(said, "nothing near, and nothing to join: OpenStation 0x0; Scan 0x0, 0 found in "
+                     "1003 ms; into no room 0xc0cb; Connect 0x3ccb; state 4 (0x0)") == 0;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+    // Any time passes; a network found, no room taken, a Connect that answers success or
+    // another refusal, a state that moved to StationConnected.
+    ServiceLdnStation v = seen;
+    v.ms = 0u;
+    const bool quick = ServiceJudgeLdnStation(&v, said, sizeof(said));
+    v = seen;
+    v.found = 1;
+    const bool found = !ServiceJudgeLdnStation(&v, said, sizeof(said)) &&
+                       strstr(said, "a network found where none is near") == said;
+    v = seen;
+    v.empty_rc = 0u;
+    const bool room = !ServiceJudgeLdnStation(&v, said, sizeof(said)) &&
+                      strstr(said, "a scan into no room not refused as BadInput") == said;
+    v = seen;
+    v.connect_rc = 0u;
+    const bool joined =
+        !ServiceJudgeLdnStation(&v, said, sizeof(said)) &&
+        strstr(said, "a network with no node joined or refused otherwise") == said;
+    v = seen;
+    v.connect_rc = SERVICE_RESULT(203, 64);
+    const bool failed = !ServiceJudgeLdnStation(&v, said, sizeof(said));
+    v = seen;
+    v.state = 5u;
+    const bool moved = !ServiceJudgeLdnStation(&v, said, sizeof(said)) &&
+                       strstr(said, "the state moved from StationOpened") == said;
+    v = seen;
+    v.scan_rc = SERVICE_LDN_WRONG_STATE;
+    const bool scan = !ServiceJudgeLdnStation(&v, said, sizeof(said)) &&
+                      strstr(said, "refused") == said;
+    // InvalidNodeCount is LDN (203) 30, by hand.
+    const bool code = SERVICE_LDN_NODELESS == 0x3CCBu;
+    CHECK_TRUE(SUITE, "service: ldn passes a station with nothing near and nothing to join",
+               CHECK_NONE,
+               reden && quick && found && room && joined && failed && moved && scan && code,
+               "reden %d \"%.200s\", any time %d, found %d, no room %d, joined %d, another "
+               "refusal %d, moved %d, scan refused %d, code %d",
+               reden, reden_said, quick, found, room, joined, failed, moved, scan, code);
+}
+
 /// reden's language table, the first few codes as the console spells them, little-endian.
 static uint64_t Code(const char *text) {
     uint64_t code = 0;
@@ -2019,6 +2398,11 @@ void RunReferenceService(void) {
     CheckLdnStates();
     CheckLdnEvent();
     CheckLdnRefused();
+    CheckLdnNetwork();
+    CheckLdnUpdates();
+    CheckLdnConfig();
+    CheckLdnAdvertise();
+    CheckLdnStation();
     CheckLanguages();
     CheckRandom();
     CheckNfpFilter();

@@ -204,6 +204,11 @@ typedef enum {
     SERVICE_LDN_STATES,   ///< ldn: the state after each step, from Initialize to Finalize
     SERVICE_LDN_EVENT,    ///< ldn: the state change event, when a network comes and goes
     SERVICE_LDN_REFUSED,  ///< ldn: commands out of their state refused as BadState
+    SERVICE_LDN_NETWORK,  ///< ldn: the network created, with this console as node 0
+    SERVICE_LDN_UPDATES,  ///< ldn: node 0's connection, read once
+    SERVICE_LDN_CONFIG,   ///< ldn: the address, security parameter, config and reason
+    SERVICE_LDN_ADVERTISE, ///< ldn: advertise data up to 384 bytes, past it refused
+    SERVICE_LDN_STATION,  ///< ldn: a station finds nothing near, joins no empty network
     SERVICE_SET_OPENS,    ///< set: set opens and lists its language codes (none tier)
     SERVICE_SET_LANGUAGE, ///< set: GetLanguageCode is one of them
     SERVICE_SET_MAKE,     ///< set: MakeLanguageCode gives the list's code at each index
@@ -391,6 +396,17 @@ bool ServiceJudgeLdnMonitor(const ServiceLdnMonitor *seen, char *out, size_t out
 /// The commands the BadState case asks out of their state, and the steps it takes between them.
 #define SERVICE_LDN_ASKS 13u
 #define SERVICE_LDN_BETWEEN 4u
+/// More of ldn's answers (reden `ldn_results.h`): AdvertiseDataTooLarge (10), data past
+/// SERVICE_LDN_ADVERTISE_MAX bytes; InvalidNodeCount (30), a network to join with no node in it;
+/// InvalidBufferCount (50), more node updates asked for than a network has nodes; BadInput (96),
+/// an array with no room in it.
+#define SERVICE_LDN_TOO_MUCH SERVICE_RESULT(203, 10)
+#define SERVICE_LDN_NODELESS SERVICE_RESULT(203, 30)
+#define SERVICE_LDN_TOO_MANY SERVICE_RESULT(203, 50)
+#define SERVICE_LDN_NO_ROOM SERVICE_RESULT(203, 96)
+/// The most advertise data a network carries, and the nodes a network has.
+#define SERVICE_LDN_ADVERTISE_MAX 384u
+#define SERVICE_LDN_NODES 8u
 
 /// ldn:u's state (GetState, 0) on an object of its own (CreateUserLocalCommunicationService, 0)
 /// before Initialize and after each step of SERVICE_LDN_STEPS, with what each step and each
@@ -433,6 +449,108 @@ typedef struct {
     uint32_t between[SERVICE_LDN_BETWEEN];
 } ServiceLdnRefused;
 bool ServiceJudgeLdnRefused(const ServiceLdnRefused *seen, char *out, size_t out_size);
+
+/// A node of a network as the ldn cases keep it (nn::ldn::NodeInfo): its address, in the host
+/// order the console gives it, its MAC, its id, whether it is connected, its user name and its
+/// local communication version.
+typedef struct {
+    uint32_t address;
+    uint8_t mac[6];
+    int8_t id;
+    uint8_t connected;
+    char name[33];
+    int16_t version;
+} ServiceLdnNode;
+
+/// GetNetworkInfo (1) of the network an object of its own created (CreateNetwork, 202, of what
+/// SERVICE_LDN_* describe), with what both answered. Passes when both succeed and the network
+/// carries the intent asked, a session id that is not nought, network type Ldn (2), an SSID of
+/// one to 32 characters that ends where its length says, a 2.4 GHz channel (1, 6 or 11), Product
+/// security (1), the room asked and one node: node 0 with id 0, connected, the user name and
+/// version asked, and a unicast MAC that is the network's BSSID; nodes 1 to 7 with their own ids,
+/// not connected. reden puts channel 6 for the Default asked, as Ryujinx does; with no room joined
+/// its node 0 carries the address 255.255.255.255 and the MAC 02:00 and that address, which a
+/// console's radio does not, so neither is held (`lan_discovery.cpp`, `CreateNetwork`).
+typedef struct {
+    uint32_t create_rc, info_rc;
+    uint64_t local_id;
+    uint16_t scene;
+    uint64_t session[2];
+    uint8_t bssid[6];
+    uint8_t ssid_length;
+    char ssid[33];
+    int16_t channel;
+    int8_t link_level;
+    uint8_t network_type;
+    uint16_t security_mode;
+    int8_t room;
+    uint8_t nodes;
+    ServiceLdnNode node[SERVICE_LDN_NODES];
+} ServiceLdnNetwork;
+bool ServiceJudgeLdnNetwork(const ServiceLdnNetwork *seen, char *out, size_t out_size);
+
+/// GetNetworkInfoLatestUpdate (101) of the network an object just created: into nine entries,
+/// into none, then twice into eight, and whether the network the first of those gave is the one
+/// GetNetworkInfo gives. Passes when nine is refused as SERVICE_LDN_TOO_MANY and none as
+/// SERVICE_LDN_NO_ROOM, the rest succeed, the first eight say node 0 connected (1) and nothing of
+/// the others with GetNetworkInfo's network, and the second eight say nothing: reden keeps each
+/// node's change until it is read once (`lan_discovery.cpp`, `GetNetworkInfo`).
+typedef struct {
+    uint32_t create_rc, info_rc, nine_rc, none_rc, first_rc, second_rc;
+    uint8_t first[SERVICE_LDN_NODES], second[SERVICE_LDN_NODES];
+    bool same;
+} ServiceLdnUpdates;
+bool ServiceJudgeLdnUpdates(const ServiceLdnUpdates *seen, char *out, size_t out_size);
+
+/// The network an object just created, asked the other ways: GetIpv4Address (2), the address and
+/// the mask; GetSecurityParameter (4), against GetNetworkInfo's server random and session id;
+/// GetNetworkConfig (5), against what CreateNetwork asked and the network's channel; and
+/// GetDisconnectReason (3). node_address is node 0's, which the line shows and nothing holds.
+/// Passes when all succeed; the mask is a run of ones from the top bit with the address's
+/// network and host parts both not nought, which only the console's order, both in host order
+/// and the address first, gives (reden turns the interface's around, `GetIpv4Address`); the
+/// security parameter is the network's; the config is the one asked with the network's
+/// channel; and the reason is None (0).
+typedef struct {
+    uint32_t create_rc, info_rc, address_rc, security_rc, config_rc, reason_rc;
+    uint32_t address, mask, node_address;
+    uint8_t random[16], network_random[16];
+    uint64_t session[2], network_session[2];
+    uint64_t local_id;
+    uint16_t scene;
+    int16_t channel, network_channel;
+    int8_t room;
+    int16_t version, reason;
+} ServiceLdnConfig;
+bool ServiceJudgeLdnConfig(const ServiceLdnConfig *seen, char *out, size_t out_size);
+
+/// SetAdvertiseData (206) on the network an object just created: SERVICE_LDN_ADVERTISE_MAX bytes,
+/// then one more, then none, with GetNetworkInfo after each: its size and whether the bytes are
+/// the 384 given. Passes when all but the second succeed, the network carries the 384, the 385
+/// are refused as SERVICE_LDN_TOO_MUCH with the 384 still carried, and none leaves nothing:
+/// reden refuses data past its room and takes an empty buffer as a reset, as libnx's
+/// ldnSetAdvertiseData says (`lan_discovery.cpp`, `SetAdvertiseData`).
+typedef struct {
+    uint32_t create_rc, full_rc, full_info_rc, over_rc, over_info_rc, empty_rc, empty_info_rc;
+    uint32_t full_size, over_size, empty_size;
+    bool full_same, over_same;
+} ServiceLdnAdvertise;
+bool ServiceJudgeLdnAdvertise(const ServiceLdnAdvertise *seen, char *out, size_t out_size);
+
+/// An object opened as a station (OpenStation, 300) with no network near: Scan (102, the Default
+/// channel, filtered on SERVICE_LDN_LOCAL_ID) into room for four networks and how long it took,
+/// the same Scan into no room, Connect (302) to a network with no node in it, then GetState.
+/// Passes when 300 and the first Scan succeed, the scan finds nothing, no room is refused as
+/// SERVICE_LDN_NO_ROOM and the Connect as SERVICE_LDN_NODELESS, and the state is still
+/// StationOpened (4): reden waits a second for replies that do not come, and refuses a network
+/// with no node before it sends anything (`lan_discovery.cpp`, `Scan`, `Connect`). The time is
+/// on the line and nothing judges it.
+typedef struct {
+    uint32_t open_rc, scan_rc, empty_rc, connect_rc, state_rc;
+    int32_t found;
+    uint32_t state, ms;
+} ServiceLdnStation;
+bool ServiceJudgeLdnStation(const ServiceLdnStation *seen, char *out, size_t out_size);
 
 /// set's language codes: what GetAvailableLanguageCodes2 (5) listed, GetLanguageCode (0), what
 /// MakeLanguageCode (2) made of each index of the list and of the first index past it, and
