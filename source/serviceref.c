@@ -30,6 +30,16 @@ static const struct {
     [SERVICE_LDN_EVENT] = { "ldn",
                             "the state change event is signaled when a network comes and goes" },
     [SERVICE_LDN_REFUSED] = { "ldn", "a command out of its state is refused as BadState" },
+    [SERVICE_LDN_NETWORK] = { "ldn",
+                              "the network created is the one asked, with this console as node 0" },
+    [SERVICE_LDN_UPDATES] = { "ldn",
+                              "node 0's connection is read once, into one to eight entries" },
+    [SERVICE_LDN_CONFIG] = { "ldn",
+                             "the network's address, security parameter and config read back" },
+    [SERVICE_LDN_ADVERTISE] = { "ldn",
+                                "advertise data up to 384 bytes is carried, and past it refused" },
+    [SERVICE_LDN_STATION] = { "ldn",
+                              "a station finds no network near and joins none with no node" },
     [SERVICE_SET_OPENS] = { "set", "set opens and lists its language codes" },
     [SERVICE_SET_LANGUAGE] = { "set", "GetLanguageCode is one of the codes set lists" },
     [SERVICE_SET_MAKE] = { "set", "MakeLanguageCode makes each index into the code listed there" },
@@ -467,6 +477,200 @@ bool ServiceJudgeLdnRefused(const ServiceLdnRefused *seen, char *out, size_t out
              (unsigned)a[9], (unsigned)a[10], (unsigned)a[11], (unsigned)a[12], (unsigned)b[0],
              (unsigned)b[1], (unsigned)b[2], (unsigned)b[3]);
     return step == SERVICE_LDN_BETWEEN && ask == SERVICE_LDN_ASKS;
+}
+
+/// A unicast MAC that is not nought.
+static bool LdnUnicast(const uint8_t mac[6]) {
+    static const uint8_t NONE[6];
+    return (mac[0] & 1u) == 0u && memcmp(mac, NONE, sizeof(NONE)) != 0;
+}
+
+/// 02:00 and the address's octets: the MAC ldn_mitm and reden make of an address.
+static bool LdnFakeMac(const uint8_t mac[6], uint32_t address) {
+    return mac[0] == 2u && mac[1] == 0u && mac[2] == (uint8_t)(address >> 24) &&
+           mac[3] == (uint8_t)(address >> 16) && mac[4] == (uint8_t)(address >> 8) &&
+           mac[5] == (uint8_t)address;
+}
+
+bool ServiceJudgeLdnNetwork(const ServiceLdnNetwork *seen, char *out, size_t out_size) {
+    const ServiceLdnNode *zero = &seen->node[0];
+    uint32_t odd = SERVICE_LDN_NODES;
+    for (uint32_t i = SERVICE_LDN_NODES; i > 1u; --i) {
+        const ServiceLdnNode *node = &seen->node[i - 1u];
+        if (node->id != (int8_t)(i - 1u) || node->connected != 0u) {
+            odd = i - 1u;
+        }
+    }
+    const bool refused = seen->create_rc != 0u || seen->info_rc != 0u;
+    const bool intent = seen->local_id == SERVICE_LDN_LOCAL_ID && seen->scene == SERVICE_LDN_SCENE;
+    const bool session = seen->session[0] != 0u || seen->session[1] != 0u;
+    const bool ssid = seen->ssid_length >= 1u && seen->ssid_length <= 32u &&
+                      seen->ssid[seen->ssid_length] == '\0';
+    const bool channel = seen->channel == 1 || seen->channel == 6 || seen->channel == 11;
+    const bool sized = seen->room == (int8_t)SERVICE_LDN_ROOM && seen->nodes == 1u;
+    const bool me = zero->id == 0 && zero->connected == 1u &&
+                    strcmp(zero->name, SERVICE_LDN_USER) == 0 &&
+                    zero->version == SERVICE_LDN_VERSION;
+    const bool bssid = memcmp(zero->mac, seen->bssid, sizeof(seen->bssid)) == 0;
+    const bool mac = LdnUnicast(zero->mac) && bssid;
+    const char *const verdict =
+        refused                     ? "refused"
+        : !intent                   ? "another intent"
+        : !session                  ? "no session id"
+        : seen->network_type != 2u  ? "another network type"
+        : !ssid                     ? "an SSID that does not end at its length"
+        : !channel                  ? "a channel that is not 1, 6 or 11"
+        : seen->security_mode != 1u ? "another security mode"
+        : !sized                    ? "another room or node count"
+        : !me                       ? "node 0 is not this console as asked"
+        : !mac                      ? "node 0's MAC is not a unicast BSSID"
+        : odd < SERVICE_LDN_NODES   ? "a free node otherwise"
+                                    : "the network asked, with this console as node 0";
+    char free_nodes[48];
+    if (odd < SERVICE_LDN_NODES) {
+        snprintf(free_nodes, sizeof(free_nodes), "node %u id %d connected %u", (unsigned)odd,
+                 (int)seen->node[odd].id, (unsigned)seen->node[odd].connected);
+    } else {
+        snprintf(free_nodes, sizeof(free_nodes), "free nodes with their ids, not connected");
+    }
+    const uint32_t a = zero->address;
+    const uint8_t *m = zero->mac;
+    snprintf(out, out_size,
+             "%s: CreateNetwork 0x%x, GetNetworkInfo 0x%x; intent %llx scene %x, session %llx, "
+             "type %u, SSID %u \"%.32s\", channel %d, link level %d, security %u, room %d, nodes "
+             "%u; node 0 %u.%u.%u.%u %02x:%02x:%02x:%02x:%02x:%02x (%s) id %d connected %u "
+             "\"%.32s\" version %d, BSSID %s; %s",
+             verdict, (unsigned)seen->create_rc, (unsigned)seen->info_rc,
+             (unsigned long long)seen->local_id, (unsigned)seen->scene,
+             (unsigned long long)seen->session[0], (unsigned)seen->network_type,
+             (unsigned)seen->ssid_length, seen->ssid, (int)seen->channel, (int)seen->link_level,
+             (unsigned)seen->security_mode, (int)seen->room, (unsigned)seen->nodes,
+             (unsigned)(a >> 24), (unsigned)((a >> 16) & 0xFFu), (unsigned)((a >> 8) & 0xFFu),
+             (unsigned)(a & 0xFFu), m[0], m[1], m[2], m[3], m[4], m[5],
+             LdnFakeMac(m, a) ? "02:00 and its address" : "another form", (int)zero->id,
+             (unsigned)zero->connected, zero->name, (int)zero->version,
+             bssid ? "the same" : "another", free_nodes);
+    return !refused && intent && session && seen->network_type == 2u && ssid && channel &&
+           seen->security_mode == 1u && sized && me && mac && odd == SERVICE_LDN_NODES;
+}
+
+bool ServiceJudgeLdnUpdates(const ServiceLdnUpdates *seen, char *out, size_t out_size) {
+    bool others = true, cleared = true;
+    for (uint32_t i = 0; i < SERVICE_LDN_NODES; ++i) {
+        others = others && (i == 0u || seen->first[i] == 0u);
+        cleared = cleared && seen->second[i] == 0u;
+    }
+    const bool refused = seen->create_rc != 0u || seen->info_rc != 0u || seen->first_rc != 0u ||
+                         seen->second_rc != 0u;
+    const bool first = seen->first[0] == 1u && others;
+    const char *const verdict =
+        refused                                  ? "refused"
+        : seen->nine_rc != SERVICE_LDN_TOO_MANY ? "nine entries not refused as InvalidBufferCount"
+        : seen->none_rc != SERVICE_LDN_NO_ROOM  ? "no entry not refused as BadInput"
+        : !first                                ? "the first read is not node 0 connected alone"
+        : !seen->same                           ? "the first read carries another network"
+        : !cleared                              ? "the second read still says something"
+                                                : "node 0 connected, read once";
+    const uint8_t *f = seen->first, *s = seen->second;
+    snprintf(out, out_size,
+             "%s: CreateNetwork 0x%x, GetNetworkInfo 0x%x; nine 0x%x, none 0x%x; first 0x%x %u %u "
+             "%u %u %u %u %u %u (%s network), second 0x%x %u %u %u %u %u %u %u %u",
+             verdict, (unsigned)seen->create_rc, (unsigned)seen->info_rc,
+             (unsigned)seen->nine_rc, (unsigned)seen->none_rc, (unsigned)seen->first_rc, f[0],
+             f[1], f[2], f[3], f[4], f[5], f[6], f[7], seen->same ? "the same" : "another",
+             (unsigned)seen->second_rc, s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]);
+    return !refused && seen->nine_rc == SERVICE_LDN_TOO_MANY &&
+           seen->none_rc == SERVICE_LDN_NO_ROOM && first && seen->same && cleared;
+}
+
+/// A mask that is a run of ones from the top bit (a mask of nought leaves no network part).
+static bool LdnMask(uint32_t mask) {
+    const uint32_t rest = ~mask;
+    return (rest & (rest + 1u)) == 0u;
+}
+
+bool ServiceJudgeLdnConfig(const ServiceLdnConfig *seen, char *out, size_t out_size) {
+    const bool refused = seen->create_rc != 0u || seen->info_rc != 0u ||
+                         seen->address_rc != 0u || seen->security_rc != 0u ||
+                         seen->config_rc != 0u || seen->reason_rc != 0u;
+    const bool address = LdnMask(seen->mask) && (seen->address & seen->mask) != 0u &&
+                         (seen->address & ~seen->mask) != 0u;
+    const bool security = memcmp(seen->random, seen->network_random, sizeof(seen->random)) == 0 &&
+                          memcmp(seen->session, seen->network_session, sizeof(seen->session)) == 0;
+    const bool config = seen->local_id == SERVICE_LDN_LOCAL_ID &&
+                        seen->scene == SERVICE_LDN_SCENE &&
+                        seen->channel == seen->network_channel &&
+                        seen->room == (int8_t)SERVICE_LDN_ROOM &&
+                        seen->version == SERVICE_LDN_VERSION;
+    const char *const verdict =
+        refused             ? "refused"
+        : !address          ? "an address and mask that are not a host's in host order"
+        : !security         ? "a security parameter that is not the network's"
+        : !config           ? "a config that is not the one asked"
+        : seen->reason != 0 ? "a disconnect reason"
+                            : "the address, the network's security parameter, the config asked";
+    const uint32_t a = seen->address, m = seen->mask, n = seen->node_address;
+    snprintf(out, out_size,
+             "%s: GetIpv4Address 0x%x %u.%u.%u.%u mask %u.%u.%u.%u, node 0 %u.%u.%u.%u; "
+             "GetSecurityParameter 0x%x %s; GetNetworkConfig 0x%x %llx scene %x channel %d (the "
+             "network's %d) room %d version %d; GetDisconnectReason 0x%x %d; CreateNetwork 0x%x, "
+             "GetNetworkInfo 0x%x",
+             verdict, (unsigned)seen->address_rc, (unsigned)(a >> 24),
+             (unsigned)((a >> 16) & 0xFFu), (unsigned)((a >> 8) & 0xFFu), (unsigned)(a & 0xFFu),
+             (unsigned)(m >> 24), (unsigned)((m >> 16) & 0xFFu), (unsigned)((m >> 8) & 0xFFu),
+             (unsigned)(m & 0xFFu), (unsigned)(n >> 24), (unsigned)((n >> 16) & 0xFFu),
+             (unsigned)((n >> 8) & 0xFFu), (unsigned)(n & 0xFFu), (unsigned)seen->security_rc,
+             security ? "the network's" : "another", (unsigned)seen->config_rc,
+             (unsigned long long)seen->local_id, (unsigned)seen->scene, (int)seen->channel,
+             (int)seen->network_channel, (int)seen->room, (int)seen->version,
+             (unsigned)seen->reason_rc, (int)seen->reason, (unsigned)seen->create_rc,
+             (unsigned)seen->info_rc);
+    return !refused && address && security && config && seen->reason == 0;
+}
+
+bool ServiceJudgeLdnAdvertise(const ServiceLdnAdvertise *seen, char *out, size_t out_size) {
+    const bool refused = seen->create_rc != 0u || seen->full_rc != 0u ||
+                         seen->full_info_rc != 0u || seen->over_info_rc != 0u ||
+                         seen->empty_rc != 0u || seen->empty_info_rc != 0u;
+    const bool full = seen->full_size == SERVICE_LDN_ADVERTISE_MAX && seen->full_same;
+    const bool kept = seen->over_size == SERVICE_LDN_ADVERTISE_MAX && seen->over_same;
+    const bool over = seen->over_rc == SERVICE_LDN_TOO_MUCH;
+    const char *const verdict = refused  ? "refused"
+                                : !full  ? "the 384 bytes not carried as given"
+                                : !over  ? "385 bytes not refused as too large"
+                                : !kept  ? "the 385 refused changed the data"
+                                : seen->empty_size != 0u ? "an empty buffer left data carried"
+                                         : "384 bytes carried, 385 refused, none clears";
+    snprintf(out, out_size,
+             "%s: 384 bytes 0x%x, carried %u (%s, 0x%x); 385 0x%x, carried %u (%s, 0x%x); none "
+             "0x%x, carried %u (0x%x); CreateNetwork 0x%x",
+             verdict, (unsigned)seen->full_rc, (unsigned)seen->full_size,
+             seen->full_same ? "as given" : "otherwise", (unsigned)seen->full_info_rc,
+             (unsigned)seen->over_rc, (unsigned)seen->over_size,
+             seen->over_same ? "the 384" : "otherwise", (unsigned)seen->over_info_rc,
+             (unsigned)seen->empty_rc, (unsigned)seen->empty_size, (unsigned)seen->empty_info_rc,
+             (unsigned)seen->create_rc);
+    return !refused && full && over && kept && seen->empty_size == 0u;
+}
+
+bool ServiceJudgeLdnStation(const ServiceLdnStation *seen, char *out, size_t out_size) {
+    const bool refused = seen->open_rc != 0u || seen->scan_rc != 0u || seen->state_rc != 0u;
+    const bool room = seen->empty_rc == SERVICE_LDN_NO_ROOM;
+    const bool nodeless = seen->connect_rc == SERVICE_LDN_NODELESS;
+    const char *const verdict =
+        refused               ? "refused"
+        : seen->found != 0    ? "a network found where none is near"
+        : !room               ? "a scan into no room not refused as BadInput"
+        : !nodeless           ? "a network with no node joined or refused otherwise"
+        : seen->state != 4u   ? "the state moved from StationOpened"
+                              : "nothing near, and nothing to join";
+    snprintf(out, out_size,
+             "%s: OpenStation 0x%x; Scan 0x%x, %d found in %u ms; into no room 0x%x; Connect 0x%x; "
+             "state %u (0x%x)",
+             verdict, (unsigned)seen->open_rc, (unsigned)seen->scan_rc, (int)seen->found,
+             (unsigned)seen->ms, (unsigned)seen->empty_rc, (unsigned)seen->connect_rc,
+             (unsigned)seen->state, (unsigned)seen->state_rc);
+    return !refused && seen->found == 0 && room && nodeless && seen->state == 4u;
 }
 
 void ServiceLanguageText(uint64_t code, char out[9]) {
