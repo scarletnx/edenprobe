@@ -240,6 +240,140 @@ static void CheckLdnMonitor(void) {
                reden, reden_said, none, zero_handle, not_registered, invalid, new_refused, old);
 }
 
+static void CheckLdnStates(void) {
+    // reden: Error before Initialize and after Finalize, the seven states between.
+    static const uint32_t WALK[SERVICE_LDN_STEPS] = { 1u, 2u, 3u, 2u, 1u, 4u, 1u, 6u };
+    ServiceLdnStates seen;
+    memset(&seen, 0, sizeof(seen));
+    memcpy(seen.state, WALK, sizeof(WALK));
+    seen.before = 6u;
+    const bool reden =
+        ServiceJudgeLdnStates(&seen, said, sizeof(said)) &&
+        strcmp(said, "each step's state, as reden walks them: before 6 (0x0), Initialize 0x0 1, "
+                     "OpenAccessPoint 0x0 2, CreateNetwork 0x0 3, DestroyNetwork 0x0 2, "
+                     "CloseAccessPoint 0x0 1, OpenStation 0x0 4, CloseStation 0x0 1, Finalize 0x0 "
+                     "6") == 0;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+    // Ryujinx's None outside Initialize and Finalize passes too.
+    ServiceLdnStates none = seen;
+    none.before = 0u;
+    none.state[7] = 0u;
+    const bool idle = ServiceJudgeLdnStates(&none, said, sizeof(said));
+    // Initialized from the start, a CreateNetwork that leaves the access point only open, a
+    // Finalize that leaves the object initialized.
+    ServiceLdnStates early = seen;
+    early.before = 1u;
+    const bool before = !ServiceJudgeLdnStates(&early, said, sizeof(said)) &&
+                        strstr(said, "another state before Initialize") == said;
+    ServiceLdnStates open = seen;
+    open.state[2] = 2u;
+    const bool created = !ServiceJudgeLdnStates(&open, said, sizeof(said)) &&
+                         strstr(said, "another state after CreateNetwork") == said;
+    ServiceLdnStates kept = seen;
+    kept.state[7] = 1u;
+    const bool finalized = !ServiceJudgeLdnStates(&kept, said, sizeof(said)) &&
+                           strstr(said, "another state after Finalize") == said;
+    // A step refused, and a GetState refused.
+    ServiceLdnStates refused = seen;
+    refused.step_rc[5] = SERVICE_LDN_WRONG_STATE;
+    const bool step = !ServiceJudgeLdnStates(&refused, said, sizeof(said)) &&
+                      strstr(said, "OpenStation refused") == said;
+    ServiceLdnStates unread = seen;
+    unread.state_rc[3] = SERVICE_RESULT(10, 421);
+    const bool getstate = !ServiceJudgeLdnStates(&unread, said, sizeof(said)) &&
+                          strstr(said, "GetState refused") == said &&
+                          strstr(said, "; GetState after DestroyNetwork 0x34a0a") != NULL;
+    // BadState and the three that say no wireless: LDN (203) 32, 22, 23 and 33, by hand.
+    const bool codes = SERVICE_LDN_WRONG_STATE == 0x40CBu && SERVICE_LDN_DISABLED == 0x2CCBu &&
+                       SERVICE_LDN_AIRPLANE == 0x2ECBu && SERVICE_LDN_NO_ADDRESS == 0x42CBu;
+    CHECK_TRUE(SUITE, "service: ldn passes each step's state, and None or Error outside them",
+               CHECK_NONE,
+               reden && idle && before && created && finalized && step && getstate && codes,
+               "reden %d \"%.240s\", None %d, early %d, not created %d, kept %d, refused %d, "
+               "GetState %d, codes %d",
+               reden, reden_said, idle, before, created, finalized, step, getstate, codes);
+}
+
+static void CheckLdnEvent(void) {
+    // reden: signaled when the network is created and when it goes, at no other step.
+    ServiceLdnEvent seen;
+    memset(&seen, 0, sizeof(seen));
+    seen.signaled[2] = true;
+    seen.signaled[3] = true;
+    const bool reden =
+        ServiceJudgeLdnEvent(&seen, said, sizeof(said)) &&
+        strcmp(said, "signaled when the network was created and went: AttachStateChangeEvent "
+                     "0x0; signaled after CreateNetwork, DestroyNetwork") == 0;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+    // Every change of state signaled passes too.
+    ServiceLdnEvent every = seen;
+    for (uint32_t i = 1; i + 1u < SERVICE_LDN_STEPS; ++i) {
+        every.signaled[i] = true;
+    }
+    const bool each = ServiceJudgeLdnEvent(&every, said, sizeof(said));
+    // Not when the network goes, never, the event refused, a step refused.
+    ServiceLdnEvent stays = seen;
+    stays.signaled[3] = false;
+    const bool gone = !ServiceJudgeLdnEvent(&stays, said, sizeof(said)) &&
+                      strstr(said, "not signaled when the network went") == said;
+    ServiceLdnEvent never;
+    memset(&never, 0, sizeof(never));
+    const bool silent = !ServiceJudgeLdnEvent(&never, said, sizeof(said)) &&
+                        strstr(said, "not signaled when the network was created") == said &&
+                        strstr(said, "signaled after no step") != NULL;
+    ServiceLdnEvent unattached = seen;
+    unattached.attach_rc = SERVICE_RESULT(10, 421);
+    const bool attach = !ServiceJudgeLdnEvent(&unattached, said, sizeof(said)) &&
+                        strstr(said, "AttachStateChangeEvent refused") == said;
+    ServiceLdnEvent refused = seen;
+    refused.step_rc[2] = SERVICE_LDN_WRONG_STATE;
+    const bool step = !ServiceJudgeLdnEvent(&refused, said, sizeof(said)) &&
+                      strstr(said, "CreateNetwork refused") == said;
+    CHECK_TRUE(SUITE, "service: ldn passes an event signaled when a network comes and goes",
+               CHECK_NONE, reden && each && gone && silent && attach && step,
+               "reden %d \"%.200s\", every change %d, not gone %d, never %d, refused %d, step %d",
+               reden, reden_said, each, gone, silent, attach, step);
+}
+
+static void CheckLdnRefused(void) {
+    // reden: every one refused as BadState.
+    ServiceLdnRefused seen;
+    memset(&seen, 0, sizeof(seen));
+    for (uint32_t i = 0; i < SERVICE_LDN_ASKS; ++i) {
+        seen.asked[i] = SERVICE_LDN_WRONG_STATE;
+    }
+    const bool reden =
+        ServiceJudgeLdnRefused(&seen, said, sizeof(said)) &&
+        strstr(said, "every command out of its state refused as BadState: before Initialize "
+                     "0x40cb 0x40cb 0x40cb 0x40cb 0x40cb; initialized") == said;
+    char reden_said[480];
+    memcpy(reden_said, said, sizeof(said));
+    // An OpenStation taken before Initialize, a CreateNetwork as a station refused another way,
+    // and a stub that answers GetNetworkInfo with the access point open.
+    ServiceLdnRefused loose = seen;
+    loose.asked[1] = 0u;
+    const bool station = !ServiceJudgeLdnRefused(&loose, said, sizeof(said)) &&
+                         strstr(said, "OpenStation before Initialize answered 0x0") == said;
+    ServiceLdnRefused other = seen;
+    other.asked[11] = SERVICE_RESULT(203, 96);
+    const bool create = !ServiceJudgeLdnRefused(&other, said, sizeof(said)) &&
+                        strstr(said, "CreateNetwork as a station answered 0xc0cb") == said;
+    ServiceLdnRefused stub = seen;
+    stub.asked[10] = 0u;
+    const bool open = !ServiceJudgeLdnRefused(&stub, said, sizeof(said));
+    // A step between refused.
+    ServiceLdnRefused step = seen;
+    step.between[1] = SERVICE_LDN_WRONG_STATE;
+    const bool between = !ServiceJudgeLdnRefused(&step, said, sizeof(said)) &&
+                         strstr(said, "OpenAccessPoint refused") == said;
+    CHECK_TRUE(SUITE, "service: ldn passes every command out of its state refused as BadState",
+               CHECK_NONE, reden && station && create && open && between,
+               "reden %d \"%.200s\", station before %d, create as station %d, open %d, between %d",
+               reden, reden_said, station, create, open, between);
+}
+
 /// reden's language table, the first few codes as the console spells them, little-endian.
 static uint64_t Code(const char *text) {
     uint64_t code = 0;
@@ -1882,6 +2016,9 @@ void RunReferenceService(void) {
     CheckTempEmpty();
     CheckSelectUser();
     CheckLdnMonitor();
+    CheckLdnStates();
+    CheckLdnEvent();
+    CheckLdnRefused();
     CheckLanguages();
     CheckRandom();
     CheckNfpFilter();

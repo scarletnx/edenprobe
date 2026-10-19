@@ -13,7 +13,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | am | 2 | the size of an application's account save: where the request carries the user, and whether the size is kept (`hle/service/am/service/application_functions.cpp`, `ExtendSaveData`, `GetSaveDataSize`) |
 | fsp | 2 | the temporary storage left as the launch before left it (`core.cpp`, `Load`, and `hle/service/filesystem/filesystem.cpp`, `InitTempStorage`) |
 | account | 2 | the user picked with nobody asked, by the command a game built for 19.0.0 sends (`hle/service/acc/acc.cpp`, `TrySelectUserWithoutInteraction`, and the acc:u0 table) |
-| ldn | 2 | the client process monitor a game asks ldn:u for on 18.0.0 (`hle/service/ldn/ldn.cpp`, `IUserServiceCreator`, `IClientProcessMonitor`) |
+| ldn | 5 | the client process monitor a game asks ldn:u for on 18.0.0 (`hle/service/ldn/ldn.cpp`, `IUserServiceCreator`, `IClientProcessMonitor`), and ldn:u for one console alone: its states, its state change event, BadState (`lan_discovery.cpp`) |
 | set | 4 | the language codes a game picks its text by (`hle/service/set/settings_server.cpp`, `available_language_codes`) |
 | csrng | 2 | the random bytes a game seeds from (`hle/service/spl/spl_module.cpp`, `GenerateRandomBytes`) |
 | apm | 3 | apm and a session on it, which a game opens before it asks for the performance mode, and the configurations a session and SetCpuBoostMode set (`hle/service/apm/apm_interface.cpp`, `APM::OpenSession`, `apm_controller.cpp`) |
@@ -149,9 +149,28 @@ handle that is none.
 |---|---|---|---|
 | ldn:u opens | ldn:u | it opens | none |
 | CreateClientProcessMonitor hands out a monitor this process joins | 1, then RegisterClient on what it handed out | both succeed, on a handle that is not nought; or 1 is refused by a machine that says it is older than 18.0.0 | exact |
+| ldn:u's state follows each step from Initialize to Finalize | GetState (0), then Initialize, OpenAccessPoint (200), CreateNetwork (202), DestroyNetwork (204), CloseAccessPoint (201), OpenStation (300), CloseStation (301) and Finalize (401), each followed by 0 | every command succeeds; 1, 2, 3, 2, 1, 4 and 1 after the first seven; None (0) or Error (6) before Initialize and after Finalize | exact |
+| the state change event is signaled when a network comes and goes | AttachStateChangeEvent (100), then the first seven steps above, the event cleared before each and waited on for a twentieth of a second after it | 100 and every step succeed; signaled after 202 and after 204 | exact |
+| a command out of its state is refused as BadState | before Initialize: 200, 300, 201, 301 and GetNetworkInfo (1); initialized: 202, 1, GetSecurityParameter (4), GetNetworkConfig (5) and GetNetworkInfoLatestUpdate (101); with the access point open: 1; as a station: 202 and 1 | each one `0x40CB` (BadState), with Initialize, 200, 201 and 300 between them succeeding | exact |
 
-The line carries both results, the handle and the firmware the machine says it runs. The monitor
-and ldn:u are closed before the suite returns; nothing else of ldn is asked.
+The monitor's line carries both results, the handle and the firmware the machine says it runs.
+
+The other cases ask ldn:u for one console alone, with no other near and no network joined, as reden's
+`lan_discovery.cpp` and `user_local_communication_service.cpp` answer at 75c12299a6: an object goes
+from Initialized (1) to AccessPointOpened (2) and AccessPointCreated (3), or to StationOpened (4),
+and back. Each case asks an object of its own (CreateUserLocalCommunicationService, 0), not
+libnx's `ldnInitialize`, so that it may ask it before Initialize, and finalizes and closes it
+before it ends. Initialize goes as libnx sends it: 402 with the version libnx gives the firmware,
+400 before 7.0.0. An Initialize refused as Disabled (`0x2CCB`), AirplaneModeEnabled (`0x2ECB`) or
+NoIpAddress (`0x42CB`) says the machine has no wireless to give, and the case is skipped as
+`unavailable` with what GetState and GetIpv4Address answer after it: reden refuses it so with no
+network interface, and on `eden-cli`, which never makes the room member ldn needs (its reference is
+the Qt frontend's). Before Initialize and after Finalize reden answers Error (6) and Ryujinx None
+(0), and the case takes either. reden signals the event only when node 0 joins the network it
+creates and when the network goes, Ryujinx at every change of state; the case holds the two, and
+its line names every step it was signaled after. What reden takes in any state (DestroyNetwork,
+Disconnect, Scan, SetAdvertiseData, an OpenAccessPoint with the station open) is not asked out of
+it. The monitor and ldn:u are closed before the suite returns.
 
 ## set
 
@@ -870,6 +889,13 @@ account suite opens it; both cases are skipped as `unavailable` when it does not
   nought with these results, and whether it checks the user before the size, as reden does.
 - **Q39.** Whether a console's renderer answers GetState 1 before Start and after Stop and 0
   in between, as reden does.
+- **Q40.** What a console's GetState answers an object before Initialize and after Finalize:
+  reden answers Error (6), Ryujinx None (0), and the states case takes either.
+- **Q41.** Whether a console signals the state change event at every change of state, as
+  Ryujinx does, or only when a node joins or the network goes, as reden does.
+- **Q42.** What a console answers DestroyNetwork, Disconnect, Scan and SetAdvertiseData out of
+  their state, and OpenAccessPoint with the station open: reden takes them all, Ryujinx refuses
+  them as BadState, and no case asks them so.
 
 ## The judge, pinned
 
@@ -1000,3 +1026,10 @@ passes a thumbnail taken at its size and refused short or for nobody, and fails 
 at every size, a nought user taken, another size taken and the thumbnail itself refused.
 renderer passes a renderer stopped, started and stopped again, and fails one that stays stopped,
 one still started after Stop and a Start refused.
+The ldn states pass reden's walk and None outside it, and fail Initialized before Initialize, a
+CreateNetwork that leaves the access point only open, a Finalize that leaves the object
+initialized, a step refused and a GetState refused. The ldn event passes signaled when the network
+is created and goes, and at every change, and fails one not signaled when the network goes, never
+signaled, refused, and a step refused. ldn's BadState passes every command out of its state refused
+so, and fails an OpenStation taken before Initialize, a CreateNetwork as a station refused another
+way, a GetNetworkInfo answered with the access point open, and a step between refused.
