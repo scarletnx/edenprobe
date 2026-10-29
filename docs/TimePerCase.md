@@ -160,3 +160,36 @@ with nothing timed (an empty file, a `notime` run, a report from before cases we
 on standard error with exit status 1, alone or as one run of a side, rather than compared as a
 hundred percent faster; a suite only one side timed says so instead of a percent. Its tests run with
 the host suite.
+
+**The rate on another machine.** The limits and the figures above are eden's. Another emulator, or
+the same one on another GPU, has noise of its own, and `tools/perf-self.py` measures the rate where
+a comparison will run:
+
+```sh
+tools/perf-self.py r1.jsonl r2.jsonl r3.jsonl r4.jsonl r5.jsonl r6.jsonl ...
+```
+
+The reports are runs of one build in one sitting, six at least. It takes every split of them into
+two sides of three, compares each as perf.py does with its defaults, and prints how many splits
+list a move, each of them a move that did not happen; the cases listed and the ones set aside as
+unsteady, with how many splits did so; how many cases the sides agree on within a tenth and a
+fifth; and the largest change of a suite's median. Its tests run with the host suite.
+
+Under ScarletNX (its main at 00219dad1, RADV on an RX 6700, the v0.5.0 build, `quick graphics fs`,
+each run recompiled and launched the way ScarletNX's CI does it, 27 seconds), perf-self.py over
+twelve runs of one sitting lists a move in 5320 of the 9240 splits. Every one is two `order` cases,
+the indices and the draw arguments a dispatch wrote before a wait for idle: a process runs both near
+970 microseconds or both near 1390, five of the twelve the slow way, a spread of about 45 percent,
+inside the unsteady limit. No setting of the three limits lists nothing there: a floor of 25
+microseconds, nearer ScarletNX's round trip of about 29 a submit, lists a move in 7661 splits, and
+with that floor a threshold of 50 percent still lists one in 350.
+
+A second sitting of 30 runs held main, three runs a side, against a build of the same source with
+two delays planted in it, each off unless asked for. With both off, the defaults list the two
+`order` cases in 128 of the 400 comparisons. A delay of 5 microseconds in the method that ends a
+draw moved the cases of many draws in all 400: `stream`'s 4096 draws by 426 to 455 percent, `ring`'s
+4096 by 84 to 89, `order`'s 256 and `fill`'s 128 quads; and `order`'s two cases of 128 dispatch and
+draw pairs in 384 and in 80 of the 400. No case of a few draws moved but the two `order` cases,
+which move without it: such a case takes 50 to 120 microseconds there, under the floor. A delay of 1
+microsecond in the file system's read moved the `fs` cases by 20 to 45 percent, five of them in all
+400, and outside `fs` only the two `order` cases.
