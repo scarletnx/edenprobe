@@ -831,6 +831,21 @@ static void CheckMode(void) {
                cut.quick && cut.compare.name[0] == '\0' && !cut.compare.was_refused &&
                    cut.unknown_count == 0u && strcmp(whole.compare.name, "abcdef") == 0,
                "cut \"%s\" whole \"%s\"", cut.compare.name, whole.compare.name);
+
+    // The limit falling right before the sign cuts the word from its name: what was read is
+    // half of compare=abcdef, not a word compare somebody wrote, so it is dropped too. The
+    // label's word, with the same rule since before baselines, likewise.
+    const RunMode before_sign = ModeFromFile(MODE_SOURCE_FILE, LONG, 13u, true);
+    static const char LABELLED[] = "quick label=run more";
+    const RunMode label_before_sign = ModeFromFile(MODE_SOURCE_FILE, LABELLED, 11u, true);
+    CHECK_TRUE(SUITE, "baseline: a name's word cut just before its sign is dropped, not unknown",
+               CHECK_NONE,
+               before_sign.quick && before_sign.unknown_count == 0u &&
+                   before_sign.compare.name[0] == '\0' && label_before_sign.quick &&
+                   label_before_sign.unknown_count == 0u && label_before_sign.label[0] == '\0',
+               "compare: %u unknown \"%s\"; label: %u unknown \"%s\"",
+               (unsigned)before_sign.unknown_count, before_sign.unknown,
+               (unsigned)label_before_sign.unknown_count, label_before_sign.unknown);
 }
 
 /// A mode line longer than a note carries, the three names refused with long words: cut, it says

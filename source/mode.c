@@ -244,12 +244,14 @@ static size_t LastPiece(const char *text, size_t length) {
     return length;
 }
 
-/// The length of the word and sign @p text starts with when it is one of NAMED's, of the at most
-/// @p length bytes there are, or 0.
+/// The length of the word and sign @p text starts with when it is one of NAMED's, or 0. The word
+/// is in the @p length bytes read, and the sign may be the byte past them, which a file longer than
+/// the limit has: the limit falling just before the sign cuts the word from its name as surely as
+/// one falling inside the name.
 static size_t StartsWithNamed(const char *text, size_t length) {
     for (size_t n = 0; n < sizeof(NAMED) / sizeof(NAMED[0]); ++n) {
         const size_t sign = NAMED[n].length;
-        if (length <= sign || text[sign] != '=') {
+        if (length < sign || text[sign] != '=') {
             continue;
         }
         size_t i = 0;
