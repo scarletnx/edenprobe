@@ -159,7 +159,7 @@ BaselineLimit BaselineLimitOf(uint32_t *samples, size_t count) {
         samples[j] = v;
     }
     BaselineLimit limit;
-    // The middle one, or the lower of the two middle ones, as the perf line's median is.
+    // The middle one, or the lower of the two middle ones: a time the machine really took.
     limit.reference_us = samples[(count - 1u) / 2u];
     const uint32_t lowest = samples[0];
     const uint32_t highest = samples[count - 1u];
