@@ -22,9 +22,12 @@ family reports can be believed without them.
   see [Baselines](../Baseline.md)). One case carries the whole idea: the diff picture is built from
   what the judge decided pixel by pixel, not from comparing two images, so a pixel that differs and
   was allowed to is not painted as a difference. Every line is the none tier, because none of it is
-  a claim about a machine. On a computer (`make -f host.mk host-run`) the suite has two cases more:
-  a backward seek that drops a buffered line, which needs the C library's own stream buffer, and a
-  baseline file that is there and cannot be read, which needs the computer's own file errors.
+  a claim about a machine. On a computer (`make -f host.mk host-run`) the suite has four cases more:
+  a backward seek that drops a buffered line, which needs the C library's own stream buffer; a
+  baseline file that is there and cannot be read, which needs the computer's own file errors; and a
+  case that times itself, with the one that reads its line back off standard output, the debug
+  channel only there, to see the time it was given last, the case counted, and a rehearsal of it
+  write nothing.
 - **reference**, three hundred and fifty six cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,

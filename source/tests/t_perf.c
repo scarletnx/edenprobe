@@ -1,8 +1,16 @@
 // SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+// dup and dup2, for the host case below that reads back what the debug channel printed.
+#ifndef __SWITCH__
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <stdio.h>
 #include <string.h>
+#ifndef __SWITCH__
+#include <unistd.h>
+#endif
 
 #include "../check.h"
 #include "../mode.h"
@@ -248,6 +256,64 @@ static void CheckRehearsal(void) {
                ReportPassed(), failed, ReportFailed(), records, records_after, paths.image);
 }
 
+#ifndef __SWITCH__
+// The probe line CheckSelfTimed writes, and the time it carries.
+#define SELF_TIMED_US 4321u
+static const char *const SELF_TIMED = "a case that times itself goes out with its own time, here "
+                                      "4321 us";
+
+/// ReportCaseTime from end to end, on the host alone: there the debug channel is standard output,
+/// which can be read back whether or not the report file opened (the second run of the host
+/// suite starts from / and has none). A case that timed itself goes out as a case line with the
+/// time it was given last, is counted as any case is, and in a rehearsal writes nothing at all.
+/// Not on the console, where its line would put a time in a `notime` run's report.
+static void CheckSelfTimed(void) {
+    FILE *const capture = tmpfile();
+    const int saved = capture != NULL ? dup(STDOUT_FILENO) : -1;
+    if (saved < 0 || fflush(stdout) != 0 || dup2(fileno(capture), STDOUT_FILENO) < 0) {
+        if (capture != NULL) {
+            fclose(capture);
+        }
+        if (saved >= 0) {
+            close(saved);
+        }
+        ReportCase(SUITE, SELF_TIMED, CHECK_NONE, false, "standard output could not be captured");
+        CHECK_TRUE(SUITE, "a case that timed itself carries its time, counts, and rehearses mute",
+                   CHECK_NONE, false, "the line before it was not captured");
+        return;
+    }
+    const size_t passed = ReportPassed();
+    ReportCaseTime(SUITE, SELF_TIMED, CHECK_NONE, true, "", SELF_TIMED_US);
+    const size_t counted = ReportPassed();
+    ReportRehearse(SUITE);
+    ReportCaseTime(SUITE, "a rehearsed case that times itself", CHECK_NONE, true, "", 99u);
+    ReportRehearse(NULL);
+    const size_t rehearsed = ReportPassed();
+    fflush(stdout);
+    dup2(saved, STDOUT_FILENO);
+    close(saved);
+
+    static char seen[4096];
+    rewind(capture);
+    const size_t length = fread(seen, 1, sizeof(seen) - 1u, capture);
+    seen[length] = '\0';
+    fclose(capture);
+    char want[REPORT_LINE_MAX];
+    snprintf(want, sizeof(want),
+             "{\"type\":\"case\",\"suite\":\"support\",\"name\":\"%s\",\"tier\":\"none\","
+             "\"result\":\"pass\",\"detail\":\"\",\"us\":%u}\n",
+             SELF_TIMED, (unsigned)SELF_TIMED_US);
+    const char *const line = strstr(seen, want);
+    CHECK_TRUE(SUITE, "a case that timed itself carries its time, counts, and rehearses mute",
+               CHECK_NONE,
+               line == seen && counted == passed + 1u && rehearsed == counted &&
+                   strstr(seen, "a rehearsed case that times itself\",") == NULL,
+               "line %s; passed %zu, %zu after it, %zu after the rehearsal; printed: %.300s",
+               line == seen ? "first and whole" : (line != NULL ? "not first" : "missing"),
+               passed, counted, rehearsed, seen);
+}
+#endif
+
 static void CheckBreadcrumbs(void) {
     // The warm-up knows no names yet; every later pass has the one the pass before it saw.
     PerfSuiteBegin();
@@ -302,5 +368,8 @@ void RunSupportPerf(void) {
     CheckSampling();
     CheckLines();
     CheckRehearsal();
+#ifndef __SWITCH__
+    CheckSelfTimed();
+#endif
     CheckBreadcrumbs();
 }
