@@ -13,6 +13,8 @@
 #include <sys/stat.h>
 
 /// One timed case of this run, and, while a comparison reads its file, the samples it has there.
+/// Its names are kept as a file's line carries them, escaped for a JSON string and cut, and found
+/// by that text: a name read back is the bytes written, with nothing undone that could differ.
 typedef struct {
     char suite[BASELINE_SUITE_MAX];
     char name[BASELINE_NAME_MAX];
@@ -57,10 +59,11 @@ static KeptCase *Find(const char *suite, const char *name) {
     return NULL;
 }
 
-/// Copies @p text into @p out, cut to fit: a name too long for the file is cut the same way when
-/// it is kept and when it is read back, so the two still meet.
-static void CopyCut(char *out, size_t out_size, const char *text) {
-    snprintf(out, out_size, "%s", text != NULL ? text : "");
+/// @p text as a JSON string carries it, cut to fit @p out: what a file's line holds. A report line
+/// writes a tab as a space, so a name with one would never meet its own line read back unless
+/// both sides were this text.
+static void JsonText(char *out, size_t out_size, const char *text) {
+    (void)ReportEscape(out, out_size, text != NULL ? text : "");
 }
 
 void BaselineReset(void) {
@@ -72,8 +75,8 @@ void BaselineReset(void) {
 void BaselineTake(const char *suite, const char *name, uint32_t us) {
     char s[BASELINE_SUITE_MAX];
     char n[BASELINE_NAME_MAX];
-    CopyCut(s, sizeof(s), suite);
-    CopyCut(n, sizeof(n), name);
+    JsonText(s, sizeof(s), suite);
+    JsonText(n, sizeof(n), name);
     KeptCase *const known = Find(s, n);
     if (known != NULL) {
         // Two lines of one case in one run (a suite that reports a name twice): the last one is
@@ -187,14 +190,11 @@ size_t BaselineBuildCaseLine(char *out, size_t out_size, uint32_t sample, const 
     if (out == NULL || out_size == 0u) {
         return 0;
     }
-    char safe_suite[BASELINE_SUITE_MAX * 2u];
-    char safe_name[BASELINE_NAME_MAX * 2u];
-    ReportEscape(safe_suite, sizeof(safe_suite), suite != NULL ? suite : "");
-    ReportEscape(safe_name, sizeof(safe_name), name != NULL ? name : "");
     return Finish(out, out_size,
                   snprintf(out, out_size,
                            "{\"sample\":%u,\"suite\":\"%s\",\"name\":\"%s\",\"us\":%u}",
-                           (unsigned)sample, safe_suite, safe_name, (unsigned)us));
+                           (unsigned)sample, suite != NULL ? suite : "", name != NULL ? name : "",
+                           (unsigned)us));
 }
 
 /// The number after @p key in @p line, which must be there: true with it in @p out.
@@ -218,27 +218,30 @@ static bool NumberAfter(const char *line, const char *key, uint32_t *out) {
     return true;
 }
 
-/// The string after @p key in @p line, its escapes undone and cut to fit @p out: true when it is
-/// there and ends.
+/// The string after @p key in @p line as the line carries it, escapes and all, cut to fit @p out
+/// where the writer's escaping cuts (never between a backslash and what it escapes): true when it
+/// is there and ends.
 static bool StringAfter(const char *line, const char *key, char *out, size_t out_size) {
     const char *at = strstr(line, key);
-    if (at == NULL || out_size == 0u) {
+    if (at == NULL || out_size < 3u) {
         return false;
     }
     at += strlen(key);
     size_t w = 0;
+    bool full = false;
     for (; *at != '\0' && *at != '"'; ++at) {
-        char c = *at;
-        if (c == '\\') {
-            ++at;
-            if (*at == '\0') {
-                return false;
+        const bool pair = *at == '\\';
+        if (pair && at[1] == '\0') {
+            return false;
+        }
+        full = full || w + 2u >= out_size;
+        if (!full) {
+            out[w++] = *at;
+            if (pair) {
+                out[w++] = at[1];
             }
-            c = *at == 'n' ? '\n' : *at;
         }
-        if (w + 1u < out_size) {
-            out[w++] = c;
-        }
+        at += pair ? 1 : 0;
     }
     out[w] = '\0';
     return *at == '"';
@@ -281,11 +284,9 @@ size_t BaselineBuildMovedLine(char *out, size_t out_size, const char *baseline, 
         return 0;
     }
     char safe_baseline[96];
-    char safe_suite[BASELINE_SUITE_MAX * 2u];
-    char safe_name[BASELINE_NAME_MAX * 2u];
     ReportEscape(safe_baseline, sizeof(safe_baseline), baseline != NULL ? baseline : "");
-    ReportEscape(safe_suite, sizeof(safe_suite), suite != NULL ? suite : "");
-    ReportEscape(safe_name, sizeof(safe_name), name != NULL ? name : "");
+    const char *const safe_suite = suite != NULL ? suite : "";
+    const char *const safe_name = name != NULL ? name : "";
     return Finish(out, out_size,
                   snprintf(out, out_size,
                            "{\"type\":\"baseline\",\"baseline\":\"%s\",\"suite\":\"%s\","

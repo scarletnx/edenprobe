@@ -70,14 +70,16 @@ static void CheckLines(void) {
     uint32_t sample = 0;
     uint32_t us = 0;
     uint32_t opens = 99;
-    BaselineBuildCaseLine(line, sizeof(line), 4, "clear", "a \"quoted\" \\ name", 231);
+    // The name as a JSON string carries it: escaped once, by BaselineTake, and read back so.
+    static const char ESCAPED[] = "a \\\"quoted\\\" \\\\ name";
+    BaselineBuildCaseLine(line, sizeof(line), 4, "clear", ESCAPED, 231);
     const bool parsed =
         BaselineParseLine(line, &sample, suite, sizeof(suite), name, sizeof(name), &us, &opens);
     CHECK_TRUE(SUITE, "baseline: a case line reads back as written, quotes and all", CHECK_NONE,
                strcmp(line, "{\"sample\":4,\"suite\":\"clear\",\"name\":\"a \\\"quoted\\\" \\\\ "
                             "name\",\"us\":231}") == 0 &&
                    parsed && sample == 4u && us == 231u && opens == 0u &&
-                   strcmp(suite, "clear") == 0 && strcmp(name, "a \"quoted\" \\ name") == 0,
+                   strcmp(suite, "clear") == 0 && strcmp(name, ESCAPED) == 0,
                "%.200s read %d as %u %.32s %.120s %u", line, (int)parsed, (unsigned)sample, suite,
                name, (unsigned)us);
 
@@ -243,6 +245,46 @@ static void CheckFile(const char *scratch) {
                "%.400s is still there", path);
 }
 
+/// Names as suites write them: a tab, which a report line carries as a space, quotes and a
+/// backslash, a line end, and one longer than a file keeps, which is cut. Each is held to its
+/// samples only if the name read back from the file is the one this run kept.
+static void CheckNames(const char *scratch) {
+    char path[512];
+    snprintf(path, sizeof(path), "%.400s/names-check.jsonl", scratch);
+    (void)remove(path);
+    static char longest[300];
+    memset(longest, 'n', sizeof(longest) - 1u);
+    longest[sizeof(longest) - 1u] = '\0';
+    static const char *const NAMES[] = {
+        "a tab\there",
+        "a \"quoted\" \\ name",
+        "two\nlines",
+        longest,
+    };
+    const size_t count = sizeof(NAMES) / sizeof(NAMES[0]);
+    for (size_t sample = 0; sample < 3u; ++sample) {
+        BaselineReset();
+        for (size_t i = 0; i < count; ++i) {
+            BaselineTake("order", NAMES[i], 1000u + (uint32_t)i);
+        }
+        uint32_t number = 0;
+        uint32_t after = 0;
+        (void)BaselineAddFile(path, "build", "", &number, &after);
+    }
+    BaselineReset();
+    for (size_t i = 0; i < count; ++i) {
+        BaselineTake("order", NAMES[i], 1000u + (uint32_t)i);
+    }
+    BaselineTotals totals;
+    const bool read = BaselineCompareFile(path, "check", NULL, &totals);
+    CHECK_TRUE(SUITE, "baseline: a name with a tab, quotes, a line end or past the cut is found",
+               CHECK_NONE, read && totals.compared == count && totals.too_few == 0u,
+               "read %d: compared %zu of %zu, too few %zu", (int)read, totals.compared, count,
+               totals.too_few);
+    BaselineReset();
+    (void)remove(path);
+}
+
 /// A file at @p path of @p count samples, each of one case at @p us microseconds.
 static void Seed(const char *path, size_t count, uint32_t us) {
     (void)remove(path);
@@ -393,4 +435,5 @@ void RunSupportBaseline(const char *scratch) {
     CheckMode();
     CheckFile(scratch);
     CheckFinish(scratch);
+    CheckNames(scratch);
 }
