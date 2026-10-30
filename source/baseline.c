@@ -21,6 +21,8 @@ typedef struct {
     uint32_t us;
     uint32_t samples[BASELINE_SAMPLES_MAX];
     uint32_t sample_count;
+    /// The whole samples the file has of it, which past BASELINE_SAMPLES_MAX is more than count.
+    uint32_t seen;
     /// Its time in the sample being read, which joins samples only if that sample is whole.
     uint32_t pending_us;
     bool pending;
@@ -430,6 +432,7 @@ static void EndSample(FileRead *read_out) {
         for (size_t i = 0; i < reading.touched_count; ++i) {
             KeptCase *const c = &kept[reading.touched[i]];
             if (whole) {
+                ++c->seen;
                 if (c->sample_count < BASELINE_SAMPLES_MAX) {
                     c->samples[c->sample_count++] = c->pending_us;
                 } else {
@@ -477,6 +480,7 @@ static BaselineRead ReadFile(const char *path, FileRead *read_out, bool fill_cas
     if (fill_cases) {
         for (size_t i = 0; i < kept_count; ++i) {
             kept[i].sample_count = 0;
+            kept[i].seen = 0;
             kept[i].pending = false;
         }
     }
@@ -617,6 +621,19 @@ BaselineRead BaselineCompareFile(const char *path, const char *name, const Basel
                  "machine",
                  name, (unsigned)read.samples, read.builds_past_known ? "at least " : "",
                  (unsigned)read.builds, read.first_builds[0], read.first_builds[1]);
+    }
+    size_t past_max = 0;
+    uint32_t most = 0;
+    for (size_t i = 0; i < kept_count; ++i) {
+        past_max += kept[i].seen > BASELINE_SAMPLES_MAX ? 1u : 0u;
+        most = kept[i].seen > most ? kept[i].seen : most;
+    }
+    if (past_max > 0u) {
+        SinkNote(sink, &totals->notes,
+                 "compare=%s: %zu case%s more samples in the file than the %u a case is held to "
+                 "(%u the most), so each is held to its newest %u",
+                 name, past_max, past_max == 1u ? " has" : "s have",
+                 (unsigned)BASELINE_SAMPLES_MAX, (unsigned)most, (unsigned)BASELINE_SAMPLES_MAX);
     }
     char line[REPORT_LINE_MAX];
     for (size_t i = 0; i < kept_count; ++i) {

@@ -37,7 +37,7 @@ extern "C" {
 #define BASELINE_SPREAD_TENTHS 15u
 /// A move smaller than this many microseconds is never one, whatever percentage it is.
 #define BASELINE_FLOOR_US 100u
-/// The most samples of one case kept when reading a file: older ones past it are not read.
+/// The most samples of one case a comparison holds it to: past it, the newest, and a note.
 #define BASELINE_SAMPLES_MAX 64u
 /// The most timed cases one run keeps for a baseline. Past it a case is counted, not kept.
 #define BASELINE_CASES_MAX 2048u
