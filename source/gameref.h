@@ -118,14 +118,16 @@ uint32_t GameFileChunk(uint32_t frame);
 /// GameHashWords of chunk @p chunk as the fs family wrote it, from fsref.h's pattern.
 uint32_t GameFileChunkHash(uint32_t chunk);
 
-/// What the frame times of a run of the scene add up to, in microseconds.
+/// What one measure of a run's frames adds up to, in microseconds.
 typedef struct {
     uint32_t frames;
     uint64_t total;
     /// Rounded to the nearest microsecond.
     uint32_t mean;
-    /// Nearest rank: the smallest time at least 99 in 100 frames took no longer than.
+    /// Nearest rank, the ceiling of 99 in 100 of the frames: the smallest time at least 99 in
+    /// 100 of them took no longer than. Under 100 frames that rank is the last, the longest.
     uint32_t p99;
+    /// The longest, and the first frame that took it.
     uint32_t longest;
     uint32_t longest_at;
     /// Frames over GAME_HITCH_US, and the first GAME_HITCHES_LISTED of them by number.
@@ -133,12 +135,35 @@ typedef struct {
     uint32_t hitch_at[GAME_HITCHES_LISTED];
 } GameFrameStats;
 
-/// The stats of @p count frame times; @p scratch holds @p count values and is sorted in its
-/// place. All zeros for none.
-void GameFrameStatsOf(const uint32_t *times, uint32_t count, uint32_t *scratch,
+/// The stats of frames @p first to @p count - 1 of @p times, numbered as they are there;
+/// @p scratch holds @p count values and is sorted in its place. All zeros for none.
+void GameFrameStatsOf(const uint32_t *times, uint32_t first, uint32_t count, uint32_t *scratch,
                       GameFrameStats *out);
 
-/// What the scene's other threads timed, for its note.
+/// Frame 0 is the warm-up, left out of every measure, as a drawing suite's warm-up pass is: it
+/// pays for the device's first work, and in a run of 600 frames it alone moves a mean by a
+/// percent. The measures start at the next.
+#define GAME_WARMUP_FRAMES 1u
+
+/// The audio thread: the tone is read once the voice has played this many samples (100 renderer
+/// frames, as the audio family settles), and the thread waits at most this long for that once
+/// the frames are over, as the audio family's PlayUntil does.
+#define GAME_AUDIO_SETTLE 24000u
+#define GAME_AUDIO_LIMIT_MS 5000u
+
+typedef enum {
+    GAME_AUDIO_GO_ON,
+    /// The frames are over and the voice has played GAME_AUDIO_SETTLE samples.
+    GAME_AUDIO_SETTLED,
+    /// The frames are over and GAME_AUDIO_LIMIT_MS passed before it had.
+    GAME_AUDIO_LATE,
+} GameAudioNext;
+
+/// What the audio thread does after a renderer step: @p over says the frames are over, @p played
+/// the samples the voice has played, @p since_over_ms how long ago the frames ended.
+GameAudioNext GameAudioAfterStep(bool over, uint64_t played, uint64_t since_over_ms);
+
+/// What the scene's other threads timed.
 typedef struct {
     /// Renderer frames the audio thread waited for, the longest wait between two, and how many
     /// waits were over two renderer frames (10 ms), each a stretch the renderer had no update.
@@ -150,12 +175,51 @@ typedef struct {
     uint32_t file_longest;
 } GameThreadTimes;
 
-/// The note a timed run of the scene ends on, without the braces around it: the frames, their
-/// times present to present, the hitches by number, a frame's work without the waits (@p work),
-/// and what the audio and file threads waited. Returns the length; the text is always
-/// terminated, and cut short rather than overrun.
-size_t GameDescribeTimes(char *out, size_t out_size, const GameFrameStats *frames,
-                         const GameFrameStats *work, const GameThreadTimes *threads);
+/// Everything a run's times come to: the warm-up frame's own three times, and the three measures
+/// of the frames past it. Present to present runs from one present queued to the next; the main
+/// thread's part from taking the frame's slot to handing the frame over; the render thread's from
+/// the image in hand to the queue standing idle after the frame's submit, so the graphics unit's
+/// work is in it and no wait for the display is.
+typedef struct {
+    uint32_t frames;
+    uint32_t warmup_present;
+    uint32_t warmup_main;
+    uint32_t warmup_render;
+    GameFrameStats present;
+    GameFrameStats main_part;
+    GameFrameStats render_part;
+    GameThreadTimes threads;
+} GameTimes;
+
+/// The stats of a run of @p frames frames: the warm-up's times taken apart, each measure over the
+/// frames past it. @p scratch holds @p frames values. The threads' times are left at nought, for
+/// the caller to fill in.
+void GameTimesOf(GameTimes *out, uint32_t frames, const uint32_t *present_us,
+                 const uint32_t *main_us, const uint32_t *render_us, uint32_t *scratch);
+
+/// The timed cases a run reports, in order: present to present's mean, 99th percentile and
+/// longest, then the main thread's part's mean and 99th percentile, then the render thread's.
+#define GAME_TIME_CASES 7u
+#define GAME_TIME_NAME_MAX 96u
+
+typedef struct {
+    char name[GAME_TIME_NAME_MAX];
+    uint32_t us;
+} GameTimeCase;
+
+/// The timed cases of @p times, names carrying the frames; with @p times NULL, the names alone
+/// for a run of @p frames frames and every time nought. Returns how many frames past the warm-up
+/// the times are over, nought when there is none to time.
+uint32_t GameTimeCases(const GameTimes *times, uint32_t frames,
+                       GameTimeCase out[GAME_TIME_CASES]);
+
+/// The two notes a timed run of the scene ends on, without the braces around them, each whole
+/// in a note at the widest its numbers can be. The frames: how many, the warm-up left out and
+/// what it took, present to present past it and its hitches by number. The work: the main and
+/// render threads' parts past the warm-up, and what the audio and file threads waited. Each
+/// returns the length; the text is always terminated, and cut short rather than overrun.
+size_t GameDescribeFrames(char *out, size_t out_size, const GameTimes *times);
+size_t GameDescribeWork(char *out, size_t out_size, const GameTimes *times);
 
 #ifdef __cplusplus
 }

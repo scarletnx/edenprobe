@@ -18,9 +18,10 @@ the machine's work, and a slower judge cannot move it. So does drawing the runni
 run with a screen does between cases, at most twice a second; a quick run from the mode file draws
 none, which is the run to compare numbers from.
 
-**The game scene's four times** are of another kind: the mean and the 99th percentile of its
-frames, present to present and as a frame's work without the waits, measured once and not
-repeated; see [The game family](families/Game.md#what-is-timed).
+**The game scene's seven times** are of another kind: statistics of its frames past a warm-up
+frame, present to present and each thread's part of a frame, measured once and not repeated;
+`tools/perf.py` compares them case by case and leaves them out of its per-suite sums. See [The game
+family](families/Game.md#what-is-timed).
 
 **How it is repeated.** A drawing suite runs ten times: a warm-up whose numbers are dropped, eight
 rehearsals with the report muted (no line, no count, no picture), and the verdict pass, the only one

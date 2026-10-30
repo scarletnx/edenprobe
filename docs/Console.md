@@ -152,7 +152,7 @@ up for yes and down for no on the d-pad, or a tap on its yes or no box, and noth
 prompt runs out by itself. The touch suite's screen takes no tap but the ones it measures.
 
 Every list comes round at either end. A direction held down acts again after twenty frames and then
-every four, so the reference suite's three hundred and fifty six cases do not take a press each;
+every four, so the reference suite's three hundred and fifty eight cases do not take a press each;
 what repeats is the direction pressed, whatever else is held, and only after a press counted past
 the first eight frames. Going back lands on the group or case that was open, and the view chosen
 with X stays from one drawing case to the next. A frame is composed on the processor only when

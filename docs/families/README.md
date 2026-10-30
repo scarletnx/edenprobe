@@ -1,17 +1,16 @@
 # What it checks today
 
-Eighty five suites, in the order they run: the judge, then the processor, then the pad family when
-a word asks for it, then the graphics family, then the fs family, then the kernel, display, video,
-audio and service families when a word asks for them, then the net family, then the game family
-when its word asks for it. A run is 1007 cases: 939 for the judge, the processor and the graphics
-family, 15 for the fs family, 53 for the net family; the pad family adds thirty five when named,
-the kernel family seven, the display family four, the video family twenty seven, the audio family
-twelve when named or with `listen`, the service family one hundred and nineteen, the game family
-ten (six with `notime`), the mode word `stress` adds one, and `fatal` runs the cases the may-crash table names, which
-are otherwise skipped. The
-order, and what a failure in each suite points at, is in [The roadmap](../Roadmap.md). A case that
-ends the program costs that case and not the rest of the run: see [When the program ends in the
-middle](../Crashes.md).
+Eighty five suites, in the order they run: the judge, then the processor, then the pad family when a
+word asks for it, then the graphics family, then the fs family, then the kernel, display, video,
+audio and service families when a word asks for them, then the net family, then the game family when
+its word asks for it. A run is 1010 cases: 942 for the judge, the processor and the graphics family,
+15 for the fs family, 53 for the net family; the pad family adds thirty five when named, the kernel
+family seven, the display family four, the video family twenty seven, the audio family twelve when
+named or with `listen`, the service family one hundred and nineteen, the game family thirteen (six
+with `notime`), the mode word `stress` adds one, and `fatal` runs the cases the may-crash table
+names, which are otherwise skipped. The order, and what a failure in each suite points at, is in
+[The roadmap](../Roadmap.md). A case that ends the program costs that case and not the rest of the
+run: see [When the program ends in the middle](../Crashes.md).
 
 - **[The judge](./Judge.md)** - selfcheck, support and reference, no hardware involved
 - **[The processor](./Cpu.md)** - cpu

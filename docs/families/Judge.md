@@ -29,7 +29,7 @@ family reports can be believed without them.
   case that times itself, with the one that reads its line back off standard output, the debug
   channel only there, to see the time it was given last, the case counted, and a rehearsal of it
   write nothing.
-- **reference**, three hundred and fifty six cases, no hardware involved either: the other half of
+- **reference**, three hundred and fifty eight cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -110,8 +110,9 @@ family reports can be believed without them.
     `tools/blit2d-expect.py`: the source, the filled destination, every case's image under each
     combination of answers and the 2D engine's words, then the verdicts on reads made to order (see
     [The blit2d suite](Blit2d.md));
-  - seven on the game scene's arithmetic, `source/gameref.c`: the world's steps and bounces worked
+  - nine on the game scene's arithmetic, `source/gameref.c`: the world's steps and bounces worked
     out by hand, the fill whose nearest quad is not the last drawn, where the texture, the fill and
     the cells land in a frame's image, the quarters' hash, the reads that cover the big file once in
-    1024 frames, the frame times' mean, 99th percentile and hitches on runs made to order, and the
-    note they end on (see [The game family](Game.md)).
+    1024 frames, the frame times' mean, 99th percentile, longest and hitches on runs made to order,
+    the audio thread's limit, the timed cases the warm-up is left out of, and the notes they end on
+    (see [The game family](Game.md)).

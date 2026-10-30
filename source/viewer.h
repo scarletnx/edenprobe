@@ -73,15 +73,17 @@ void ViewerProgressEnd(void);
 /// results screen. Safe when it is closed.
 void ViewerEndScreen(void);
 
-/// Gives the default window up for a step that presents frames of its own there: the program's
-/// screen is closed when it is open, and the running screen draws nothing until it is back. Says
-/// whether it was open. A graphics device the step makes before this call is made while the
-/// screen is still open, which is the order a device has to come in under Eden.
-bool ViewerScreenLend(void);
+/// Whether the program's screen is up on the default window: a run with a screen, from the start
+/// screen on. A step that presents frames of its own shows them through it then, rather than make
+/// a swapchain on that window: under Eden a framebuffer made on the window after a swapchain there
+/// was destroyed never came back, and one closed before a device was made stopped the device.
+bool ViewerScreenUp(void);
 
-/// Opens the program's screen again after ViewerScreenLend, when @p was_open; false when it was
-/// open and could not be opened again.
-bool ViewerScreenBack(bool was_open);
+/// Shows @p pixels, @p width by @p height in RGBA8, row order, scaled up by whole steps to fit and
+/// centred on the program's screen, and queues it for the display: the next call waits for a
+/// buffer the display gave back, as a framebuffer does. False when the screen is not up or the
+/// image is larger than the screen.
+bool ViewerShowImage(const uint8_t *pixels, uint32_t width, uint32_t height);
 
 /// What the listening sequence was asked since the previous poll, or that a voice did not end.
 /// The viewer itself only returns a button or CLOSED. FAIL is the sequence's own: a step failed,
