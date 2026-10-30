@@ -140,6 +140,8 @@ typedef struct {
     size_t too_few;
     /// The notes the comparison wrote about its file.
     size_t notes;
+    /// errno when the file could not be opened or read.
+    int error;
 } BaselineTotals;
 
 /// The report's line that sums a comparison up.
@@ -158,11 +160,19 @@ typedef struct {
 /// The sink that writes lines with ReportLine and notes with ReportNote.
 const BaselineSink *BaselineToReport(void);
 
+/// Whether a baseline file was read: whole, not there, or there and not readable (a directory
+/// where the file should be, a path through a file, a read that failed).
+typedef enum {
+    BASELINE_READ,
+    BASELINE_NO_FILE,
+    BASELINE_UNREADABLE,
+} BaselineRead;
+
 /// Holds the kept cases to the baseline file at @p path, the totals into @p totals: each case held
-/// writes its line, named after the baseline @p name, to @p sink. False when the file
-/// cannot be opened, errno saying why.
-bool BaselineCompareFile(const char *path, const char *name, const BaselineSink *sink,
-                         BaselineTotals *totals);
+/// writes its line, named after the baseline @p name, to @p sink. Anything but BASELINE_READ
+/// compares nothing, the errno in the totals.
+BaselineRead BaselineCompareFile(const char *path, const char *name, const BaselineSink *sink,
+                                 BaselineTotals *totals);
 
 /// Adds the kept cases to the baseline file at @p path as a new sample, made if missing: its number
 /// into @p sample and the file's samples after it into @p samples_after. False when the file

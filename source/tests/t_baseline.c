@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -128,7 +129,7 @@ static void CheckLines(void) {
                             "\"reference_us\":980,\"limit_percent\":63,\"floor_us\":100,"
                             "\"samples\":5}") == 0,
                "%.400s", line);
-    BaselineTotals totals = { 5, 300, 2, 1, 12, 0 };
+    BaselineTotals totals = { 5, 300, 2, 1, 12, 0, 0 };
     BaselineBuildSummaryLine(line, sizeof(line), "console", &totals);
     CHECK_TRUE(SUITE, "baseline: the report's line that sums a comparison up", CHECK_NONE,
                strcmp(line, "{\"type\":\"baseline_summary\",\"baseline\":\"console\",\"samples\":5,"
@@ -204,7 +205,7 @@ static void CheckFile(const char *scratch) {
     (void)remove(path);
 
     BaselineTotals totals;
-    const bool missing = BaselineCompareFile(path, "check", NULL, &totals);
+    const bool missing = BaselineCompareFile(path, "check", NULL, &totals) == BASELINE_NO_FILE;
     // Three runs of one machine, the order case at one of its two speeds each time.
     static const uint32_t SPEEDS[] = { 970, 1390, 980 };
     bool added = true;
@@ -216,13 +217,13 @@ static void CheckFile(const char *scratch) {
     }
     CHECK_TRUE(SUITE, "baseline: a missing file is made, and each run adds the next sample",
                CHECK_NONE,
-               !missing && added && numbers[0] == 1u && numbers[1] == 2u && numbers[2] == 3u &&
+               missing && added && numbers[0] == 1u && numbers[1] == 2u && numbers[2] == 3u &&
                    after == 3u,
                "missing read %d, added %d, samples %u %u %u, after %u", (int)missing, (int)added,
                (unsigned)numbers[0], (unsigned)numbers[1], (unsigned)numbers[2], (unsigned)after);
 
     TakeRun(1385);
-    const bool same = BaselineCompareFile(path, "check", NULL, &totals);
+    const bool same = BaselineCompareFile(path, "check", NULL, &totals) == BASELINE_READ;
     CHECK_TRUE(SUITE, "baseline: a run within its samples moves nothing", CHECK_NONE,
                same && totals.samples == 3u && totals.compared == 3u && totals.slower == 0u &&
                    totals.faster == 0u && totals.too_few == 0u,
@@ -236,7 +237,8 @@ static void CheckFile(const char *scratch) {
     BaselineTake("fs", "reads a large file", 3000);
     BaselineTake("fill", "a case no sample has", 400);
     CaptureReset();
-    const bool moved = BaselineCompareFile(path, "check", &CAPTURE, &totals);
+    const bool moved =
+        BaselineCompareFile(path, "check", &CAPTURE, &totals) == BASELINE_READ;
     CHECK_TRUE(SUITE,
                "baseline: a slower case, a faster one and one with no samples are told apart",
                CHECK_NONE,
@@ -295,7 +297,7 @@ static void CheckNames(const char *scratch) {
         BaselineTake("order", NAMES[i], 1000u + (uint32_t)i);
     }
     BaselineTotals totals;
-    const bool read = BaselineCompareFile(path, "check", NULL, &totals);
+    const bool read = BaselineCompareFile(path, "check", NULL, &totals) == BASELINE_READ;
     CHECK_TRUE(SUITE, "baseline: a name with a tab, quotes, a line end or past the cut is found",
                CHECK_NONE, read && totals.compared == count && totals.too_few == 0u,
                "read %d: compared %zu of %zu, too few %zu", (int)read, totals.compared, count,
@@ -319,7 +321,8 @@ static void Seed(const char *path, size_t count, uint32_t us) {
 /// The samples the file at @p path has, as a comparison reads them.
 static uint32_t SamplesIn(const char *path) {
     BaselineTotals totals;
-    return BaselineCompareFile(path, "check", NULL, &totals) ? totals.samples : 0u;
+    return BaselineCompareFile(path, "check", NULL, &totals) == BASELINE_READ ? totals.samples
+                                                                              : 0u;
 }
 
 /// Appends @p text to the file at @p path as it is, for a file a write was cut short in.
@@ -350,7 +353,7 @@ static void CheckCut(const char *scratch) {
     BaselineReset();
     BaselineTake("order", "the case that slows", 25000);
     BaselineTotals totals;
-    const bool read = BaselineCompareFile(path, "check", NULL, &totals);
+    const bool read = BaselineCompareFile(path, "check", NULL, &totals) == BASELINE_READ;
     CHECK_TRUE(SUITE, "baseline: a line cut short is no case, and hides no slower run",
                CHECK_NONE, read && totals.compared == 1u && totals.slower == 1u,
                "read %d compared %zu slower %zu samples %u", (int)read, totals.compared,
@@ -382,7 +385,8 @@ static void CheckShort(const char *scratch) {
     BaselineTake("order", "the case that slows", 25000);
     BaselineTotals totals;
     CaptureReset();
-    const bool read = BaselineCompareFile(path, "short-check", &CAPTURE, &totals);
+    const bool read =
+        BaselineCompareFile(path, "short-check", &CAPTURE, &totals) == BASELINE_READ;
     CHECK_TRUE(SUITE, "baseline: a sample short of the cases it opened with is left out, and said",
                CHECK_NONE,
                read && totals.samples == 5u && totals.compared == 1u && totals.slower == 1u &&
@@ -417,7 +421,8 @@ static void CheckBuilds(const char *scratch) {
     BaselineTake("order", "the case that slows", 1000);
     BaselineTotals totals;
     CaptureReset();
-    const bool read = BaselineCompareFile(path, "builds-check", &CAPTURE, &totals);
+    const bool read =
+        BaselineCompareFile(path, "builds-check", &CAPTURE, &totals) == BASELINE_READ;
     const bool several =
         Noted("compare=builds-check: the file's 4 samples come from 3 edenprobe builds, v0.5.0 "
               "first and v0.5.0-3-gabc second") != NULL;
@@ -426,7 +431,8 @@ static void CheckBuilds(const char *scratch) {
     BaselineReset();
     BaselineTake("order", "the case that slows", 1000);
     CaptureReset();
-    const bool read_one = BaselineCompareFile(path, "builds-check", &CAPTURE, &totals);
+    const bool read_one =
+        BaselineCompareFile(path, "builds-check", &CAPTURE, &totals) == BASELINE_READ;
     const bool quiet = Noted("edenprobe build") == NULL;
     CHECK_TRUE(SUITE, "baseline: samples of more than one build say how many and the first two",
                CHECK_NONE, read && several && read_one && quiet, "several %d, one quiet %d: %.300s",
@@ -434,6 +440,58 @@ static void CheckBuilds(const char *scratch) {
     BaselineReset();
     (void)remove(path);
 }
+
+#if !defined(__SWITCH__) && defined(__GLIBC__)
+/// A file that is there and cannot be read is not a missing one: a directory where the file
+/// should be (its read fails) and a path through a file (its open fails) are each said with
+/// the error, compared with nothing, and not added to, since a sample written after a file it
+/// could not read could repeat a number or land on a cut line. On a computer only: what a
+/// console's memory card answers for either is not known here.
+static void CheckUnreadable(const char *scratch) {
+    char directory[512];
+    snprintf(directory, sizeof(directory), "%.400s/dir-check.jsonl", scratch);
+    const bool made = mkdir(directory, 0777) == 0;
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 1000);
+    CaptureReset();
+    const BaselineOutcome in_directory = BaselineFinish(scratch, "dir-check", "dir-check", "build",
+                                                        "", true, false, &CAPTURE);
+    char said_directory[160];
+    snprintf(said_directory, sizeof(said_directory), "could not be read (%s), so nothing was "
+             "compared", strerror(EISDIR));
+    char refused_directory[160];
+    snprintf(refused_directory, sizeof(refused_directory), "could not be read (%s), so no "
+             "sample was added", strerror(EISDIR));
+    const bool directory_said = Noted(said_directory) != NULL && Noted(refused_directory) != NULL;
+    const bool removed = rmdir(directory) == 0;
+
+    char file[512];
+    snprintf(file, sizeof(file), "%.400s/file-check", scratch);
+    FILE *const plain = fopen(file, "w");
+    if (plain != NULL) {
+        fclose(plain);
+    }
+    CaptureReset();
+    const BaselineOutcome through = BaselineFinish(file, "x", "x", "build", "", true, false,
+                                                   &CAPTURE);
+    char said_through[160];
+    snprintf(said_through, sizeof(said_through), "could not be read (%s), so nothing was "
+             "compared", strerror(ENOTDIR));
+    const bool through_said = Noted(said_through) != NULL;
+    const bool file_removed = remove(file) == 0;
+    BaselineReset();
+    CHECK_TRUE(SUITE,
+               "baseline: a file that is there and cannot be read is said, not taken as none",
+               CHECK_NONE,
+               made && removed && plain != NULL && file_removed && !in_directory.compared &&
+                   !in_directory.added && directory_said && !through.compared && !through.added &&
+                   through_said,
+               "directory: compared %d added %d said %d; through a file: compared %d said %d: "
+               "%.300s",
+               (int)in_directory.compared, (int)in_directory.added, (int)directory_said,
+               (int)through.compared, (int)through_said, Notes());
+}
+#endif
 
 /// Whether a line of the file at @p path opens sample @p sample, read whole.
 static bool Opens(const char *path, uint32_t sample) {
@@ -614,4 +672,7 @@ void RunSupportBaseline(const char *scratch) {
     CheckLineEnd(scratch);
     CheckShort(scratch);
     CheckBuilds(scratch);
+#if !defined(__SWITCH__) && defined(__GLIBC__)
+    CheckUnreadable(scratch);
+#endif
 }

@@ -77,8 +77,9 @@ class Counts(unittest.TestCase):
         self.assertEqual(self.judge("selfcheck"), self.ran["selfcheck"])
 
     def test_support(self):
-        # the host build has one case more, a backward seek through the C library's stream buffer
-        self.assertEqual(self.judge("support") + 1, self.ran["support"])
+        # the host build has two cases more: a backward seek through the C library's stream
+        # buffer, and a baseline file that is there and cannot be read
+        self.assertEqual(self.judge("support") + 2, self.ran["support"])
 
     def test_reference(self):
         self.assertEqual(self.judge("reference"), self.ran["reference"])

@@ -38,8 +38,11 @@ with half its cases would pull every reference toward the half it has. Each says
 
 ## Holding a run to one
 
-`compare=<name>` holds the run to that file once its suites end. A case with fewer than three
-samples there, or none, is counted in `too_few` and not compared. For the others:
+`compare=<name>` holds the run to that file once its suites end. A file that is not there is said
+in a note, and so is one that is there and cannot be read, with the error: that one is neither
+compared nor added to, since a sample added after a file it could not read could repeat a number or
+land on a cut line. A case with fewer than three samples there, or none, is counted in `too_few`
+and not compared. For the others:
 
 - the **reference** is the samples' median (the lower of the two middle ones);
 - the **limit** is the larger of 20 percent and one and a half times the farthest a sample lies from
