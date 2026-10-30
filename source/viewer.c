@@ -396,15 +396,42 @@ void ViewerEndScreen(void) {
     CloseScreen();
 }
 
-bool ViewerScreenLend(void) {
-    const bool was_open = screen_open;
-    CloseScreen();
-    return was_open;
+bool ViewerScreenUp(void) {
+    return screen_open;
 }
 
-bool ViewerScreenBack(bool was_open) {
-    return !was_open || OpenScreen();
+bool ViewerShowImage(const uint8_t *pixels, uint32_t width, uint32_t height) {
+    if (!screen_open || pixels == NULL || width == 0u || height == 0u || width > SCREEN_WIDTH ||
+        height > SCREEN_HEIGHT) {
+        return false;
+    }
+    const uint32_t across = SCREEN_WIDTH / width;
+    const uint32_t down = SCREEN_HEIGHT / height;
+    const uint32_t scale = across < down ? across : down;
+    const uint32_t left = (SCREEN_WIDTH - width * scale) / 2u;
+    const uint32_t top = (SCREEN_HEIGHT - height * scale) / 2u;
+    uint32_t stride = 0;
+    uint8_t *const out = (uint8_t *)framebufferBegin(&screen, &stride);
+    if (out == NULL) {
+        return false;
+    }
+    if (stride >= SCREEN_WIDTH * 4u) {
+        static const uint8_t BACKGROUND[4] = { 0x0F, 0x0F, 0x14, 0xFF };
+        for (uint32_t y = 0; y < SCREEN_HEIGHT; ++y) {
+            uint8_t *const row = out + (size_t)y * stride;
+            const bool inside_y = y >= top && y < top + height * scale;
+            for (uint32_t x = 0; x < SCREEN_WIDTH; ++x) {
+                const bool inside = inside_y && x >= left && x < left + width * scale;
+                const size_t at = (size_t)((y - top) / scale) * width + (x - left) / scale;
+                const uint8_t *const from = inside ? pixels + at * 4u : BACKGROUND;
+                memcpy(row + (size_t)x * 4u, from, 4u);
+            }
+        }
+    }
+    framebufferEnd(&screen);
+    return true;
 }
+
 
 // The running screen, drawn between cases into the program's one framebuffer while the run is
 // on. Nothing here is read by a case: the counts are the report's, the pass is the timer's.

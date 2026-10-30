@@ -173,14 +173,16 @@ static int CompareTimes(const void *a, const void *b) {
     return x < y ? -1 : x > y ? 1 : 0;
 }
 
-void GameFrameStatsOf(const uint32_t *times, uint32_t count, uint32_t *scratch,
+void GameFrameStatsOf(const uint32_t *times, uint32_t first, uint32_t count, uint32_t *scratch,
                       GameFrameStats *out) {
     memset(out, 0, sizeof(*out));
-    if (times == NULL || scratch == NULL || count == 0u) {
+    if (times == NULL || scratch == NULL || first >= count) {
         return;
     }
-    out->frames = count;
-    for (uint32_t k = 0; k < count; ++k) {
+    const uint32_t n = count - first;
+    out->frames = n;
+    out->longest_at = first;
+    for (uint32_t k = first; k < count; ++k) {
         out->total += times[k];
         if (times[k] > out->longest) {
             out->longest = times[k];
@@ -193,13 +195,68 @@ void GameFrameStatsOf(const uint32_t *times, uint32_t count, uint32_t *scratch,
             ++out->hitches;
         }
     }
-    out->mean = (uint32_t)((out->total + count / 2u) / count);
-    memcpy(scratch, times, (size_t)count * sizeof(scratch[0]));
-    qsort(scratch, count, sizeof(scratch[0]), CompareTimes);
+    out->mean = (uint32_t)((out->total + n / 2u) / n);
+    memcpy(scratch, times + first, (size_t)n * sizeof(scratch[0]));
+    qsort(scratch, n, sizeof(scratch[0]), CompareTimes);
     // The rank is 99 in 100 of the count rounded up, so a run of under a hundred frames has its
     // slowest frame as its 99th percentile rather than one interpolated past it.
-    const uint64_t rank = ((uint64_t)count * 99u + 99u) / 100u;
+    const uint64_t rank = ((uint64_t)n * 99u + 99u) / 100u;
     out->p99 = scratch[rank - 1u];
+}
+
+GameAudioNext GameAudioAfterStep(bool over, uint64_t played, uint64_t since_over_ms) {
+    if (!over) {
+        return GAME_AUDIO_GO_ON;
+    }
+    if (played >= GAME_AUDIO_SETTLE) {
+        return GAME_AUDIO_SETTLED;
+    }
+    return since_over_ms >= GAME_AUDIO_LIMIT_MS ? GAME_AUDIO_LATE : GAME_AUDIO_GO_ON;
+}
+
+void GameTimesOf(GameTimes *out, uint32_t frames, const uint32_t *present_us,
+                 const uint32_t *main_us, const uint32_t *render_us, uint32_t *scratch) {
+    memset(out, 0, sizeof(*out));
+    out->frames = frames;
+    if (frames == 0u) {
+        return;
+    }
+    out->warmup_present = present_us[0];
+    out->warmup_main = main_us[0];
+    out->warmup_render = render_us[0];
+    GameFrameStatsOf(present_us, GAME_WARMUP_FRAMES, frames, scratch, &out->present);
+    GameFrameStatsOf(main_us, GAME_WARMUP_FRAMES, frames, scratch, &out->main_part);
+    GameFrameStatsOf(render_us, GAME_WARMUP_FRAMES, frames, scratch, &out->render_part);
+}
+
+uint32_t GameTimeCases(const GameTimes *times, uint32_t frames,
+                       GameTimeCase out[GAME_TIME_CASES]) {
+    static const char *const MEASURES[GAME_TIME_CASES] = {
+        "present to present: the mean",
+        "present to present: the 99th percentile",
+        "present to present: the longest",
+        "the main thread's part: the mean",
+        "the main thread's part: the 99th percentile",
+        "the render thread's part, the graphics unit's in it: the mean",
+        "the render thread's part, the graphics unit's in it: the 99th percentile",
+    };
+    const uint32_t count = times != NULL ? times->frames : frames;
+    for (uint32_t i = 0; i < GAME_TIME_CASES; ++i) {
+        snprintf(out[i].name, sizeof(out[i].name), "%u frames, %s", (unsigned)count, MEASURES[i]);
+        out[i].us = 0;
+    }
+    if (times == NULL) {
+        return 0;
+    }
+    const uint32_t us[GAME_TIME_CASES] = {
+        times->present.mean,     times->present.p99,      times->present.longest,
+        times->main_part.mean,   times->main_part.p99,    times->render_part.mean,
+        times->render_part.p99,
+    };
+    for (uint32_t i = 0; i < GAME_TIME_CASES; ++i) {
+        out[i].us = us[i];
+    }
+    return times->present.frames;
 }
 
 /// Appends to @p out, never past @p out_size, and says whether the whole text fitted.
@@ -218,40 +275,71 @@ static bool Append(char *out, size_t out_size, const char *fmt, ...) {
     return wrote >= 0 && (size_t)wrote < out_size - used;
 }
 
-size_t GameDescribeTimes(char *out, size_t out_size, const GameFrameStats *frames,
-                         const GameFrameStats *work, const GameThreadTimes *threads) {
+/// One measure's mean, 99th percentile and longest, for the note.
+static void AppendMeasure(char *out, size_t out_size, const char *what,
+                          const GameFrameStats *stats) {
+    Append(out, out_size, "; %s: mean %u us, 99th percentile %u us, longest %u us at frame %u",
+           what, (unsigned)stats->mean, (unsigned)stats->p99, (unsigned)stats->longest,
+           (unsigned)stats->longest_at);
+}
+
+size_t GameDescribeFrames(char *out, size_t out_size, const GameTimes *times) {
     if (out == NULL || out_size == 0u) {
         return 0;
     }
     out[0] = '\0';
-    if (frames == NULL || work == NULL || threads == NULL) {
+    if (times == NULL) {
         return 0;
     }
+    const GameFrameStats *const present = &times->present;
+    const uint64_t total = present->total + times->warmup_present;
     Append(out, out_size,
-           "game: %u frames in %.2f s; present to present: mean %u us, 99th percentile %u us, "
-           "longest %u us at frame %u; ",
-           (unsigned)frames->frames, (double)frames->total / 1e6, (unsigned)frames->mean,
-           (unsigned)frames->p99, (unsigned)frames->longest, (unsigned)frames->longest_at);
-    if (frames->hitches == 0u) {
-        Append(out, out_size, "none over %u us, two frames at 60 Hz", (unsigned)GAME_HITCH_US);
-    } else {
-        Append(out, out_size, "%u over %u us, two frames at 60 Hz: frame%s",
-               (unsigned)frames->hitches, (unsigned)GAME_HITCH_US,
-               frames->hitches == 1u ? "" : "s");
-        const uint32_t listed =
-            frames->hitches < GAME_HITCHES_LISTED ? frames->hitches : GAME_HITCHES_LISTED;
-        for (uint32_t i = 0; i < listed; ++i) {
-            Append(out, out_size, "%s %u", i == 0u ? "" : ",", (unsigned)frames->hitch_at[i]);
-        }
-        if (frames->hitches > listed) {
-            Append(out, out_size, " and %u more", (unsigned)(frames->hitches - listed));
-        }
+           "game: %u frame%s in %.2f s; frame 0, the warm-up, left out of the times (%u us "
+           "present to present, %u us the main thread's part, %u us the render thread's)",
+           (unsigned)times->frames, times->frames == 1u ? "" : "s", (double)total / 1e6,
+           (unsigned)times->warmup_present, (unsigned)times->warmup_main,
+           (unsigned)times->warmup_render);
+    if (present->frames == 0u) {
+        Append(out, out_size, "; no frame past it to time");
+        return strlen(out);
     }
-    Append(out, out_size,
-           "; a frame's work without the waits: mean %u us, 99th percentile %u us, longest %u us "
-           "at frame %u",
-           (unsigned)work->mean, (unsigned)work->p99, (unsigned)work->longest,
-           (unsigned)work->longest_at);
+    Append(out, out_size, "; the %u past it", (unsigned)present->frames);
+    AppendMeasure(out, out_size, "present to present", present);
+    if (present->hitches == 0u) {
+        Append(out, out_size, ", none over %u us, two frames at 60 Hz", (unsigned)GAME_HITCH_US);
+        return strlen(out);
+    }
+    Append(out, out_size, ", %u over %u us, two frames at 60 Hz: frame%s",
+           (unsigned)present->hitches, (unsigned)GAME_HITCH_US,
+           present->hitches == 1u ? "" : "s");
+    const uint32_t listed =
+        present->hitches < GAME_HITCHES_LISTED ? present->hitches : GAME_HITCHES_LISTED;
+    for (uint32_t i = 0; i < listed; ++i) {
+        Append(out, out_size, "%s %u", i == 0u ? "" : ",", (unsigned)present->hitch_at[i]);
+    }
+    if (present->hitches > listed) {
+        Append(out, out_size, " and %u more", (unsigned)(present->hitches - listed));
+    }
+    return strlen(out);
+}
+
+size_t GameDescribeWork(char *out, size_t out_size, const GameTimes *times) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (times == NULL) {
+        return 0;
+    }
+    Append(out, out_size, "game: past the warm-up");
+    if (times->present.frames == 0u) {
+        Append(out, out_size, ", no frame to time");
+    } else {
+        AppendMeasure(out, out_size, "the main thread's part", &times->main_part);
+        AppendMeasure(out, out_size, "the render thread's part, the graphics unit's in it",
+                      &times->render_part);
+    }
+    const GameThreadTimes *const threads = &times->threads;
     Append(out, out_size,
            "; the audio thread waited for %u renderer frames, the longest wait %u us, %u over "
            "10000 us; the file thread made %u reads of 64 KiB, the longest %u us",

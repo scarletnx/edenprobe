@@ -62,7 +62,11 @@ static void CheckWorld(void) {
     world.vx[1] = 500;
     world.y[2] = 7;
     world.vy[2] = 9;
+    // Landing on the edge itself, 16777216, is past the last place: it reflects to 16777214.
+    world.y[3] = (256 << 16) - 300;
+    world.vy[3] = 300;
     GameWorldStep(&world);
+    Expect(&t, world.y[3] == (256 << 16) - 2 && world.vy[3] == -300, "onto the high edge");
     Expect(&t, world.x[0] == 200 && world.vx[0] == 300, "off the low edge");
     Expect(&t, world.x[1] == 16776814 && world.vx[1] == -500, "off the high edge");
     Expect(&t, world.y[2] == 16 && world.vy[2] == 9, "inside");
@@ -116,6 +120,14 @@ static void CheckFill(void) {
         }
         missed_by_no_test += winner == GAME_FILL_QUADS - 1u ? 1u : 0u;
     }
+    // By hand: quad 0 of frame 0 and of frame 1, so a colour that ignores the frame is caught.
+    uint8_t c0[4];
+    uint8_t c1[4];
+    GameFillColour(0, 0, c0);
+    GameFillColour(1, 0, c1);
+    Expect(&t, c0[0] == 16u && c0[1] == 64u && c0[2] == 0u && c0[3] == 0xFFu && c1[0] == 19u &&
+                   c1[1] == 69u && c1[2] == 11u && c1[3] == 0xFFu,
+           "quad 0's colour in frames 0 and 1");
     // By hand: the nearest is the frame's number mod 8, at a quarter, the next a sixteenth on.
     Expect(&t, GameFillNearest(0) == 0u && GameFillNearest(9) == 1u &&
                    GameFillDepth(3, 3) == 0.25f && GameFillDepth(3, 4) == 80.0f / 256.0f &&
@@ -179,6 +191,14 @@ static void CheckHashes(void) {
                    before[GAME_REGION_FILL_LEFT] == after[GAME_REGION_FILL_LEFT] &&
                    before[GAME_REGION_STREAM] != after[GAME_REGION_STREAM],
            "one bit in the cells' quarter moves that quarter's hash alone");
+    // And one in the top right, x past the half and y not, which only a quarter whose x and y
+    // are not swapped tells from the bottom left.
+    uint32_t right[GAME_REGIONS];
+    image[(10u * GAME_TARGET + 100u) * 4u] ^= 1u;
+    GameRegionHashes(image, right);
+    Expect(&t, right[GAME_REGION_FILL_RIGHT] != after[GAME_REGION_FILL_RIGHT] &&
+                   right[GAME_REGION_FILL_LEFT] == after[GAME_REGION_FILL_LEFT],
+           "one bit in the top right quarter moves it, not the bottom left");
     // A quarter's hash is its rows in order: the top right one, row by row, by hand.
     uint32_t rows = 0x811C9DC5u;
     for (uint32_t y = 0; y < GAME_HALF; ++y) {
@@ -189,7 +209,7 @@ static void CheckHashes(void) {
             rows = (rows ^ word) * 16777619u;
         }
     }
-    Expect(&t, rows == after[GAME_REGION_FILL_RIGHT], "the top right quarter, row by row");
+    Expect(&t, rows == right[GAME_REGION_FILL_RIGHT], "the top right quarter, row by row");
     Expect(&t, strcmp(GameRegionName(GAME_REGION_STREAM), "the uniform buffer quarter") == 0 &&
                    strcmp(GameRegionName(GAME_REGIONS), "no quarter") == 0,
            "the quarters' names");
@@ -238,6 +258,12 @@ static bool StatsAre(const GameFrameStats *s, uint32_t frames, uint32_t mean, ui
            s->longest_at == longest_at && s->hitches == hitches;
 }
 
+/// The stats beside four words a write past the end of the hitch list would land on.
+typedef struct {
+    GameFrameStats stats;
+    uint32_t guard[4];
+} Guarded;
+
 static void CheckStats(void) {
     Tally t = { 0, NULL };
     GameFrameStats s;
@@ -247,120 +273,238 @@ static void CheckStats(void) {
     for (uint32_t k = 0; k < 100u; ++k) {
         times[k] = k == 99u ? 50000u : GAME_FRAME_US;
     }
-    GameFrameStatsOf(times, 100u, scratch, &s);
+    GameFrameStatsOf(times, 0u, 100u, scratch, &s);
     Expect(&t, StatsAre(&s, 100u, 17000u, GAME_FRAME_US, 50000u, 99u, 1u) && s.hitch_at[0] == 99u,
            "a hundred frames with one slow one");
 
     times[0] = 1234u;
-    GameFrameStatsOf(times, 1u, scratch, &s);
+    GameFrameStatsOf(times, 0u, 1u, scratch, &s);
     Expect(&t, StatsAre(&s, 1u, 1234u, 1234u, 1234u, 0u, 0u), "one frame");
 
-    // 600 frames: the first at 40000, frames 100 to 105 at 33334, the rest at one frame. The
-    // 99th percentile is the 594th smallest: the 593 short ones come first, so it is 33334.
+    // Times k + 1, so the rank reads straight off: the ceiling of 99 in 100 of 60 is 60, the
+    // longest; of 160, 159 (158.4 rounded up), one short of it.
+    for (uint32_t k = 0; k < 160u; ++k) {
+        times[k] = k + 1u;
+    }
+    GameFrameStatsOf(times, 0u, 60u, scratch, &s);
+    Expect(&t, s.p99 == 60u && s.longest == 60u, "the 99th percentile of 60 frames, the longest");
+    GameFrameStatsOf(times, 0u, 160u, scratch, &s);
+    Expect(&t, s.p99 == 159u && s.longest == 160u, "the 99th percentile of 160 frames, the 159th");
+
+    // 600 frames, the first the warm-up at 40000 and left out; frames 100 to 105 at 33334, the
+    // rest at one frame. 599 frames: the 99th percentile's rank is 594 (593.01 rounded up), past
+    // the 593 short ones, so 33334.
     for (uint32_t k = 0; k < 600u; ++k) {
         times[k] = k == 0u ? 40000u : (k >= 100u && k <= 105u ? 33334u : GAME_FRAME_US);
     }
-    GameFrameStatsOf(times, 600u, scratch, &s);
-    const uint32_t mean = (uint32_t)((40000u + 6u * 33334u + 593u * GAME_FRAME_US + 300u) / 600u);
-    Expect(&t, StatsAre(&s, 600u, mean, 33334u, 40000u, 0u, 7u) && s.hitch_at[0] == 0u &&
-                   s.hitch_at[1] == 100u && s.hitch_at[6] == 105u,
-           "600 frames with seven hitches");
+    GameFrameStatsOf(times, 1u, 600u, scratch, &s);
+    const uint32_t mean = (uint32_t)((6u * 33334u + 593u * GAME_FRAME_US + 299u) / 599u);
+    Expect(&t, StatsAre(&s, 599u, mean, 33334u, 33334u, 100u, 6u) && s.hitch_at[0] == 100u &&
+                   s.hitch_at[5] == 105u,
+           "600 frames past the warm-up with six hitches, numbered as they are");
     Expect(&t, times[0] == 40000u && times[100] == 33334u, "the times are left in their order");
 
     // Two frames, one exactly at the hitch line, which is not over it.
     times[0] = GAME_HITCH_US;
     times[1] = GAME_HITCH_US + 1u;
-    GameFrameStatsOf(times, 2u, scratch, &s);
+    GameFrameStatsOf(times, 0u, 2u, scratch, &s);
     Expect(&t, s.hitches == 1u && s.hitch_at[0] == 1u && s.mean == GAME_HITCH_US + 1u,
            "the line itself, and a mean of a half rounded up");
 
-    // Eleven hitches, the even frames and the last: the first eight named, every one counted.
-    for (uint32_t k = 0; k < 20u; ++k) {
-        times[k] = k % 2u == 0u ? 50000u : 1000u;
-    }
-    times[19] = 60000u;
-    GameFrameStatsOf(times, 20u, scratch, &s);
-    Expect(&t, s.hitches == 11u && s.hitch_at[7] == 14u && s.longest == 60000u &&
-                   s.longest_at == 19u,
-           "more hitches than are named");
+    // A tie for the longest: the first of them is named.
+    times[0] = 5u;
+    times[1] = 9u;
+    times[2] = 9u;
+    GameFrameStatsOf(times, 0u, 3u, scratch, &s);
+    Expect(&t, s.longest == 9u && s.longest_at == 1u, "a tie for the longest names the first");
 
-    GameFrameStatsOf(times, 0u, scratch, &s);
+    // Eight hitches fill the list; twelve name the first eight, count all twelve, and write
+    // nothing past the list.
+    for (uint32_t hitches = 8u; hitches <= 12u; hitches += 4u) {
+        Guarded g;
+        memset(&g, 0, sizeof(g));
+        for (uint32_t k = 0; k < 20u; ++k) {
+            times[k] = k < hitches ? 50000u + k : 1000u;
+        }
+        GameFrameStatsOf(times, 0u, 20u, scratch, &g.stats);
+        Expect(&t, g.stats.hitches == hitches && g.stats.hitch_at[7] == 7u && g.guard[0] == 0u &&
+                       g.guard[1] == 0u && g.guard[2] == 0u && g.guard[3] == 0u,
+               hitches == 8u ? "eight hitches, the list full" : "twelve hitches, eight named");
+    }
+
+    GameFrameStatsOf(times, 0u, 0u, scratch, &s);
     Expect(&t, StatsAre(&s, 0u, 0u, 0u, 0u, 0u, 0u) && s.total == 0u, "no frames");
+    GameFrameStatsOf(times, 1u, 1u, scratch, &s);
+    Expect(&t, StatsAre(&s, 0u, 0u, 0u, 0u, 0u, 0u), "a run of the warm-up alone");
     Report("game: frame times sum up to a mean, a 99th percentile, the longest and the hitches",
            &t);
 }
 
+static void CheckAudioLimit(void) {
+    Tally t = { 0, NULL };
+    Expect(&t, GameAudioAfterStep(false, 0u, 0u) == GAME_AUDIO_GO_ON &&
+                   GameAudioAfterStep(false, 99999u, 99999u) == GAME_AUDIO_GO_ON,
+           "while the frames run, whatever was played");
+    Expect(&t, GameAudioAfterStep(true, GAME_AUDIO_SETTLE, 0u) == GAME_AUDIO_SETTLED &&
+                   GameAudioAfterStep(true, GAME_AUDIO_SETTLE - 1u, 0u) == GAME_AUDIO_GO_ON,
+           "over, settled at 24000 samples and not one short");
+    Expect(&t, GameAudioAfterStep(true, 10u, GAME_AUDIO_LIMIT_MS - 1u) == GAME_AUDIO_GO_ON &&
+                   GameAudioAfterStep(true, 10u, GAME_AUDIO_LIMIT_MS) == GAME_AUDIO_LATE &&
+                   GameAudioAfterStep(true, GAME_AUDIO_SETTLE, GAME_AUDIO_LIMIT_MS) ==
+                       GAME_AUDIO_SETTLED,
+           "late at 5000 ms after the frames, unless settled");
+    Report("game: the audio thread stops once its tone settled, or 5000 ms after the frames", &t);
+}
+
+static void CheckTimeCases(void) {
+    Tally t = { 0, NULL };
+    static uint32_t present[4] = { 90000u, 16000u, 17000u, 18000u };
+    static uint32_t main_part[4] = { 700u, 100u, 300u, 200u };
+    static uint32_t render_part[4] = { 80000u, 1000u, 3000u, 2000u };
+    GameTimes times;
+    GameTimesOf(&times, 4u, present, main_part, render_part, scratch);
+    Expect(&t, times.frames == 4u && times.warmup_present == 90000u &&
+                   times.warmup_main == 700u && times.warmup_render == 80000u &&
+                   times.present.frames == 3u && times.present.mean == 17000u &&
+                   times.present.longest == 18000u && times.present.longest_at == 3u &&
+                   times.main_part.mean == 200u && times.render_part.p99 == 3000u,
+           "the warm-up taken apart, each measure over the three frames past it");
+    GameTimeCase cases[GAME_TIME_CASES];
+    const uint32_t timed = GameTimeCases(&times, 4u, cases);
+    static const struct {
+        const char *name;
+        uint32_t us;
+    } WANT[GAME_TIME_CASES] = {
+        { "4 frames, present to present: the mean", 17000u },
+        { "4 frames, present to present: the 99th percentile", 18000u },
+        { "4 frames, present to present: the longest", 18000u },
+        { "4 frames, the main thread's part: the mean", 200u },
+        { "4 frames, the main thread's part: the 99th percentile", 300u },
+        { "4 frames, the render thread's part, the graphics unit's in it: the mean", 2000u },
+        { "4 frames, the render thread's part, the graphics unit's in it: the 99th percentile",
+          3000u },
+    };
+    bool right = timed == 3u;
+    for (uint32_t i = 0; i < GAME_TIME_CASES; ++i) {
+        right = right && strcmp(cases[i].name, WANT[i].name) == 0 && cases[i].us == WANT[i].us;
+    }
+    Expect(&t, right, "the seven cases' names and times");
+    const uint32_t named = GameTimeCases(NULL, 600u, cases);
+    Expect(&t,
+           named == 0u &&
+               strcmp(cases[2].name, "600 frames, present to present: the longest") == 0 &&
+               cases[2].us == 0u,
+           "the names alone, for the cases a skipped scene lists");
+    GameTimesOf(&times, 1u, present, main_part, render_part, scratch);
+    Expect(&t, GameTimeCases(&times, 1u, cases) == 0u && times.warmup_present == 90000u,
+           "one frame: the warm-up, and nothing past it to time");
+    Report("game: the timed cases carry each measure past the warm-up, in order", &t);
+}
+
 static void CheckNote(void) {
     Tally t = { 0, NULL };
-    GameFrameStats s;
-    memset(&s, 0, sizeof(s));
-    s.frames = 600u;
-    s.total = 10012345u;
-    s.mean = 16687u;
-    s.p99 = 17012u;
-    s.longest = 41000u;
-    s.longest_at = 0u;
-    s.hitches = 2u;
-    s.hitch_at[0] = 0u;
-    s.hitch_at[1] = 377u;
-    GameFrameStats work;
-    memset(&work, 0, sizeof(work));
-    work.frames = 600u;
-    work.mean = 4120u;
-    work.p99 = 5210u;
-    work.longest = 80000u;
-    work.longest_at = 0u;
+    GameTimes g;
+    memset(&g, 0, sizeof(g));
+    g.frames = 600u;
+    g.warmup_present = 99000u;
+    g.warmup_main = 1200u;
+    g.warmup_render = 96000u;
+    g.present.frames = 599u;
+    g.present.total = 10012345u - 99000u;
+    g.present.mean = 16687u;
+    g.present.p99 = 17012u;
+    g.present.longest = 41000u;
+    g.present.longest_at = 377u;
+    g.present.hitches = 2u;
+    g.present.hitch_at[0] = 377u;
+    g.present.hitch_at[1] = 412u;
+    g.main_part.mean = 420u;
+    g.main_part.p99 = 610u;
+    g.main_part.longest = 900u;
+    g.main_part.longest_at = 5u;
+    g.render_part.mean = 1100u;
+    g.render_part.p99 = 1800u;
+    g.render_part.longest = 2500u;
+    g.render_part.longest_at = 6u;
     const GameThreadTimes threads = { 2004u, 10200u, 1u, 600u, 1500u };
+    g.threads = threads;
     char text[REPORT_NOTE_MAX + 1];
-    GameDescribeTimes(text, sizeof(text), &s, &work, &threads);
+    GameDescribeFrames(text, sizeof(text), &g);
     Expect(&t,
-           strcmp(text, "game: 600 frames in 10.01 s; present to present: mean 16687 us, 99th "
-                        "percentile 17012 us, longest 41000 us at frame 0; 2 over 33333 us, two "
-                        "frames at 60 Hz: frames 0, 377; a frame's work without the waits: mean "
-                        "4120 us, 99th percentile 5210 us, longest 80000 us at frame 0; the "
-                        "audio thread waited for 2004 "
-                        "renderer frames, the longest wait 10200 us, 1 over 10000 us; the file "
-                        "thread made 600 reads of 64 KiB, the longest 1500 us") == 0,
+           strcmp(text,
+                  "game: 600 frames in 10.01 s; frame 0, the warm-up, left out of the times "
+                  "(99000 us present to present, 1200 us the main thread's part, 96000 us the "
+                  "render thread's); the 599 past it; present to present: mean 16687 us, 99th "
+                  "percentile 17012 us, longest 41000 us at frame 377, 2 over 33333 us, two "
+                  "frames at 60 Hz: frames 377, 412") == 0,
+           text);
+    GameDescribeWork(text, sizeof(text), &g);
+    Expect(&t,
+           strcmp(text,
+                  "game: past the warm-up; the main thread's part: mean 420 us, 99th percentile "
+                  "610 us, longest 900 us at frame 5; the render thread's part, the graphics "
+                  "unit's in it: mean 1100 us, 99th percentile 1800 us, longest 2500 us at "
+                  "frame 6; the audio thread waited for 2004 renderer frames, the longest wait "
+                  "10200 us, 1 over 10000 us; the file thread made 600 reads of 64 KiB, the "
+                  "longest 1500 us") == 0,
            text);
 
-    s.hitches = 0u;
-    GameDescribeTimes(text, sizeof(text), &s, &work, &threads);
-    Expect(&t, strstr(text, "; none over 33333 us, two frames at 60 Hz; a frame's work") != NULL,
+    g.present.hitches = 0u;
+    GameDescribeFrames(text, sizeof(text), &g);
+    const size_t none = strlen(text);
+    static const char NONE[] = ", none over 33333 us, two frames at 60 Hz";
+    Expect(&t, none > sizeof(NONE) - 1u && strcmp(text + none - (sizeof(NONE) - 1u), NONE) == 0,
            "no hitches");
-
-    s.hitches = 11u;
+    g.present.hitches = 11u;
     for (uint32_t i = 0; i < GAME_HITCHES_LISTED; ++i) {
-        s.hitch_at[i] = i * 10u;
+        g.present.hitch_at[i] = 10u + i * 10u;
     }
-    GameDescribeTimes(text, sizeof(text), &s, &work, &threads);
-    Expect(&t, strstr(text, "11 over 33333 us, two frames at 60 Hz: frames 0, 10, 20, 30, 40, "
-                            "50, 60, 70 and 3 more; a frame's work") != NULL,
+    GameDescribeFrames(text, sizeof(text), &g);
+    Expect(&t, strstr(text, "11 over 33333 us, two frames at 60 Hz: frames 10, 20, 30, 40, 50, "
+                            "60, 70, 80 and 3 more") != NULL,
            "the hitches past the eighth counted");
-    s.hitches = 1u;
-    GameDescribeTimes(text, sizeof(text), &s, &work, &threads);
-    Expect(&t,
-           strstr(text, "1 over 33333 us, two frames at 60 Hz: frame 0; a frame's work") != NULL,
+    g.present.hitches = 1u;
+    GameDescribeFrames(text, sizeof(text), &g);
+    Expect(&t, strstr(text, ", 1 over 33333 us, two frames at 60 Hz: frame 10") != NULL,
            "one hitch");
 
-    // Every number at its widest still fits a note whole.
-    const GameFrameStats widest = { MODE_FRAMES_MAX, UINT64_MAX / 2u, UINT32_MAX, UINT32_MAX,
-                                    UINT32_MAX, MODE_FRAMES_MAX - 1u, MODE_FRAMES_MAX,
-                                    { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-                                      UINT32_MAX, UINT32_MAX, UINT32_MAX } };
-    const GameThreadTimes slowest = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
-                                      UINT32_MAX };
+    GameTimes one;
+    memset(&one, 0, sizeof(one));
+    one.frames = 1u;
+    one.warmup_present = 120000u;
+    GameDescribeFrames(text, sizeof(text), &one);
+    char work[REPORT_NOTE_MAX + 1];
+    GameDescribeWork(work, sizeof(work), &one);
+    Expect(&t, strstr(text, "game: 1 frame in 0.12 s; frame 0, the warm-up, left out of the "
+                            "times (120000 us present to present") == text &&
+                   strstr(text, "; no frame past it to time") != NULL &&
+                   strstr(work, "game: past the warm-up, no frame to time; the audio") == work,
+           "a run of one frame");
+
+    // Every number at its widest, a frame's number at its last, still fits a note whole.
+    GameTimes widest;
+    memset(&widest, 0xFF, sizeof(widest));
+    widest.frames = MODE_FRAMES_MAX;
+    widest.present.frames = MODE_FRAMES_MAX - 1u;
+    widest.present.total = UINT64_MAX / 4u;
+    widest.present.longest_at = widest.main_part.longest_at = MODE_FRAMES_MAX - 1u;
+    widest.render_part.longest_at = MODE_FRAMES_MAX - 1u;
+    widest.present.hitches = MODE_FRAMES_MAX - 1u;
+    for (uint32_t i = 0; i < GAME_HITCHES_LISTED; ++i) {
+        widest.present.hitch_at[i] = MODE_FRAMES_MAX - 1u;
+    }
     Expect(&t,
-           GameDescribeTimes(text, sizeof(text), &widest, &widest, &slowest) < REPORT_NOTE_MAX - 1u,
-           "the widest note fits a note");
+           GameDescribeFrames(text, sizeof(text), &widest) < REPORT_NOTE_MAX - 1u &&
+               GameDescribeWork(work, sizeof(work), &widest) < REPORT_NOTE_MAX - 1u,
+           "the widest notes fit a note each");
 
     char tiny[24];
     memset(tiny, 'x', sizeof(tiny));
-    const size_t length = GameDescribeTimes(tiny, sizeof(tiny), &s, &work, &threads);
+    const size_t length = GameDescribeFrames(tiny, sizeof(tiny), &g);
     Expect(&t, length == sizeof(tiny) - 1u && tiny[sizeof(tiny) - 1u] == '\0' &&
                    strncmp(tiny, "game: 600 frames in", 19u) == 0,
            "a buffer too small is cut and terminated");
-    Report("game: the timing note says the frames, their times, the hitches by number and the work",
-           &t);
+    Report("game: the timing notes say the warm-up, each measure and the hitches by number", &t);
 }
 
 void RunReferenceGame(void) {
@@ -370,5 +514,7 @@ void RunReferenceGame(void) {
     CheckHashes();
     CheckFile();
     CheckStats();
+    CheckAudioLimit();
+    CheckTimeCases();
     CheckNote();
 }

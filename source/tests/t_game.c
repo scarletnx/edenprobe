@@ -30,15 +30,16 @@
 // takes an image from a swapchain on the default window, records the frame (the fill suite's full
 // target quads, depth tested; the texture suite's sampled quad, its texels uploaded that frame;
 // the stream suite's one draw per uniform buffer), copies the target out, draws it onto the
-// image, submits, presents and hashes the copy. The audio thread, on core 2, keeps the renderer
-// stepping with a tone on a voice, through the audio family's submix at a gain of nought, so it
-// is silent. The file thread, also on core 2 and below the audio thread, reads 64 KiB of the fs
-// family's big file each frame.
+// image, submits, presents and hashes the copy. In a run with a screen the window is the
+// screen's, and the frames are shown through it instead. The audio thread, on core 2, keeps the
+// renderer stepping with a tone on a voice, through the audio family's submix at a gain of
+// nought, so it is silent. The file thread, also on core 2 and below the audio thread, reads
+// 64 KiB of the fs family's big file each frame.
 //
 // Nothing a frame holds depends on the time: its number decides its image (gameref.c), and its
 // read. So each verdict is the same on a fast machine and a slow one, and the time is measured
-// beside it: present to present, every frame. The swapchain blocks the render thread until the
-// display gives an image back, which is what paces a frame to the display.
+// beside it. Taking an image blocks the render thread until the display gives one back, which is
+// what paces a frame to the display.
 
 static const char *const SUITE = "game";
 
@@ -60,11 +61,10 @@ static const char *const SUITE = "game";
 
 // The tone fills a 240-sample frame with whole periods and loops over a second, so the aux ring
 // holds the same steady wave whenever it is read, as in the audio family; it is read once the
-// voice has played 100 renderer frames, whatever the frames took.
+// voice has played 100 renderer frames, whatever the frames took, or 5 s after them at most.
 #define TONE_HZ 1000.0
 #define TONE_LEVEL 0.5
 #define TONE_LOOP 48000u
-#define TONE_SETTLE 24000u
 #define AUDIO_LATE_US 10000u
 
 #define FILL_VERTICES (GAME_FILL_QUADS * 6u)
@@ -93,6 +93,9 @@ static DkImageLayout texture_layout;
 static DkImage swap_images[SWAP_IMAGES];
 static DkImageLayout swap_layouts[SWAP_IMAGES];
 static DkSwapchain swapchain;
+// The program's screen was up when the scene began (a run with a screen): the frames are shown
+// through it, composed by the processor, and no swapchain is made on its window.
+static bool on_screen;
 static DkSwapchainMaker swap_maker;
 static DkGpuAddr image_set;
 static DkGpuAddr sampler_set;
@@ -120,10 +123,10 @@ static uint32_t expected[MODE_FRAMES_MAX][GAME_REGIONS];
 static uint32_t chunk_hash[GAME_FILE_CHUNKS];
 static uint32_t frame_us[MODE_FRAMES_MAX];
 static uint32_t sorted_us[MODE_FRAMES_MAX];
-// A frame's work with every wait left out: the main thread's part, which the render thread adds
-// its own to once the frame's fence has signalled.
+// A frame's work with every wait left out, in two parts: the main thread's, written before the
+// semaphore that hands the frame over, and the render thread's.
 static uint32_t main_us[MODE_FRAMES_MAX];
-static uint32_t work_us[MODE_FRAMES_MAX];
+static uint32_t render_us[MODE_FRAMES_MAX];
 static uint8_t wrong_pixels[GAME_IMAGE_BYTES];
 static uint8_t want_pixels[GAME_IMAGE_BYTES];
 static GameWorld world;
@@ -167,8 +170,14 @@ static struct {
     uint32_t longest;
     uint32_t late;
     bool failed;
+    /// The voice had not played GAME_AUDIO_SETTLE samples GAME_AUDIO_LIMIT_MS after the frames,
+    /// and the samples it had.
+    bool timed_out;
+    uint64_t played;
     CoreSeen core;
 } sound;
+// When the frames ended, for the audio thread's limit: nought until they have.
+static uint64_t frames_over_tick;
 
 static struct {
     uint32_t reads;
@@ -195,8 +204,14 @@ static struct {
     uint32_t clock_wrong_rc;
     int64_t clock_before;
     int64_t clock_after;
-    /// Whether this thread could be put on core 0 alone for the frames, and where it ran.
+    /// Whether this thread could be put on core 0 alone for the frames, the results of the two
+    /// calls that do it and of the one that puts it back, and where it ran.
     bool pinned;
+    uint32_t get_mask_rc;
+    uint32_t set_mask_rc;
+    uint32_t restore_rc;
+    int32_t ideal;
+    uint64_t mask;
     CoreSeen core;
 } asked;
 
@@ -269,10 +284,11 @@ static void BindDepth(bool test, bool write) {
 }
 
 /// Records, submits and presents frame @p k from @p slot, then judges its copy. Hands back the
-/// render thread's part of the frame's work: from the image in hand to the fence of its submit
-/// signalled, so neither the wait for an image nor the present is in it.
+/// render thread's part of the frame's work: from the image in hand to the queue standing idle
+/// after the frame's submit, so the graphics unit's work is in it and the wait for an image is
+/// not; the present comes after it.
 static uint64_t DrawFrame(uint32_t k, uint32_t slot) {
-    const int image = dkQueueAcquireImage(gpu.queue, swapchain);
+    const int image = on_screen ? 0 : dkQueueAcquireImage(gpu.queue, swapchain);
     const uint64_t began = armGetSystemTick();
     GpuBeginPass(&gpu);
     // The processor rewrote this slot after the graphics unit last read it, through memory the
@@ -319,18 +335,24 @@ static uint64_t DrawFrame(uint32_t k, uint32_t slot) {
     const DkImageRect whole = { 0, 0, 0, GAME_TARGET, GAME_TARGET, 1 };
     const DkCopyBuf readback = { dkMemBlockGetGpuAddr(gpu.read_memory), 0, 0 };
     dkCmdBufCopyImageToBuffer(gpu.cmdbuf, &target_view, &whole, &readback, 0);
-    GpuSetTarget(&gpu, &swap_images[image], SWAP_WIDTH, SWAP_HEIGHT);
-    dkCmdBufClearColorFloat(gpu.cmdbuf, 0, DkColorMask_RGBA, 0.06f, 0.06f, 0.08f, 1.0f);
-    dkCmdBufBindTexture(gpu.cmdbuf, DkStage_Fragment, 0, dkMakeTextureHandle(1, 0));
-    GpuBindVertices(&gpu, &common_vs, &texture_fs, compose_quad, 6u * (uint32_t)sizeof(GpuVertex));
-    dkCmdBufDraw(gpu.cmdbuf, DkPrimitive_Triangles, 6, 1, 0, 0);
+    if (!on_screen) {
+        GpuSetTarget(&gpu, &swap_images[image], SWAP_WIDTH, SWAP_HEIGHT);
+        dkCmdBufClearColorFloat(gpu.cmdbuf, 0, DkColorMask_RGBA, 0.06f, 0.06f, 0.08f, 1.0f);
+        dkCmdBufBindTexture(gpu.cmdbuf, DkStage_Fragment, 0, dkMakeTextureHandle(1, 0));
+        GpuBindVertices(&gpu, &common_vs, &texture_fs, compose_quad,
+                        6u * (uint32_t)sizeof(GpuVertex));
+        dkCmdBufDraw(gpu.cmdbuf, DkPrimitive_Triangles, 6, 1, 0, 0);
+    }
     GpuSubmit(&gpu);
     const uint64_t worked = armGetSystemTick() - began;
+    // Presented whatever the submit came to: an image taken and never queued back would leave
+    // the swapchain one short for the destroy that follows a fault.
+    if (!on_screen) {
+        dkQueuePresentImage(gpu.queue, swapchain, image);
+    }
     if (!gpu.ready) {
         return worked;
     }
-    dkQueuePresentImage(gpu.queue, swapchain, image);
-    ++render.presented;
 
     uint32_t got[GAME_REGIONS];
     const uint8_t *const pixels = (const uint8_t *)dkMemBlockGetCpuAddr(gpu.read_memory);
@@ -339,6 +361,10 @@ static uint64_t DrawFrame(uint32_t k, uint32_t slot) {
         render.first_wrong = k;
         memcpy(render.got, got, sizeof(got));
         memcpy(wrong_pixels, pixels, GAME_IMAGE_BYTES);
+    }
+    // Counted once shown: through the swapchain, queued above; through the screen, here.
+    if (!on_screen || ViewerShowImage(pixels, GAME_TARGET, GAME_TARGET)) {
+        ++render.presented;
     }
     return worked;
 }
@@ -353,11 +379,10 @@ static void RenderMain(void *argument) {
         }
         Look(&render.core, RENDER_CORE, k);
         const uint64_t worked = gpu.ready ? DrawFrame(k, k % SLOTS) : 0u;
+        // After the present was queued: the wait for the display is in the next frame's acquire.
         const uint64_t now = armGetSystemTick();
         frame_us[k] = Microseconds(now - previous);
-        // main_us[k] was written before the semaphore that handed this frame over.
-        const uint64_t work = (uint64_t)main_us[k] + Microseconds(worked);
-        work_us[k] = work > UINT32_MAX ? UINT32_MAX : (uint32_t)work;
+        render_us[k] = Microseconds(worked);
         previous = now;
         semaphoreSignal(&slot_free);
     }
@@ -381,7 +406,13 @@ static void AudioMain(void *argument) {
         previous = now;
         Look(&sound.core, AUDIO_CORE, sound.steps);
         ++sound.steps;
-        if (__atomic_load_n(&audio_stop, __ATOMIC_ACQUIRE) && AudioVoicePlayed(0) >= TONE_SETTLE) {
+        const bool over = __atomic_load_n(&audio_stop, __ATOMIC_ACQUIRE);
+        const uint64_t over_at = __atomic_load_n(&frames_over_tick, __ATOMIC_ACQUIRE);
+        sound.played = AudioVoicePlayed(0);
+        const GameAudioNext next = GameAudioAfterStep(
+            over, sound.played, over ? armTicksToNs(now - over_at) / 1000000u : 0u);
+        if (next != GAME_AUDIO_GO_ON) {
+            sound.timed_out = next == GAME_AUDIO_LATE;
             return;
         }
     }
@@ -461,9 +492,11 @@ static void MakeSwapchain(void) {
 /// Carves @p size bytes of scratch or says which part did not fit.
 static void *Scratch(uint32_t size, uint32_t alignment, DkGpuAddr *address, const char *what,
                      char *why, size_t why_size) {
+    const uint32_t used = gpu.data_used;
     void *const bytes = GpuAllocData(&gpu, size, alignment, address);
     if (bytes == NULL && why[0] == '\0') {
-        snprintf(why, why_size, "no scratch left for %s", what);
+        snprintf(why, why_size, "no scratch left for %s: %u bytes asked, %u of the %u used",
+                 what, (unsigned)size, (unsigned)used, (unsigned)gpu.spec.data_size);
     }
     return bytes;
 }
@@ -605,7 +638,8 @@ static bool BringUpSound(char *why, size_t why_size) {
     }
     int16_t *const tone = AudioAlloc(TONE_LOOP);
     if (tone == NULL) {
-        snprintf(why, why_size, "no room in the renderer's memory pool for the tone");
+        snprintf(why, why_size, "no room in the renderer's memory pool for the tone's %u samples",
+                 (unsigned)TONE_LOOP);
         AudioClose();
         return false;
     }
@@ -659,6 +693,7 @@ static bool RunFrames(char *why, size_t why_size) {
     memset(&sound, 0, sizeof(sound));
     memset(&reads, 0, sizeof(reads));
     memset(&asked, 0, sizeof(asked));
+    __atomic_store_n(&frames_over_tick, 0u, __ATOMIC_RELEASE);
     __atomic_store_n(&audio_stop, false, __ATOMIC_RELEASE);
     semaphoreInit(&frame_go, 0);
     semaphoreInit(&slot_free, SLOTS);
@@ -691,8 +726,13 @@ static bool RunFrames(char *why, size_t why_size) {
     // This thread on core 0 alone for the frames, whatever core it was on, and back after.
     s32 ideal = 0;
     u64 mask = 0;
-    asked.pinned = R_SUCCEEDED(svcGetThreadCoreMask(&ideal, &mask, CUR_THREAD_HANDLE)) &&
-                   R_SUCCEEDED(svcSetThreadCoreMask(CUR_THREAD_HANDLE, MAIN_CORE, 1u << MAIN_CORE));
+    asked.get_mask_rc = svcGetThreadCoreMask(&ideal, &mask, CUR_THREAD_HANDLE);
+    asked.set_mask_rc = R_SUCCEEDED(asked.get_mask_rc)
+                            ? svcSetThreadCoreMask(CUR_THREAD_HANDLE, MAIN_CORE, 1u << MAIN_CORE)
+                            : asked.get_mask_rc;
+    asked.pinned = R_SUCCEEDED(asked.set_mask_rc);
+    asked.ideal = ideal;
+    asked.mask = mask;
     PadState pad;
     padConfigureInput(1, HidNpadStyleSet_NpadStandard);
     padInitializeDefault(&pad);
@@ -713,10 +753,17 @@ static bool RunFrames(char *why, size_t why_size) {
     }
     Finish(&render_thread);
     Finish(&file_thread);
+    __atomic_store_n(&frames_over_tick, armGetSystemTick(), __ATOMIC_RELEASE);
     __atomic_store_n(&audio_stop, true, __ATOMIC_RELEASE);
     Finish(&audio_thread);
     if (asked.pinned) {
-        svcSetThreadCoreMask(CUR_THREAD_HANDLE, ideal, (u32)mask);
+        asked.restore_rc = svcSetThreadCoreMask(CUR_THREAD_HANDLE, ideal, (u32)mask);
+        if (R_FAILED(asked.restore_rc)) {
+            ReportNote("game: the main thread could not be put back on core %d, mask 0x%llx: "
+                       "0x%x, so it stays on core %d alone",
+                       (int)ideal, (unsigned long long)mask, (unsigned)asked.restore_rc,
+                       MAIN_CORE);
+        }
     }
     return true;
 }
@@ -747,8 +794,11 @@ static void JudgeImage(const char *name, bool ran, const char *why) {
         return;
     }
     if (render.presented < frames) {
-        ReportCase(SUITE, name, CHECK_NONE, false,
-                   gpu.failure[0] != '\0' ? gpu.failure : "the frames stopped being drawn");
+        char detail[320];
+        snprintf(detail, sizeof(detail), "%u of %u frames were presented; %s",
+                 (unsigned)render.presented, (unsigned)frames,
+                 gpu.failure[0] != '\0' ? gpu.failure : "the graphics queue reported no fault");
+        ReportCase(SUITE, name, CHECK_NONE, false, detail);
         return;
     }
     if (render.wrong_frames == 0u) {
@@ -780,6 +830,16 @@ static void JudgeSound(const char *name) {
     const double want = AudioRefResampledLevel(4u, 1.0, TONE_HZ, TONE_LEVEL);
     if (sound.failed) {
         ReportCase(SUITE, name, CHECK_NONE, false, AudioError());
+        return;
+    }
+    if (sound.timed_out) {
+        char detail[240];
+        snprintf(detail, sizeof(detail),
+                 "the voice had played %llu samples, short of the %u the level is read after, "
+                 "%u ms after the frames ended, over %u renderer frames",
+                 (unsigned long long)sound.played, (unsigned)GAME_AUDIO_SETTLE,
+                 (unsigned)GAME_AUDIO_LIMIT_MS, (unsigned)sound.steps);
+        ReportCase(SUITE, name, CHECK_NONE, false, detail);
         return;
     }
     static int32_t captured[40u * AUDIO_FRAME];
@@ -866,7 +926,10 @@ static void JudgeCores(const char *name) {
     }
     char detail[400] = "";
     if (!asked.pinned) {
-        snprintf(detail, sizeof(detail), "the main thread could not be put on core 0");
+        snprintf(detail, sizeof(detail),
+                 "the main thread could not be put on core 0: svcGetThreadCoreMask 0x%x, "
+                 "svcSetThreadCoreMask 0x%x",
+                 (unsigned)asked.get_mask_rc, (unsigned)asked.set_mask_rc);
     }
     DescribeCore(detail, sizeof(detail), "main", &asked.core, MAIN_CORE);
     DescribeCore(detail, sizeof(detail), "render", &render.core, RENDER_CORE);
@@ -880,45 +943,54 @@ static void JudgeCores(const char *name) {
                "%s", detail);
 }
 
-/// The two cases of one measure: its mean and its 99th percentile as their lines' times.
-static void TimeCases(const char *const names[2], const GameFrameStats *stats, bool all,
-                      const char *detail) {
-    if (ReportStart(SUITE, names[0])) {
-        ReportCaseTime(SUITE, names[0], CHECK_NONE, all, detail, stats->mean);
-    }
-    if (ReportStart(SUITE, names[1])) {
-        ReportCaseTime(SUITE, names[1], CHECK_NONE, all, detail, stats->p99);
-    }
-}
+static GameTimeCase time_cases[GAME_TIME_CASES];
 
-static void Times(const char *const present_names[2], const char *const work_names[2]) {
-    GameFrameStats present;
-    GameFrameStatsOf(frame_us, frames, sorted_us, &present);
-    GameFrameStats work;
-    GameFrameStatsOf(work_us, frames, sorted_us, &work);
-    const bool all = render.presented == frames;
-    char detail[160];
-    snprintf(detail, sizeof(detail), "%u of %u frames presented", (unsigned)render.presented,
-             (unsigned)frames);
-    TimeCases(present_names, &present, all, detail);
-    TimeCases(work_names, &work, all, detail);
+/// The timed cases and the note: frame 0 left out as the warm-up, each measure's cases carrying
+/// its number as their time. A run of one frame has none past the warm-up, and its timed cases
+/// are skipped saying so.
+static void Times(void) {
+    static GameTimes times;
+    GameTimesOf(&times, frames, frame_us, main_us, render_us, sorted_us);
     const GameThreadTimes threads = { sound.steps, sound.longest, sound.late, reads.reads,
                                       reads.longest };
+    times.threads = threads;
+    const uint32_t timed = GameTimeCases(&times, frames, time_cases);
+    char detail[160];
+    snprintf(detail, sizeof(detail), "%u frames past the warm-up; %u of %u presented",
+             (unsigned)timed, (unsigned)render.presented, (unsigned)frames);
+    for (uint32_t i = 0; i < GAME_TIME_CASES; ++i) {
+        if (timed == 0u) {
+            ReportSkip(SUITE, time_cases[i].name, REPORT_REASON_DEPENDS,
+                       "the run's one frame is the warm-up, which the times leave out");
+        } else if (ReportStart(SUITE, time_cases[i].name)) {
+            ReportCaseTime(SUITE, time_cases[i].name, CHECK_NONE, render.presented == frames,
+                           detail, time_cases[i].us);
+        }
+    }
     char note[REPORT_NOTE_MAX + 1];
-    GameDescribeTimes(note, sizeof(note), &present, &work, &threads);
+    GameDescribeFrames(note, sizeof(note), &times);
+    ReportNote("%s", note);
+    GameDescribeWork(note, sizeof(note), &times);
     ReportNote("%s", note);
 }
 
+/// Every case after the bring-up, skipped as depending on what did not happen: @p why, which
+/// names it.
+static void SkipFrom(const char *const names[], size_t count, const char *why) {
+    for (size_t i = 0; i < count; ++i) {
+        ReportSkip(SUITE, names[i], REPORT_REASON_DEPENDS, why);
+    }
+    for (uint32_t i = 0; timing && i < GAME_TIME_CASES; ++i) {
+        ReportSkip(SUITE, time_cases[i].name, REPORT_REASON_DEPENDS, why);
+    }
+}
+
 void RunGame(void) {
-    static char bring_up[] = "a graphics device, two images on the default window, the renderer "
-                             "and the card's file come up";
+    static char bring_up[] = "a graphics device, a way to the display, the renderer and the "
+                             "card's file come up";
     static char image_name[96];
     static char reads_name[96];
     static char services_name[96];
-    static char mean_name[96];
-    static char p99_name[96];
-    static char work_mean_name[96];
-    static char work_p99_name[96];
     static const char SOUND_NAME[] = "the audio thread's tone keeps the level the renderer's "
                                      "model gives";
     static const char CORES_NAME[] = "the main, render, audio and file threads run on the cores "
@@ -929,45 +1001,43 @@ void RunGame(void) {
              "the file thread's %u reads of 64 KiB hold the file's bytes", (unsigned)frames);
     snprintf(services_name, sizeof(services_name),
              "hid and the steady clock answer on each of %u frames", (unsigned)frames);
-    snprintf(mean_name, sizeof(mean_name), "%u frames, present to present: the mean",
-             (unsigned)frames);
-    snprintf(p99_name, sizeof(p99_name), "%u frames, present to present: the 99th percentile",
-             (unsigned)frames);
-    snprintf(work_mean_name, sizeof(work_mean_name),
-             "%u frames, a frame's work without the waits: the mean", (unsigned)frames);
-    snprintf(work_p99_name, sizeof(work_p99_name),
-             "%u frames, a frame's work without the waits: the 99th percentile",
-             (unsigned)frames);
-    const char *const present_names[2] = { mean_name, p99_name };
-    const char *const work_names[2] = { work_mean_name, work_p99_name };
-    const char *const after[] = { SOUND_NAME, reads_name, services_name, CORES_NAME };
+    (void)GameTimeCases(NULL, frames, time_cases);
+    const char *const all[] = { image_name, SOUND_NAME, reads_name, services_name, CORES_NAME };
+    const size_t after_count = sizeof(all) / sizeof(all[0]) - 1u;
 
     if (!ReportStart(SUITE, bring_up)) {
+        // Its skip line says why; nothing after it has a scene to judge.
+        SkipFrom(all, sizeof(all) / sizeof(all[0]),
+                 "the scene's bring-up did not run, so neither did its frames");
         return;
     }
     char why[400] = "";
     bool card_open = false;
     bool file_open = false;
     bool sound_open = false;
-    bool screen_was_open = false;
-    bool lent = false;
     bool up = BringUpDrawing(why, sizeof(why)) &&
               BringUpCard(why, sizeof(why), &card_open, &file_open);
     if (up) {
         sound_open = up = BringUpSound(why, sizeof(why));
     }
     if (up) {
-        // After the device, which is made while the program's screen still holds the window.
-        screen_was_open = ViewerScreenLend();
-        lent = true;
-        const DkImage *const presented[SWAP_IMAGES] = { &swap_images[0], &swap_images[1] };
-        dkSwapchainMakerDefaults(&swap_maker, gpu.device, nwindowGetDefault(), presented,
-                                 SWAP_IMAGES);
-        uint32_t aborted = 0;
-        up = AbortGuarded(MakeSwapchain, &aborted) && swapchain != NULL;
-        if (!up) {
-            snprintf(why, sizeof(why), "the swapchain on the default window: 0x%x",
-                     (unsigned)aborted);
+        // The window is the program's screen's while it is up, and stays so: closing it before
+        // a swapchain, or making it again after one, is what Eden never came back from.
+        on_screen = ViewerScreenUp();
+        if (on_screen) {
+            ReportNote("game: the program's screen is up, so the frames are shown through it, "
+                       "composed by the processor, rather than through a swapchain; present to "
+                       "present is that screen's, not a quick run's");
+        } else {
+            const DkImage *const presented[SWAP_IMAGES] = { &swap_images[0], &swap_images[1] };
+            dkSwapchainMakerDefaults(&swap_maker, gpu.device, nwindowGetDefault(), presented,
+                                     SWAP_IMAGES);
+            uint32_t aborted = 0;
+            up = AbortGuarded(MakeSwapchain, &aborted) && swapchain != NULL;
+            if (!up) {
+                snprintf(why, sizeof(why), "the swapchain on the default window: 0x%x",
+                         (unsigned)aborted);
+            }
         }
     }
     if (up) {
@@ -976,33 +1046,27 @@ void RunGame(void) {
     CHECK_TRUE(SUITE, bring_up, CHECK_NONE, up, "%s", why);
 
     bool ran = false;
-    if (up && ReportStart(SUITE, image_name)) {
+    if (!up) {
+        SkipFrom(all, sizeof(all) / sizeof(all[0]),
+                 "the scene did not come up, so its frames did not run");
+    } else if (ReportStart(SUITE, image_name)) {
         ran = RunFrames(why, sizeof(why));
         JudgeImage(image_name, ran, why);
-    } else {
-        // The bring-up failed, or the frames case is skipped (it ended the program before):
-        // nothing below has anything to judge.
-        snprintf(why, sizeof(why), up ? "the frames did not run" : "the scene did not come up");
-        if (!up) {
-            ReportSkip(SUITE, image_name, REPORT_REASON_DEPENDS, why);
-        }
-    }
-    if (ran) {
-        JudgeSound(SOUND_NAME);
-        JudgeReads(reads_name);
-        JudgeServices(services_name);
-        JudgeCores(CORES_NAME);
-        if (timing) {
-            Times(present_names, work_names);
+        if (ran) {
+            JudgeSound(SOUND_NAME);
+            JudgeReads(reads_name);
+            JudgeServices(services_name);
+            JudgeCores(CORES_NAME);
+            if (timing) {
+                Times();
+            }
+        } else {
+            SkipFrom(all + 1, after_count, why);
         }
     } else {
-        for (size_t i = 0; i < sizeof(after) / sizeof(after[0]); ++i) {
-            ReportSkip(SUITE, after[i], REPORT_REASON_DEPENDS, why);
-        }
-        for (size_t i = 0; timing && i < 4u; ++i) {
-            ReportSkip(SUITE, i < 2u ? present_names[i] : work_names[i - 2u],
-                       REPORT_REASON_DEPENDS, why);
-        }
+        // The frames case is skipped, its line says why (it ended the program before).
+        SkipFrom(all + 1, after_count,
+                 "the frames' case did not run, so there are no frames to judge");
     }
 
     if (swapchain != NULL) {
@@ -1015,6 +1079,9 @@ void RunGame(void) {
         AudioCapture(false);
         AudioStop(0);
         AudioStep();
+        if (AudioError()[0] != '\0') {
+            ReportNote("game: the renderer said: %s", AudioError());
+        }
         AudioClose();
     }
     if (file_open) {
@@ -1022,9 +1089,5 @@ void RunGame(void) {
     }
     if (card_open) {
         fsFsClose(&card);
-    }
-    if (lent && !ViewerScreenBack(screen_was_open)) {
-        ReportNote("game: the program's screen did not open again after the scene, so the "
-                   "running screen stays dark");
     }
 }
