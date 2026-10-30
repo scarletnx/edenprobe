@@ -19,9 +19,10 @@
 // compute shader, and this is where the two are compared.
 //
 // What each texel must be is source/astcref.c's answer, held to ARM's reference decoder by the
-// reference suite. An UNORM ASTC texel reaches the shader as C / 65535 or, where the texture unit
-// decodes to eight bits, as C's top byte; the target keeps eight bits, so each channel may be
-// either of the two bytes those give (astcref.h, AstcUnorm8Answers) and nothing else. A weight
+// reference suite. An UNORM ASTC texel reaches the shader as the specification's default decode
+// gives it, C / 65536 cut to FP16, or as C / 65535, or, where the texture unit decodes to eight
+// bits, as C's top byte; the target keeps eight bits, so each channel may be any of the three
+// bytes those give (astcref.h, AstcUnorm8Fp16 and AstcUnorm8Answers) and nothing else. A weight
 // one step off moves a channel by a 64th of the endpoints' distance, four bytes on the blocks
 // built for it, which no rounding rule allows.
 
@@ -115,10 +116,11 @@ static void SampleBlock(GpuContext *gpu, const DkShader *vertex_shader,
                 uint8_t rounded;
                 uint8_t truncated;
                 AstcUnorm8Answers(texel[c], &rounded, &truncated);
-                expect[c] = rounded;
-                if (pixel[c] != rounded && pixel[c] != truncated) {
+                const uint8_t fp16 = AstcUnorm8Fp16(texel[c]);
+                expect[c] = fp16;
+                if (pixel[c] != fp16 && pixel[c] != rounded && pixel[c] != truncated) {
                     right = false;
-                    const uint32_t d = pixel[c] > rounded ? pixel[c] - rounded : rounded - pixel[c];
+                    const uint32_t d = pixel[c] > fp16 ? pixel[c] - fp16 : fp16 - pixel[c];
                     if (d > distance) {
                         distance = d;
                     }
