@@ -50,15 +50,24 @@ static void CheckLimit(void) {
 
     const BaselineLimit small = { 200, 20 };
     const BaselineLimit large = { 10000, 20 };
+    // The floor's own edge: exactly 100 microseconds away is no move, one more is.
     CHECK_TRUE(SUITE, "baseline: a move under the floor is none, whatever its percentage",
                CHECK_NONE,
                BaselineJudge(290, small) == BASELINE_SAME &&
+                   BaselineJudge(300, small) == BASELINE_SAME &&
+                   BaselineJudge(301, small) == BASELINE_SLOWER &&
+                   BaselineJudge(100, small) == BASELINE_SAME &&
+                   BaselineJudge(99, small) == BASELINE_FASTER &&
                    BaselineJudge(320, small) == BASELINE_SLOWER &&
                    BaselineJudge(12000, large) == BASELINE_SAME &&
                    BaselineJudge(12001, large) == BASELINE_SLOWER &&
                    BaselineJudge(7000, large) == BASELINE_FASTER,
-               "290 %s, 320 %s, 12000 %s, 12001 %s, 7000 %s",
+               "290 %s, 300 %s, 301 %s, 100 %s, 99 %s, 320 %s, 12000 %s, 12001 %s, 7000 %s",
                BaselineMoveWord(BaselineJudge(290, small)),
+               BaselineMoveWord(BaselineJudge(300, small)),
+               BaselineMoveWord(BaselineJudge(301, small)),
+               BaselineMoveWord(BaselineJudge(100, small)),
+               BaselineMoveWord(BaselineJudge(99, small)),
                BaselineMoveWord(BaselineJudge(320, small)),
                BaselineMoveWord(BaselineJudge(12000, large)),
                BaselineMoveWord(BaselineJudge(12001, large)),

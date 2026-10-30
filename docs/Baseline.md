@@ -63,6 +63,19 @@ compare first and then add, so a run is never held to itself. No verdict moves: 
 the same with either word or without, and a slower case is never a failure. Whether a slower case
 matters is for whoever reads the line, who has its numbers.
 
+## The floor
+
+A move also has to pass 100 microseconds, the floor `tools/perf.py` uses too (see [Time per
+case](TimePerCase.md)): under an emulator one submit's round trip costs about that, so a case that
+moved by less may have moved by a round trip and not by its work. It is a constant
+(`BASELINE_FLOOR_US`), not a word, until a console's numbers say what its round trip is.
+
+It costs the short cases. A case of R microseconds is called slower only past R + 100: twice its
+time at 100 microseconds, three times at 50, five times at 25. On the machine measured below, 222
+of the 331 timed cases have a reference of 100 microseconds or less, so none of them is called
+slower under twice its time, whatever its spread. A floor of 50 found the same planted delays there
+and called a case that had not changed in 1.6 to 2.2 times as many comparisons (see below).
+
 ## Why the limit is each case's own
 
 A fixed percentage calls a build of unchanged source slower. Twelve runs of one build on one machine
