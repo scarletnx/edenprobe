@@ -120,11 +120,13 @@ typedef struct {
 /// inside a number included, or one the next line was written onto, is BASELINE_LINE_OTHER.
 BaselineLineKind BaselineParseLine(const char *line, BaselineFileLine *out);
 
-/// The report's line for a case that moved past its limit. @p suite and @p name are JSON string
-/// text, as BaselineTake keeps them.
-size_t BaselineBuildMovedLine(char *out, size_t out_size, const char *baseline, const char *suite,
-                              const char *name, BaselineMove move, uint32_t us,
-                              BaselineLimit limit, size_t samples);
+/// The report's line for a case held to its samples: where it lies (same, slower or faster), its
+/// time, the reference, its limit, the floor and how many samples it was held to, so a reader
+/// can say how far it is without the file. @p suite and @p name are JSON string text, as
+/// BaselineTake keeps them.
+size_t BaselineBuildHeldLine(char *out, size_t out_size, const char *baseline, const char *suite,
+                             const char *name, BaselineMove move, uint32_t us, BaselineLimit limit,
+                             size_t samples);
 
 /// What a comparison came to, for the report's line that sums it up.
 typedef struct {
@@ -156,8 +158,8 @@ typedef struct {
 /// The sink that writes lines with ReportLine and notes with ReportNote.
 const BaselineSink *BaselineToReport(void);
 
-/// Holds the kept cases to the baseline file at @p path, the totals into @p totals: a case that
-/// moved writes its line, named after the baseline @p name, to @p sink. False when the file
+/// Holds the kept cases to the baseline file at @p path, the totals into @p totals: each case held
+/// writes its line, named after the baseline @p name, to @p sink. False when the file
 /// cannot be opened, errno saying why.
 bool BaselineCompareFile(const char *path, const char *name, const BaselineSink *sink,
                          BaselineTotals *totals);

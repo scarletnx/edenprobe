@@ -5,7 +5,8 @@ machine itself and with nothing but the memory card: a machine's own times, kept
 file, and a run held to them case by case.
 
 ```json
-{"type":"baseline","baseline":"console","suite":"stream","name":"4096 draws from one list","result":"slower","us":9120,"reference_us":4410,"limit_percent":20,"samples":5}
+{"type":"baseline","baseline":"console","suite":"clear","name":"clear to cyan","result":"same","us":231,"reference_us":228,"limit_percent":20,"floor_us":100,"samples":5}
+{"type":"baseline","baseline":"console","suite":"stream","name":"4096 draws from one list","result":"slower","us":9120,"reference_us":4410,"limit_percent":20,"floor_us":100,"samples":5}
 {"type":"baseline_summary","baseline":"console","samples":5,"compared":341,"slower":1,"faster":0,"too_few":12}
 ```
 
@@ -42,8 +43,12 @@ samples there, or none, is counted in `too_few` and not compared. For the others
 - the **limit** is the larger of 20 percent and one and a half times the farthest a sample lies from
   that median, in percent of it;
 - a case **moved** when it is past the limit and more than 100 microseconds away: `slower` above,
-  `faster` below. It gets a `baseline` line with its time, the reference, its limit and how many
-  samples it was held to. A case that did not move gets no line.
+  `faster` below, and `same` otherwise.
+
+Every case compared gets a `baseline` line, the ones that did not move too, since how far each case
+is from the machine the samples came from is what a baseline is read for: its result, its time,
+the reference, its limit, the floor (`floor_us`) and how many samples it was held to. A case
+moved when it lies farther from `reference_us` than both `floor_us` and `limit_percent` of it.
 
 One `baseline_summary` line follows, with the file's samples and the counts. Both words in one run
 compare first and then add, so a run is never held to itself. No verdict moves: the run's summary is
