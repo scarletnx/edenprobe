@@ -69,14 +69,13 @@ the suite says which layout the passing cases fit:
   cases and leaves its bytes in their lines. Two details of B are worth the bytes: the status at the
   start and again at the end, which looks doubled, and the size of each entry and its state field.
 
-## What Eden does today
+## What Eden does
 
 Read in reden at 75c12299a6, `src/core/hle/service/nvnflinger/` unless said otherwise.
 
 - **G1, the status alone by default.** `buffer_queue_producer.cpp:895-899`: with
   `enable_buffer_history` off (the default, `src/common/settings.h:608`) the case does nothing but
-  `break`, and the end of the function writes the status (`:936`; the handback said `:935`, the
-  line after the switch's closing brace): a reply of one word, nought. Every case passes, Q1 A.
+  `break`, and the end of the function writes the status (`:936`): a reply of one word, nought. Every case passes, Q1 A.
 - **G2, the history with the option on.** `:901-929`: the status, `limit`, the smaller of the
   request and what is kept, `limit` entries (`BufferHistoryInfo`, `buffer_queue_core.h:31-36`, 32
   bytes with the padding) newest first, and the status again at `:936`. It keeps the last eight

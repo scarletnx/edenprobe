@@ -74,8 +74,8 @@ preemption case fails, they cannot tell R1 apart, and their lines say which step
   waiter waits; the fourth case's line says which.
 - **Q2.** `svcSleepThread(-1)` alone on a core, with idle cores in the mask: A the thread moves, B
   it stays (it only moves when its core has another thread ready). The last case's alone half says.
-- **Q3.** New: a thread running on a core where another is ready, with an idle core in its mask:
-  A it stays until it yields, the reading the handback's sixth case was asked with; B an idle core
+- **Q3.** A thread running on a core where another is ready, with an idle core in its mask:
+  A it stays until it yields; B an idle core
   takes it at once, with no yield, which is what the scheduler reden ports does
   (`k_scheduler.cpp:284-308`, an idle core migrates the top thread of a core that has a next one).
   Under B, the thread of the last case is already on core 0 or 2 when it first reads its core, so
@@ -88,7 +88,7 @@ One note after the family adds up the answers of the cases that passed:
 {"type":"note","text":"sched: the passing cases answer Q1 A, Q2 B, Q3 B"}
 ```
 
-## What Eden does today
+## What Eden does
 
 Read in reden at 75c12299a6, `src/core/hle/kernel/` unless said otherwise. Every case should pass;
 read in the code, not run.

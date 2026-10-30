@@ -186,7 +186,7 @@ No picture is left beside a failure: what each image must be is a hash, not pixe
 
 The frames count from 0 in decode order, superframes split. SHA-256 by its first 16 digits.
 
-| case | vector (SHA-256) | size | frames | hidden | images | what it measures | Eden today |
+| case | vector (SHA-256) | size | frames | hidden | images | what it measures | Eden |
 |---|---|---|---|---|---|---|---|
 | vp9_two_frames | vp90-2-03-deltaq.webm (c1ef6ca3eea22a53) | 352x240 | 2 | none | 2 | the job without a hidden frame; the keyframe's chroma deltas both ways (Q4) | nothing written |
 | vp9_hidden_altref | vp90-2-02-size-66x66.webm (749e4260de357b27) | 66x66 | 11 | 1 | 10 | a hidden altref, contexts that adapt; below 144 by 144 (Q5) | nothing written |
@@ -213,10 +213,9 @@ Each has two answers. The cases' lines and the note say which fits.
   anything. vp9_hidden_altref, 66 by 66, passing says the engine decodes it; failing alone, with the
   other five passing, says the limit is the engine's.
 
-## What Eden does today
+## What Eden does
 
-Read in reden at 75c12299a6, which is still its master; every line the handback cites is where it
-says. Every case should find nothing written: read in the code, not run.
+Read in reden at 75c12299a6. Every case should find nothing written: read in the code, not run.
 
 - **G1, a frame of delay.** `src/video_core/host1x/codecs/vp9.cpp:437-448`: the frame of job N is
   kept and job N decodes frame N-1, its `show_frame` taken from job N's `LastShowFrame` (`:442`).

@@ -116,7 +116,7 @@ copies to buffer of the failing ones answer:
 {"type":"note","text":"blit2d: the passing cases answer Q1 A, Q2 A"}
 ```
 
-## What Eden does today
+## What Eden does
 
 Read in reden at 75c12299a6, `src/video_core/` unless said otherwise, not run. Every case should
 fail on the raw read while its copy to buffer fits, the half cases Q1 A and the 1.5 cases Q2 B:
@@ -163,7 +163,7 @@ fail on the raw read while its copy to buffer fits, the half cases Q1 A and the 
 permutation of address bits and the rules are exact fractions, in the C the arithmetic of
 `CohBlockLinearOffset` and 32.32 steps; the command words come from `cl902d.h`'s byte offsets, the
 C's from deko3d's word numbers. It prints the texels each rule picks, the MD5 of every case under
-every combination, and whether the hashes agree with the table the cases were asked with: all six
+every combination, and whether the hashes agree with the table above: all six
 do. `tools/test_blit2d_expect.py` holds the C table to what the script prints.
 
 The `reference` suite has seven cases on it, in both builds: the source and the filled

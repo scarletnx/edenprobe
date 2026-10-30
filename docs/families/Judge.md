@@ -43,10 +43,9 @@ family reports can be believed without them.
     format's name by a separate script, `tools/format-pixels.py` (it prints the table the test
     holds, and shares no code with `formatref.c`); every format's fields against its pixel; the
     half, small float and sRGB conversions inverted over every code; the quad covering exactly its
-    rectangle. One of these caught the emulator's processor rather than its graphics unit: under
-    Eden, `rint`, a single `frintx`, rounds 1024.5 to 1025 with the rounding mode at nearest, where
-    the architecture gives 1024, so the format reference rounds its halves by hand (the cpu suite
-    now checks that instruction itself);
+    rectangle. The format reference rounds its halves by hand: under Eden, `rint` (one `frintx`)
+    rounds 1024.5 to 1025 at nearest, where the architecture gives 1024; the cpu suite checks that
+    instruction;
   - eleven on intmath: 58 answers at two pixels worked out with exact rationals away from this
     program's code, and each rule against a second algorithm over the whole sweep;
   - five on fmath: 54 answers worked out with exact rationals and sixty digit decimals, the float
