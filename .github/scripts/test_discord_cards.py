@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """discord-cards.py against fake_github.py's fake gh and fake Discord: a push to main's nightly card posted at once and
 edited as each job ends, then once published; a pull request's card drawn at each push, comment and review, its NRO
-linked as its run's artifact, merged; an issue's card on its own channel, its latest comment and how it was closed;
+linked as its run's artifact, merged, and a build its newer push cancelled; an issue's card on its own channel, its latest comment and how it was closed;
 runs racing for one card; what a card quotes; Discord's limits; and the jobs the cards follow being build.yml's.
 Offline."""
 
@@ -363,6 +363,60 @@ class CardsTest(unittest.TestCase):
         self.assertTrue(card["description"].startswith(f"**Merged** into main at [`{self.newer[:7]}`]"))
         self.assertEqual(card["color"], cards.MERGED)
         self.assertNotIn("fields", card)
+
+    def test_a_cancelled_build_leaves_its_card_to_the_newer_one(self):
+        """build.yml cancels a pull request's build when a newer push comes: its follower, ending, draws the card
+        from the newest build of the pull request's head, not its own "Cancelled" over the newer one's state"""
+        old, head = "a" * 40, "b" * 40
+        commits = [{"sha": head, "commit": {"message": "edenprobe: its one commit"}}]
+        self.edit(pulls=[self.pull(7, head)], commits={"7": commits}, merge_base=self.sha, links={"7": []})
+        done = self.run_cards(
+            "event", event={"action": "opened", "pull_request": {"number": 7}}, name="pull_request_target"
+        )
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        base = {
+            "event": "pull_request",
+            "head_branch": "feature",
+            "head_repository": {"full_name": REPO},
+            "pull_requests": [{"number": 7}],
+            "artifacts": [],
+        }
+        cancelled = dict(
+            base,
+            id=61,
+            head_sha=old,
+            status="completed",
+            conclusion="cancelled",
+            created_at="2026-10-16T10:00:00Z",
+            html_url="https://x/runs/61",
+            jobs=jobs([("completed", "cancelled"), ("completed", "cancelled")], 61),
+        )
+        newer = dict(
+            base,
+            id=62,
+            head_sha=head,
+            status="completed",
+            conclusion="success",
+            created_at="2026-10-16T10:01:00Z",
+            html_url="https://x/runs/62",
+            jobs=jobs([OK, OK], 62),
+        )
+        self.edit(runs=[cancelled, newer])
+        mark = len(Discord.requests)
+        done = self.run_cards("event", event={"workflow_run": {"id": 62}}, name="workflow_run")
+        drawn_by_newer = values(sent("prs", mark)[-1])
+        mark = len(Discord.requests)
+        done = self.run_cards("event", event={"workflow_run": {"id": 61}}, name="workflow_run")
+        post = sent("prs", mark)[-1]
+        self.assertEqual((done.returncode, post["method"]), (0, "PATCH"), done.stdout + done.stderr)
+        self.assertEqual(values(post), drawn_by_newer)
+        self.assertFalse(any("Cancelled" in v for v in values(post)), values(post))
+
+        # cancelled with no newer build of the head (by hand): the card says so
+        self.edit(runs=[dict(cancelled, head_sha=head)])
+        mark = len(Discord.requests)
+        self.run_cards("event", event={"workflow_run": {"id": 61}}, name="workflow_run")
+        self.assertIn("Cancelled", values(sent("prs", mark)[-1]))
 
     # ---- an issue
     issue = {

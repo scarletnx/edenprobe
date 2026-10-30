@@ -651,7 +651,12 @@ class Cards:
             if now != seen:
                 self._releases = None
                 kind, ident = aim
-                getattr(self, kind)(ident, create=False, run=run, jobs=jobs)
+                # a run cancelled for a newer push (build.yml's concurrency) draws the card from its head's newest
+                # build, which its own follower keeps up: drawn from itself, its "Cancelled" could come after
+                cancelled = run["status"] == "completed" and run.get("conclusion") == "cancelled"
+                getattr(self, kind)(
+                    ident, create=False, run=None if cancelled else run, jobs=None if cancelled else jobs
+                )
                 seen = now
             if run["status"] == "completed" or time.monotonic() - start > limit:
                 return
