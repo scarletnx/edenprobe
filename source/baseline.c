@@ -620,8 +620,9 @@ static void NoteLeftOut(const BaselineSink *sink, size_t *notes, const char *wor
         } else if (left->said == 0u) {
             SinkNote(sink, notes,
                      "%s=%s: sample %u of the file is left out: it opened with 0 cases, and %u "
-                     "whole lines of it were read",
-                     word, name, (unsigned)left->sample, (unsigned)left->read);
+                     "whole line%s of it %s read",
+                     word, name, (unsigned)left->sample, (unsigned)left->read,
+                     left->read == 1u ? "" : "s", left->read == 1u ? "was" : "were");
         } else {
             SinkNote(sink, notes,
                      "%s=%s: sample %u of the file is left out: it opened with %u case%s and %u "
