@@ -1223,7 +1223,7 @@ static void CheckModeWords(void) {
                            "service stress video") ==
                        0 &&
                    strcmp(key, same) == 0 && bare[0] == '\0',
-               "\"%s\" and \"%s\"; with none of them \"%s\"", key, same, bare);
+               "\"%.150s\" and \"%.150s\"; with none of them \"%.150s\"", key, same, bare);
 
     const RunMode hanging = ModeFromText("hang retry");
     char hang_key[JOURNAL_MODE_MAX];
