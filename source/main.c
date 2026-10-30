@@ -133,6 +133,9 @@ static const Step STEPS[] = {
     // Untimed: what a case judges is a service's answer, and some open two dozen objects.
     { "service", RunService, MODE_FAMILY_SERVICE, false, true },
     { "net", RunNet, MODE_FAMILY_NET, false, true },
+    // Last: it asks everything the families above ask one at a time, all at once. Untimed by
+    // the passes: it runs its frames once and times each of them itself.
+    { "game", RunGame, MODE_FAMILY_GAME, false, true },
 };
 
 static void JournalSimple(JournalKind kind, const char *step, uint32_t number) {
@@ -456,6 +459,8 @@ int main(int argc, char **argv) {
     StreamSetStress(mode.stress);
     AudioSetListen(mode.listen);
     const bool timing = !mode.no_timing;
+    GameSetFrames(mode.frames);
+    GameSetTiming(timing);
     // The running screen, for a run with a screen: a detailed one, or one the start screen made
     // quick. Counted over every step the run has, done ones included, so a launch that goes on
     // says how far the whole run is.

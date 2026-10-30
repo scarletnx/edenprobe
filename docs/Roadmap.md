@@ -92,6 +92,7 @@ its dependencies put it, not at the end.
 | ssl | exact | the secure connection: its defaults and getters, the descriptor it hands back, verification, an imported certificate, the handshake, and a request and its answer (`hle/service/ssl/ssl.cpp`, `ssl_backend_openssl.cpp`). |
 | acc | exact | the account a signed in session reports and the id token it caches (`hle/service/acc/acc.cpp`, `IManagerForApplication`, `EnsureIdTokenCacheAsyncInterface`). |
 | friend | exact | the blocked list and the profiles a session fetches (`hle/service/friend/{friend,profile_query}.cpp`). |
+| game | exact, level for the sound | everything above at once: a uniform buffer or a texture the processor rewrote every other frame served from what the emulator held before (`buffer_cache/buffer_cache.h`, `texture_cache/texture_cache.h`), the depth test, the swapchain's pacing and the present (`hle/service/nvnflinger/`), the renderer kept stepping by a thread of its own, reads from a thread of its own, hid and the steady clock asked every frame, and threads kept on their cores. Last, since it leans on every family before it; the frames' times are the point as much as the verdicts. |
 
 What comes next, in this order, each its own change with its own critic:
 

@@ -396,6 +396,16 @@ void ViewerEndScreen(void) {
     CloseScreen();
 }
 
+bool ViewerScreenLend(void) {
+    const bool was_open = screen_open;
+    CloseScreen();
+    return was_open;
+}
+
+bool ViewerScreenBack(bool was_open) {
+    return !was_open || OpenScreen();
+}
+
 // The running screen, drawn between cases into the program's one framebuffer while the run is
 // on. Nothing here is read by a case: the counts are the report's, the pass is the timer's.
 static bool progress_on;

@@ -716,6 +716,7 @@ static void CheckReportLine(void) {
 // The navigation between the screens, and the screens themselves, are checked in t_screens.c;
 // what is left here is what happens before and after them: the launch and the mode file.
 static void CheckLabel(void);
+static void CheckFrames(void);
 
 static void CheckLaunchAndMode(void) {
     // The pad is waited for until it answers, and no longer.
@@ -961,7 +962,7 @@ static void CheckLaunchAndMode(void) {
         MODE_FAMILIES_PRESENT ==
             (MODE_FAMILY_CPU | MODE_FAMILY_PAD | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS |
              MODE_FAMILY_KERNEL | MODE_FAMILY_DISPLAY | MODE_FAMILY_VIDEO | MODE_FAMILY_AUDIO |
-             MODE_FAMILY_SERVICE | MODE_FAMILY_NET) &&
+             MODE_FAMILY_SERVICE | MODE_FAMILY_NET | MODE_FAMILY_GAME) &&
         strcmp(net_said,
                "mode: quick, from the mode file; pictures of failures only; families net") == 0;
     const RunMode flood = ModeFromText(
@@ -996,6 +997,7 @@ static void CheckLaunchAndMode(void) {
                flood_right ? "right" : flood.unknown, cut_right ? "right" : cut_said);
 
     CheckLabel();
+    CheckFrames();
 }
 
 /// `label=<name>` names the folder a run goes in beside the build's hash, and a name a folder
@@ -1110,6 +1112,116 @@ static void CheckLabel(void) {
                  "a buffer too small");
 #undef LABEL_EXPECT
     CHECK_TRUE(SUITE, "a label in the mode file names the run's folder, and a bad one is refused",
+               CHECK_NONE, wrong == 0u, "%u readings wrong, the first: %.80s", (unsigned)wrong,
+               first);
+}
+
+/// The game family's two words: `game` runs the scene and only when named, `frames=<n>` sets how
+/// many frames it runs, and a number that is not one from 1 to MODE_FRAMES_MAX is refused with
+/// the number in effect said beside it.
+static void CheckFrames(void) {
+    char said[REPORT_NOTE_MAX + 1];
+    char key[JOURNAL_MODE_MAX];
+    uint32_t wrong = 0;
+    const char *first = "none";
+#define FRAMES_EXPECT(condition, what)                                                             \
+    do {                                                                                           \
+        if (!(condition) && wrong++ == 0u) {                                                       \
+            first = (what);                                                                        \
+        }                                                                                          \
+    } while (0)
+
+    const RunMode plain = ModeFromText("quick");
+    FRAMES_EXPECT(plain.frames == MODE_FRAMES_DEFAULT && !plain.frames_named &&
+                      (ModeFamiliesToRun(&plain, MODE_FAMILIES_PRESENT) & MODE_FAMILY_GAME) == 0u,
+                  "no word: 600 frames, and no game family");
+    const RunMode game = ModeFromText("quick game");
+    ModeDescribe(said, sizeof(said), &game, MODE_FAMILIES_PRESENT);
+    FRAMES_EXPECT(ModeFamiliesToRun(&game, MODE_FAMILIES_PRESENT) == MODE_FAMILY_GAME &&
+                      game.frames == MODE_FRAMES_DEFAULT && game.unknown_count == 0u &&
+                      strcmp(said, "mode: quick, from the mode file; pictures of failures only; "
+                                   "families game") == 0,
+                  "the word game alone");
+    const RunMode short_run = ModeFromText("quick game frames=120");
+    ModeDescribe(said, sizeof(said), &short_run, MODE_FAMILIES_PRESENT);
+    FRAMES_EXPECT(short_run.frames == 120u && short_run.frames_named &&
+                      !short_run.frames_was_refused && short_run.unknown_count == 0u &&
+                      strcmp(said, "mode: quick, from the mode file; pictures of failures only; "
+                                   "families game; frames 120") == 0,
+                  "frames=120");
+    FRAMES_EXPECT(ModeFromText("FRAMES=0600").frames == 600u &&
+                      ModeFromText("frames=1").frames == 1u &&
+                      ModeFromText("frames=36000").frames == MODE_FRAMES_MAX &&
+                      ModeFromText("frames=5 frames=7").frames == 7u,
+                  "capitals, a leading nought, the two ends and the last of two");
+
+    // Refused, each with what it keeps: the default, or the good value before it.
+    static const struct {
+        const char *text;
+        const char *said;
+        uint32_t keeps;
+        bool cut;
+    } BAD[] = {
+        { "frames=abc", "; frames=abc is not a whole number from 1 to 36000: it keeps 600", 600u,
+          false },
+        { "frames=0", "; frames=0 is not a whole number from 1 to 36000: it keeps 600", 600u,
+          false },
+        { "frames=36001", "; frames=36001 is not a whole number from 1 to 36000: it keeps 600",
+          600u, false },
+        { "frames=", "; frames= is not a whole number from 1 to 36000: it keeps 600", 600u, false },
+        { "frames=-5", "; frames=-5 is not", 600u, false },
+        { "frames=12x", "; frames=12x is not", 600u, false },
+        { "frames=99999999999999999999",
+          "; frames=9999999999999999... is not a whole number from 1 to 36000: it keeps 600",
+          600u, true },
+        { "frames=120 frames=abc",
+          "; frames 120; frames=abc is not a whole number from 1 to 36000: it keeps 120", 120u,
+          false },
+    };
+    for (size_t i = 0; i < sizeof(BAD) / sizeof(BAD[0]); ++i) {
+        const RunMode bad = ModeFromText(BAD[i].text);
+        ModeDescribe(said, sizeof(said), &bad, MODE_FAMILIES_PRESENT);
+        FRAMES_EXPECT(bad.frames == BAD[i].keeps && bad.frames_was_refused &&
+                          bad.frames_refused_cut == BAD[i].cut && bad.unknown_count == 0u &&
+                          strstr(said, BAD[i].said) != NULL,
+                      BAD[i].text);
+    }
+    const RunMode fixed = ModeFromText("frames=abc frames=90");
+    FRAMES_EXPECT(fixed.frames == 90u && !fixed.frames_was_refused,
+                  "a good value after a refused one");
+    const RunMode spaced = ModeFromText("frames = 5");
+    FRAMES_EXPECT(spaced.frames == MODE_FRAMES_DEFAULT && !spaced.frames_was_refused &&
+                      spaced.unknown_count == 1u,
+                  "frames = 5");
+
+    // In the key only when it is not the default, and back through the file the screen saves.
+    char plain_key[JOURNAL_MODE_MAX];
+    ModeKey(plain_key, sizeof(plain_key), &game);
+    ModeKey(key, sizeof(key), &short_run);
+    FRAMES_EXPECT(strcmp(plain_key, "game") == 0 && strcmp(key, "frames=120 game") == 0,
+                  "the key");
+    const RunMode said_default = ModeFromText("game frames=600");
+    ModeKey(key, sizeof(key), &said_default);
+    FRAMES_EXPECT(strcmp(key, plain_key) == 0, "frames=600 is the same run as none");
+    char text[MODE_FILE_MAX];
+    ModeFormat(text, sizeof(text), &short_run);
+    FRAMES_EXPECT(strcmp(text, "quick frames=120 game") == 0 && ModeFromText(text).frames == 120u,
+                  "the words the start screen saves");
+
+    // The limit falling inside the number drops it, which would be another number.
+    static const char LONG[] = "quick frames=1200 more";
+    const RunMode cut = ModeFromFile(MODE_SOURCE_FILE, LONG, 15u, true);
+    const RunMode whole = ModeFromFile(MODE_SOURCE_FILE, LONG, 17u, true);
+    FRAMES_EXPECT(cut.quick && cut.frames == MODE_FRAMES_DEFAULT && !cut.frames_was_refused &&
+                      whole.frames == 1200u,
+                  "a number cut by the limit");
+
+    FRAMES_EXPECT(UiFamilyOf("game") == UI_FAMILY_GAME &&
+                      strcmp(UiFamilyName(UI_FAMILY_GAME), "game") == 0,
+                  "the screens' family");
+#undef FRAMES_EXPECT
+    CHECK_TRUE(SUITE, "the words game and frames=<n> run the scene and set its frames, and a bad "
+                      "number says the one it keeps",
                CHECK_NONE, wrong == 0u, "%u readings wrong, the first: %.80s", (unsigned)wrong,
                first);
 }

@@ -17,6 +17,7 @@ HOSTSRC  := source/report.c source/baseline.c source/journal.c source/maycrash.c
             source/padref.c source/touchref.c \
             source/md5.c source/vp9jobs.c source/vp9ref.c \
             source/schedref.c source/binderref.c source/blit2dref.c source/serviceref.c \
+            source/gameref.c \
             source/tests/t_selfcheck.c source/tests/t_support.c source/tests/t_screens.c \
             source/tests/t_perf.c source/tests/t_settle.c source/tests/t_reference.c source/tests/t_netref.c \
             source/tests/t_cpuref.c source/tests/t_rawref.c source/tests/t_astcref.c \
@@ -25,7 +26,7 @@ HOSTSRC  := source/report.c source/baseline.c source/journal.c source/maycrash.c
             source/tests/t_padref.c source/tests/t_touchref.c \
             source/tests/t_md5ref.c source/tests/t_vp9ref.c \
             source/tests/t_schedref.c source/tests/t_binderref.c source/tests/t_blit2dref.c \
-            source/tests/t_serviceref.c source/tests/t_baseline.c \
+            source/tests/t_serviceref.c source/tests/t_baseline.c source/tests/t_gameref.c \
             source/host_main.c
 
 # One object per source, so the -MMD below has somewhere to put its dependency files. Without

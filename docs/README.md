@@ -24,6 +24,8 @@ leaves. The [README](../README.md) at the root says what edenprobe is.
   - **[Service](./families/Service.md)** - hwopus, am, fsp, account, ldn, set, csrng, apm, nfp,
     aoc, time, pl, profile, am-state, am-self, am-functions, auddev, fsdir, am-audio, am-channel, am-storage, mii, am-mode, bsd-local, ipc, hid, time-snap, vi, renderer, ngc, am-lock, set-sys, time-zone, time-perm, audout, fs-file and acc-app: the commands a game sends, held to reden's answers
   - **[Net](./families/Net.md)** - nifm to friend, the net file and the fixture
+  - **[Game](./families/Game.md)** - one scene that runs everything at once, as a game does, its
+    frames presented and timed
 
 ## Running it
 

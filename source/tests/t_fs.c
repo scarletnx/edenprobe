@@ -10,6 +10,7 @@
 #include "../fsref.h"
 #include "../perf.h"
 #include "../report.h"
+#include "fscard.h"
 #include "tests.h"
 
 // Reads from the memory card the way a game reads its files: IFile::Read with an offset every
@@ -282,6 +283,18 @@ static void Edges(FsFile *file) {
         CHECK_TRUE(SUITE, EMPTY, CHECK_EXACT, R_SUCCEEDED(rc) && got == 0u,
                    "result 0x%x, %llu bytes", (unsigned)rc, (unsigned long long)got);
     }
+}
+
+bool FsPrepareCard(FsFileSystem *fs, char *why, size_t why_size) {
+    if (buffer == NULL) {
+        buffer = malloc(BUFFER_SIZE);
+    }
+    if (buffer == NULL) {
+        snprintf(why, why_size, "no memory for the %u MiB buffer the files are written from",
+                 (unsigned)(BUFFER_SIZE >> 20));
+        return false;
+    }
+    return Prepare(fs, why, why_size);
 }
 
 void RunFs(void) {

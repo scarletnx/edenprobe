@@ -18,6 +18,10 @@ the machine's work, and a slower judge cannot move it. So does drawing the runni
 run with a screen does between cases, at most twice a second; a quick run from the mode file draws
 none, which is the run to compare numbers from.
 
+**The game scene's two times** are of another kind: a frame's whole time, present to present, the
+mean and the 99th percentile of its frames, measured once and not repeated; see [The game
+family](families/Game.md#what-is-timed).
+
 **How it is repeated.** A drawing suite runs ten times: a warm-up whose numbers are dropped, eight
 rehearsals with the report muted (no line, no count, no picture), and the verdict pass, the only one
 a reader sees. Each line carries the smallest of the case's nine samples, because everything else on
