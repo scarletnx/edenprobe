@@ -174,8 +174,8 @@ size_t BaselineBuildSampleLine(char *out, size_t out_size, uint32_t sample, cons
     if (out == NULL || out_size == 0u) {
         return 0;
     }
-    char safe_build[96];
-    char safe_label[96];
+    char safe_build[BASELINE_BUILD_MAX];
+    char safe_label[BASELINE_BUILD_MAX];
     ReportEscape(safe_build, sizeof(safe_build), build != NULL ? build : "");
     ReportEscape(safe_label, sizeof(safe_label), label != NULL ? label : "");
     return Finish(out, out_size,
@@ -197,84 +197,97 @@ size_t BaselineBuildCaseLine(char *out, size_t out_size, uint32_t sample, const 
                            (unsigned)us));
 }
 
-/// The number after @p key in @p line, which must be there: true with it in @p out.
-static bool NumberAfter(const char *line, const char *key, uint32_t *out) {
-    const char *at = strstr(line, key);
-    if (at == NULL) {
+/// Steps @p at past @p literal when the text there starts with it.
+static bool Expect(const char **at, const char *literal) {
+    const size_t length = strlen(literal);
+    if (strncmp(*at, literal, length) != 0) {
         return false;
     }
-    at += strlen(key);
-    if (*at < '0' || *at > '9') {
+    *at += length;
+    return true;
+}
+
+/// The decimal number at @p at, one digit at least and no more than 32 bits hold.
+static bool Number(const char **at, uint32_t *out) {
+    const char *p = *at;
+    if (*p < '0' || *p > '9') {
         return false;
     }
     uint64_t value = 0;
-    for (; *at >= '0' && *at <= '9'; ++at) {
-        value = value * 10u + (uint64_t)(*at - '0');
+    for (; *p >= '0' && *p <= '9'; ++p) {
+        value = value * 10u + (uint64_t)(*p - '0');
         if (value > UINT32_MAX) {
             return false;
         }
     }
     *out = (uint32_t)value;
+    *at = p;
     return true;
 }
 
-/// The string after @p key in @p line as the line carries it, escapes and all, cut to fit @p out
-/// where the writer's escaping cuts (never between a backslash and what it escapes): true when it
-/// is there and ends.
-static bool StringAfter(const char *line, const char *key, char *out, size_t out_size) {
-    const char *at = strstr(line, key);
-    if (at == NULL || out_size < 3u) {
-        return false;
-    }
-    at += strlen(key);
+/// The string at @p at, whose opening quote is already passed, as the line carries it, escapes
+/// and all, cut to fit @p out where the writer's escaping cuts (never between a backslash and what
+/// it escapes); @p at ends past the closing quote. False when the string does not end.
+static bool Text(const char **at, char *out, size_t out_size) {
+    const char *p = *at;
     size_t w = 0;
-    bool full = false;
-    for (; *at != '\0' && *at != '"'; ++at) {
-        const bool pair = *at == '\\';
-        if (pair && at[1] == '\0') {
+    bool full = out_size < 3u;
+    for (; *p != '\0' && *p != '"'; ++p) {
+        const bool pair = *p == '\\';
+        if (pair && p[1] == '\0') {
             return false;
         }
         full = full || w + 2u >= out_size;
         if (!full) {
-            out[w++] = *at;
+            out[w++] = *p;
             if (pair) {
-                out[w++] = at[1];
+                out[w++] = p[1];
             }
         }
-        at += pair ? 1 : 0;
+        p += pair ? 1 : 0;
     }
-    out[w] = '\0';
-    return *at == '"';
+    if (*p != '"') {
+        return false;
+    }
+    if (out_size > 0u) {
+        out[w < out_size ? w : out_size - 1u] = '\0';
+    }
+    *at = p + 1;
+    return true;
 }
 
-bool BaselineParseLine(const char *line, uint32_t *sample, char *suite, size_t suite_size,
-                       char *name, size_t name_size, uint32_t *us, uint32_t *opens_sample) {
-    if (opens_sample != NULL) {
-        *opens_sample = 0;
+/// The closing brace and the end of the line: a line end, or the end of the file's last line.
+/// Anything after the brace is a line that was cut and had the next one written onto it.
+static bool Ends(const char *at) {
+    return at[0] == '}' &&
+           (at[1] == '\0' || strcmp(at + 1, "\n") == 0 || strcmp(at + 1, "\r\n") == 0);
+}
+
+BaselineLineKind BaselineParseLine(const char *line, BaselineFileLine *out) {
+    if (line == NULL || out == NULL) {
+        return BASELINE_LINE_OTHER;
     }
-    if (line == NULL) {
-        return false;
+    memset(out, 0, sizeof(*out));
+    // Every field, in the order the builders write them, and the line's end: a line cut short
+    // anywhere, inside a number included, is not one, and neither is one another was written on.
+    const char *at = line;
+    if (Expect(&at, "{\"type\":\"sample\",\"sample\":")) {
+        const bool whole = Number(&at, &out->sample) && Expect(&at, ",\"build\":\"") &&
+                           Text(&at, out->build, sizeof(out->build)) &&
+                           Expect(&at, ",\"label\":\"") &&
+                           Text(&at, out->label, sizeof(out->label)) &&
+                           Expect(&at, ",\"cases\":") && Number(&at, &out->cases) && Ends(at);
+        return whole ? BASELINE_LINE_OPENS : BASELINE_LINE_OTHER;
     }
-    uint32_t number = 0;
-    if (strncmp(line, "{\"type\":\"sample\",", 16u) == 0) {
-        if (opens_sample != NULL && NumberAfter(line, "\"sample\":", &number)) {
-            *opens_sample = number;
-        }
-        return false;
+    if (Expect(&at, "{\"sample\":")) {
+        const bool whole = Number(&at, &out->sample) && Expect(&at, ",\"suite\":\"") &&
+                           Text(&at, out->suite, sizeof(out->suite)) &&
+                           Expect(&at, ",\"name\":\"") &&
+                           Text(&at, out->name, sizeof(out->name)) && Expect(&at, ",\"us\":") &&
+                           Number(&at, &out->us) && Ends(at);
+        return whole ? BASELINE_LINE_CASE : BASELINE_LINE_OTHER;
     }
-    if (strncmp(line, "{\"sample\":", 10u) != 0) {
-        return false;
-    }
-    uint32_t time = 0;
-    if (!NumberAfter(line, "{\"sample\":", &number) ||
-        !StringAfter(line, "\"suite\":\"", suite, suite_size) ||
-        !StringAfter(line, "\"name\":\"", name, name_size) ||
-        !NumberAfter(line, "\"us\":", &time)) {
-        return false;
-    }
-    *sample = number;
-    *us = time;
-    return true;
+    return BASELINE_LINE_OTHER;
 }
 
 size_t BaselineBuildMovedLine(char *out, size_t out_size, const char *baseline, const char *suite,
@@ -336,25 +349,23 @@ static bool ReadFile(const char *path, uint32_t *samples_in_file, uint32_t *high
         }
     }
     static char line[BASELINE_LINE_MAX + 2u];
+    static BaselineFileLine read;
     while (fgets(line, sizeof(line), file) != NULL) {
-        uint32_t sample = 0;
-        uint32_t us = 0;
-        uint32_t opens = 0;
-        char suite[BASELINE_SUITE_MAX];
-        char name[BASELINE_NAME_MAX];
-        if (!BaselineParseLine(line, &sample, suite, sizeof(suite), name, sizeof(name), &us,
-                               &opens)) {
-            if (opens > 0u) {
-                ++*samples_in_file;
-                *highest = opens > *highest ? opens : *highest;
-            }
+        const BaselineLineKind kind = BaselineParseLine(line, &read);
+        if (kind == BASELINE_LINE_OPENS) {
+            ++*samples_in_file;
+            *highest = read.sample > *highest ? read.sample : *highest;
+        }
+        if (kind != BASELINE_LINE_CASE) {
             continue;
         }
+        const uint32_t sample = read.sample;
+        const uint32_t us = read.us;
         *highest = sample > *highest ? sample : *highest;
         if (!fill_cases) {
             continue;
         }
-        KeptCase *const c = Find(suite, name);
+        KeptCase *const c = Find(read.suite, read.name);
         if (c == NULL) {
             continue;
         }

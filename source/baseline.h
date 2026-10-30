@@ -91,12 +91,34 @@ size_t BaselineBuildSampleLine(char *out, size_t out_size, uint32_t sample, cons
 size_t BaselineBuildCaseLine(char *out, size_t out_size, uint32_t sample, const char *suite,
                              const char *name, uint32_t us);
 
-/// Reads a baseline file's line: true for a case line, with its fields (the names as the line
-/// carries them, escapes and all, cut as BaselineTake cuts them); false for the line that
-/// opens a sample (whose number, when @p opens_sample is not NULL, goes there) and for anything
-/// this module did not write, which then leaves @p opens_sample at 0.
-bool BaselineParseLine(const char *line, uint32_t *sample, char *suite, size_t suite_size,
-                       char *name, size_t name_size, uint32_t *us, uint32_t *opens_sample);
+/// What a baseline file's line is, read whole: the line that opens a sample, a case's, or
+/// anything else, which in a file this module wrote is a line a write was cut short in.
+typedef enum {
+    BASELINE_LINE_OTHER,
+    BASELINE_LINE_OPENS,
+    BASELINE_LINE_CASE,
+} BaselineLineKind;
+
+/// The longest build and label a sample's opening line keeps, with the terminator.
+#define BASELINE_BUILD_MAX 96u
+
+/// The fields of a baseline file's line: the sample it opens or belongs to; the opening line's
+/// build, label and count of cases; a case line's names (as the line carries them, escapes and
+/// all, cut as BaselineTake cuts them) and time.
+typedef struct {
+    uint32_t sample;
+    char build[BASELINE_BUILD_MAX];
+    char label[BASELINE_BUILD_MAX];
+    uint32_t cases;
+    char suite[BASELINE_SUITE_MAX];
+    char name[BASELINE_NAME_MAX];
+    uint32_t us;
+} BaselineFileLine;
+
+/// Reads a baseline file's line into @p out. Only a whole line is one: every field in the order
+/// the builders above write them, then the closing brace and the line's end. A line cut short,
+/// inside a number included, or one the next line was written onto, is BASELINE_LINE_OTHER.
+BaselineLineKind BaselineParseLine(const char *line, BaselineFileLine *out);
 
 /// The report's line for a case that moved past its limit. @p suite and @p name are JSON string
 /// text, as BaselineTake keeps them.
