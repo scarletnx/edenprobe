@@ -63,7 +63,8 @@ For example:
 The first 4096 bytes of the file are read. A longer file is read that far and the mode line says
 "mode file longer than 4096 bytes, the rest ignored"; a word the limit cuts in two is dropped rather
 than reported as an unknown word nobody wrote. A directory called `mode` reads as no file, and the
-mode line says so.
+mode line says so. The mode line is a note, at most 767 bytes; one longer, as three names refused
+with long words can make it, ends `...; the mode line is cut here, its whole is N bytes`.
 
 ```json
 {"type":"note","text":"mode: quick, from the mode file; pictures of failures only; families graphics; 2 unknown words ignored: grpahics fast"}
