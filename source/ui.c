@@ -549,6 +549,7 @@ static const struct {
     { "fmath", UI_FAMILY_GRAPHICS },  { "order", UI_FAMILY_GRAPHICS },
     { "index", UI_FAMILY_GRAPHICS },  { "instance", UI_FAMILY_GRAPHICS },
     { "bindless", UI_FAMILY_GRAPHICS }, { "astc", UI_FAMILY_GRAPHICS },
+    { "astcimage", UI_FAMILY_GRAPHICS },
     { "eac", UI_FAMILY_GRAPHICS },    { "etc2", UI_FAMILY_GRAPHICS },
     { "bcn", UI_FAMILY_GRAPHICS },    { "zeta", UI_FAMILY_GRAPHICS },
     { "swizzle", UI_FAMILY_GRAPHICS },
