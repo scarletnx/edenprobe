@@ -135,6 +135,11 @@ void RunBindless(void);
 /// decoder's answer.
 void RunAstc(void);
 
+/// A picture's ASTC blocks at four footprints, linear and sRGB, every texel against the reference
+/// decoder's answer, with how far a wrong one is; then two 2048x2048 textures of them, timed as
+/// they are uploaded and as one is fetched all over.
+void RunAstcImage(void);
+
 /// One- and two-channel EAC blocks sampled texel by texel.
 void RunEac(void);
 

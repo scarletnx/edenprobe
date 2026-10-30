@@ -16,7 +16,7 @@ run: see [When the program ends in the middle](../Crashes.md).
 - **[The processor](./Cpu.md)** - cpu
 - **[Pad](./Pad.md)** - what a game receives from a controller in a person's hands, and from the
   touch screen ([the touch suite](./Touch.md))
-- **[Graphics](./Graphics.md)** - the twenty nine drawing suites, clear to blit2d ([the blit2d
+- **[Graphics](./Graphics.md)** - the thirty drawing suites, clear to blit2d ([the blit2d
   suite](./Blit2d.md) has a page of its own)
 - **[fs](./Fs.md)** - reads through the file system service
 - **[Kernel](./Kernel.md)** - the scheduler: priority inheritance, preemption and migration

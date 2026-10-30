@@ -29,7 +29,7 @@ family reports can be believed without them.
   case that times itself, with the one that reads its line back off standard output, the debug
   channel only there, to see the time it was given last, the case counted, and a rehearsal of it
   write nothing.
-- **reference**, three hundred and fifty eight cases, no hardware involved either: the other half of
+- **reference**, three hundred and sixty eight cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -68,6 +68,9 @@ family reports can be believed without them.
   - twenty one on the astc suite's answers: the ASTC reference decoder, `source/astcref.c`, held
     block by block to hashes of what ARM's decoder (astcenc) makes of the same sixteen blocks, and
     its weight table to values worked out by hand from the bit replication rule;
+  - ten on the astcimage suite's answers: the reference decoder's sRGB mode and its FP16 decode's
+    byte, `AstcUnorm8Fp16`, held over the suite's whole picture to hashes of what astcenc decodes
+    it to, the linear footprints both ways (to FP16 and to eight bits) and the sRGB ones once;
   - four on the eac suite's answers, against values worked out by hand from the specification's
     formula;
   - eighteen on the etc2 suite's answers: the block builders held to the bytes the suite samples,

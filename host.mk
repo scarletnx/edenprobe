@@ -12,7 +12,8 @@ HOSTSRC  := source/report.c source/baseline.c source/journal.c source/maycrash.c
             source/raster.c source/intref.c source/blendref.c source/texref.c \
             source/fmathref.c source/coherref.c source/formatref.c source/netref.c source/cpuref.c source/perf.c \
             source/settle.c \
-            source/rawref.c source/astcref.c source/astcblocks.c source/eacref.c \
+            source/rawref.c source/astcref.c source/astcblocks.c source/astcimages.c source/astcimageref.c \
+            source/eacref.c \
             source/etc2ref.c source/etc2blocks.c source/bcnref.c source/audioref.c source/vicref.c \
             source/padref.c source/touchref.c \
             source/md5.c source/vp9jobs.c source/vp9ref.c \
