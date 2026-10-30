@@ -14,15 +14,15 @@ after the processor, so nobody waits for the families that need no one.
 
 ## The screen
 
-The listening screen's layout, with the prompt large: twelve times the font's cell, or as large as
-fits. Under it, what to do, the seconds left, and what the controller sends right now: the buttons
-held, by the names below, both sticks' values with a box each that follows the stick, and the slots
-connected with their styles. The prompt before stays at the foot in its result's colour, so a person
-sees what came of a press before the next one. Home and Capture are left out: the system takes them.
-A question is answered on the d-pad, up for yes and down for no, never on A or B, which are what the
-family asks about, or with a tap on the yes or no box the screen puts at its bottom right while the
-question waits; the line then says `yes, tapped` or `no, tapped`. A prompt for a button takes
-nothing from the touch screen.
+The listening screen's layout, with the prompt large: six times the font's 8 by 16 cell, or as large
+as fits. Under it, what to do, the seconds left, and what the controller sends right now: the
+buttons held, by the names below, both sticks' values with a box each that follows the stick, and
+the slots connected with their styles. The prompt before stays at the foot in its result's colour,
+so a person sees what came of a press before the next one. Home and Capture are left out: the system
+takes them. A question is answered on the d-pad, up for yes and down for no, never on A or B, which
+are what the family asks about, or with a tap on the yes or no box the screen puts at its bottom
+right while the question waits; the line then says `yes, tapped` or `no, tapped`. A prompt for a
+button takes nothing from the touch screen.
 
 The screen decides nothing: every verdict is taken from the bits the suite read, and a machine with
 no screen runs the prompts with only the log, where `EDENPROBE PAD prompt n of 26: ...` names each.
