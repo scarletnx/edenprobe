@@ -333,12 +333,20 @@ static void PathOf(char *out, size_t out_size, const char *directory, const char
     snprintf(out, out_size, "%s/%s.jsonl", directory, name);
 }
 
-/// Reads @p path, giving each kept case the samples it has there and counting the samples the
-/// file opens; @p highest gets the largest sample number seen. False when it cannot be opened.
-static bool ReadFile(const char *path, uint32_t *samples_in_file, uint32_t *highest,
-                     bool fill_cases) {
-    *samples_in_file = 0;
-    *highest = 0;
+/// What reading a baseline file found, beyond the samples each kept case got.
+typedef struct {
+    /// The samples the file opens.
+    uint32_t samples;
+    /// The largest sample number on any whole line, so the next sample's is new.
+    uint32_t highest;
+    /// The last line has no line end: a write cut short left it.
+    bool open_end;
+} FileRead;
+
+/// Reads @p path into @p read, giving each kept case the samples it has there when
+/// @p fill_cases. False when it cannot be opened.
+static bool ReadFile(const char *path, FileRead *read_out, bool fill_cases) {
+    memset(read_out, 0, sizeof(*read_out));
     FILE *const file = fopen(path, "r");
     if (file == NULL) {
         return false;
@@ -351,17 +359,20 @@ static bool ReadFile(const char *path, uint32_t *samples_in_file, uint32_t *high
     static char line[BASELINE_LINE_MAX + 2u];
     static BaselineFileLine read;
     while (fgets(line, sizeof(line), file) != NULL) {
+        const size_t length = strlen(line);
+        read_out->open_end = length > 0u && line[length - 1u] != '\n';
         const BaselineLineKind kind = BaselineParseLine(line, &read);
-        if (kind == BASELINE_LINE_OPENS) {
-            ++*samples_in_file;
-            *highest = read.sample > *highest ? read.sample : *highest;
-        }
-        if (kind != BASELINE_LINE_CASE) {
+        if (kind == BASELINE_LINE_OTHER) {
             continue;
         }
-        const uint32_t sample = read.sample;
+        if (read.sample > read_out->highest) {
+            read_out->highest = read.sample;
+        }
+        if (kind == BASELINE_LINE_OPENS) {
+            ++read_out->samples;
+            continue;
+        }
         const uint32_t us = read.us;
-        *highest = sample > *highest ? sample : *highest;
         if (!fill_cases) {
             continue;
         }
@@ -423,10 +434,11 @@ static void SinkNote(const BaselineSink *sink, size_t *count, const char *fmt, .
 bool BaselineCompareFile(const char *path, const char *name, const BaselineSink *sink,
                          BaselineTotals *totals) {
     memset(totals, 0, sizeof(*totals));
-    uint32_t highest = 0;
-    if (!ReadFile(path, &totals->samples, &highest, true)) {
+    FileRead read;
+    if (!ReadFile(path, &read, true)) {
         return false;
     }
+    totals->samples = read.samples;
     char line[REPORT_LINE_MAX];
     for (size_t i = 0; i < kept_count; ++i) {
         KeptCase *const c = &kept[i];
@@ -454,17 +466,27 @@ bool BaselineCompareFile(const char *path, const char *name, const BaselineSink 
     return true;
 }
 
-bool BaselineAddFile(const char *path, const char *build, const char *label, uint32_t *sample,
-                     uint32_t *samples_after) {
-    uint32_t samples = 0;
-    uint32_t highest = 0;
+/// BaselineAddFile, and whether the file's last line had to get its line end first.
+static bool AddTo(const char *path, const char *build, const char *label, uint32_t *sample,
+                  uint32_t *samples_after, bool *ended_line) {
+    FileRead read;
     // A missing file is a new baseline: its first sample is number one.
-    (void)ReadFile(path, &samples, &highest, false);
-    *sample = highest + 1u;
-    *samples_after = samples;
+    (void)ReadFile(path, &read, false);
+    *sample = read.highest + 1u;
+    *samples_after = read.samples;
+    *ended_line = false;
     FILE *const file = fopen(path, "a");
     if (file == NULL) {
         return false;
+    }
+    // A line a write was cut short in has no end: this sample's first line would go on the same
+    // line and be lost with it.
+    if (read.open_end) {
+        if (fputc('\n', file) == EOF) {
+            fclose(file);
+            return false;
+        }
+        *ended_line = true;
     }
     static char line[BASELINE_LINE_MAX + 2u];
     bool written = BaselineBuildSampleLine(line, sizeof(line), *sample, build, label, kept_count) >
@@ -477,9 +499,15 @@ bool BaselineAddFile(const char *path, const char *build, const char *label, uin
     }
     written = fclose(file) == 0 && written;
     if (written) {
-        *samples_after = samples + 1u;
+        *samples_after = read.samples + 1u;
     }
     return written;
+}
+
+bool BaselineAddFile(const char *path, const char *build, const char *label, uint32_t *sample,
+                     uint32_t *samples_after) {
+    bool ended_line = false;
+    return AddTo(path, build, label, sample, samples_after, &ended_line);
 }
 
 static void Compare(const char *directory, const char *name, const BaselineSink *sink,
@@ -507,7 +535,16 @@ static void Add(const char *directory, const char *name, const char *build, cons
     mkdir(directory, 0777);
     uint32_t sample = 0;
     uint32_t samples = 0;
-    if (!BaselineAddFile(path, build, label, &sample, &samples)) {
+    bool ended_line = false;
+    const bool written = AddTo(path, build, label, &sample, &samples, &ended_line);
+    if (ended_line) {
+        SinkNote(sink, &outcome->notes,
+                 "baseline=%s: the last line of %s had no line end, so one was written before "
+                 "sample %u: a write the program did not finish leaves a line so, and this "
+                 "sample's first line would have gone onto it",
+                 name, path, (unsigned)sample);
+    }
+    if (!written) {
         SinkNote(sink, &outcome->notes,
                  "baseline=%s: sample %u of %zu timed cases could not be written to %s (%s), so "
                  "the file may end inside it",
