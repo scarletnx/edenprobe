@@ -4,43 +4,92 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "font8x8.h"
+#include "fontvga.h"
+#include "icons.h"
 #include "padref.h"
 #include "ui.h"
+
+// The screens wear ScarletNX's look (its launcher, its game menu): the VGA font, its YoRHa
+// theme's colours, rows as boxes with the focused one inverted, and the keys on a band along the
+// bottom. The screens a person chooses on (the start screen, the resume screen, the results)
+// take the theme's menu colours; the ones drawn while the run is under way (the running screen,
+// listening, the pad and the touch screen) take the colours of its run screen.
 
 // The margin all four sides keep, and the gap between two panels. One number, because the
 // layout below divides what is left by three and a gap that differed from the margin would put
 // the middle panel off centre.
 #define MARGIN 32u
 
-// The cell a glyph advances by. The widest glyph is six columns, so a full eight leaves two
-// clear, which is what keeps 8 by 8 text readable when it is scaled up by nearest neighbour.
-#define CELL 8u
-
-// Text is drawn at twice the cell. A line of it takes a list row, with more room on a page of
-// detail, which is read rather than scanned.
-#define BIG 2u
-#define GLYPH (CELL * BIG)
+// The cell a glyph advances by: the VGA font's, eight across and sixteen down. Text is drawn at
+// that size, a list row of it, with more room on a page of detail, which is read rather than
+// scanned; only a prompt meant to be read from a sofa is drawn larger.
+#define CELL FONTVGA_WIDTH
+#define GLYPH CELL
 #define LINE UI_ROW_HEIGHT
 #define PAGE_LINE 24u
 
-// The bottom of the frame belongs to the countdown and the button line, and nothing else is
-// drawn below this far from the edge.
-#define FOOT 32u
+// The bottom of the frame belongs to the countdown's row and, under it, the band of the keys;
+// nothing else is drawn below this far from the edge.
+#define FOOT (UI_COUNTDOWN_ROW + UI_FOOT_BAND)
 
 // Lines under the overview's list for the selected group, and under a group's for its case.
 #define PREVIEW_LINES 6u
 #define DETAIL_LINES 7u
 
-static const uint8_t BACKGROUND[4] = { 0x10, 0x12, 0x18, 0xFF };
-static const uint8_t TEXT[4] = { 0xE0, 0xE4, 0xEC, 0xFF };
-static const uint8_t DIM[4] = { 0x88, 0x90, 0xA0, 0xFF };
-static const uint8_t PASSED[4] = { 0x40, 0xD0, 0x60, 0xFF };
-static const uint8_t FAILED[4] = { 0xF0, 0x50, 0x50, 0xFF };
-static const uint8_t SKIPPED[4] = { 0xE8, 0xB0, 0x40, 0xFF };
-static const uint8_t CRASHED[4] = { 0xC0, 0x78, 0xF0, 0xFF };
-static const uint8_t BORDER[4] = { 0x50, 0x58, 0x68, 0xFF };
-static const uint8_t SELECTED[4] = { 0x28, 0x2E, 0x3C, 0xFF };
+// One set of colours: the theme's, by its names, and the four a result is said in.
+typedef struct {
+    uint8_t page[4];
+    // The page's faint lines: a grid on a menu, scan lines on a run.
+    uint8_t ground[4];
+    uint8_t ink[4];
+    // Secondary words.
+    uint8_t soft[4];
+    // Rules, and the boxes of rows.
+    uint8_t dim[4];
+    uint8_t passed[4];
+    uint8_t failed[4];
+    uint8_t skipped[4];
+    uint8_t crashed[4];
+    bool grid;
+} Look;
+
+// YoRHa's [colors], the launcher's own until another theme is picked (ScarletNX's
+// src/gui/themes/yorha/theme.ini): page, the grid its backdrop draws in the dim colour at 72 of
+// 255 over the page, ink, soft and dim; a pass in its added colour, a failure in its failure
+// colour, a skip in its warning colour, and a crash in a plum of the same weight, which the
+// theme has no colour for.
+static const Look MENU = {
+    { 0xDA, 0xD6, 0xBE, 0xFF }, { 0xCF, 0xCB, 0xB4, 0xFF }, { 0x45, 0x41, 0x3A, 0xFF },
+    { 0x8A, 0x86, 0x76, 0xFF }, { 0xB4, 0xB0, 0x9C, 0xFF }, { 0x4A, 0x70, 0x40, 0xFF },
+    { 0xA5, 0x47, 0x3C, 0xFF }, { 0x8A, 0x6A, 0x2A, 0xFF }, { 0x6E, 0x55, 0x85, 0xFF },
+    true,
+};
+
+// YoRHa's [run]: its page with the texture's line of white at 14 of 255 every fourth row, ink,
+// soft and dim; a failure and a skip in its failure and warning colours, and a pass and a crash
+// in a green and a plum that read on it as the menu's do on theirs.
+static const Look RUN = {
+    { 0x14, 0x14, 0x16, 0xFF }, { 0x21, 0x21, 0x23, 0xFF }, { 0xE6, 0xE4, 0xDC, 0xFF },
+    { 0x8E, 0x8C, 0x86, 0xFF }, { 0x3E, 0x3E, 0x40, 0xFF }, { 0x7D, 0xB0, 0x6A, 0xFF },
+    { 0xD2, 0x46, 0x3A, 0xFF }, { 0xD9, 0xB2, 0x4A, 0xFF }, { 0xA9, 0x8B, 0xCB, 0xFF },
+    false,
+};
+
+// The set the screen being composed is in; each UiCompose* names its own before drawing.
+static const Look *g_look = &MENU;
+
+#define BACKGROUND (g_look->page)
+#define TEXT (g_look->ink)
+#define DIM (g_look->soft)
+#define BORDER (g_look->dim)
+#define PASSED (g_look->passed)
+#define FAILED (g_look->failed)
+#define SKIPPED (g_look->skipped)
+#define CRASHED (g_look->crashed)
+
+// The grid's squares, as the launcher draws them at the two times scale it opens in on a frame
+// of this height.
+#define GRID 12u
 
 const uint8_t *UiPixel(const UiFrame *frame, uint32_t x, uint32_t y) {
     if (frame == NULL || frame->pixels == NULL || x >= frame->width || y >= frame->height) {
@@ -65,15 +114,37 @@ static void FillRect(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t widt
     }
 }
 
-static void DrawGlyph(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t scale,
-                      const uint8_t colour[4], char character) {
-    if (character < FONT8X8_FIRST || character > FONT8X8_LAST) {
+/// A frame outlined one pixel wide.
+static void Outline(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t width, uint32_t height,
+                    const uint8_t colour[4]) {
+    if (width == 0u || height == 0u) {
         return;
     }
-    const uint8_t *const rows = FONT8X8[character - FONT8X8_FIRST];
-    for (uint32_t row = 0; row < 8u; ++row) {
-        for (uint32_t column = 0; column < 8u; ++column) {
-            if ((rows[row] & (1u << column)) == 0u) {
+    FillRect(frame, x, y, width, 1u, colour);
+    FillRect(frame, x, y + height - 1u, width, 1u, colour);
+    FillRect(frame, x, y, 1u, height, colour);
+    FillRect(frame, x + width - 1u, y, 1u, height, colour);
+}
+
+/// The page under a rectangle: its colour, and its faint lines, which follow the frame rather
+/// than the rectangle so a part of the page drawn again meets the rest.
+static void Page(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+    for (uint32_t row = y; row < y + height && row < frame->height; ++row) {
+        for (uint32_t column = x; column < x + width && column < frame->width; ++column) {
+            const bool line =
+                g_look->grid ? row % GRID == 0u || column % GRID == 0u : row % 4u == 3u;
+            PutPixel(frame, column, row, line ? g_look->ground : g_look->page);
+        }
+    }
+}
+
+/// One code page 437 character at @p scale times the font's cell.
+static void DrawGlyph(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t scale,
+                      const uint8_t colour[4], unsigned char character) {
+    const uint8_t *const rows = FONTVGA[character];
+    for (uint32_t row = 0; row < FONTVGA_HEIGHT; ++row) {
+        for (uint32_t column = 0; column < FONTVGA_WIDTH; ++column) {
+            if ((rows[row] & (0x80u >> column)) == 0u) {
                 continue;
             }
             FillRect(frame, x + column * scale, y + row * scale, scale, scale, colour);
@@ -81,22 +152,37 @@ static void DrawGlyph(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t sca
     }
 }
 
-/// Draws @p text at @p scale times the 8 by 8 cell.
+/// Draws @p text at @p scale times the font's cell. Only printable ASCII: the lines a report
+/// carries are ASCII, and a byte past it would draw whatever code page 437 has there.
 static void UiText(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t scale,
                    const uint8_t colour[4], const char *text) {
     if (frame == NULL || frame->pixels == NULL || text == NULL || scale == 0u) {
         return;
     }
     for (size_t i = 0; text[i] != '\0'; ++i) {
-        DrawGlyph(frame, x + (uint32_t)i * CELL * scale, y, scale, colour, text[i]);
+        const unsigned char character = (unsigned char)text[i];
+        if (character > ' ' && character < 0x7Fu) {
+            DrawGlyph(frame, x + (uint32_t)i * CELL * scale, y, scale, colour, character);
+        }
     }
 }
 
-/// Big text, handing back where the next word along the line would start.
+/// Text, handing back where the next word along the line would start.
 static uint32_t Say(const UiFrame *frame, uint32_t x, uint32_t y, const uint8_t colour[4],
                     const char *text) {
-    UiText(frame, x, y, BIG, colour, text);
+    UiText(frame, x, y, 1u, colour, text);
     return x + (uint32_t)strlen(text) * GLYPH;
+}
+
+static void DrawIcon(const UiFrame *frame, uint32_t x, uint32_t y, Icon icon,
+                     const uint8_t colour[4]) {
+    for (uint32_t row = 0; row < 16u; ++row) {
+        for (uint32_t column = 0; column < 16u; ++column) {
+            if ((ICONS[icon][row] & (0x8000u >> column)) != 0u) {
+                PutPixel(frame, x + column, y + row, colour);
+            }
+        }
+    }
 }
 
 /// Draws @p text broken into lines of @p columns, @p step rows apart, at most @p max_lines of
@@ -240,9 +326,28 @@ static void DrawKey(const UiFrame *frame, uint32_t x, uint32_t y) {
         uint8_t colour[4] = { 0, 0, 0, 0xFF };
         PictureDiffColour((uint8_t)KEY[i].verdict, colour);
         FillRect(frame, at, y, 16u, 16u, colour);
-        UiText(frame, at + 22u, y, 2, DIM, KEY[i].word);
-        at += 22u + (uint32_t)strlen(KEY[i].word) * CELL * 2u + 2u * CELL * 2u;
+        Outline(frame, at, y, 16u, 16u, TEXT);
+        UiText(frame, at + 22u, y, 1, DIM, KEY[i].word);
+        at += 22u + (uint32_t)strlen(KEY[i].word) * CELL + 3u * CELL;
     }
+}
+
+/// The head's first line, at the top margin's row: a verdict, then what it is about.
+#define HEAD_Y 8u
+
+/// The head's second line, which on a menu sits in a box with a bar at its left, as the
+/// launcher's tips do under its head.
+#define SECOND_Y 30u
+
+static void DrawSecondBox(const UiFrame *frame) {
+    if (!g_look->grid) {
+        return;
+    }
+    const uint32_t top = SECOND_Y - 3u;
+    const uint32_t height = UI_ROW_HEIGHT + 2u;
+    FillRect(frame, MARGIN / 2u, top, frame->width - MARGIN, height, BACKGROUND);
+    Outline(frame, MARGIN / 2u, top, frame->width - MARGIN, height, BORDER);
+    FillRect(frame, MARGIN / 2u + 4u, top + 3u, 3u, height - 6u, TEXT);
 }
 
 uint32_t UiFootRight(uint32_t frame_width) {
@@ -251,11 +356,65 @@ uint32_t UiFootRight(uint32_t frame_width) {
                : MARGIN;
 }
 
-/// What the buttons do on this screen, on the frame's last line, stopping short of the touch bar.
-static void DrawButtons(const UiFrame *frame, const char *text) {
+/// The band along the bottom that the keys sit on: the ink colour across the whole frame, with
+/// the launcher's bar at its left, in the page's colour as everything on it is.
+static uint32_t FootBand(const UiFrame *frame) {
+    const uint32_t top = frame->height - UI_FOOT_BAND;
+    FillRect(frame, 0, top, frame->width, UI_FOOT_BAND, TEXT);
+    FillRect(frame, MARGIN - 12u, top + 6u, 3u, UI_FOOT_BAND - 12u, BACKGROUND);
+    return top;
+}
+
+/// A key of the foot: what to press, and what it does on this screen.
+typedef struct {
+    const char *key;
+    const char *what;
+} Key;
+
+// A key's button: the text a few pixels inside its frame, and a gap to the next.
+#define KEY_PAD 4u
+#define KEY_GAP 6u
+#define KEY_HEIGHT (FONTVGA_HEIGHT + 4u)
+
+/// The keys on the band, left to right from the margin, each a button as the launcher's foot
+/// draws one: framed in the soft colour, the key on it and what it does after the key. Stops
+/// short of @p right, where the touch bar starts; a key that does not fit whole is cut and says
+/// so with the tilde.
+static void DrawKeys(const UiFrame *frame, const Key *keys, uint32_t count, uint32_t right) {
+    const uint32_t top = FootBand(frame);
+    const uint32_t y = top + (UI_FOOT_BAND - KEY_HEIGHT) / 2u;
+    uint32_t x = MARGIN;
+    for (uint32_t i = 0; i < count && x + 2u * KEY_PAD + 2u * CELL < right; ++i) {
+        const uint32_t room = (right - x - 2u * KEY_PAD) / CELL;
+        char key[64];
+        char what[160];
+        Fit(key, sizeof(key), keys[i].key, room);
+        const uint32_t key_columns = (uint32_t)strlen(key);
+        Fit(what, sizeof(what), keys[i].what,
+            room > key_columns + 1u ? room - key_columns - 1u : 0u);
+        const uint32_t what_columns = (uint32_t)strlen(what);
+        const uint32_t columns = key_columns + (what_columns > 0u ? 1u + what_columns : 0u);
+        const uint32_t width = columns * CELL + 2u * KEY_PAD;
+        FillRect(frame, x + KEY_PAD - 1u, y + 2u, key_columns * CELL + 2u, FONTVGA_HEIGHT, DIM);
+        Outline(frame, x, y, width, KEY_HEIGHT, DIM);
+        const uint32_t after = Say(frame, x + KEY_PAD, y + 2u, BACKGROUND, key);
+        Say(frame, after + CELL, y + 2u, BACKGROUND, what);
+        x += width + KEY_GAP;
+    }
+}
+
+/// A screen's sentence on the band where it has no keys to name.
+static void DrawFootNote(const UiFrame *frame, const char *text, uint32_t right) {
+    const uint32_t top = FootBand(frame);
     char fitted[200];
-    Fit(fitted, sizeof(fitted), text, (UiFootRight(frame->width) - MARGIN) / CELL);
-    UiText(frame, MARGIN, frame->height > 14u ? frame->height - 14u : 0u, 1, DIM, fitted);
+    Fit(fitted, sizeof(fitted), text, right > MARGIN ? (right - MARGIN) / CELL : 0u);
+    Say(frame, MARGIN, top + (UI_FOOT_BAND - FONTVGA_HEIGHT) / 2u, BACKGROUND, fitted);
+}
+
+/// Where the keys of a screen whose touch bar has @p boxes boxes must stop.
+static uint32_t KeysRight(const UiFrame *frame, uint32_t boxes) {
+    const UiRect box = UiTouchBox(frame->width, frame->height, boxes, 0u);
+    return box.width > 0u ? box.x - 2u * CELL : frame->width - MARGIN;
 }
 
 UiRect UiTouchBox(uint32_t frame_width, uint32_t frame_height, uint32_t count, uint32_t index) {
@@ -265,7 +424,7 @@ UiRect UiTouchBox(uint32_t frame_width, uint32_t frame_height, uint32_t count, u
         return none;
     }
     const uint32_t span = count * UI_TOUCH_BOX_WIDTH + (count - 1u) * UI_TOUCH_BOX_GAP;
-    // Over the foot: the countdown's line and the button line, which both stop short of it.
+    // On the foot's band, at its right, where the keys stop short of it.
     const uint32_t x =
         frame_width - MARGIN - span + index * (UI_TOUCH_BOX_WIDTH + UI_TOUCH_BOX_GAP);
     const UiRect box = { x, frame_height - UI_TOUCH_BOX_HEIGHT - 2u, UI_TOUCH_BOX_WIDTH,
@@ -273,18 +432,18 @@ UiRect UiTouchBox(uint32_t frame_width, uint32_t frame_height, uint32_t count, u
     return box;
 }
 
-/// The bar's boxes with their words, which say what a tap on each does.
+/// The bar's boxes with their words, which say what a tap on each does: buttons of the band,
+/// filled as the key of a button is.
 static void DrawTouchBar(const UiFrame *frame, const char *const *labels, uint32_t count) {
     for (uint32_t i = 0; i < count; ++i) {
         const UiRect box = UiTouchBox(frame->width, frame->height, count, i);
         if (box.width == 0u) {
             return;
         }
-        FillRect(frame, box.x, box.y, box.width, box.height, BORDER);
-        FillRect(frame, box.x + 1u, box.y + 1u, box.width - 2u, box.height - 2u, SELECTED);
+        FillRect(frame, box.x, box.y, box.width, box.height, DIM);
         const uint32_t text = (uint32_t)strlen(labels[i]) * GLYPH;
-        UiText(frame, box.x + (box.width > text ? (box.width - text) / 2u : 0u),
-               box.y + (box.height - GLYPH) / 2u, BIG, TEXT, labels[i]);
+        Say(frame, box.x + (box.width > text ? (box.width - text) / 2u : 0u),
+            box.y + (box.height - FONTVGA_HEIGHT) / 2u, BACKGROUND, labels[i]);
     }
 }
 
@@ -998,6 +1157,37 @@ static const char *ResultWord(ReportResult result) {
     return result == REPORT_FAIL ? "FAIL" : Skipped(result) ? "SKIP" : "PASS";
 }
 
+/// A verdict as the launcher draws a row that failed: the word on its colour, in the page's.
+static uint32_t SayVerdict(const UiFrame *frame, uint32_t x, uint32_t y, ReportResult result) {
+    const char *const word = ResultWord(result);
+    FillRect(frame, x - 3u, y - 1u, (uint32_t)strlen(word) * GLYPH + 6u, FONTVGA_HEIGHT + 2u,
+             ResultColour(result));
+    return Say(frame, x, y, BACKGROUND, word);
+}
+
+/// A row of a list as the launcher draws one: a box on the dim colour, or for the row the cursor
+/// is on, the box inverted on the ink and the cursor in the margin beside it. Hands back the
+/// colour the row's words take.
+static const uint8_t *DrawRowBox(const UiFrame *frame, uint32_t y, uint32_t height,
+                                 bool selected) {
+    FillRect(frame, MARGIN - 4u, y + 1u, frame->width - 2u * (MARGIN - 4u), height - 2u,
+             selected ? TEXT : BORDER);
+    if (selected) {
+        DrawGlyph(frame, MARGIN / 2u - 4u, y + (height - FONTVGA_HEIGHT) / 2u, 1u, TEXT,
+                  (unsigned char)FONTVGA_CURSOR);
+    }
+    return selected ? BACKGROUND : TEXT;
+}
+
+/// The box a list under it sits in: the page's colour inside a frame of the dim one.
+static void DrawPane(const UiFrame *frame, uint32_t top, uint32_t bottom) {
+    if (bottom <= top + 2u) {
+        return;
+    }
+    FillRect(frame, MARGIN / 2u, top, frame->width - MARGIN, bottom - top, BACKGROUND);
+    Outline(frame, MARGIN / 2u, top, frame->width - MARGIN, bottom - top, BORDER);
+}
+
 /// A group's verdict in one word: failed if anything did, passed if anything did, and skipped
 /// only when nothing was asked at all.
 static ReportResult GroupResult(uint32_t passed, uint32_t failed) {
@@ -1069,45 +1259,46 @@ static void DrawBar(const UiFrame *frame, uint32_t x, uint32_t y, uint32_t width
     FillRect(frame, x + failed + crashed + skipped, y, passed, 8u, PASSED);
 }
 
+// The overview's columns, two cells apart, so a failure count is found by looking straight down
+// and the counts spread across the row rather than bunch at its left.
+#define COLUMN (2u * GLYPH)
+
 /// A group's row. @p crashes_column is set when anything in the run crashed: a column of its own
 /// then, and a run with none keeps the three it always had.
 static void DrawGroupRow(const UiFrame *frame, const UiGroup *group, uint32_t y, bool selected,
                          bool crashes_column) {
-    if (selected) {
-        FillRect(frame, MARGIN / 2u, y, frame->width - MARGIN, UI_ROW_HEIGHT, SELECTED);
-        Say(frame, MARGIN, y + 2u, TEXT, ">");
-    }
+    const uint8_t *const ink = DrawRowBox(frame, y, UI_ROW_HEIGHT, selected);
+    DrawGlyph(frame, MARGIN, y + 2u, 1u, ink, (unsigned char)FONTVGA_MARKER);
     char text[32];
     Fit(text, sizeof(text), group->suite, 12u);
-    Say(frame, MARGIN + 2u * GLYPH, y + 2u, group->failed > 0u ? FAILED : TEXT, text);
-    // In columns, so a failure count is found by looking straight down.
-    uint32_t x = MARGIN + 16u * GLYPH;
+    Say(frame, MARGIN + 2u * GLYPH, y + 2u, selected || group->failed == 0u ? ink : FAILED, text);
+    uint32_t x = MARGIN + 16u * COLUMN;
     snprintf(text, sizeof(text), "%4u passed", (unsigned)group->passed);
-    Say(frame, x, y + 2u, group->passed > 0u ? PASSED : DIM, text);
-    x += 12u * GLYPH;
+    Say(frame, x, y + 2u, selected ? ink : group->passed > 0u ? PASSED : DIM, text);
+    x += 12u * COLUMN;
     snprintf(text, sizeof(text), "%3u failed", (unsigned)group->failed);
-    Say(frame, x, y + 2u, group->failed > 0u ? FAILED : DIM, text);
-    x += 11u * GLYPH;
+    Say(frame, x, y + 2u, selected ? ink : group->failed > 0u ? FAILED : DIM, text);
+    x += 11u * COLUMN;
     snprintf(text, sizeof(text), "%3u skipped", (unsigned)group->skipped);
-    Say(frame, x, y + 2u, group->skipped > 0u ? SKIPPED : DIM, text);
+    Say(frame, x, y + 2u, selected ? ink : group->skipped > 0u ? SKIPPED : DIM, text);
     if (crashes_column) {
-        x += 12u * GLYPH;
+        x += 12u * COLUMN;
         snprintf(text, sizeof(text), "%3u crashed", (unsigned)group->crashed);
-        Say(frame, x, y + 2u, group->crashed > 0u ? CRASHED : DIM, text);
+        Say(frame, x, y + 2u, selected ? ink : group->crashed > 0u ? CRASHED : DIM, text);
     }
-    const uint32_t bar = MARGIN + (crashes_column ? 64u : 52u) * GLYPH;
+    const uint32_t bar = MARGIN + (crashes_column ? 64u : 52u) * COLUMN;
     if (frame->width > bar + MARGIN) {
         DrawBar(frame, bar, y + 6u, frame->width - MARGIN - bar, group);
     }
 }
 
-/// The result, in its colour, and the case's name after it.
+/// The result on its colour, and the case's name after it in @p ink.
 static void DrawCaseLine(const UiFrame *frame, uint32_t x, uint32_t y, const ReportRecord *record,
-                         uint32_t name_columns) {
-    Say(frame, x, y, ResultColour(record->result), ResultWord(record->result));
+                         uint32_t name_columns, const uint8_t ink[4]) {
+    SayVerdict(frame, x, y, record->result);
     char name[200];
     Fit(name, sizeof(name), record->name, name_columns);
-    Say(frame, x + 5u * GLYPH, y, TEXT, name);
+    Say(frame, x + 5u * GLYPH, y, ink, name);
 }
 
 /// Under the overview's list: what the selected group holds, its failures first, then what the
@@ -1157,7 +1348,7 @@ static void ComposePreview(const UiFrame *frame, const UiRun *run, uint32_t inde
             Say(frame, MARGIN, y + (listed + 1u) * LINE, DIM, text);
             break;
         }
-        DrawCaseLine(frame, MARGIN, y + (listed + 1u) * LINE, record, columns);
+        DrawCaseLine(frame, MARGIN, y + (listed + 1u) * LINE, record, columns, TEXT);
         ++listed;
     }
 }
@@ -1181,29 +1372,48 @@ static void ListGroups(char *out, size_t out_size, const UiRun *run, ReportResul
     }
 }
 
+/// Under the head's box: the line that says the screens do not hold the whole run.
+#define NOTE_Y (UI_LIST_TOP - 20u)
+
+/// That a list goes on past its top or its bottom, at the right: above it under the head, and
+/// below it on the frame of the box under the list, on the page's colour so the frame does not
+/// run through the words. @p pane is that frame's top.
+static void DrawMore(const UiFrame *frame, bool above, bool below, uint32_t pane) {
+    const uint32_t x = frame->width - MARGIN - 10u * GLYPH;
+    if (above) {
+        Say(frame, x, NOTE_Y, DIM, "more above");
+    }
+    if (below) {
+        const uint32_t y = pane - FONTVGA_HEIGHT / 2u;
+        FillRect(frame, x - GLYPH, y, 12u * GLYPH, FONTVGA_HEIGHT, BACKGROUND);
+        Say(frame, x, y, DIM, "more below");
+    }
+}
+
 static void ComposeOverview(const UiFrame *frame, const UiRun *run, UiState state) {
     const ReportResult verdict = GroupResult(run->passed, run->failed);
-    Say(frame, MARGIN, 8, ResultColour(verdict), ResultWord(verdict));
+    SayVerdict(frame, MARGIN, HEAD_Y, verdict);
     char text[256];
     const uint32_t shown = run->passed + run->failed + run->skipped + run->crashed;
     snprintf(text, sizeof(text), "%u cases", (unsigned)shown);
-    const uint32_t x = Say(frame, MARGIN + 6u * GLYPH, 8, TEXT, text) + 2u * GLYPH;
-    SayCounts(frame, x, 8, run->passed, run->failed, run->skipped, run->crashed);
+    const uint32_t x = Say(frame, MARGIN + 6u * GLYPH, HEAD_Y, TEXT, text) + 2u * GLYPH;
+    SayCounts(frame, x, HEAD_Y, run->passed, run->failed, run->skipped, run->crashed);
 
+    DrawSecondBox(frame);
     if (run->failed > 0u) {
         snprintf(text, sizeof(text), "failed in: ");
         ListGroups(text, sizeof(text), run, REPORT_FAIL);
-        SayFitted(frame, MARGIN, 30, FAILED, text);
+        SayFitted(frame, MARGIN, SECOND_Y, FAILED, text);
     } else {
-        const uint32_t after = Say(frame, MARGIN, 30, PASSED, "nothing failed");
+        const uint32_t after = Say(frame, MARGIN, SECOND_Y, PASSED, "nothing failed");
         if (run->crashed > 0u) {
             snprintf(text, sizeof(text), "   crashed in: ");
             ListGroups(text, sizeof(text), run, REPORT_CRASHED);
-            SayFitted(frame, after, 30, CRASHED, text);
+            SayFitted(frame, after, SECOND_Y, CRASHED, text);
         } else if (run->skipped > 0u) {
             snprintf(text, sizeof(text), "   skipped in: ");
             ListGroups(text, sizeof(text), run, REPORT_SKIP);
-            SayFitted(frame, after, 30, DIM, text);
+            SayFitted(frame, after, SECOND_Y, DIM, text);
         }
     }
     // A run whose cases did not all reach the screens says so where the person is, rather than
@@ -1222,7 +1432,10 @@ static void ComposeOverview(const UiFrame *frame, const UiRun *run, UiState stat
         }
         snprintf(text, sizeof(text), "the screens hold %u of the run's %u cases:%s%s",
                  (unsigned)shown, (unsigned)run->reported, memory, suites);
-        UiText(frame, MARGIN, 52, 1, SKIPPED, text);
+        // Short of where the list says there is more above it.
+        char fitted[256];
+        Fit(fitted, sizeof(fitted), text, (frame->width - 2u * MARGIN - 12u * GLYPH) / GLYPH);
+        Say(frame, MARGIN, NOTE_Y, SKIPPED, fitted);
     }
 
     // Every family heading and every group as one list, scrolled to keep the cursor in view.
@@ -1250,27 +1463,23 @@ static void ComposeOverview(const UiFrame *frame, const UiRun *run, UiState stat
         }
         ++row;
     }
-    if (first > 0u) {
-        UiText(frame, frame->width - MARGIN - 80u, UI_LIST_TOP - 10u, 1, DIM, "more above");
-    }
-    if (first + rows < total) {
-        UiText(frame, frame->width - MARGIN - 80u, UI_LIST_TOP + rows * UI_ROW_HEIGHT + 2u, 1,
-               DIM, "more below");
-    }
-
     const uint32_t below = frame->height - FOOT - PREVIEW_LINES * LINE;
-    FillRect(frame, MARGIN, below - 8u, frame->width - 2u * MARGIN, 1u, BORDER);
+    DrawPane(frame, below - 8u, frame->height - FOOT - 2u);
+    DrawMore(frame, first > 0u, first + rows < total, below - 8u);
     ComposePreview(frame, run, state.group, below);
-    DrawButtons(frame, "up/down group  left/right family  A open  R/ZR, L/ZL failed groups  plus "
-                       "quit  tap a row, twice opens");
+    static const Key KEYS[] = {
+        { "up/down", "group" }, { "left/right", "family" },        { "A", "open" },
+        { "R/ZR, L/ZL", "failed groups" }, { "plus", "quit" }, { "tap", "a row, twice opens" },
+    };
+    DrawKeys(frame, KEYS, sizeof(KEYS) / sizeof(KEYS[0]), KeysRight(frame, 1u));
 }
 
 static void ComposeGroup(const UiFrame *frame, const UiRun *run, UiState state) {
     const UiGroup *const group = &run->groups[state.group];
     const ReportResult verdict = GroupResult(group->passed, group->failed);
-    Say(frame, MARGIN, 8, ResultColour(verdict), ResultWord(verdict));
-    const uint32_t x = Say(frame, MARGIN + 6u * GLYPH, 8, TEXT, group->suite) + 2u * GLYPH;
-    SayCounts(frame, x, 8, group->passed, group->failed, group->skipped, group->crashed);
+    SayVerdict(frame, MARGIN, HEAD_Y, verdict);
+    const uint32_t x = Say(frame, MARGIN + 6u * GLYPH, HEAD_Y, TEXT, group->suite) + 2u * GLYPH;
+    SayCounts(frame, x, HEAD_Y, group->passed, group->failed, group->skipped, group->crashed);
 
     const uint32_t rows = UiListRows(UI_LEVEL_GROUP, frame->height);
     const uint32_t first = UiListFirst(state.index, group->count, rows);
@@ -1284,7 +1493,8 @@ static void ComposeGroup(const UiFrame *frame, const UiRun *run, UiState state) 
         snprintf(text + wrote, sizeof(text) - (size_t)wrote, "   showing %u to %u",
                  (unsigned)(first + 1u), (unsigned)last);
     }
-    SayFitted(frame, MARGIN, 30, DIM, text);
+    DrawSecondBox(frame);
+    SayFitted(frame, MARGIN, SECOND_Y, DIM, text);
 
     // Room at the end of the row for the word that says there are pictures to open.
     const uint32_t name_x = UI_MARK_LEFT + 5u * GLYPH;
@@ -1294,13 +1504,12 @@ static void ComposeGroup(const UiFrame *frame, const UiRun *run, UiState state) 
     for (uint32_t i = first; i < last; ++i) {
         const ReportRecord *const record = UiCaseAt(run, state.group, i);
         const uint32_t y = UI_LIST_TOP + (i - first) * UI_ROW_HEIGHT;
-        if (i == state.index) {
-            FillRect(frame, MARGIN / 2u, y, frame->width - MARGIN, UI_ROW_HEIGHT, SELECTED);
-            Say(frame, MARGIN, y + 2u, TEXT, ">");
-        }
-        DrawCaseLine(frame, UI_MARK_LEFT, y + 2u, record, name_columns);
+        const bool selected = i == state.index;
+        const uint8_t *const ink = DrawRowBox(frame, y, UI_ROW_HEIGHT, selected);
+        DrawGlyph(frame, MARGIN, y + 2u, 1u, ink, (unsigned char)FONTVGA_MARKER);
+        DrawCaseLine(frame, UI_MARK_LEFT, y + 2u, record, name_columns, ink);
         if (record->picture >= 0) {
-            Say(frame, frame->width - MARGIN - 3u * GLYPH, y + 2u, DIM, "pic");
+            Say(frame, frame->width - MARGIN - 3u * GLYPH, y + 2u, selected ? ink : DIM, "pic");
         }
     }
 
@@ -1308,10 +1517,10 @@ static void ComposeGroup(const UiFrame *frame, const UiRun *run, UiState state) 
     // opening it will show.
     const ReportRecord *const record = UiCaseAt(run, state.group, state.index);
     const uint32_t below = frame->height - FOOT - DETAIL_LINES * LINE;
-    FillRect(frame, MARGIN, below - 8u, frame->width - 2u * MARGIN, 1u, BORDER);
+    DrawPane(frame, below - 8u, frame->height - FOOT - 2u);
     const uint32_t columns = Columns(frame);
     const uint32_t named =
-        TextWrapped(frame, MARGIN, below, BIG, LINE, TEXT, record->name, columns, 2u);
+        TextWrapped(frame, MARGIN, below, 1u, LINE, TEXT, record->name, columns, 2u);
     const uint32_t room = DETAIL_LINES - 1u - named;
     const uint32_t detail_y = below + named * LINE;
     uint32_t needed = 0;
@@ -1319,15 +1528,19 @@ static void ComposeGroup(const UiFrame *frame, const UiRun *run, UiState state) 
         Say(frame, MARGIN, detail_y, DIM, NoDetail(record->result));
     } else {
         needed = UiWrappedLines(record->detail, columns);
-        TextWrapped(frame, MARGIN, detail_y, BIG, LINE, DIM, record->detail, columns, room);
+        TextWrapped(frame, MARGIN, detail_y, 1u, LINE, DIM, record->detail, columns, room);
     }
     const char *const hint = record->picture >= 0 ? "A opens its pictures"
                              : needed > room      ? "the detail runs on: A shows all of it"
                                                   : "A opens it on a page of its own";
     Say(frame, MARGIN, below + (DETAIL_LINES - 1u) * LINE, DIM, hint);
 
-    DrawButtons(frame, "up/down case  left/right group  A open  B back  R/ZR, L/ZL failures  plus "
-                       "quit  tap a row, twice opens");
+    static const Key KEYS[] = {
+        { "up/down", "case" }, { "left/right", "group" },  { "A", "open" },
+        { "B", "back" },       { "R/ZR, L/ZL", "failures" }, { "plus", "quit" },
+        { "tap", "a row, twice opens" },
+    };
+    DrawKeys(frame, KEYS, sizeof(KEYS) / sizeof(KEYS[0]), KeysRight(frame, 1u));
 }
 
 /// The case's pictures, laid out as the detailed mode always has: the three side by side or
@@ -1335,8 +1548,7 @@ static void ComposeGroup(const UiFrame *frame, const UiRun *run, UiState state) 
 static void ComposePictures(const UiFrame *frame, const PictureRecord *record,
                             const ReportRecord *line, UiView view) {
     const uint32_t top = UI_PANEL_TOP;
-    const uint32_t columns =
-        frame->width > 2u * MARGIN ? (frame->width - 2u * MARGIN) / (CELL * 2u) : 1u;
+    const uint32_t columns = Columns(frame);
     uint32_t bottom;
 
     if (view == UI_VIEW_ALL) {
@@ -1352,7 +1564,7 @@ static void ComposePictures(const UiFrame *frame, const PictureRecord *record,
         static const UiView PANELS[3] = { UI_VIEW_GOT, UI_VIEW_EXPECTED, UI_VIEW_DIFF };
         for (uint32_t panel = 0; panel < 3u; ++panel) {
             const uint32_t x = MARGIN + panel * (size + MARGIN);
-            UiText(frame, x, top - 20u, 2, DIM, ViewLabel(PANELS[panel]));
+            Say(frame, x, top - 20u, DIM, ViewLabel(PANELS[panel]));
             DrawPanel(frame, x, top, scale, record, PANELS[panel]);
         }
         bottom = top + record->height * scale;
@@ -1371,7 +1583,7 @@ static void ComposePictures(const UiFrame *frame, const PictureRecord *record,
         }
         const uint32_t size = record->width * scale;
         const uint32_t x = frame->width > size ? (frame->width - size) / 2u : 0u;
-        UiText(frame, x, top - 20u, 2, DIM, ViewLabel(view));
+        Say(frame, x, top - 20u, DIM, ViewLabel(view));
         DrawPanel(frame, x, top, scale, record, view);
         bottom = top + record->height * scale;
     }
@@ -1384,21 +1596,24 @@ static void ComposePictures(const UiFrame *frame, const PictureRecord *record,
     const uint32_t room_for_lines =
         frame->height > detail_y + FOOT ? (frame->height - detail_y - FOOT) / LINE : 1u;
     if (line->detail[0] != '\0') {
-        TextWrapped(frame, MARGIN, detail_y, 2, LINE, TEXT, line->detail, columns,
+        TextWrapped(frame, MARGIN, detail_y, 1u, LINE, TEXT, line->detail, columns,
                     room_for_lines);
     } else {
-        UiText(frame, MARGIN, detail_y, 2, DIM, NoDetail(line->result));
+        Say(frame, MARGIN, detail_y, DIM, NoDetail(line->result));
     }
 
-    DrawButtons(frame, "left/right or up/down case  X view  R/ZR next failure  L/ZL previous "
-                       "failure  B back  plus quit");
+    static const Key KEYS[] = {
+        { "left/right or up/down", "case" }, { "X", "view" }, { "R/ZR", "next failure" },
+        { "L/ZL", "previous failure" },      { "B", "back" }, { "plus", "quit" },
+    };
+    DrawKeys(frame, KEYS, sizeof(KEYS) / sizeof(KEYS[0]), KeysRight(frame, 4u));
 }
 
 /// A case with no pictures, as a page: its whole name and its whole detail.
 static void ComposeDetail(const UiFrame *frame, const UiGroup *group, const ReportRecord *line) {
     const uint32_t columns = Columns(frame);
     uint32_t y = 40u;
-    y += TextWrapped(frame, MARGIN, y, BIG, PAGE_LINE, TEXT, line->name, columns, 3u) *
+    y += TextWrapped(frame, MARGIN, y, 1u, PAGE_LINE, TEXT, line->name, columns, 3u) *
              PAGE_LINE +
          12u;
     Say(frame, MARGIN, y, DIM, Skipped(line->result) ? "why it was skipped" : "detail");
@@ -1411,7 +1626,7 @@ static void ComposeDetail(const UiFrame *frame, const UiGroup *group, const Repo
         Say(frame, MARGIN, y, DIM, NoDetail(line->result));
         y += PAGE_LINE;
     } else {
-        y += TextWrapped(frame, MARGIN, y, BIG, PAGE_LINE, TEXT, line->detail, columns, room) *
+        y += TextWrapped(frame, MARGIN, y, 1u, PAGE_LINE, TEXT, line->detail, columns, room) *
              PAGE_LINE;
     }
     // A drawing case with no pictures stopped before it had any, which is worth saying where a
@@ -1419,8 +1634,12 @@ static void ComposeDetail(const UiFrame *frame, const UiGroup *group, const Repo
     if (group->family == UI_FAMILY_GRAPHICS && line->picture < 0) {
         Say(frame, MARGIN, y + 8u, DIM, "no pictures were kept for this case");
     }
-    DrawButtons(frame, "left/right or up/down case  R/ZR next failure  L/ZL previous failure  B "
-                       "back  plus quit");
+    static const Key KEYS[] = {
+        { "left/right or up/down", "case" }, { "R/ZR", "next failure" },
+        { "L/ZL", "previous failure" },      { "B", "back" },
+        { "plus", "quit" },
+    };
+    DrawKeys(frame, KEYS, sizeof(KEYS) / sizeof(KEYS[0]), KeysRight(frame, 3u));
 }
 
 static void ComposeCase(const UiFrame *frame, const UiRun *run, UiState state,
@@ -1448,13 +1667,14 @@ static void ComposeCase(const UiFrame *frame, const UiRun *run, UiState state,
     }
     // The verdict first, and at the margin, because it is the one thing on this screen that
     // must be there however narrow the frame is or however long the rest of the line runs.
-    Say(frame, MARGIN, 8, ResultColour(line->result), ResultWord(line->result));
-    SayFitted(frame, MARGIN + 6u * GLYPH, 8, DIM, header);
+    SayVerdict(frame, MARGIN, HEAD_Y, line->result);
+    SayFitted(frame, MARGIN + 6u * GLYPH, HEAD_Y, DIM, header);
 
     if (picture != NULL) {
         char name[200];
         Fit(name, sizeof(name), line->name, Columns(frame));
-        Say(frame, MARGIN, 30, TEXT, name);
+        DrawSecondBox(frame);
+        Say(frame, MARGIN, SECOND_Y, TEXT, name);
         ComposePictures(frame, picture, line, state.view);
     } else {
         ComposeDetail(frame, group, line);
@@ -1466,7 +1686,8 @@ void UiCompose(const UiFrame *frame, const UiRun *run, UiState state,
     if (frame == NULL || frame->pixels == NULL) {
         return;
     }
-    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    g_look = &MENU;
+    Page(frame, 0, 0, frame->width, frame->height);
     // Every subtraction in the layout is from a frame at least this big; a smaller one would
     // wrap round and draw a line four thousand million pixels long.
     if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
@@ -1481,7 +1702,8 @@ void UiCompose(const UiFrame *frame, const UiRun *run, UiState state,
                      (unsigned)run->reported);
             Say(frame, MARGIN, MARGIN + LINE + 4u, DIM, text);
         }
-        DrawButtons(frame, "plus quit");
+        static const Key KEYS[] = { { "plus", "quit" } };
+        DrawKeys(frame, KEYS, 1u, KeysRight(frame, 1u));
         const char *labels[UI_TOUCH_BOXES];
         UiInput inputs[UI_TOUCH_BOXES];
         DrawTouchBar(frame, labels, ResultsBar(run, state, labels, inputs));
@@ -1527,23 +1749,30 @@ uint32_t UiUnattendedSecondsLeft(uint64_t elapsed_ns, bool pressed) {
     return (uint32_t)((left + 999999999ull) / 1000000000ull);
 }
 
+/// The countdown's row, between the last line anything above can reach and the band of the
+/// keys, so neither is ever drawn over: the page again, and @p line on it when there is one.
+static void DrawCountdown(const UiFrame *frame, const char *line) {
+    const uint32_t top = frame->height - FOOT;
+    Page(frame, 0, top, frame->width, UI_COUNTDOWN_ROW);
+    if (line != NULL) {
+        char fitted[160];
+        Fit(fitted, sizeof(fitted), line, (UiFootRight(frame->width) - MARGIN) / GLYPH);
+        Say(frame, MARGIN, top + (UI_COUNTDOWN_ROW - FONTVGA_HEIGHT) / 2u, FAILED, fitted);
+    }
+}
+
 void UiComposeCountdown(const UiFrame *frame, uint32_t seconds_left) {
-    if (frame == NULL || frame->pixels == NULL || frame->height < 30u) {
+    if (frame == NULL || frame->pixels == NULL || frame->width < UI_MIN_WIDTH ||
+        frame->height < UI_MIN_HEIGHT) {
         return;
     }
-    // Between the last line anything above can reach, which stops 32 rows from the bottom, and
-    // the button line, which starts 14 from it, so neither is ever drawn over.
-    const uint32_t y = frame->height - 28u;
-    FillRect(frame, 0, y - 2u, UiFootRight(frame->width), 12u, BACKGROUND);
-    if (seconds_left == 0u) {
-        return;
-    }
+    g_look = &MENU;
     char line[96];
     snprintf(line, sizeof(line),
              "nothing pressed yet: this screen closes by itself in %u s, a button or a touch "
              "keeps it",
              (unsigned)seconds_left);
-    UiText(frame, MARGIN, y, 1, FAILED, line);
+    DrawCountdown(frame, seconds_left > 0u ? line : NULL);
 }
 
 bool UiStartShown(const UiStartInfo *info) {
@@ -1796,29 +2025,40 @@ static const struct {
     { "save", "write these choices into sdmc:/edenprobe/mode" },
 };
 
-// Across the row: the cursor, the box, the name, and what it does.
-#define START_BOX_COLUMN 2u
-#define START_NAME_COLUMN 6u
-#define START_WHAT_COLUMN 18u
+// Each row's icon, in the order of UiStartRow.
+static const Icon START_ICONS[UI_START_ROWS] = {
+    ICON_PLAY,  ICON_IMAGE, ICON_FOLDER, ICON_ACTIVITY, ICON_HEADPHONES, ICON_WIFI,
+    ICON_GAMEPAD, ICON_LOG_OUT, ICON_GAUGE, ICON_BUG, ICON_ROTATE_CCW, ICON_SAVE,
+};
 
-/// One row of the menu.
+// Across the row, in cells from the margin: the launcher's marker, the icon, the box, the name,
+// and what it does.
+#define START_ICON_COLUMN 2u
+#define START_BOX_COLUMN 5u
+#define START_NAME_COLUMN 9u
+#define START_WHAT_COLUMN 24u
+
+/// One row of the menu, as a row of the launcher's: a box, inverted under the cursor, and in the
+/// soft colour where it cannot be turned on.
 static void DrawStartRow(const UiFrame *frame, uint32_t row, const char *what, bool selected,
                          bool available, bool on) {
     const uint32_t y = UiStartRowTop(row);
-    if (selected) {
-        FillRect(frame, MARGIN / 2u, y, frame->width - MARGIN, UI_ROW_HEIGHT, SELECTED);
-        Say(frame, MARGIN, y + 2u, TEXT, ">");
-    }
+    const uint8_t *const ink = DrawRowBox(frame, y, UI_ROW_HEIGHT, selected);
+    const uint8_t *const words = available || selected ? ink : DIM;
+    DrawGlyph(frame, MARGIN, y + 2u, 1u, words, (unsigned char)FONTVGA_MARKER);
+    DrawIcon(frame, MARGIN + START_ICON_COLUMN * GLYPH, y + 2u, START_ICONS[row], words);
     const bool risky = row == UI_START_ROW_MAY_CRASH || row == UI_START_ROW_RETRY;
     if (row == UI_START_ROW_BEGIN) {
-        Say(frame, MARGIN + START_BOX_COLUMN * GLYPH, y + 2u, TEXT, START_ROWS[row].name);
+        Say(frame, MARGIN + START_BOX_COLUMN * GLYPH, y + 2u, ink, START_ROWS[row].name);
     } else {
-        const uint8_t *const box = !available ? DIM : on ? (risky ? SKIPPED : PASSED) : DIM;
+        const uint8_t *const box = selected     ? ink
+                                   : !available ? DIM
+                                   : on         ? (risky ? SKIPPED : PASSED)
+                                                : DIM;
         Say(frame, MARGIN + START_BOX_COLUMN * GLYPH, y + 2u, box, on ? "[x]" : "[ ]");
-        Say(frame, MARGIN + START_NAME_COLUMN * GLYPH, y + 2u, available ? TEXT : DIM,
-            START_ROWS[row].name);
+        Say(frame, MARGIN + START_NAME_COLUMN * GLYPH, y + 2u, words, START_ROWS[row].name);
     }
-    SayFitted(frame, MARGIN + START_WHAT_COLUMN * GLYPH, y + 2u, DIM, what);
+    SayFitted(frame, MARGIN + START_WHAT_COLUMN * GLYPH, y + 2u, words, what);
 }
 
 /// A list under its heading, in @p room lines at most: its heading, as many names as fit, and a
@@ -1859,13 +2099,15 @@ void UiComposeStart(const UiFrame *frame, const UiStartInfo *info, UiStartState 
     if (frame == NULL || frame->pixels == NULL || info == NULL) {
         return;
     }
-    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    g_look = &MENU;
+    Page(frame, 0, 0, frame->width, frame->height);
     if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
         UiText(frame, 0, 0, 1, TEXT, "frame too small");
         return;
     }
-    SayFitted(frame, MARGIN, 8, TEXT, info->heading != NULL ? info->heading : "edenprobe");
-    SayFitted(frame, MARGIN, 30, DIM,
+    SayFitted(frame, MARGIN, HEAD_Y, TEXT, info->heading != NULL ? info->heading : "edenprobe");
+    DrawSecondBox(frame);
+    SayFitted(frame, MARGIN, SECOND_Y, DIM,
               "before the run: choose what runs, or let the countdown begin it");
 
     // The may-crash cases the run as chosen reaches, which is what its row counts and lists.
@@ -1918,27 +2160,29 @@ void UiComposeStart(const UiFrame *frame, const UiStartInfo *info, UiStartState 
             "if it does, start edenprobe again: the run goes on after the case",
             "that ended it, which is then skipped as crashed and listed",
         };
+        // The launcher's tips box, in the failure colour: framed twice as thick, its bar at the
+        // left.
         const uint32_t height = UI_START_WARNING_LINES * LINE + 16u;
         FillRect(frame, MARGIN / 2u, warning_top, frame->width - MARGIN, height, FAILED);
         FillRect(frame, MARGIN / 2u + 2u, warning_top + 2u, frame->width - MARGIN - 4u,
                  height - 4u, BACKGROUND);
+        FillRect(frame, MARGIN / 2u + 5u, warning_top + 6u, 3u, height - 12u, FAILED);
         for (uint32_t i = 0; i < UI_START_WARNING_LINES; ++i) {
             SayFitted(frame, MARGIN, warning_top + 8u + i * LINE, FAILED, WARNING[i]);
         }
     }
 
-    const uint32_t countdown = frame->height - 28u;
-    FillRect(frame, 0, countdown - 2u, frame->width, 12u, BACKGROUND);
-    if (seconds_left > 0u) {
-        char line[128];
-        snprintf(line, sizeof(line),
-                 "nothing pressed yet: the run begins in %u s as the mode file says, a button or a "
-                 "touch keeps this",
-                 (unsigned)seconds_left);
-        UiText(frame, MARGIN, countdown, 1, FAILED, line);
-    }
-    DrawButtons(frame, "up/down move  A choose, begin on its row  plus begin  Y may crash  X crash "
-                       "list  tap a row twice");
+    char line[128];
+    snprintf(line, sizeof(line),
+             "nothing pressed yet: the run begins in %u s as the mode file says, a button or a "
+             "touch keeps this",
+             (unsigned)seconds_left);
+    DrawCountdown(frame, seconds_left > 0u ? line : NULL);
+    static const Key KEYS[] = {
+        { "up/down", "move" }, { "A", "choose, begin on its row" }, { "plus", "begin" },
+        { "Y", "may crash" },  { "X", "crash list" },                { "tap", "a row twice" },
+    };
+    DrawKeys(frame, KEYS, sizeof(KEYS) / sizeof(KEYS[0]), KeysRight(frame, 1u));
     static const char *const BEGIN[1] = { "begin" };
     DrawTouchBar(frame, BEGIN, 1u);
 }
@@ -2022,15 +2266,18 @@ void UiComposeResume(const UiFrame *frame, const UiResumeInfo *info, UiResumeSta
     if (frame == NULL || frame->pixels == NULL || info == NULL) {
         return;
     }
-    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    g_look = &MENU;
+    Page(frame, 0, 0, frame->width, frame->height);
     if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
         UiText(frame, 0, 0, 1, TEXT, "frame too small");
         return;
     }
-    SayFitted(frame, MARGIN, 8, TEXT, info->heading != NULL ? info->heading : "edenprobe");
-    SayFitted(frame, MARGIN, 30, SKIPPED, "the last run in this folder stopped before its end");
+    SayFitted(frame, MARGIN, HEAD_Y, TEXT, info->heading != NULL ? info->heading : "edenprobe");
+    DrawSecondBox(frame);
+    SayFitted(frame, MARGIN, SECOND_Y, SKIPPED,
+              "the last run in this folder stopped before its end");
 
-    TextWrapped(frame, MARGIN, UI_LIST_TOP, BIG, LINE, TEXT,
+    TextWrapped(frame, MARGIN, UI_LIST_TOP, 1u, LINE, TEXT,
                 info->where != NULL && info->where[0] != '\0' ? info->where
                                                               : "where it stopped is not known",
                 Columns(frame), RESUME_WHERE_LINES);
@@ -2052,27 +2299,29 @@ void UiComposeResume(const UiFrame *frame, const UiResumeInfo *info, UiResumeSta
         { "start over",
           "a new report in this folder; a case the program ended inside stays on the crash list" },
     };
+    // Two rows of the launcher's, each two lines tall: the choice beside its icon, and what it
+    // does under it.
+    static const Icon CHOICE_ICONS[UI_RESUME_CHOICES] = { ICON_PLAY, ICON_ROTATE_CCW };
     for (uint32_t row = 0; row < UI_RESUME_CHOICES; ++row) {
         const uint32_t top = UiResumeRowTop(row);
-        const bool selected = state.cursor == row;
-        if (selected) {
-            FillRect(frame, MARGIN / 2u, top, frame->width - MARGIN, 2u * LINE, SELECTED);
-            Say(frame, MARGIN, top + 2u, TEXT, ">");
-        }
-        SayFitted(frame, MARGIN + 2u * GLYPH, top + 2u, selected ? TEXT : DIM, CHOICES[row][0]);
-        UiText(frame, MARGIN + 2u * GLYPH, top + LINE + 4u, 1, DIM, CHOICES[row][1]);
+        const uint8_t *const ink = DrawRowBox(frame, top, 2u * LINE, state.cursor == row);
+        DrawGlyph(frame, MARGIN, top + 2u, 1u, ink, (unsigned char)FONTVGA_MARKER);
+        DrawIcon(frame, MARGIN + 2u * GLYPH, top + 2u, CHOICE_ICONS[row], ink);
+        SayFitted(frame, MARGIN + 5u * GLYPH, top + 2u, ink, CHOICES[row][0]);
+        SayFitted(frame, MARGIN + 5u * GLYPH, top + LINE + 1u, ink, CHOICES[row][1]);
     }
 
-    const uint32_t countdown = frame->height - 28u;
-    FillRect(frame, 0, countdown - 2u, frame->width, 12u, BACKGROUND);
-    if (seconds_left > 0u) {
-        snprintf(text, sizeof(text),
-                 "nothing pressed yet: the run goes on in %u s, a button or a touch keeps this "
-                 "screen",
-                 (unsigned)seconds_left);
-        UiText(frame, MARGIN, countdown, 1, FAILED, text);
-    }
-    DrawButtons(frame, "up/down choose   A confirm   tap a choice twice");
+    snprintf(text, sizeof(text),
+             "nothing pressed yet: the run goes on in %u s, a button or a touch keeps this "
+             "screen",
+             (unsigned)seconds_left);
+    DrawCountdown(frame, seconds_left > 0u ? text : NULL);
+    static const Key KEYS[] = {
+        { "up/down", "choose" },
+        { "A", "confirm" },
+        { "tap", "a choice twice" },
+    };
+    DrawKeys(frame, KEYS, sizeof(KEYS) / sizeof(KEYS[0]), frame->width - MARGIN);
 }
 
 UiResumeState UiResumeTap(UiResumeState state, const UiTap *tap, uint32_t frame_width,
@@ -2155,14 +2404,16 @@ size_t UiElapsedWords(char *out, size_t out_size, uint64_t ns) {
 }
 
 /// The steps done and the one under way, in proportion, across the frame below the step line:
-/// the running screen's bar, which the listening screen draws too.
+/// the running screen's bar, which the listening screen draws too. The launcher's run screen
+/// fills its bar in the ink colour and leaves the rest in the dim one; the step under way is in
+/// the soft colour between them.
 static void DrawStepsBar(const UiFrame *frame, uint32_t step, uint32_t steps) {
     const uint32_t width = frame->width - 2u * MARGIN;
     FillRect(frame, MARGIN, UI_PROGRESS_BAR_TOP, width, UI_PROGRESS_BAR_HEIGHT, BORDER);
     if (steps > 0u && step > 0u) {
         const uint32_t done = (uint32_t)((uint64_t)width * (step - 1u) / steps);
         const uint32_t under_way = (uint32_t)((uint64_t)width * step / steps) - done;
-        FillRect(frame, MARGIN, UI_PROGRESS_BAR_TOP, done, UI_PROGRESS_BAR_HEIGHT, PASSED);
+        FillRect(frame, MARGIN, UI_PROGRESS_BAR_TOP, done, UI_PROGRESS_BAR_HEIGHT, TEXT);
         FillRect(frame, MARGIN + done, UI_PROGRESS_BAR_TOP, under_way, UI_PROGRESS_BAR_HEIGHT,
                  DIM);
     }
@@ -2172,18 +2423,20 @@ void UiComposeProgress(const UiFrame *frame, const UiProgress *progress) {
     if (frame == NULL || frame->pixels == NULL || progress == NULL) {
         return;
     }
-    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    g_look = &RUN;
+    Page(frame, 0, 0, frame->width, frame->height);
     if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
         UiText(frame, 0, 0, 1, TEXT, "frame too small");
         return;
     }
     // The results screens' header: one word at the margin, the program after it, the counts on
-    // the second row.
-    Say(frame, MARGIN, 8, TEXT, "running");
-    SayFitted(frame, MARGIN + 9u * GLYPH, 8, DIM,
+    // the second row; as the launcher's run screen puts its title in the ink and the name after
+    // it in the soft colour.
+    Say(frame, MARGIN, HEAD_Y, TEXT, "running");
+    SayFitted(frame, MARGIN + 9u * GLYPH, HEAD_Y, DIM,
               progress->heading != NULL ? progress->heading : "edenprobe");
-    const uint32_t x = Say(frame, MARGIN, 30, DIM, "so far: ");
-    SayCounts(frame, x, 30, progress->passed, progress->failed, progress->skipped,
+    const uint32_t x = Say(frame, MARGIN, SECOND_Y, DIM, "so far: ");
+    SayCounts(frame, x, SECOND_Y, progress->passed, progress->failed, progress->skipped,
               progress->crashed);
 
     char text[200];
@@ -2215,7 +2468,7 @@ void UiComposeProgress(const UiFrame *frame, const UiProgress *progress) {
             snprintf(text + used, sizeof(text) - used, ", in %s", progress->suite);
         }
         SayFitted(frame, MARGIN, y, DIM, text);
-        TextWrapped(frame, MARGIN, y + LINE, BIG, LINE, TEXT, progress->name, Columns(frame), 2u);
+        TextWrapped(frame, MARGIN, y + LINE, 1u, LINE, TEXT, progress->name, Columns(frame), 2u);
     }
     y += 3u * LINE + 8u;
     char elapsed[32];
@@ -2225,11 +2478,13 @@ void UiComposeProgress(const UiFrame *frame, const UiProgress *progress) {
     snprintf(text, sizeof(text), "folder: %s", progress->folder != NULL ? progress->folder : "");
     SayFitted(frame, MARGIN, y + LINE, DIM, text);
 
-    DrawButtons(frame, progress->quick
-                           ? "nothing to press: the program leaves when the run ends; this screen "
-                             "is drawn between cases"
-                           : "nothing to press: the results come up when the run ends; this "
-                             "screen is drawn between cases");
+    DrawFootNote(frame,
+                 progress->quick
+                     ? "nothing to press: the program leaves when the run ends; this screen "
+                       "is drawn between cases"
+                     : "nothing to press: the results come up when the run ends; this "
+                       "screen is drawn between cases",
+                 frame->width - MARGIN);
 }
 
 // The listening sequence, one row per screen, in the order a run with no button plays them.
@@ -2356,7 +2611,8 @@ void UiComposeListen(const UiFrame *frame, UiListenScreen screen, double left, d
     if (frame == NULL || frame->pixels == NULL) {
         return;
     }
-    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    g_look = &RUN;
+    Page(frame, 0, 0, frame->width, frame->height);
     if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
         UiText(frame, 0, 0, 1, TEXT, "frame too small");
         return;
@@ -2368,7 +2624,7 @@ void UiComposeListen(const UiFrame *frame, UiListenScreen screen, double left, d
     // The running screen's layout, which comes before and after it: the word and what is
     // playing on the top row, a second row in the dim colour, the step and its bar where a list
     // would start, and what to listen for below the bar.
-    Say(frame, MARGIN, 8, TEXT, "listening");
+    Say(frame, MARGIN, HEAD_Y, TEXT, "listening");
     char line[200];
     if (text.mark != NULL) {
         snprintf(line, sizeof(line), "part %s: %s", text.mark, text.name);
@@ -2376,8 +2632,8 @@ void UiComposeListen(const UiFrame *frame, UiListenScreen screen, double left, d
         snprintf(line, sizeof(line), "%s", screen == UI_LISTEN_OPENING ? "before the parts"
                                                                        : "after the parts");
     }
-    SayFitted(frame, MARGIN + 11u * GLYPH, 8, DIM, line);
-    SayFitted(frame, MARGIN, 30, DIM,
+    SayFitted(frame, MARGIN + 11u * GLYPH, HEAD_Y, DIM, line);
+    SayFitted(frame, MARGIN, SECOND_Y, DIM,
               "about 40 seconds of sound to hear, before the audio suite's cases");
 
     const uint32_t steps = UI_LISTEN_CLOSING + 1u;
@@ -2391,8 +2647,32 @@ void UiComposeListen(const UiFrame *frame, UiListenScreen screen, double left, d
     Say(frame, MARGIN, y, DIM, "listen for");
     const uint32_t top = y + LINE;
     const uint32_t room = frame->height > top + FOOT ? (frame->height - top - FOOT) / LINE : 1u;
-    TextWrapped(frame, MARGIN, top, BIG, LINE, TEXT, text.guide, Columns(frame), room);
-    DrawButtons(frame, text.buttons);
+    TextWrapped(frame, MARGIN, top, 1u, LINE, TEXT, text.guide, Columns(frame), room);
+
+    // Its buttons as the sentence names them, "Y repeat   X next part": a key and what it does,
+    // apart from the next by more than one space.
+    Key keys[4];
+    char words[4][64];
+    uint32_t count = 0;
+    for (const char *at = text.buttons; *at != '\0' && count < 4u;) {
+        const char *end = strstr(at, "  ");
+        const size_t length = end != NULL ? (size_t)(end - at) : strlen(at);
+        const size_t taken = length < sizeof(words[0]) ? length : sizeof(words[0]) - 1u;
+        memcpy(words[count], at, taken);
+        words[count][taken] = '\0';
+        char *const space = strchr(words[count], ' ');
+        if (space != NULL) {
+            *space = '\0';
+        }
+        keys[count].key = words[count];
+        keys[count].what = space != NULL ? space + 1 : "";
+        ++count;
+        at += length;
+        while (*at == ' ') {
+            ++at;
+        }
+    }
+    DrawKeys(frame, keys, count, frame->width - MARGIN);
 }
 
 // The pad screen's two stick boxes, side by side at the right of the live lines: each stick's
@@ -2404,8 +2684,8 @@ static void DrawStickBox(const UiFrame *frame, uint32_t x, uint32_t y, const cha
                          int32_t stick_x, int32_t stick_y) {
     FillRect(frame, x, y, PAD_BOX, PAD_BOX, BORDER);
     FillRect(frame, x + 2u, y + 2u, PAD_BOX - 4u, PAD_BOX - 4u, BACKGROUND);
-    FillRect(frame, x + PAD_BOX / 2u, y + 2u, 1u, PAD_BOX - 4u, SELECTED);
-    FillRect(frame, x + 2u, y + PAD_BOX / 2u, PAD_BOX - 4u, 1u, SELECTED);
+    FillRect(frame, x + PAD_BOX / 2u, y + 2u, 1u, PAD_BOX - 4u, BORDER);
+    FillRect(frame, x + 2u, y + PAD_BOX / 2u, PAD_BOX - 4u, 1u, BORDER);
     // Up on the stick is up on the screen, which is the other way from the rows.
     const int64_t span = (int64_t)(PAD_BOX - PAD_MARK);
     int64_t cx = ((int64_t)stick_x + PAD_STICK_FULL) * span / (2 * PAD_STICK_FULL);
@@ -2420,17 +2700,18 @@ void UiComposePad(const UiFrame *frame, const UiPadScreen *screen) {
     if (frame == NULL || frame->pixels == NULL || screen == NULL) {
         return;
     }
-    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    g_look = &RUN;
+    Page(frame, 0, 0, frame->width, frame->height);
     if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
         UiText(frame, 0, 0, 1, TEXT, "frame too small");
         return;
     }
     // The running screen's layout, as the listening screen keeps it: the word and the program on
     // the top row, a dim second row, the prompt and its bar where a list would start.
-    Say(frame, MARGIN, 8, TEXT, "controller");
-    SayFitted(frame, MARGIN + 12u * GLYPH, 8, DIM,
+    Say(frame, MARGIN, HEAD_Y, TEXT, "controller");
+    SayFitted(frame, MARGIN + 12u * GLYPH, HEAD_Y, DIM,
               screen->heading != NULL ? screen->heading : "edenprobe");
-    SayFitted(frame, MARGIN, 30, DIM,
+    SayFitted(frame, MARGIN, SECOND_Y, DIM,
               "press what the screen asks; nothing for 10 s skips the prompt");
 
     char line[200];
@@ -2439,17 +2720,17 @@ void UiComposePad(const UiFrame *frame, const UiPadScreen *screen) {
     SayFitted(frame, MARGIN, UI_LIST_TOP, TEXT, line);
     DrawStepsBar(frame, prompt, screen->prompts);
 
-    // Large enough to read from a sofa: twelve times the cell, as long as it fits across.
+    // Large enough to read from a sofa: six times the cell, as long as it fits across.
     uint32_t y = UI_PROGRESS_BAR_TOP + UI_PROGRESS_BAR_HEIGHT + 24u;
     const char *const big = screen->big != NULL ? screen->big : "";
     const uint32_t room = frame->width - 2u * MARGIN;
     uint32_t scale = UI_PAD_BIG;
-    while (scale > BIG && (uint32_t)strlen(big) * CELL * scale > room) {
+    while (scale > 1u && (uint32_t)strlen(big) * CELL * scale > room) {
         --scale;
     }
     UiText(frame, MARGIN, y, scale, TEXT, big);
-    y += CELL * UI_PAD_BIG + 16u;
-    y += TextWrapped(frame, MARGIN, y, BIG, LINE, TEXT, screen->how, Columns(frame), 2u) * LINE;
+    y += FONTVGA_HEIGHT * UI_PAD_BIG + 16u;
+    y += TextWrapped(frame, MARGIN, y, 1u, LINE, TEXT, screen->how, Columns(frame), 2u) * LINE;
     if (screen->state != NULL) {
         SayFitted(frame, MARGIN, y + 4u, DIM, screen->state);
     }
@@ -2460,7 +2741,7 @@ void UiComposePad(const UiFrame *frame, const UiPadScreen *screen) {
     char held[160];
     PadButtonWords(held, sizeof(held), screen->held);
     snprintf(line, sizeof(line), "held: %s", held);
-    TextWrapped(frame, MARGIN, live, BIG, LINE, TEXT, line, (boxes - MARGIN) / GLYPH, 2u);
+    TextWrapped(frame, MARGIN, live, 1u, LINE, TEXT, line, (boxes - MARGIN) / GLYPH, 2u);
     snprintf(line, sizeof(line), "left stick  x %6d  y %6d", (int)screen->left_x,
              (int)screen->left_y);
     Say(frame, MARGIN, live + 2u * LINE, DIM, line);
@@ -2469,7 +2750,7 @@ void UiComposePad(const UiFrame *frame, const UiPadScreen *screen) {
     Say(frame, MARGIN, live + 3u * LINE, DIM, line);
     snprintf(line, sizeof(line), "connected: %s",
              screen->controllers != NULL ? screen->controllers : "nothing");
-    TextWrapped(frame, MARGIN, live + 4u * LINE, BIG, LINE, DIM, line, (boxes - MARGIN) / GLYPH,
+    TextWrapped(frame, MARGIN, live + 4u * LINE, 1u, LINE, DIM, line, (boxes - MARGIN) / GLYPH,
                 2u);
     DrawStickBox(frame, boxes, live, "left", screen->left_x, screen->left_y);
     DrawStickBox(frame, boxes + PAD_BOX + 24u, live, "right", screen->right_x, screen->right_y);
@@ -2477,11 +2758,13 @@ void UiComposePad(const UiFrame *frame, const UiPadScreen *screen) {
     if (screen->last != NULL) {
         const uint32_t last = live + PAD_BOX + 2u * LINE;
         const uint32_t x = Say(frame, MARGIN, last, DIM, "before: ");
-        TextWrapped(frame, x, last, BIG, LINE, ResultColour(screen->last_result), screen->last,
+        TextWrapped(frame, x, last, 1u, LINE, ResultColour(screen->last_result), screen->last,
                     (frame->width - MARGIN - x) / GLYPH, 2u);
     }
-    DrawButtons(frame, "Home and Capture are left out: the system takes them. A question: up "
-                       "for yes, down for no, or tap");
+    DrawFootNote(frame,
+                 "Home and Capture are left out: the system takes them. A question: up for yes, "
+                 "down for no, or tap",
+                 KeysRight(frame, 2u));
     if (screen->asks_yes_no) {
         static const char *const ANSWERS[2] = { "yes", "no" };
         DrawTouchBar(frame, ANSWERS, 2u);
@@ -2511,31 +2794,32 @@ void UiComposeTouch(const UiFrame *frame, const UiTouchScreen *screen) {
     if (frame == NULL || frame->pixels == NULL || screen == NULL) {
         return;
     }
-    FillRect(frame, 0, 0, frame->width, frame->height, BACKGROUND);
+    g_look = &RUN;
+    Page(frame, 0, 0, frame->width, frame->height);
     if (frame->width < UI_MIN_WIDTH || frame->height < UI_MIN_HEIGHT) {
         UiText(frame, 0, 0, 1, TEXT, "frame too small");
         return;
     }
-    Say(frame, MARGIN, 8, TEXT, "touch");
-    SayFitted(frame, MARGIN + 7u * GLYPH, 8, DIM,
+    Say(frame, MARGIN, HEAD_Y, TEXT, "touch");
+    SayFitted(frame, MARGIN + 7u * GLYPH, HEAD_Y, DIM,
               screen->heading != NULL ? screen->heading : "edenprobe");
     char line[200];
     const uint32_t prompt = screen->prompt < screen->prompts ? screen->prompt : screen->prompts;
     snprintf(line, sizeof(line), "prompt %u of %u: touch what the screen asks; nothing for 10 s "
                                  "skips it",
              (unsigned)prompt, (unsigned)screen->prompts);
-    SayFitted(frame, MARGIN, 30, DIM, line);
+    SayFitted(frame, MARGIN, SECOND_Y, DIM, line);
 
-    // Between the top targets and the middle one.
+    // Between the top targets and the middle one, four times the cell as long as it fits.
     uint32_t y = UI_TOUCH_WORDS_TOP;
     const char *const big = screen->big != NULL ? screen->big : "";
-    uint32_t scale = 8u;
-    while (scale > BIG && (uint32_t)strlen(big) * CELL * scale > frame->width - 2u * MARGIN) {
+    uint32_t scale = 4u;
+    while (scale > 1u && (uint32_t)strlen(big) * CELL * scale > frame->width - 2u * MARGIN) {
         --scale;
     }
     UiText(frame, MARGIN, y, scale, TEXT, big);
-    y += CELL * 8u + 16u;
-    y += TextWrapped(frame, MARGIN, y, BIG, LINE, TEXT, screen->how, Columns(frame), 2u) * LINE;
+    y += FONTVGA_HEIGHT * 4u + 16u;
+    y += TextWrapped(frame, MARGIN, y, 1u, LINE, TEXT, screen->how, Columns(frame), 2u) * LINE;
     if (screen->state != NULL) {
         SayFitted(frame, MARGIN, y + 4u, DIM, screen->state);
     }
@@ -2547,7 +2831,7 @@ void UiComposeTouch(const UiFrame *frame, const UiTouchScreen *screen) {
     if (screen->last != NULL) {
         const uint32_t last = UI_TOUCH_LIVE_TOP + LINE + 12u;
         const uint32_t x = Say(frame, MARGIN, last, DIM, "before: ");
-        TextWrapped(frame, x, last, BIG, LINE, ResultColour(screen->last_result), screen->last,
+        TextWrapped(frame, x, last, 1u, LINE, ResultColour(screen->last_result), screen->last,
                     (frame->width - MARGIN - x) / GLYPH, 2u);
     }
 
@@ -2569,7 +2853,8 @@ void UiComposeTouch(const UiFrame *frame, const UiTouchScreen *screen) {
         const uint32_t ty = screen->touch_y[i] > 6u ? screen->touch_y[i] - 6u : 0u;
         FillRect(frame, tx, ty, 12u, 12u, PASSED);
     }
-    DrawButtons(frame, "lift every finger between prompts; a docked console's touch screen is off");
+    DrawFootNote(frame, "lift every finger between prompts; a docked console's touch screen is off",
+                 frame->width - MARGIN);
 }
 
 PadAnswer UiPadTap(const UiTap *tap, uint32_t frame_width, uint32_t frame_height,

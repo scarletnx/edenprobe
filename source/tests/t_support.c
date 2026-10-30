@@ -1116,7 +1116,7 @@ static void CheckLabel(void) {
 
 /// How much of the heading band is drawn in the colour a failure is shouted in.
 static uint32_t CountRed(const UiFrame *frame) {
-    static const uint8_t SHOUT[3] = { 0xF0, 0x50, 0x50 };
+    static const uint8_t SHOUT[3] = { 0xA5, 0x47, 0x3C };
     uint32_t seen = 0;
     for (uint32_t y = 8; y < 26u; ++y) {
         for (uint32_t x = 0; x < frame->width; ++x) {
@@ -1262,19 +1262,20 @@ static void CheckLayout(void) {
         if (swatch == NULL || memcmp(swatch, want, 3u) != 0) {
             ++key_wrong;
         }
-        // Somewhere in the word beside it there has to be a lit pixel, or the swatch is
-        // labelled with nothing.
+        // Somewhere in the word beside it there has to be a pixel in the colour words of the
+        // second rank are written in, or the swatch is labelled with nothing.
+        static const uint8_t SOFT[3] = { 0x8A, 0x86, 0x76 };
         bool lettered = false;
-        for (uint32_t dx = 0; dx < KEY_LETTERS[i] * 16u && !lettered; ++dx) {
+        for (uint32_t dx = 0; dx < KEY_LETTERS[i] * 8u && !lettered; ++dx) {
             for (uint32_t dy = 0; dy < 16u && !lettered; ++dy) {
                 const uint8_t *const at = UiPixel(&frame, key_x + 22u + dx, key_y + dy);
-                lettered = at != NULL && at[0] > 0x40 && at[1] > 0x40;
+                lettered = at != NULL && memcmp(at, SOFT, 3u) == 0;
             }
         }
         if (!lettered) {
             ++key_wrong;
         }
-        key_x += 22u + KEY_LETTERS[i] * 16u + 32u;
+        key_x += 22u + KEY_LETTERS[i] * 8u + 24u;
     }
     CHECK_TRUE(SUITE, "all four colours of a verdict are named under the pictures", CHECK_NONE,
                key_wrong == 0u, "%u of eight swatches and words were missing or wrong",

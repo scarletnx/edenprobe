@@ -41,6 +41,11 @@ extern "C" {
 #define UI_MIN_WIDTH 640u
 #define UI_MIN_HEIGHT 360u
 
+/// The bottom of every screen: the band the keys are named on, across the frame's last rows, and
+/// above it the row the countdown is written in. Nothing else is drawn there.
+#define UI_FOOT_BAND 32u
+#define UI_COUNTDOWN_ROW UI_ROW_HEIGHT
+
 /// Somewhere to draw. @p pitch is the bytes between one row and the next, which is the display's
 /// business and not always four times the width.
 typedef struct {
@@ -187,7 +192,7 @@ bool UiLeavesUnattended(uint64_t elapsed_ns, bool pressed);
 /// is up. What the screen counts down with.
 uint32_t UiUnattendedSecondsLeft(uint64_t elapsed_ns, bool pressed);
 
-/// Draws the countdown line above the key at the bottom of the frame, or clears it for 0.
+/// Draws the countdown line above the band of the keys, or clears it for 0.
 void UiComposeCountdown(const UiFrame *frame, uint32_t seconds_left);
 
 /// The buttons the screens know about. Named here rather than taken from the console's own
@@ -290,7 +295,8 @@ void UiTouchReset(UiTouch *touch);
 UiTouchEvent UiTouchStep(UiTouch *touch, uint32_t count, uint32_t x, uint32_t y,
                          uint32_t frame_index, UiTap *tap);
 
-/// The touch bar: up to UI_TOUCH_BOXES boxes along the bottom right of the frame, over the foot.
+/// The touch bar: up to UI_TOUCH_BOXES boxes along the bottom right of the frame, on the band of
+/// the keys.
 #define UI_TOUCH_BOX_WIDTH 88u
 #define UI_TOUCH_BOX_HEIGHT 28u
 #define UI_TOUCH_BOX_GAP 8u
@@ -302,7 +308,7 @@ UiTouchEvent UiTouchStep(UiTouch *touch, uint32_t count, uint32_t x, uint32_t y,
 /// lay out on, or a box that is not there.
 UiRect UiTouchBox(uint32_t frame_width, uint32_t frame_height, uint32_t count, uint32_t index);
 
-/// Where the countdown and the button line stop, so the widest bar never covers them.
+/// Where the countdown and the keys stop, so the widest bar never covers them.
 uint32_t UiFootRight(uint32_t frame_width);
 
 /// The results screens' touch: rows as above; the bar holds quit on the overview, back on a
@@ -720,8 +726,8 @@ typedef struct {
     bool asks_yes_no;
 } UiPadScreen;
 
-/// How many times the cell the prompt is drawn at, when it fits across the frame.
-#define UI_PAD_BIG 12u
+/// How many times the 8 by 16 cell the prompt is drawn at, when it fits across the frame.
+#define UI_PAD_BIG 6u
 
 void UiComposePad(const UiFrame *frame, const UiPadScreen *screen);
 

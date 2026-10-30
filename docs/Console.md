@@ -16,7 +16,7 @@ graphics (clear to blit2d), fs, kernel (sched), display (binder), video (vic, nv
   case the program ended inside is counted apart, as the summary counts it: in violet, in a fourth
   column that only a run with such a case has, and listed under the list when its group failed
   nothing.
-- **A group** lists its cases, each marked `PASS`, `FAIL` or `SKIP` in that result's colour, with
+- **A group** lists its cases, each marked `PASS`, `FAIL` or `SKIP` on that result's colour, with
   `pic` at the end of the row when the case kept pictures. It opens on its first failure. Under the
   list: the selected case's whole name, as much of its detail as fits, wrapped, and what opening it
   will show.
@@ -28,6 +28,16 @@ graphics (clear to blit2d), fs, kernel (sched), display (binder), video (vic, nv
 The pictures answer what a verdict cannot, whether a failure looks like a rendering fault or like
 the judge being wrong; the rest is for finding the case that failed in a run of eight hundred
 without a computer beside the console.
+
+**How the screens look** is ScarletNX's: its launcher's 8 by 16 VGA font and the colours of its
+YoRHa theme. The screens a person chooses on (the start screen, the one that asks whether to go on,
+and the results) are on the theme's page, a paper colour under a faint grid; each row is a box, the
+row under the cursor is inverted on the ink with the cursor beside it, and the start screen's rows
+carry the launcher's icons. The screens drawn while the run is under way (the running screen and the
+listening, pad and touch screens) are on the dark page of its run screen. Every screen names its
+keys on a band along its bottom, each a button as the launcher's foot draws one, with the countdown
+on the line above the band and the touch bar's boxes on it at the right. The font and the icons
+come from ScarletNX; see [Credits](Credits.md).
 
 **Quick** is what a script wants: every suite, both channels, and the program exits, in about six to
 seven seconds under eden-cli (6.4 to 7.3 in most runs at a load of 4 to 9, emulator start included),
@@ -95,7 +105,7 @@ report closed leaves by itself, and appends one line after the summary:
 That is for a script that forgot the mode file, which must not leave an emulator running until
 something kills it; ten seconds because on a console the person is reading the overview when the
 count starts. A press counts, not a connected controller, because an emulator presents a controller
-as connected whether or not anyone holds it. The countdown shows on the bottom line, and any button
+as connected whether or not anyone holds it. The countdown shows above the keys, and any button
 stops it for the rest of the run. The first eight frames are not a press, nor navigation: a
 controller arriving with the window reports its whole mask as newly pressed. An edge that holds
 both Y and X changes neither choice, because a pad that connects after those frames reports the
@@ -111,7 +121,7 @@ front of it, or a choice that should stay: see [The mode file](ModeFile.md).
 controller attached, twelve frames at most. The report is opened before any of this, so a machine
 that cannot read the file or reach the pad still leaves a report saying how far it got.
 
-On the screens, each of which names its buttons on its bottom line:
+On the screens, each of which names its buttons on the band along its bottom:
 
 | button | overview | group | case |
 |---|---|---|---|
@@ -156,13 +166,12 @@ is on does what A does there: on the start screen it turns the row, or on begin 
 the screen that asks whether to go on it takes that choice; on the overview it opens the group, and
 in a group the case. A row is as tall as a line of text, about two millimetres, so a tap that lands
 on the next row only moves the cursor, which the second tap then shows is wrong before anything is
-chosen. A bar of boxes at the bottom right holds what has no row: begin on the start screen, quit
-on the overview, back in a group, and on a case prev, next, view (when it kept pictures) and back.
-The countdown and the button line stop short of the bar. A list longer than the screen keeps the
-cursor in its middle, so tapping the last row shown walks it along. The first eight frames are not
-a tap, as they are not a press; a finger already on the screen when a screen opens counts only once
-lifted and put down again; a second finger makes a touch no tap; and a finger put down keeps a
-screen as a press does. The decisions are `source/ui.c`'s (`UiTouchStep`, `UiStartTap`,
-`UiResumeTap`, `UiTapStep`, `UiPadTap`), which the support suite checks; `source/viewer.c` only
-reads the touch screen. A docked console's touch screen is off, and the buttons are the only way
-there.
+chosen. A bar of boxes at the right of that band holds what has no row: begin on the start screen,
+quit on the overview, back in a group, and on a case prev, next, view (when it kept pictures) and
+back. The keys stop short of the bar. A list longer than the screen keeps the cursor in its middle,
+so tapping the last row shown walks it along. The first eight frames are not a tap, as they are not
+a press; a finger already on the screen when a screen opens counts only once lifted and put down
+again; a second finger makes a touch no tap; and a finger put down keeps a screen as a press does.
+The decisions are `source/ui.c`'s (`UiTouchStep`, `UiStartTap`, `UiResumeTap`, `UiTapStep`,
+`UiPadTap`), which the support suite checks; `source/viewer.c` only reads the touch screen. A docked
+console's touch screen is off, and the buttons are the only way there.
