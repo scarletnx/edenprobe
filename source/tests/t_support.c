@@ -1336,6 +1336,7 @@ void RunSupport(void) {
     CheckLayout();
     RunSupportScreens();
     RunSupportJournal(Scratch());
+    RunSupportBaseline(Scratch());
 
     CHECK_TRUE(SUITE, "this suite takes its own files away again", CHECK_NONE, SweepUp(),
                "something this suite wrote is still on the memory card");

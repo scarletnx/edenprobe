@@ -45,6 +45,10 @@ The summary counts crashes on their own: `skipped` is every skip but the ones wh
 `crashed`, which `crashed` counts, so the four numbers add up to the case lines. The runner's
 `EDENPROBE DONE` line on the debug channel carries the same four.
 
+With `compare=<name>` in the mode file, the lines just before the summary say how the run's times
+compare with that baseline: one `baseline` line for each case that moved past its limit and one
+`baseline_summary` line, which change none of the four counts (see [Baselines](Baseline.md)).
+
 A run that dies halfway still leaves everything up to its last finished case, and the summary
 carries the counts so a runner does not have to parse the rest. The summary is the last line of
 every run but one: a detailed run nobody attended adds one note after it (see [Looking at it on the

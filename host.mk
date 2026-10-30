@@ -6,7 +6,7 @@
 
 HOSTCC   ?= cc
 HOSTOUT  := build-host/edenprobe-host
-HOSTSRC  := source/report.c source/journal.c source/maycrash.c source/hang.c source/check.c source/mode.c \
+HOSTSRC  := source/report.c source/baseline.c source/journal.c source/maycrash.c source/hang.c source/check.c source/mode.c \
             source/picture.c \
             source/ui.c \
             source/raster.c source/intref.c source/blendref.c source/texref.c \
@@ -25,7 +25,7 @@ HOSTSRC  := source/report.c source/journal.c source/maycrash.c source/hang.c sou
             source/tests/t_padref.c source/tests/t_touchref.c \
             source/tests/t_md5ref.c source/tests/t_vp9ref.c \
             source/tests/t_schedref.c source/tests/t_binderref.c source/tests/t_blit2dref.c \
-            source/tests/t_serviceref.c \
+            source/tests/t_serviceref.c source/tests/t_baseline.c \
             source/host_main.c
 
 # One object per source, so the -MMD below has somewhere to put its dependency files. Without
