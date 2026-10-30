@@ -262,6 +262,16 @@ bool GpuBindTriangleState(GpuContext *gpu, const DkShader *vertex_shader,
                           const DkShader *fragment_shader, const GpuVertex *vertices,
                           uint32_t vertex_count);
 
+/// The two shaders and the GpuVertex attribute layout over @p bytes of vertices already in
+/// scratch at @p vertices, as vertex buffer 0: what GpuBindTriangleState records after its copy,
+/// for a case that writes its vertices once and draws them in many lists.
+void GpuBindVertices(GpuContext *gpu, const DkShader *vertex_shader,
+                     const DkShader *fragment_shader, DkGpuAddr vertices, uint32_t bytes);
+
+/// The same for vertices that are a position alone, four floats each (position.vert.glsl).
+void GpuBindPositions(GpuContext *gpu, const DkShader *vertex_shader,
+                      const DkShader *fragment_shader, DkGpuAddr positions, uint32_t bytes);
+
 /// Records @p count raw command words into the open list, in order with what the library
 /// recorded before and after them.
 ///

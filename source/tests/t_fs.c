@@ -7,6 +7,7 @@
 #include <switch.h>
 
 #include "../check.h"
+#include "../fsref.h"
 #include "../perf.h"
 #include "../report.h"
 #include "tests.h"
@@ -20,22 +21,16 @@
 
 static const char *const SUITE = "fs";
 
-#define DIRECTORY "/edenprobe/fs"
-#define BIG_PATH DIRECTORY "/big.bin"
+#define DIRECTORY FS_DIRECTORY
+#define BIG_PATH FS_BIG_PATH
 #define SMALL_DIRECTORY DIRECTORY "/small"
-#define BIG_SIZE (64u * 1024u * 1024u)
+#define BIG_SIZE FS_BIG_SIZE
 #define SMALL_COUNT 256u
 #define SMALL_SIZE 4096u
 #define RANDOM_READS 4096u
 #define BUFFER_SIZE (16u * 1024u * 1024u)
 
 static u8 *buffer;
-
-/// Byte @p offset of the big file: word i is (i + 1) * 2654435761 ^ 0x5EED1234, little endian.
-static u8 PatternByte(u64 offset) {
-    const u32 word = (u32)((offset >> 2) + 1u) * 2654435761u ^ 0x5EED1234u;
-    return (u8)(word >> ((offset & 3u) * 8u));
-}
 
 /// Byte @p offset of small file @p index.
 static u8 SmallByte(u32 index, u32 offset) {
@@ -45,7 +40,7 @@ static u8 SmallByte(u32 index, u32 offset) {
 /// Where the bytes read first differ from the pattern, or -1.
 static s64 FirstWrong(const u8 *data, u64 offset, u64 size) {
     for (u64 i = 0; i < size; ++i) {
-        if (data[i] != PatternByte(offset + i)) {
+        if (data[i] != FsRefPatternByte(offset + i)) {
             return (s64)i;
         }
     }
@@ -54,7 +49,7 @@ static s64 FirstWrong(const u8 *data, u64 offset, u64 size) {
 
 static void Fill(u8 *data, u64 offset, u64 size) {
     for (u64 i = 0; i < size; ++i) {
-        data[i] = PatternByte(offset + i);
+        data[i] = FsRefPatternByte(offset + i);
     }
 }
 

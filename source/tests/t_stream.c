@@ -78,18 +78,7 @@ static void Case(GpuContext *gpu, const DkShader *vs, const DkShader *fs, const 
 
     GpuClear(gpu, 0.0f, 0.0f, 0.0f, 0.0f);
     GpuBeginPass(gpu);
-    const DkShader *const shaders[] = { vs, fs };
-    dkCmdBufBindShaders(gpu->cmdbuf, DkStageFlag_Vertex | DkStageFlag_Fragment, shaders, 2);
-    static const DkVtxAttribState attribute = { .bufferId = 0,
-                                                .isFixed = 0,
-                                                .offset = 0,
-                                                .size = DkVtxAttribSize_4x32,
-                                                .type = DkVtxAttribType_Float,
-                                                .isBgra = 0 };
-    static const DkVtxBufferState buffer_state = { 16, 0 };
-    dkCmdBufBindVtxAttribState(gpu->cmdbuf, &attribute, 1);
-    dkCmdBufBindVtxBufferState(gpu->cmdbuf, &buffer_state, 1);
-    dkCmdBufBindVtxBuffer(gpu->cmdbuf, 0, vertices_address, MAX_DRAWS * 6u * 16u);
+    GpuBindPositions(gpu, vs, fs, vertices_address, MAX_DRAWS * 6u * 16u);
     DkGpuAddr count_address = 0;
     uint32_t *const count = (uint32_t *)GpuAllocData(gpu, DK_UNIFORM_BUF_ALIGNMENT,
                                                      DK_UNIFORM_BUF_ALIGNMENT, &count_address);
