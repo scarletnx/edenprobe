@@ -497,7 +497,8 @@ static void CheckFamilies(void) {
         { "fmath", UI_FAMILY_GRAPHICS },    { "order", UI_FAMILY_GRAPHICS },
         { "index", UI_FAMILY_GRAPHICS },    { "instance", UI_FAMILY_GRAPHICS },
         { "geometry", UI_FAMILY_GRAPHICS }, { "bindless", UI_FAMILY_GRAPHICS },
-        { "astc", UI_FAMILY_GRAPHICS },     { "eac", UI_FAMILY_GRAPHICS },
+        { "astc", UI_FAMILY_GRAPHICS },     { "astcimage", UI_FAMILY_GRAPHICS },
+        { "eac", UI_FAMILY_GRAPHICS },
         { "etc2", UI_FAMILY_GRAPHICS },     { "bcn", UI_FAMILY_GRAPHICS },
         { "zeta", UI_FAMILY_GRAPHICS },     { "swizzle", UI_FAMILY_GRAPHICS },
         { "texel", UI_FAMILY_GRAPHICS },    { "stream", UI_FAMILY_GRAPHICS },
@@ -545,6 +546,7 @@ static void CheckFamilies(void) {
         { "dns", UI_FAMILY_NET },           { "bsd", UI_FAMILY_NET },
         { "ssl", UI_FAMILY_NET },           { "acc", UI_FAMILY_NET },
         { "friend", UI_FAMILY_NET },
+        { "game", UI_FAMILY_GAME },
     };
     const size_t count = sizeof(SUITES) / sizeof(SUITES[0]);
     uint32_t wrong = 0;
@@ -556,7 +558,7 @@ static void CheckFamilies(void) {
     }
     // A run with every family has a group for each suite, so the index holds them all.
     CHECK_TRUE(SUITE, "every suite a run reports is shown under its own family", CHECK_NONE,
-               wrong == 0u && count == 84u && count <= UI_MAX_GROUPS &&
+               wrong == 0u && count == 86u && count <= UI_MAX_GROUPS &&
                    UiFamilyOf("weird") == UI_FAMILY_OTHER && UiFamilyOf(NULL) == UI_FAMILY_OTHER,
                "%u of %u suites under the wrong family, the first %s; the index holds %u groups",
                (unsigned)wrong, (unsigned)count, first, (unsigned)UI_MAX_GROUPS);
