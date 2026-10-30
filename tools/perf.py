@@ -9,7 +9,9 @@
     tools/perf.py a1.jsonl a2.jsonl --   the table of one side of several runs
 
 A case's time is the "us" field on its line: microseconds the graphics unit was busy with it,
-the smallest of the samples one run took. One emulator process differs from the next by more
+the smallest of the samples one run took. The game suite's lines carry another kind of time, a
+mean or a percentile of its frames (docs/families/Game.md): they are compared case by case like
+any other, and left out of the per-suite sums, where adding them up would mean nothing. One emulator process differs from the next by more
 than the samples inside it do, so a side is several runs, three by the method in
 docs/TimePerCase.md, and a case's time on a side is its median over them. Standard library only.
 """
@@ -26,6 +28,11 @@ import sys
 THRESHOLD = 20.0  # percent of the time on side a
 FLOOR = 100  # microseconds, about one submit's round trip under an emulator
 UNSTEADY = 75.0  # percent between a side's fastest and slowest run of one case
+
+# Suites whose times are not a case's graphics work but statistics of frames, which no sum of
+# them is: the per-suite tables name them and leave the numbers to the cases.
+FRAME_SUITES = ("game",)
+FRAME_ROW = "frame times, compared case by case, not summed"
 
 
 def parse(lines):
@@ -139,6 +146,9 @@ def table_one(times, order):
     rows = ["%-12s %6s %10s %8s %8s %8s" % ("suite", "timed", "total_us", "min", "median", "max")]
     for suite in order:
         timed, total, low, mid, high = summarize(times, suite)
+        if suite in FRAME_SUITES:
+            rows.append("%-12s %6d %s" % (suite, timed, FRAME_ROW))
+            continue
         rows.append("%-12s %6d %10d %8d %8d %8d" % (suite, timed, total, low, mid, high))
     return rows
 
@@ -150,6 +160,9 @@ def table_two(a, b, order):
         ta = summarize(a, suite)
         tb = summarize(b, suite)
         timed = "%d/%d" % (ta[0], tb[0]) if ta[0] != tb[0] else str(ta[0])
+        if suite in FRAME_SUITES:
+            rows.append("%-12s %6s %s" % (suite, timed, FRAME_ROW))
+            continue
         if ta[0] == 0 or tb[0] == 0:
             # A suite only one side timed has no change to show, and minus a hundred percent
             # would read as the fastest suite of all.

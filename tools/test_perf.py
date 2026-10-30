@@ -127,6 +127,22 @@ class Output(unittest.TestCase):
             "fmath             1        300      300      300      300",
         ])
 
+    def test_the_game_suite_is_compared_but_not_summed(self):
+        # Its times are a mean, a percentile and a longest of frames: a total of them is no time.
+        a = {("game", "600 frames, present to present: the mean"): 16700,
+             ("game", "600 frames, present to present: the longest"): 20000}
+        b = {("game", "600 frames, present to present: the mean"): 16700,
+             ("game", "600 frames, present to present: the longest"): 40000}
+        self.assertEqual(perf.table_one(a, ["game"])[1],
+                         "game              2 frame times, compared case by case, not summed")
+        lines = perf.compare(a, ["game"], b, ["game"], 20.0)
+        self.assertEqual(lines[:2], [
+            "cases that moved more than 20 percent and 0 us: 1 of 2 timed in both",
+            "   +100.0%    20000 -> 40000    game: 600 frames, present to present: the longest",
+        ])
+        self.assertEqual(lines[-1],
+                         "game              2 frame times, compared case by case, not summed")
+
     def test_the_comparison(self):
         lines = perf.compare(self.A, ["clear", "fmath"], self.B, ["clear", "format"], 20.0)
         self.assertEqual(lines, [
