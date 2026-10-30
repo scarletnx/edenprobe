@@ -1,5 +1,13 @@
 # The touch suite
 
+## Index
+
+* [The screen](#the-screen)
+* [The cases](#the-cases)
+* [Questions only a console answers](#questions-only-a-console-answers)
+* [What Eden does](#what-eden-does)
+* [Running it on Eden with the mouse](#running-it-on-eden-with-the-mouse)
+
 The touch screen as a game reads it: a person taps targets drawn at known points, puts two fingers
 down, drags one across, and the line says where and under which id the touches arrived. It is part
 of [the pad family](Pad.md), right after the controller's prompts, so only the word `pad` or the

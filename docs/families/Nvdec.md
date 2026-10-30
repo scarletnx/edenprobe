@@ -1,5 +1,17 @@
 # The nvdec suite
 
+## Index
+
+* [What a VP9 job is](#what-a-vp9-job-is)
+* [The setup and the table](#the-setup-and-the-table)
+* [How a job is handed over](#how-a-job-is-handed-over)
+* [The surfaces](#the-surfaces)
+* [How a case passes](#how-a-case-passes)
+* [The cases](#the-cases)
+* [The open questions](#the-open-questions)
+* [What Eden does](#what-eden-does)
+* [The judge, pinned](#the-judge-pinned)
+
 The second suite of [the video family](Video.md): the video decode engine, NVDEC, given VP9 jobs
 built ready from six of libvpx's test vectors, one job per frame, and every image it decodes read
 back off its surface and hashed against the MD5 list libvpx publishes for the vector. Only the word

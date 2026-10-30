@@ -1,5 +1,13 @@
 # The kernel family
 
+## Index
+
+* [How a case runs](#how-a-case-runs)
+* [The cases](#the-cases)
+* [The open questions](#the-open-questions)
+* [What Eden does](#what-eden-does)
+* [The judge, pinned](#the-judge-pinned)
+
 The kernel's scheduler as a program sees it: threads of chosen priorities on one core, a mutex of
 the kernel's between them, and a thread in a loop with no supervisor call holding the core. Only
 the word `kernel` runs it (see [The mode file](../ModeFile.md)), since no console has yet shown

@@ -1,5 +1,48 @@
 # The service family
 
+## Index
+
+* [The suites](#the-suites)
+* [hwopus](#hwopus)
+* [am](#am)
+* [fsp](#fsp)
+* [account](#account)
+* [ldn](#ldn)
+* [set](#set)
+* [csrng](#csrng)
+* [apm](#apm)
+* [nfp](#nfp)
+* [aoc](#aoc)
+* [time](#time)
+* [pl](#pl)
+* [profile](#profile)
+* [am-state](#am-state)
+* [am-self](#am-self)
+* [am-functions](#am-functions)
+* [auddev](#auddev)
+* [fsdir](#fsdir)
+* [am-audio](#am-audio)
+* [am-channel](#am-channel)
+* [am-storage](#am-storage)
+* [mii](#mii)
+* [am-mode](#am-mode)
+* [bsd-local](#bsd-local)
+* [ipc](#ipc)
+* [hid](#hid)
+* [time-snap](#time-snap)
+* [vi](#vi)
+* [renderer](#renderer)
+* [ngc](#ngc)
+* [am-lock](#am-lock)
+* [set-sys](#set-sys)
+* [time-zone](#time-zone)
+* [time-perm](#time-perm)
+* [audout](#audout)
+* [fs-file](#fs-file)
+* [acc-app](#acc-app)
+* [The open questions](#the-open-questions)
+* [The judge, pinned](#the-judge-pinned)
+
 Commands a game sends to the system's services, asked the way a game asks them, each answer held to
 the one reden gives. Only the word `service` runs it (see [The mode file](../ModeFile.md)), since no
 console has yet shown what it answers; the start screen has no row for it, and a file that names it

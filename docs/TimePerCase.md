@@ -1,5 +1,13 @@
 # Time per case
 
+## Index
+
+* [What is measured](#what-is-measured)
+* [How it is repeated](#how-it-is-repeated)
+* [When a rehearsal hangs](#when-a-rehearsal-hangs)
+* [What a number can see](#what-a-number-can-see)
+* [Comparing two builds](#comparing-two-builds)
+
 Every line a drawing suite reports ends with how long the case kept the graphics unit busy, in microseconds, and every
 drawing suite ends with a line that sums its cases up:
 

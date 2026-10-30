@@ -1,5 +1,14 @@
 # The blit2d suite
 
+## Index
+
+* [The setup](#the-setup)
+* [The cases](#the-cases)
+* [How a case passes](#how-a-case-passes)
+* [The open questions](#the-open-questions)
+* [What Eden does](#what-eden-does)
+* [The judge, pinned](#the-judge-pinned)
+
 The 2D engine, class 0x902D, copying a block linear surface into a window of another at half and
 at two thirds size, from each sample origin. Part of the graphics family, after dma, so it runs by
 default and is timed like the drawing suites: a warm-up and eight rehearsals before the verdict

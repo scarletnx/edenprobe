@@ -1,5 +1,14 @@
 # Looking at it on the console
 
+## Index
+
+* [The results screens](#the-results-screens)
+* [The running screen](#the-running-screen)
+* [The start screen](#the-start-screen)
+* [Nobody there](#nobody-there)
+* [Buttons](#buttons)
+* [Touch](#touch)
+
 One binary, two modes, chosen by the start screen or the mode file.
 
 - **Detailed** (the default): every suite runs, the report is closed, and then the results go on the screen, a group
