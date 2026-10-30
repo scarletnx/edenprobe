@@ -65,55 +65,59 @@ static void CheckLimit(void) {
 
 static void CheckLines(void) {
     char line[BASELINE_LINE_MAX];
-    char suite[BASELINE_SUITE_MAX];
-    char name[BASELINE_NAME_MAX];
-    uint32_t sample = 0;
-    uint32_t us = 0;
-    uint32_t opens = 99;
+    static BaselineFileLine read;
     // The name as a JSON string carries it: escaped once, by BaselineTake, and read back so.
     static const char ESCAPED[] = "a \\\"quoted\\\" \\\\ name";
     BaselineBuildCaseLine(line, sizeof(line), 4, "clear", ESCAPED, 231);
-    const bool parsed =
-        BaselineParseLine(line, &sample, suite, sizeof(suite), name, sizeof(name), &us, &opens);
+    const BaselineLineKind parsed = BaselineParseLine(line, &read);
     CHECK_TRUE(SUITE, "baseline: a case line reads back as written, quotes and all", CHECK_NONE,
                strcmp(line, "{\"sample\":4,\"suite\":\"clear\",\"name\":\"a \\\"quoted\\\" \\\\ "
                             "name\",\"us\":231}") == 0 &&
-                   parsed && sample == 4u && us == 231u && opens == 0u &&
-                   strcmp(suite, "clear") == 0 && strcmp(name, ESCAPED) == 0,
-               "%.200s read %d as %u %.32s %.120s %u", line, (int)parsed, (unsigned)sample, suite,
-               name, (unsigned)us);
+                   parsed == BASELINE_LINE_CASE && read.sample == 4u && read.us == 231u &&
+                   strcmp(read.suite, "clear") == 0 && strcmp(read.name, ESCAPED) == 0,
+               "%.200s read %d as %u %.32s %.120s %u", line, (int)parsed, (unsigned)read.sample,
+               read.suite, read.name, (unsigned)read.us);
 
     BaselineBuildSampleLine(line, sizeof(line), 7, "v0.5.0-3-gabc", "eden", 412);
-    const bool opener =
-        BaselineParseLine(line, &sample, suite, sizeof(suite), name, sizeof(name), &us, &opens);
-    CHECK_TRUE(SUITE, "baseline: the line that opens a sample is not a case, and says its number",
+    const BaselineLineKind opener = BaselineParseLine(line, &read);
+    CHECK_TRUE(SUITE,
+               "baseline: the line that opens a sample reads back its number, build and cases",
                CHECK_NONE,
                strcmp(line, "{\"type\":\"sample\",\"sample\":7,\"build\":\"v0.5.0-3-gabc\","
                             "\"label\":\"eden\",\"cases\":412}") == 0 &&
-                   !opener && opens == 7u,
-               "%.300s read %d opens %u", line, (int)opener, (unsigned)opens);
+                   opener == BASELINE_LINE_OPENS && read.sample == 7u && read.cases == 412u &&
+                   strcmp(read.build, "v0.5.0-3-gabc") == 0 && strcmp(read.label, "eden") == 0,
+               "%.300s read %d: sample %u cases %u build %.40s label %.40s", line, (int)opener,
+               (unsigned)read.sample, (unsigned)read.cases, read.build, read.label);
 
     static const char *const NOT_OURS[] = {
         "",
         "{}",
         "{\"sample\":1,\"suite\":\"clear\"}",
         "{\"sample\":x,\"suite\":\"a\",\"name\":\"b\",\"us\":1}",
-        // a file cut short while a sample was written: the name never ends
+        // A file cut short while a sample was written: the name never ends, the number is cut
+        // with no brace after it, or the opening line ends early.
         "{\"sample\":1,\"suite\":\"a\",\"name\":\"cut sh",
+        "{\"sample\":4,\"suite\":\"s\",\"name\":\"X\",\"us\":1",
+        "{\"sample\":4,\"suite\":\"s\",\"name\":\"X\",\"us\":1\n",
+        "{\"type\":\"sample\",\"sample\":7,\"build\":\"b\",\"label\":\"\",\"cases\":4",
+        // A cut line the next sample's opening line was written onto.
+        "{\"sample\":6,\"suite\":\"s\",\"name\":\"X\",\"us\":10{\"type\":\"sample\",\"sample\":7,"
+        "\"build\":\"b\",\"label\":\"\",\"cases\":1}\n",
+        "{\"sample\":6,\"suite\":\"s\",\"name\":\"X\",\"us\":10} trailing",
+        "{\"type\":\"samplezzz\",\"sample\":9}",
         "not json at all",
     };
     bool none = true;
     const char *taken = "";
     for (size_t i = 0; i < sizeof(NOT_OURS) / sizeof(NOT_OURS[0]); ++i) {
-        if (BaselineParseLine(NOT_OURS[i], &sample, suite, sizeof(suite), name, sizeof(name), &us,
-                              &opens) ||
-            opens != 0u) {
+        if (BaselineParseLine(NOT_OURS[i], &read) != BASELINE_LINE_OTHER) {
             none = false;
             taken = NOT_OURS[i];
         }
     }
-    CHECK_TRUE(SUITE, "baseline: a line this program did not write is no case", CHECK_NONE, none,
-               "read as one: %.300s", taken);
+    CHECK_TRUE(SUITE, "baseline: a line cut short or not this program's is no line of a sample",
+               CHECK_NONE, none, "read as one: %.300s", taken);
 
     const BaselineLimit limit = { 980, 63 };
     BaselineBuildMovedLine(line, sizeof(line), "console", "order", "the order case",
@@ -303,6 +307,43 @@ static uint32_t SamplesIn(const char *path) {
     return BaselineCompareFile(path, "check", NULL, &totals) ? totals.samples : 0u;
 }
 
+/// Appends @p text to the file at @p path as it is, for a file a write was cut short in.
+static void Append(const char *path, const char *text) {
+    FILE *const file = fopen(path, "a");
+    if (file != NULL) {
+        fputs(text, file);
+        fclose(file);
+    }
+}
+
+/// A file a write was cut short in, the program ending inside a sample: the cut line's number
+/// is a fraction of the case's time, and the next sample's first line lands on the same line.
+/// Five samples at ten milliseconds, a sixth cut at "us":10, a seventh added after it, and a run
+/// at two and a half times: read as it was, the 10 widened the case's limit past the run.
+static void CheckCut(const char *scratch) {
+    char path[512];
+    snprintf(path, sizeof(path), "%.400s/cut-check.jsonl", scratch);
+    Seed(path, 5, 10000);
+    Append(path, "{\"type\":\"sample\",\"sample\":6,\"build\":\"build\",\"label\":\"\","
+                 "\"cases\":1}\n{\"sample\":6,\"suite\":\"order\",\"name\":\"the case that "
+                 "slows\",\"us\":10");
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 10000);
+    uint32_t number = 0;
+    uint32_t after = 0;
+    (void)BaselineAddFile(path, "build", "", &number, &after);
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 25000);
+    BaselineTotals totals;
+    const bool read = BaselineCompareFile(path, "check", NULL, &totals);
+    CHECK_TRUE(SUITE, "baseline: a line cut short is no case, and hides no slower run",
+               CHECK_NONE, read && totals.compared == 1u && totals.slower == 1u,
+               "read %d compared %zu slower %zu samples %u", (int)read, totals.compared,
+               totals.slower, (unsigned)totals.samples);
+    BaselineReset();
+    (void)remove(path);
+}
+
 /// What BaselineFinish does with both words, with a run that went on after a crash, and with
 /// notime: the order that keeps a run from being held to itself, and the two runs that add nothing.
 static void CheckFinish(const char *scratch) {
@@ -436,4 +477,5 @@ void RunSupportBaseline(const char *scratch) {
     CheckFile(scratch);
     CheckFinish(scratch);
     CheckNames(scratch);
+    CheckCut(scratch);
 }
