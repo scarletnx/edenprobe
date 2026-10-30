@@ -1163,7 +1163,15 @@ bool GpuBindTriangleState(GpuContext *gpu, const DkShader *vertex_shader,
         return Complain(gpu, "the scratch block ran out of room for a draw's vertices");
     }
     memcpy(destination, vertices, bytes);
+    GpuBindVertices(gpu, vertex_shader, fragment_shader, address, bytes);
+    return true;
+}
 
+void GpuBindVertices(GpuContext *gpu, const DkShader *vertex_shader,
+                     const DkShader *fragment_shader, DkGpuAddr vertices, uint32_t bytes) {
+    if (gpu == NULL || !gpu->ready) {
+        return;
+    }
     const DkShader *const shaders[] = { vertex_shader, fragment_shader };
     dkCmdBufBindShaders(gpu->cmdbuf, DkStageFlag_Vertex | DkStageFlag_Fragment, shaders, 2);
 
@@ -1193,8 +1201,26 @@ bool GpuBindTriangleState(GpuContext *gpu, const DkShader *vertex_shader,
     dkCmdBufBindVtxAttribState(gpu->cmdbuf, attributes,
                                sizeof(attributes) / sizeof(attributes[0]));
     dkCmdBufBindVtxBufferState(gpu->cmdbuf, &buffer_state, 1);
-    dkCmdBufBindVtxBuffer(gpu->cmdbuf, 0, address, bytes);
-    return true;
+    dkCmdBufBindVtxBuffer(gpu->cmdbuf, 0, vertices, bytes);
+}
+
+void GpuBindPositions(GpuContext *gpu, const DkShader *vertex_shader,
+                      const DkShader *fragment_shader, DkGpuAddr positions, uint32_t bytes) {
+    if (gpu == NULL || !gpu->ready) {
+        return;
+    }
+    const DkShader *const shaders[] = { vertex_shader, fragment_shader };
+    dkCmdBufBindShaders(gpu->cmdbuf, DkStageFlag_Vertex | DkStageFlag_Fragment, shaders, 2);
+    static const DkVtxAttribState attribute = { .bufferId = 0,
+                                                .isFixed = 0,
+                                                .offset = 0,
+                                                .size = DkVtxAttribSize_4x32,
+                                                .type = DkVtxAttribType_Float,
+                                                .isBgra = 0 };
+    static const DkVtxBufferState buffer_state = { 16, 0 };
+    dkCmdBufBindVtxAttribState(gpu->cmdbuf, &attribute, 1);
+    dkCmdBufBindVtxBufferState(gpu->cmdbuf, &buffer_state, 1);
+    dkCmdBufBindVtxBuffer(gpu->cmdbuf, 0, positions, bytes);
 }
 
 bool GpuRawMethods(GpuContext *gpu, const uint32_t *words, uint32_t count) {
