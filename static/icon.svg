@@ -1,6 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <!-- edenprobe's cover: the reden mark (the Eden sunset without the palm, cut by its bands)
-       on the site's dark ground, with the program's name. Source of icon.jpg: make icon. -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 256 256">
+  <!-- edenprobe's cover: Wimsy as edenprobe (Wimsy is Liz's, ScarletNX's dist/wimsy.svg, GPL-3.0-or-later), in
+       Eden's sunset colours with a test probe, over the reden mark (the Eden sunset without the palm, cut by its
+       bands) on the dark ground, with the program's name. Made by wimsy-dist's tools/make_edenprobe.py; the source
+       of icon.jpg: make icon. -->
   <defs>
     <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ff2e88"/>
@@ -17,5 +19,120 @@
   </defs>
   <rect width="256" height="256" fill="#1b1b1f"/>
   <circle cx="128" cy="112" r="90" fill="url(#sun)" mask="url(#bands)"/>
+  <g fill="none" transform="translate(24,2) scale(0.4)">
+  <defs>
+    <!-- edenprobe: Eden's sunset, pink hair going purple, the leaves below down to its blue, a white front with cyan trim, a dark arm, a test probe toward the empty corner -->
+    <linearGradient id="hair" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF2E88"/>
+      <stop offset="1" stop-color="#BF42F6"/>
+    </linearGradient>
+    <linearGradient id="tail" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#BF42F6"/>
+      <stop offset="1" stop-color="#5DA5ED"/>
+    </linearGradient>
+    <linearGradient id="tail-dark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9B3DD9"/>
+      <stop offset="1" stop-color="#3F7BD0"/>
+    </linearGradient>
+    <linearGradient id="far" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#BF42F6"/>
+      <stop offset="1" stop-color="#8A3BD0"/>
+    </linearGradient>
+    <linearGradient id="far-dark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7A33C0"/>
+      <stop offset="1" stop-color="#4A2A90"/>
+    </linearGradient>
+    <linearGradient id="outfit" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#ECE6F7"/>
+    </linearGradient>
+    <linearGradient id="ribbon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F7F4F5"/>
+      <stop offset="1" stop-color="#D3CCCF"/>
+    </linearGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#F7D9CE"/>
+      <stop offset="1" stop-color="#FDEDE6"/>
+    </linearGradient>
+    <radialGradient id="iris" cx="0.5" cy="0.62" r="0.6">
+      <stop offset="0" stop-color="#9FE9FF"/>
+      <stop offset="0.7" stop-color="#5DA5ED"/>
+      <stop offset="1" stop-color="#2E3C9E"/>
+    </radialGradient>
+    <!-- Wimsy's head, as the original draws it -->
+    <path id="head" d="M 508.04553,190.77006 A 330.76661,330.76661 0 0 0 355.34995,220.08038 330.76661,330.76661 0 0 0 217.7827,336.65055 244.08293,244.08293 0 0 0 382.15852,323.1017 244.08293,244.08293 0 0 0 508.04553,190.77006 Z"/>
+    <clipPath id="head-clip"><use xlink:href="#head"/></clipPath>
+
+    <!-- a drill pointing down from its tie at 0,0, drawn as Wimsy's leaves are: each turn of the ringlet a leaf of two
+         arcs with a white edge, slanted as a helix winds, the turns narrowing to a curled tip, nothing between one turn and the next -->
+    <!-- no tail: the head's back and the two leaves below, in the sunset -->
+    <linearGradient id="eden-sun" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF2E88"/><stop offset="0.5" stop-color="#BF42F6"/><stop offset="1" stop-color="#5DA5ED"/></linearGradient>
+    <linearGradient id="probe-ring" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF2E88"/>
+      <stop offset="1" stop-color="#BF42F6"/>
+    </linearGradient>
+    <linearGradient id="probe-needle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#9A9AA6"/>
+    </linearGradient>
+  </defs>
+
+
+  <!-- the wings in the outfit's grey -->
+  <path fill="#252525" stroke="#FFFFFF" stroke-width="5.47474"
+        d="M 192.28931,12.793038 A 330.76661,330.76661 0 0 0 161.77932,165.25345 330.76661,330.76661 0 0 0 217.7827,336.65055 244.08293,244.08293 0 0 0 267.29749,179.3252 244.08293,244.08293 0 0 0 192.28931,12.793038 Z"/>
+  <path fill="url(#outfit)" stroke="#FFFFFF" stroke-width="5.47474"
+        d="M 283.32464,18.471579 A 330.76661,330.76661 0 0 0 211.63417,156.44085 330.76661,330.76661 0 0 0 217.7827,336.65055 244.08293,244.08293 0 0 0 309.08124,199.29137 244.08293,244.08293 0 0 0 283.32464,18.471579 Z"/>
+  <!-- the outfit's cyan trim along the front wing -->
+  <path fill="none" stroke="#03FFFF" stroke-width="6" stroke-linecap="round"
+        d="M 279,40 C 246,92 226,170 224,300"/>
+
+  <!-- the two leaves below, in the hair's sunset -->
+  <path fill="url(#eden-sun)" stroke="#FFFFFF" stroke-width="3.64433"
+        d="M 3.1326032,310.41929 A 220.1792,220.1792 0 0 0 98.555722,350.50134 220.1792,220.1792 0 0 0 217.7827,336.65055 162.47705,162.47705 0 0 0 121.7011,283.52647 162.47705,162.47705 0 0 0 3.1326032,310.41929 Z"/>
+  <path fill="url(#eden-sun)" stroke="#FFFFFF" stroke-width="3.64433"
+        d="M 80.650839,503.85583 A 220.1792,220.1792 0 0 0 165.61247,444.74858 220.1792,220.1792 0 0 0 217.7827,336.65055 162.47705,162.47705 0 0 0 121.45529,389.32762 162.47705,162.47705 0 0 0 80.650839,503.85583 Z"/>
+
+  <!-- the head: a face, the hair over its back and its top in bangs, a blush -->
+  <use xlink:href="#head" fill="url(#skin)"/>
+  <g clip-path="url(#head-clip)">
+    <g transform="translate(217.8,336.7) rotate(-26.68)">
+      <path fill="url(#hair)"
+            d="M -40,-200 L 340,-200 L 340,-40 L 300,-36 L 274,-8 L 258,-32 L 222,-28 L 194,-4 L 178,-30 L 134,-28 L 114,28 L 102,90 L -40,90 Z"/>
+      <path fill="none" stroke="#E6F7FF" stroke-width="4" stroke-linecap="round" stroke-opacity="0.85"
+            d="M 40,-30 C 70,-40 110,-44 150,-40"/>
+      <ellipse cx="160" cy="34" rx="15" ry="7" fill="#F28C9C" fill-opacity="0.6"/>
+      <ellipse cx="236" cy="34" rx="12" ry="6" fill="#F28C9C" fill-opacity="0.6"/>
+    </g>
+  </g>
+  <use xlink:href="#head" stroke="#FFFFFF" stroke-width="5.47474"/>
+
+  <!-- the eyes, where Wimsy has them, blue, as the sunset's foot -->
+  <g transform="rotate(24.165289)">
+    <circle cx="434.99091" cy="99.701668" r="23.114985" fill="#1B1B3A"/>
+    <circle cx="434.99" cy="96.20" r="17.5" fill="url(#iris)"/>
+    <circle cx="430.39" cy="89.40" r="7" fill="#FFFFFF"/>
+    <circle cx="440.39" cy="103.60" r="3" fill="#FFFFFF" fill-opacity="0.85"/>
+    <circle cx="485.51288" cy="44.356552" r="23.114985" fill="#1B1B3A"/>
+    <circle cx="485.51" cy="40.86" r="17.5" fill="url(#iris)"/>
+    <circle cx="480.91" cy="34.06" r="7" fill="#FFFFFF"/>
+    <circle cx="490.91" cy="48.26" r="3" fill="#FFFFFF" fill-opacity="0.85"/>
+  </g>
+
+  <!-- the test probe: its cable, the boot, the dark grip ringed in the sunset, the guard, the needle -->
+  <g transform="translate(236,352) rotate(28)" stroke-linejoin="round">
+    <path d="M -14,0 C -40,8 -42,48 -14,64 C 14,80 8,114 -24,126" fill="none" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
+    <path d="M -14,0 C -40,8 -42,48 -14,64 C 14,80 8,114 -24,126" fill="none" stroke="#252525" stroke-width="8" stroke-linecap="round"/>
+    <path d="M -18,-7 L 4,-12 L 4,12 L -18,7 Z" fill="#252525" stroke="#FFFFFF" stroke-width="4"/>
+    <rect x="2" y="-14" width="112" height="28" rx="8" fill="#252525" stroke="#FFFFFF" stroke-width="4.5"/>
+    <rect x="22" y="-14" width="12" height="28" fill="url(#probe-ring)"/>
+    <rect x="44" y="-14" width="12" height="28" fill="url(#probe-ring)"/>
+    <rect x="2" y="-14" width="112" height="28" rx="8" fill="none" stroke="#FFFFFF" stroke-width="4.5"/>
+    <path d="M 112,-27 L 124,-27 Q 128,-27 128,-23 L 128,23 Q 128,27 124,27 L 112,27 Q 108,27 108,23 L 108,-23
+             Q 108,-27 112,-27 Z" fill="url(#probe-ring)" stroke="#FFFFFF" stroke-width="4"/>
+    <path d="M 128,-6 L 150,-4.5 L 236,-1.5 L 250,0 L 236,1.5 L 150,4.5 L 128,6 Z" fill="url(#probe-needle)"
+          stroke="#FFFFFF" stroke-width="3"/>
+  </g>
+</g>
   <text x="128" y="238" text-anchor="middle" font-family="DejaVu Sans, Liberation Sans, sans-serif" font-weight="bold" font-size="30" letter-spacing="1" fill="#e8e8ec">edenprobe</text>
 </svg>

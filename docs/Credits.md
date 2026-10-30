@@ -134,3 +134,8 @@
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE.
     ```
+
+- **Wimsy**, ScarletNX's mascot, drawn by Liz (ScarletNX's `dist/wimsy.svg`, GPL-3.0-or-later):
+  `static/icon.svg`, the cover, draws her as edenprobe, in Eden's sunset colours (Eden's
+  `dist/dev.eden_emu.eden.svg`) with a test probe. wimsy-dist's `tools/make_edenprobe.py`
+  (https://github.com/scarletnx/wimsy-dist) makes it from her shapes, as it makes her other designs.
