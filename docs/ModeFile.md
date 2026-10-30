@@ -57,7 +57,7 @@ For example:
 | `quick pad` | the judge, cpu and the pad suite with a person in front of it, then exit |
 | `quick kernel display` | the judge, cpu, the sched suite and the binder suite, then exit |
 | `quick service` | the judge, cpu and the service family's suites, then exit |
-| `quick baseline=console` | every family but the asked ones, then the run's times added to the console's baseline: on a console, a few times |
+| `quick baseline=console` | the judge, cpu and the families a file naming none runs, then the run's times added as a sample to the console's baseline: on a console, a few times |
 | `quick compare=console` | the same run, held to the console's baseline: on an emulator, with the console's file copied to its card |
 
 The first 4096 bytes of the file are read. A longer file is read that far and the mode line says

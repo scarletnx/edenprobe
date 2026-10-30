@@ -19,24 +19,36 @@ sample it was and how many the file now has. The name follows the label's rules:
 dot, dash and underscore, at most 32, not starting with a dot.
 
 A baseline is a machine's, not a build's, so it is named after the machine: `console`,
-`eden-master`, `scarletnx`. It is one edenprobe build's too, though: a newer edenprobe can time a
-case differently, so a comparison whose file has samples of more than one says how many builds and
-names the first two. A few runs make one; at least three before anything is compared, and five or
-more where a case runs at one of two speeds per process (see below), which three runs can all miss.
-The file is plain text, one line per case of each sample, and travels: a console's copied to an
-emulator's memory card is what `compare=console` holds the emulator to. A line is read only whole,
-every field and its closing brace: one cut short when the program ended while writing it, inside a
-number say, is no case, and the next sample added starts on a line of its own, which a note says. A
-sample is read only whole too, every case its first line says it has: one short of them, one that
-opened with none, and one whose first line was lost are left out, each named in a note with its
-counts. A case is found in the file by its suite and name as a line carries them, cut to 190
-bytes: two names a file cannot tell apart, the same that far or a tab where the other has a space,
-are one case to a baseline, which holds and adds the first one's time and says so in a note.
+`eden-master`, `scarletnx`. A few runs make one; at least three before anything is compared, and
+five or more where a case runs at one of two speeds per process (see below), which three runs can
+all miss. It is one edenprobe build's too, though: a newer edenprobe can time a case differently,
+so a comparison whose file has samples of more than one says how many builds and names the first
+two.
 
-A run with `notime` has no times and adds nothing, nor does one whose families time no case: only
-the drawing suites and `fs` are timed, so `quick cpu` adds nothing. Neither does a run that went on
-after the program ended inside it: its first launch's times went with that launch, and a sample
-with half its cases would pull every reference toward the half it has. Each says so in a note.
+Some runs add nothing, and each says so in a note: one with `notime`, which has no times; one whose
+families time no case, since only the drawing suites and `fs` are timed (`quick cpu`, say); and one
+that went on after the program ended inside it. A baseline keeps a run's times in memory as its
+case lines go out, so the launch that goes on has only the cases after the one the program ended
+in (the launches before it left theirs in the report, which a baseline does not read back): its
+sample would be part of a run, counted in the file as a whole one. It is still compared, and its
+note says how many cases it had.
+
+## The file
+
+Plain text: a line that opens each sample, with its number, the edenprobe build, the label and how
+many cases follow, then a line per case. It travels: a console's copied to an emulator's memory
+card is what `compare=console` holds the emulator to. It is read strictly, so that what a write cut
+short leaves cannot pass for a time:
+
+- a line counts only whole, every field and its closing brace: one cut short when the program ended
+  while writing it, inside a number say, is no case, and the next sample added starts on a line of
+  its own, which a note says;
+- a sample counts only whole, every case its first line says it has: one short of them, one that
+  opened with none, and one whose first line was lost are left out, each named in a note with its
+  counts;
+- a case is found by its suite and name as a line carries them, cut to 190 bytes: two names a file
+  cannot tell apart, the same that far or a tab where the other has a space, are one case to a
+  baseline, which holds and adds the first one's time and says so in a note.
 
 ## Holding a run to one
 
@@ -58,10 +70,10 @@ is from the machine the samples came from is what a baseline is read for: its re
 the reference, its limit, the floor (`floor_us`) and how many samples it was held to. A case
 moved when it lies farther from `reference_us` than both `floor_us` and `limit_percent` of it.
 
-One `baseline_summary` line follows, with the file's samples and the counts. Both words in one run
-compare first and then add, so a run is never held to itself. No verdict moves: the run's summary is
-the same with either word or without, and a slower case is never a failure. Whether a slower case
-matters is for whoever reads the line, who has its numbers.
+One `baseline_summary` line follows, with the file's whole samples and the counts. Both words in one
+run compare first and then add, so a run is never held to itself. No verdict moves: the run's
+summary is the same with either word or without, and a slower case is never a failure. Whether a
+slower case matters is for whoever reads the line, who has its numbers.
 
 ## The floor
 
