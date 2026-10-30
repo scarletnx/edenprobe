@@ -137,9 +137,8 @@ Two notes give the rest, the frames' and the work's:
 {"type":"note","text":"game: past the warm-up; the main thread's part: mean 187 us, 99th percentile 311 us, longest 362 us at frame 153; the render thread's part, the graphics unit's in it: mean 1132 us, 99th percentile 1882 us, longest 7287 us at frame 152; the audio thread waited for 2016 renderer frames, the longest wait 11023 us, 1 over 10000 us; the file thread made 600 reads of 64 KiB, the longest 50 us"}
 ```
 
-That is ScarletNX (its main of 29 October, headless, on RADV): the frames past the warm-up at the
-display's period but frame 152, which missed one, while the two parts together come to under a
-tenth of the period.
+Those are ScarletNX's, headless on RADV: every frame at the display's period but frame 152, which
+missed one, and the two parts together under a tenth of the period.
 
 A frame over 33333 us is a hitch: more than two frames at 60 Hz, a stutter a player sees. The first
 note names the first eight by number and counts the rest; the longest frame is the case a baseline

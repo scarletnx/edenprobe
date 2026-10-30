@@ -1,62 +1,45 @@
 # edenprobe
+<p align="center">
+  <img src="./static/icon.svg" alt="Wimsy as edenprobe, with a test probe" width="200"><br>
+  <b>Wimsy as edenprobe</b>
+</p>
 
-A test program that runs on the console and inside an emulator of it, decides for itself whether the
-graphics came out right and whether the online services answered as their protocol says, and writes
-a report you can diff between the two.
+A test program for the console and its emulators. Every case works out the answer it expects, checks the one it
+got, and writes it to a report that can be compared between two machines: a console and an emulator, or two
+builds of one emulator. No case needs a person to look at the screen.
 
-It is not a benchmark and not a demo. Every case computes the answer it expects and checks the
-answer it got; nothing needs a person to look at the screen and judge.
+## Quick start
 
-It was gfxprobe until 23 September 2026. The name changed when suite families beyond the graphics
-unit arrived: one binary with one judge is the reason to keep them together.
+The newest nightly is
+[edenprobe.nro](https://github.com/scarletnx/edenprobe/releases/download/nightly/edenprobe.nro), and each version has
+a [release](https://github.com/scarletnx/edenprobe/releases).
 
-## Why not compare screenshots
+- On a console: put it in the SD card's `switch/` folder and open it from the homebrew menu.
+- In an emulator: open the NRO.
 
-Because two correct implementations are allowed to disagree, and the specification says so:
-division, the logarithm, the power of two and the sine each have a budget rather than one answer,
-and sub-pixel precision is a limit each implementation reports. A hash of a shaded frame breaks
-between two machines that are both right. So every case works out on the processor what it
-expects and decides inside the program, on both machines, by the same code, at a tolerance it
-states: one of [the four tiers](docs/Design.md#the-four-tiers).
+Without a mode file the start screen asks what to run; `sdmc:/edenprobe/mode` chooses instead
+([Mode file](docs/ModeFile.md)). The report goes to `sdmc:/edenprobe/runs/<build>/report.jsonl`
+([Report](docs/Report.md)).
 
-## Building and running
+## Build
 
-For the console, with devkitPro in `/opt/devkitpro`:
+With devkitPro in `/opt/devkitpro`:
 
 ```sh
 export DEVKITPRO=/opt/devkitpro
-make
+make                                  # edenprobe.nro
+make -f host.mk host-run              # the judge and the tools' tests, on this machine
+make run EMULATOR=/path/to/emulator   # a quick run, started again after a crash
 ```
 
-That produces `edenprobe.nro`, the one file that runs on a console and under an emulator. The
-judge and the tools' tests run on the machine you are sitting at, with no console:
-
-```sh
-make -f host.mk host-run
-```
-
-Under an emulator, `make run EMULATOR=/path/to/emulator` runs it in the quick mode, starts the
-emulator again after a crash, and its last line names the report. More in
-[Building](docs/Build.md), [Running it under an emulator](docs/Emulator.md) and
-[Running it on Android](docs/Android.md).
-
-Without building it: the newest nightly is always at
-`https://github.com/scarletnx/edenprobe/releases/download/nightly/edenprobe.nro`, and each version
-has a release; [Releases](docs/Releases.md) says how the CI makes them.
-
-## Documentation
-
-What each suite checks, the report, the screens, the mode file, the times and what happens when
-the program ends in the middle: [docs/](docs/README.md).
+See [Build](docs/Build.md), [Running it under an emulator](docs/Emulator.md) and
+[Running it on Android](docs/Android.md). Every document: [docs](docs/README.md).
 
 ## Credits
 
-edenprobe follows switch-examples (public domain) and builds on libnx (ISC) and deko3d (zlib), and
-carries hashes of what astcenc (Apache 2.0) decodes; what comes from each is in
-[Credits](docs/Credits.md).
+edenprobe follows switch-examples and builds on libnx and deko3d; what comes from each, and from the other
+projects it uses, is in [Credits](docs/Credits.md). Wimsy, ScarletNX's mascot, was drawn by Liz.
 
 ## Licence
 
-GPL-3.0-or-later; the full text is in `LICENSE`. That lets code from other GPL-3 projects come
-in, and everything the program links or follows from elsewhere is under a licence compatible
-with it.
+GPL-3.0-or-later; the full text is in `LICENSE`.

@@ -121,8 +121,7 @@ rule, never a stored value.
 | vic_pitch | output surface 100 wide, rects 0..15 | row 1 at byte 1024, not 512; columns 16..99 as outside; bytes 400..1023 of each row, past the surface, 0xEE | Q7, Q11 |
 | vic_nv12_out | output 68, chroma 127 by 7 at 0x724 | Y, U and V out as they went in | none |
 
-The colours of vic_matrix_601, YUV in and R, G, B out, worked out by `tools/vic-expect.py`, which
-agrees with the table the case was asked with:
+The colours of vic_matrix_601, YUV in and R, G, B out, worked out by `tools/vic-expect.py`:
 
 | YUV | A, truncated | B, 128 added before the last shift |
 |---|---|---|
@@ -155,7 +154,7 @@ matrix Y, U and V are copied into R, G and B, which every case without the matri
   transfer copies NV12 to NV12, so either reading of the bytes works for it, and the question
   stays open.
 
-## What Eden does today
+## What Eden does
 
 Read in reden at 75c12299a6, `src/video_core/host1x/vic.cpp` unless said otherwise. With the
 default NVDEC emulation (`Gpu` in reden, `common/settings.h:540`; only `Off` takes another path,

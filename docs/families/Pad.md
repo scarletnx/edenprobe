@@ -52,7 +52,7 @@ The rules (the prompts, a press, the judges, the words on a line) are `source/pa
 reference suite to answers worked out by hand; the console half, which reads each of the nine slots
 on its own and draws the screen, is `source/tests/t_pad.c`.
 
-## What Eden does today
+## What Eden does
 
 Lines of rEden 75c12299a6 (`src/`).
 

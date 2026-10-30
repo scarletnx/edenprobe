@@ -1,10 +1,8 @@
 # The roadmap
 
-The suites are ordered by how much one case tells you when two machines disagree, each leaning on
-the ones above it. That order is the whole point: when a run comes back with forty failures, the
-first suite that failed is the only one worth reading, because everything below it was measured with
-a broken instrument. It is the order they run in and were built in; anything added later goes where
-its dependencies put it, not at the end.
+The suites are ordered by how much one case tells when two machines disagree, each leaning on the ones above it: when
+a run comes back with forty failures, read the first suite that failed, since everything below it was measured with a
+broken instrument. It is the order they run in; a new suite goes where its dependencies put it, not at the end.
 
 | suite | tier | what a failure points at |
 |---|---|---|
@@ -95,22 +93,22 @@ its dependencies put it, not at the end.
 | friend | exact | the blocked list and the profiles a session fetches (`hle/service/friend/{friend,profile_query}.cpp`). |
 | game | exact, level for the sound | everything above at once: a uniform buffer or a texture the processor rewrote every other frame served from what the emulator held before (`buffer_cache/buffer_cache.h`, `texture_cache/texture_cache.h`), the depth test, the swapchain's pacing and the present (`hle/service/nvnflinger/`), the renderer kept stepping by a thread of its own, reads from a thread of its own, hid and the steady clock asked every frame, and threads kept on their cores. Last, since it leans on every family before it; the frames' times are the point as much as the verdicts. |
 
-What comes next, in this order, each its own change with its own critic:
+## Next
 
-- **the net family, sharper**: a rewrite whose destination has an address of its own, so the two
-  sfdnsres rewrite cases can tell a published rewrite from the session's loopback redirect (today
-  the fixture's destination is `localhost`, which the redirect also gives); and a verifying
-  handshake with a name the certificate does not carry, which must be refused.
-- **another emulator**: the same binary under Ryujinx, with its own keys, and the two reports diffed
-  against Eden's and a console's. Nothing in this program depends on the emulator it runs under, and
-  that run is what proves it.
+In this order, each its own change with its own critic:
 
-Two rules hold across all of them. Every case computes what it expects on the processor and checks
-every pixel, so there is no stored image anywhere and no machine's answer is the reference for
-another's. And every rule a case judges by, wherever it is more than one line of arithmetic, is
-implemented once in `source/` and pinned by the `reference` suite, which runs with no graphics
-device: `make -f host.mk host-run` proves the judge before a console or an emulator is involved.
+- **The net family, sharper**: a rewrite whose destination has an address of its own, so the two sfdnsres rewrite cases
+  tell a published rewrite from the session's loopback redirect (the fixture's destination is `localhost`, which the
+  redirect also gives); and a verifying handshake with a name the certificate does not carry, which must be refused.
+- **Another emulator**: the same binary under Ryujinx, with its own keys, and the two reports diffed against Eden's and
+  a console's.
 
-The picture a failing case leaves and the detailed mode that shows it are support, not suites.
-Neither decides anything, neither is compared to anything, and no run's answer changes if either is
-turned off; they sit in the `support` row only because that suite checks them.
+## Rules
+
+- Every case computes what it expects on the processor and checks every pixel: no stored image, and no machine's answer
+  is the reference for another's.
+- Every rule a case judges by, past one line of arithmetic, is implemented once in `source/` and pinned by the
+  `reference` suite, which runs with no graphics device: `make -f host.mk host-run` proves the judge before a console
+  or an emulator is involved.
+- The failure pictures and the detailed mode are support, not suites: neither decides anything, and no run's answer
+  changes if either is off. They sit in the `support` row because that suite checks them.

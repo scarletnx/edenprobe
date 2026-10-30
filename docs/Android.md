@@ -1,9 +1,7 @@
-# Running it on Android
+# On Android
 
-The same `.nro` runs under the Android build of an emulator; the report is the same file under
-the app's own memory card. For Eden, whose package is `dev.eden.eden_emulator` (a suffix such as
-`.relWithDebInfo` on other build types; `adb shell pm list packages | grep eden` names it), one
-run is:
+The same NRO runs in an emulator's Android build, and the report is under the app's own SD card. For Eden (package
+`dev.eden.eden_emulator`; other build types add a suffix, which `adb shell pm list packages | grep eden` shows):
 
 ```sh
 adb install -r Eden.apk && adb push edenprobe.nro /sdcard/edenprobe.nro && \
@@ -13,10 +11,8 @@ d=/sdcard/Android/data/dev.eden.eden_emulator/files/sdmc/edenprobe
 adb pull "$d/$(adb shell cat $d/last-run | tr -d '\r')/report.jsonl" report-android.jsonl
 ```
 
-Deleting the reports makes the next launch start a run rather than go on with one left in the
-middle. Two builds of one package share that directory: each build of the probe reports in its own
-folder, and a label per emulator build (`label=eden-nightly`) keeps two of those apart too. When the
-app stops in the middle of a run, open the program again: it goes on with the run (see [When the
-program ends in the middle](Crashes.md)), and the report is whole once it ends on its summary. The
-device and driver are in the report's first lines only as far as the emulator logs them; say which
-phone and which driver next to the file.
+Deleting the reports makes the next launch start a run instead of going on with one. Two builds of one package
+share the folder: a label per emulator build (`label=eden-nightly`) keeps their reports apart. When the app stops in
+the middle of a run, open the program again and it goes on ([When the program ends in the middle](Crashes.md)); the
+report is whole once it ends on its summary. Write down the phone and the driver beside the file: the report has
+them only as far as the emulator logs them.

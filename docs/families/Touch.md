@@ -65,7 +65,7 @@ reads the touch screen and draws, is `source/tests/t_touch.c`; the screen is `Ui
 - **Q5.** Whether the touch screen sends states, with nought touches, while the console is docked,
   or none at all: the first case's line on a docked console.
 
-## What Eden does today
+## What Eden does
 
 Lines of rEden 75c12299a6 (`src/`); read, not run.
 

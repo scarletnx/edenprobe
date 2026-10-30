@@ -1,67 +1,44 @@
-# Running it under an emulator
+# Under an emulator
 
 ```sh
-make run
+make run EMULATOR=/path/to/emulator
 ```
 
-`EMULATOR` points at the binary to test: `make run EMULATOR=/path/to/emulator`. With nothing given
-it is an eden-cli build kept in `~/WorkDir/accord/bin`.
+The report and its pictures go in the run's folder under `sdmc:/edenprobe/runs` ([the report](Report.md#where-a-run-leaves-its-report)).
+`make run` points the emulator's `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` at `build/xdg/` in this tree,
+so it starts from the emulator's defaults every time and never reads or rewrites your settings; the report is then
+at `build/xdg/data/eden/sdmc/edenprobe/runs/<hash>/report.jsonl`, which the target's last line prints, and `make
+clean` removes it all. `XDG=/elsewhere` moves the tree.
 
-The run leaves `report.jsonl`, and `images/` beside it, in its folder under `sdmc:/edenprobe/runs`
-(see [Where a run leaves its report](Report.md#where-a-run-leaves-its-report)): the memory card on a
-console, and on a desktop a directory the emulator keeps under `$XDG_DATA_HOME`, beside its settings
-and caches under `$XDG_CONFIG_HOME` and `$XDG_CACHE_HOME`. `make run` points all three at
-`build/xdg/` inside this tree, so the report is at
-`build/xdg/data/eden/sdmc/edenprobe/runs/<hash>/report.jsonl` (the target's last line prints it) and
-`make clean` takes the lot away. That is not tidiness: a frontend saves its settings when it exits,
-so a run pointed at your own directories reads your settings and may rewrite them, while one pointed
-here starts from the emulator's defaults every time, which also makes two runs comparable. An
-emulator with a different layout puts the same names under whatever it calls its memory card.
+The target runs `tools/run.py`. It first deletes the reports and pictures of every run folder, `last-run` and the
+support suite's scratch folder, so no old report passes for the new one; the journals stay, so a run the program
+left in the middle goes on.
 
-The target runs `tools/run.py`, which first deletes the report and the pictures in every run
-folder, `last-run` and the support suite's scratch directory, so a run that never started cannot
-leave an old report looking like its own, and a green run cannot sit beside the pictures of an
-earlier failing one. It reads the report and the journal in the folder the program then names in
-`last-run`. The journals stay: the program reads its own, starts a new run because the report is
-gone, and lists a case the last launch of an earlier run ended inside.
-
-**It starts the emulator again after a crash.** A launch that ends with no summary in the report,
-crashed or stopped at its time limit (`TIMEOUT`, 60 seconds, then killed ten after that), is
-followed by another, which goes on with the run after the case the last one ended inside (see [When
-the program ends in the middle](Crashes.md)), up to `RELAUNCHES` more (16). Each launch gets a line:
+**After a crash it starts the emulator again.** A launch that ends without a summary, crashed or past `TIMEOUT` (60
+seconds, then killed ten later), is followed by another that goes on after the case the last one ended inside
+([When the program ends in the middle](Crashes.md)), up to `RELAUNCHES` more (16). Each launch gets a line:
 
 ```
 make run: launch 1 ended by signal 6 (SIGABRT) inside bcn case "every layer of a six-layer BC4 array keeps its own 2x2 and 1x1 levels" (the warm-up); launching again (2 of at most 17)
 ```
 
-A launch that leaves the journal as it was, or adds nothing to it but its own start, ends the
-relaunching, since the next would do the same; so does a run with no journal (`nojournal`). At the
-end the target prints the counts, then, on a line of its own, the cases skipped as crashed and the
-ones this run ended inside, and the number of launches. A missing or non-executable emulator, or a
-run that never gets its summary, stops the target with a line saying which and a non-zero exit;
-stopping it by hand stops the emulator and writes `stopped` into the journal, so the case under
-way is not taken for a crash.
+A launch that adds nothing to the journal but its own start ends the relaunching, and so does `nojournal`. At the
+end the target prints the counts, the cases skipped as crashed, the ones this run ended inside, and the launches. A
+missing emulator, or a run that never reaches its summary, ends it with a line saying which and a non-zero exit.
+Stopping it by hand writes `stopped` into the journal, so the case under way is not taken for a crash.
 
-**The crash list is kept per emulator binary**, under `build/xdg/crash-lists/`, and put on the card
-before the first launch and taken back after the last, so a case one build crashes on is not
-skipped on another's run. A rebuild, a binary of another size or time, starts a list of its own.
-To try one case again under `make run`, delete its line in the list kept there, named after the
-binary: the card's copy is replaced from it before the first launch.
+**The crash list is per emulator binary**, in `build/xdg/crash-lists/`, put on the card before the first launch and
+taken back after the last; a binary of another size or time starts its own. To try a case again, delete its line
+there.
 
-Before the emulator starts, the target writes `quick` into the mode file and says so, because the
-detailed screen is for a person. `MODE` is a variable too: `make run MODE="quick images"` keeps
-every picture, `make run MODE="quick fatal"` runs the cases that may crash, and `make run MODE=`
-writes no file, so the start screen and the results come up, each counting down ten seconds, and
-the program leaves by itself, which is the way to see them from here. `XDG` moves the whole tree:
-`make run XDG=/elsewhere` starts from an empty card there.
+`make run` writes `quick` into the mode file. `MODE` sets it: `MODE="quick images"` keeps every picture,
+`MODE="quick fatal"` runs the cases that may crash, and `MODE=` writes no file, so the start and result screens come
+up, each counting down ten seconds.
 
-**On a display nobody is using.** A closed window stops the emulator, and the run then says the
-launch exited 0 inside whatever case was running, which reads like a crash and is not one; a run
-nobody needs to watch can go on a private X server instead, where no window comes up. Under Xvfb the
-Vulkan backend finds no queue that can present and the emulator stops before the program starts; the
-OpenGL one runs on the software rasteriser, which the audio and pad families were run with (a pad
-run then waits out its first screen, nobody being there). Set `backend=0` under `[Renderer]` in the
-`sdl2-config.ini` of an `XDG` of its own, then:
+**On a private display.** A closed window stops the emulator, which reads like a crash inside the case under way.
+A run nobody watches can use Xvfb. There Vulkan finds no queue that can present, so use OpenGL on the software
+rasteriser: `backend=0` under `[Renderer]` in `sdl2-config.ini`, in an `XDG` of its own. Not for the graphics family,
+which needs a real backend.
 
 ```sh
 Xvfb -displayfd 1 -screen 0 1280x720x24 -nolisten tcp > display &   # it picks a free number
@@ -70,17 +47,6 @@ DISPLAY=:$(cat display) make run MODE="quick audio" XDG=/somewhere/xvfb-xdg
 kill %1
 ```
 
-Let the server pick the number: another program's private server may hold the one you would
-choose, and a run started on it puts the window on that program's screen.
-
-The graphics family is not for this: its cases want a real rendering backend, as the next paragraph
-says.
-
-The run needs a real rendering backend. On a null or headless backend the selfcheck cases still
-report and the device still opens, then every drawing case fails with every pixel reading zero,
-because a backend that draws nothing is doing exactly as asked: a property of the run, not a defect
-found. Such a run is still worth doing. The graphics library runs on the emulated processor, so
-everything it checks about the commands it is given is checked for real: a shader module it will not
-load, a copy it will not make or a rectangle it will not clear ends the program rather than failing
-a case. A headless run that reaches its summary has shown none of that happened, which is most of
-what can go wrong before a pixel is involved.
+**On a null backend** every drawing case fails with every pixel zero: the backend draws nothing, as asked. Such a
+run still checks the commands the graphics library sends, since that library runs on the emulated processor: a run
+that reaches its summary loaded every shader, made every copy and cleared every rectangle.
