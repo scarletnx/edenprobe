@@ -133,6 +133,12 @@ typedef enum {
 void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed,
                 const char *detail);
 
+/// ReportCase for a case that timed itself rather than through a timed suite's passes: its line
+/// carries @p us as `"us"`, in the place a drawing case's time goes. For a run that times its
+/// cases; a `notime` run calls ReportCase.
+void ReportCaseTime(const char *suite, const char *name, CheckTier tier, bool passed,
+                    const char *detail, uint32_t us);
+
 /// Why a case was skipped, which its line carries as `reason`, one of a few words, beside the
 /// sentence in `detail`.
 typedef enum {

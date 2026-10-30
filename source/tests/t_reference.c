@@ -2377,4 +2377,5 @@ void RunReference(void) {
     RunReferenceBinder();
     RunReferenceBlit2d();
     RunReferenceService();
+    RunReferenceGame();
 }

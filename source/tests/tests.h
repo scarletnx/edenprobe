@@ -4,6 +4,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -237,6 +238,18 @@ void TouchSetHeading(const char *heading);
 /// them, each answer judged by serviceref.c against the one reden gives.
 void RunService(void);
 
+/// The game family: a scene that runs a frame loop as a game does, a main thread, a render thread,
+/// an audio thread and a file thread over the three cores the program has, each frame drawn,
+/// presented on the default window, its sound kept playing, its data read from the card; every
+/// image, the sound and every read judged against what the processor works out, and the frames
+/// timed.
+void RunGame(void);
+
+/// How many frames the scene runs (the mode file's `frames=`), and whether its lines carry the
+/// frames' times (not with `notime`).
+void GameSetFrames(uint32_t frames);
+void GameSetTiming(bool on);
+
 /// The net family: nifm, dns, bsd, ssl, acc and friend, in that order, against whatever
 /// sdmc:/edenprobe/net says the backend promises. A case that needs a backend the file does not
 /// name, or a service this program cannot open, is skipped with the reason and counted apart.
@@ -280,6 +293,10 @@ void RunReferenceBlit2d(void);
 
 /// The service family's judge on answers made to order: part of the reference suite.
 void RunReferenceService(void);
+
+/// The game scene's world, frames, reads and frame times against answers worked out by hand:
+/// part of the reference suite.
+void RunReferenceGame(void);
 
 #ifdef __cplusplus
 }

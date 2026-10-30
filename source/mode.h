@@ -58,20 +58,27 @@ extern "C" {
 ///             reden's. It runs only when named until a console has shown what it answers.
 ///   net       another: the online services, nifm to friend, against the backend the file
 ///             sdmc:/edenprobe/net names (see netref.h).
+///   game      another: a scene that runs everything at once, as a game does, on every core the
+///             program has, and times its frames. It runs only when named until a console has
+///             run it.
 ///
-/// And three that are not words, a name after each: `label=<name>`, the name of the folder the
-/// run's report goes in beside this build's hash (ModeRunFolder), so runs of one build against two
-/// emulators keep apart; `baseline=<name>`, the baseline file this run's times go into as a new
-/// sample, and `compare=<name>`, the one they are held to (baseline.h). A name runs to the next
-/// space or line end; letters, digits, dot, dash and underscore, at most MODE_LABEL_MAX, not
-/// starting with a dot. Anything else is refused and said in the mode line: a refused label puts
-/// the run in the folder with no label, a refused baseline or compare name leaves that out.
+/// Four that are not words. `frames=<n>`, the frames the game scene runs, a whole number from 1
+/// to MODE_FRAMES_MAX, MODE_FRAMES_DEFAULT without one; anything else is refused and said in the
+/// mode line with the number in effect. And three with a name after each: `label=<name>`, the name
+/// of the folder the run's report goes in beside this build's hash (ModeRunFolder), so runs of one
+/// build against two emulators keep apart; `baseline=<name>`, the baseline file this run's times go
+/// into as a new sample, and `compare=<name>`, the one they are held to (baseline.h). A name runs
+/// to the next space or line end; letters, digits, dot, dash and underscore, at most
+/// MODE_LABEL_MAX, not starting with a dot. Anything else is refused and said in the mode line: a
+/// refused label puts the run in the folder with no label, a refused baseline or compare name
+/// leaves that out.
 ///
 /// Families choose which suites beyond the judge run. None named means every family this build
-/// has but audio, display, kernel, pad, service and video. The judge itself (selfcheck, support,
-/// reference) always runs, because no verdict below it can be believed without it, and so does
-/// cpu, which needs no device. Any other word is reported and ignored, never fatal: a file with
-/// a typo in it still gets a run, and a line in the report saying what was not understood.
+/// has but audio, display, game, kernel, pad, service and video. The judge itself (selfcheck,
+/// support, reference) always runs, because no verdict below it can be believed without it, and
+/// so does cpu, which needs no device. Any other word is reported and ignored, never fatal: a
+/// file with a typo in it still gets a run, and a line in the report saying what was not
+/// understood.
 
 /// The suite families, one bit each.
 enum {
@@ -85,6 +92,7 @@ enum {
     MODE_FAMILY_KERNEL = 1u << 7,
     MODE_FAMILY_DISPLAY = 1u << 8,
     MODE_FAMILY_SERVICE = 1u << 9,
+    MODE_FAMILY_GAME = 1u << 10,
 };
 
 /// The families this build carries. A family named in the file and missing here is reported,
@@ -92,12 +100,12 @@ enum {
 #define MODE_FAMILIES_PRESENT                                                                     \
     ((uint32_t)(MODE_FAMILY_CPU | MODE_FAMILY_PAD | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS |      \
                 MODE_FAMILY_KERNEL | MODE_FAMILY_DISPLAY | MODE_FAMILY_VIDEO |                     \
-                MODE_FAMILY_AUDIO | MODE_FAMILY_SERVICE | MODE_FAMILY_NET))
+                MODE_FAMILY_AUDIO | MODE_FAMILY_SERVICE | MODE_FAMILY_NET | MODE_FAMILY_GAME))
 
 /// The families that run only when a word asks for them.
 #define MODE_FAMILIES_ASKED                                                                       \
     ((uint32_t)(MODE_FAMILY_AUDIO | MODE_FAMILY_DISPLAY | MODE_FAMILY_KERNEL | MODE_FAMILY_VIDEO | \
-                MODE_FAMILY_PAD | MODE_FAMILY_SERVICE))
+                MODE_FAMILY_PAD | MODE_FAMILY_SERVICE | MODE_FAMILY_GAME))
 
 /// What runs when the file names no family.
 #define MODE_FAMILIES_DEFAULT ((uint32_t)(MODE_FAMILIES_PRESENT & ~MODE_FAMILIES_ASKED))
@@ -135,6 +143,11 @@ typedef struct {
     char refused[MODE_LABEL_MAX + 1u];
     bool refused_cut;
 } ModeName;
+/// The game scene's frames without `frames=`, 10 seconds at 60 a second, and the most it takes,
+/// ten minutes; and how much of a refused value the mode line quotes.
+#define MODE_FRAMES_DEFAULT 600u
+#define MODE_FRAMES_MAX 36000u
+#define MODE_FRAMES_QUOTED 16u
 
 typedef struct {
     /// What was at the path. Nothing changes with it but the line that says so.
@@ -192,6 +205,15 @@ typedef struct {
     ModeName baseline;
     /// `compare=<name>`: this run's times are held to that file's samples once the suites end.
     ModeName compare;
+    /// The game scene's frames: `frames=<n>` when the file has a good one, the last of several,
+    /// MODE_FRAMES_DEFAULT otherwise; and whether the file gave it.
+    uint32_t frames;
+    bool frames_named;
+    /// The last `frames=` refused, as written and cut to fit, for the mode line. A refusal leaves
+    /// an earlier good value alone; a good value after it clears it.
+    bool frames_was_refused;
+    char frames_refused[MODE_FRAMES_QUOTED + 1u];
+    bool frames_refused_cut;
 } RunMode;
 
 /// Reads the words in @p text. NULL means there was no file, which reads like an empty one.

@@ -24,6 +24,7 @@ static const struct {
     { "audio", MODE_FAMILY_AUDIO },
     { "service", MODE_FAMILY_SERVICE },
     { "net", MODE_FAMILY_NET },
+    { "game", MODE_FAMILY_GAME },
 };
 
 static bool IsLetter(char c) {
@@ -168,7 +169,38 @@ static void TakeLabel(RunMode *mode, const char *value, size_t length) {
     }
 }
 
-/// The words a name follows, and the length of each with its sign.
+/// Takes the number after `frames=`, @p length bytes of it: kept when it is a whole number from 1
+/// to MODE_FRAMES_MAX, quoted in the mode line otherwise.
+static void TakeFrames(RunMode *mode, const char *value, size_t length) {
+    uint32_t number = 0;
+    bool whole = length > 0u;
+    for (size_t i = 0; i < length && whole; ++i) {
+        const char c = value[i];
+        // Checked before each digit is added, so no length of digits can wrap round to a
+        // number that looks good.
+        whole = c >= '0' && c <= '9' && number <= MODE_FRAMES_MAX;
+        number = whole ? number * 10u + (uint32_t)(c - '0') : number;
+    }
+    if (whole && number >= 1u && number <= MODE_FRAMES_MAX) {
+        mode->frames = number;
+        mode->frames_named = true;
+        mode->frames_was_refused = false;
+        mode->frames_refused[0] = '\0';
+        mode->frames_refused_cut = false;
+        return;
+    }
+    mode->frames_was_refused = true;
+    const size_t quoted = length < MODE_FRAMES_QUOTED ? length : MODE_FRAMES_QUOTED;
+    for (size_t i = 0; i < quoted; ++i) {
+        const unsigned char c = (unsigned char)value[i];
+        mode->frames_refused[i] = c < 0x20u || c >= 0x7Fu || c == '"' || c == '\\' ? '?' : (char)c;
+    }
+    mode->frames_refused[quoted] = '\0';
+    mode->frames_refused_cut = length > MODE_FRAMES_QUOTED;
+}
+
+/// The words a value follows (a name, or the number `frames=` takes), and the length of each without
+/// its sign.
 static const struct {
     const char *word;
     size_t length;
@@ -176,6 +208,7 @@ static const struct {
     { "label", 5u },
     { "baseline", 8u },
     { "compare", 7u },
+    { "frames", 6u },
 };
 
 /// Which of NAMED the @p length letters of @p word are, or -1.
@@ -188,10 +221,12 @@ static int NamedWord(const char *word, size_t length) {
     return -1;
 }
 
-/// The name after the sign of NAMED[@p which], @p length bytes of @p value.
+/// The value after the sign of NAMED[@p which], @p length bytes of @p value.
 static void TakeNamed(RunMode *mode, int which, const char *value, size_t length) {
     if (which == 0) {
         TakeLabel(mode, value, length);
+    } else if (which == 3) {
+        TakeFrames(mode, value, length);
     } else {
         TakeName(which == 1 ? &mode->baseline : &mode->compare, value, length);
     }
@@ -214,7 +249,8 @@ static void ReadWords(RunMode *mode, const char *text, size_t size) {
         }
         const int named = c == '=' && !cut ? NamedWord(word, length) : -1;
         if (named >= 0) {
-            // A name rather than words: it runs to the next space or line end, whatever it holds.
+            // A name or a number rather than words: it runs to the next space or line end,
+            // whatever it holds.
             size_t end = i + 1u;
             while (end < size && !EndsValue(text[end])) {
                 ++end;
@@ -283,12 +319,14 @@ RunMode ModeFromFile(ModeSource source, const char *text, size_t length, bool lo
     RunMode mode;
     memset(&mode, 0, sizeof(mode));
     mode.source = source;
+    mode.frames = MODE_FRAMES_DEFAULT;
     if (source == MODE_SOURCE_FILE && text != NULL) {
         mode.longer = longer;
         const size_t piece = LastPiece(text, length);
         if (longer && !EndsValue(text[length]) &&
             StartsWithNamed(text + piece, length - piece) > 0u) {
-            // A name runs on past the limit: what was read of it names another folder or file.
+            // A value runs on past the limit: what was read of a name names another folder or
+            // file, and of a number another number.
             length = piece;
         } else if (longer && IsLetter(text[length])) {
             // The last word runs on past the limit, so what was read of it is a fragment.
@@ -432,6 +470,17 @@ static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t p
                  mode->label_refused, mode->label_refused_cut ? "..." : "",
                  (unsigned)MODE_LABEL_MAX);
     }
+    if (mode->frames_named) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; frames %u", (unsigned)mode->frames);
+    }
+    if (mode->frames_was_refused) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used,
+                 "; frames=%s%s is not a whole number from 1 to %u: it keeps %u",
+                 mode->frames_refused, mode->frames_refused_cut ? "..." : "",
+                 (unsigned)MODE_FRAMES_MAX, (unsigned)mode->frames);
+    }
     DescribeName(out, out_size, "baseline", &mode->baseline, "this run's times added as a sample");
     DescribeName(out, out_size, "compare", &mode->compare, "this run's times held to its samples");
     if (mode->saved_by_screen) {
@@ -496,6 +545,9 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
     if (mode == NULL) {
         return 0;
     }
+    // Only when it is not the default, since that is the same scene and the same report.
+    char frames[24];
+    snprintf(frames, sizeof(frames), "frames=%u", (unsigned)mode->frames);
     const struct {
         bool on;
         const char *word;
@@ -504,7 +556,9 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { (mode->families_named & MODE_FAMILY_CPU) != 0u, "cpu" },
         { (mode->families_named & MODE_FAMILY_DISPLAY) != 0u, "display" },
         { mode->fatal, "fatal" },
+        { mode->frames != MODE_FRAMES_DEFAULT, frames },
         { (mode->families_named & MODE_FAMILY_FS) != 0u, "fs" },
+        { (mode->families_named & MODE_FAMILY_GAME) != 0u, "game" },
         { (mode->families_named & MODE_FAMILY_GRAPHICS) != 0u, "graphics" },
         { mode->hang, "hang" },
         { mode->every_case, "images" },

@@ -27,6 +27,8 @@ not a letter between them.
 | `video` | the video family: the video image compositor given input the processor wrote, one job per case, and the decoder given VP9 jobs built from libvpx's test vectors, one job per frame; only when named, until a console has run it, and the start screen has no row for it; see [The video family](families/Video.md) and [the nvdec suite](families/Nvdec.md) |
 | `service` | the service family: commands a game sends to the system's services, each answer held to reden's; only when named, until a console has run it, and the start screen has no row for it; see [The service family](families/Service.md) |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
+| `game` | the game family: one scene that draws, plays a silent tone, reads the card, calls hid and the time service and computes on four threads over the three cores at once, as a game does, presents every frame on the display and times it; only when named, until a console has run it, and the start screen has no row for it; it writes the fs family's files the first time; see [The game family](families/Game.md) |
+| `frames=<n>` | not a word: how many frames the game scene runs, a whole number from 1 to 36000; 600 without it, ten seconds at 60 a second. Anything else is refused in the mode line with the number in effect: `frames=abc is not a whole number from 1 to 36000: it keeps 600` |
 | `label=<name>` | not a word: the run's folder gets `_<name>` after the build's hash, to keep apart runs of one build under two emulators; see [Where a run leaves its report](Report.md#where-a-run-leaves-its-report) |
 | `baseline=<name>` | not a word either: once the suites end, this run's times go into `sdmc:/edenprobe/baseline/<name>.jsonl` as a new sample; a name takes the label's rules; see [Baselines](Baseline.md) |
 | `compare=<name>` | once the suites end, this run's times are held to that file's samples: a line for each case held to them, `same`, `slower` or `faster`, and one that sums them up, no verdict changed; see [Baselines](Baseline.md) |
@@ -34,8 +36,9 @@ not a letter between them.
 Families choose what runs beyond the judge, which always runs because nothing a family reports can
 be believed without it, and beyond the cpu suite, which needs no device and runs in every mode. None
 named means every family this build has but audio, which makes sound, pad, which waits for a person,
-and kernel, display, service and video, which no console has run yet; a named family this build lacks is
-listed in the mode line and skipped, so a file written for a later build is reported, not refused.
+and kernel, display, service, video and game, which no console has run yet; a named family this
+build lacks is listed in the mode line and skipped, so a file written for a later build is reported,
+not refused.
 `net` alone runs the judge, cpu and the six net suites, which is what [the
 fixture](families/Net.md#the-fixture) writes. Any other word is reported in the mode line, quoted
 and counted, and ignored: a typo costs a line in the report, never the run.
@@ -59,6 +62,8 @@ For example:
 | `quick service` | the judge, cpu and the service family's suites, then exit |
 | `quick baseline=console` | the judge, cpu and the families a file naming none runs, then the run's times added as a sample to the console's baseline: on a console, a few times |
 | `quick compare=console` | the same run, held to the console's baseline: on an emulator, with the console's file copied to its card |
+| `quick game` | the judge, cpu and the game scene's 600 frames, then exit |
+| `quick game frames=120` | the same scene for 120 frames, two seconds at 60 a second |
 
 The first 4096 bytes of the file are read. A longer file is read that far and the mode line says
 "mode file longer than 4096 bytes, the rest ignored"; a word the limit cuts in two is dropped rather

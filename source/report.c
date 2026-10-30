@@ -645,11 +645,16 @@ static void Survived(const char *suite, const char *key) {
     ReportNote("retry: %s case \"%s\" ran to its end, so it leaves the crash list", suite, key);
 }
 
-/// A case's end, everything but telling the watcher, which ReportCase does after it.
+/// A case's end, everything but telling the watcher, which ReportCase does after it. @p given is
+/// the time a case measured itself, which its line carries in place of the timed passes' one.
 static void EndCase(const char *suite, const char *name, CheckTier tier, bool passed_,
-                    const char *detail) {
+                    const char *detail, const uint32_t *given) {
     uint32_t us = 0;
-    const bool timed = PerfCaseEnd(name, &us);
+    bool timed = PerfCaseEnd(name, &us);
+    if (given != NULL) {
+        timed = true;
+        us = *given;
+    }
     char key[JOURNAL_NAME_MAX];
     KeyOf(key, sizeof(key), name);
     Ended(suite, key, true);
@@ -734,7 +739,13 @@ static void EndSkip(const char *suite, const char *name, ReportReason reason,
 
 void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed_,
                 const char *detail) {
-    EndCase(suite, name, tier, passed_, detail);
+    EndCase(suite, name, tier, passed_, detail, NULL);
+    Watch(suite, name);
+}
+
+void ReportCaseTime(const char *suite, const char *name, CheckTier tier, bool passed_,
+                    const char *detail, uint32_t us) {
+    EndCase(suite, name, tier, passed_, detail, &us);
     Watch(suite, name);
 }
 
