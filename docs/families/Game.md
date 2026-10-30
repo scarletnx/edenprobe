@@ -9,11 +9,11 @@ yet; the start screen has no row for it, and a file that names it keeps it whate
 changes. `frames=<n>` sets how many frames the scene runs, from 1 to 36000; without it, 600, ten
 seconds at 60 a second.
 
-- **game**, eight cases, six with `notime`. One says the scene came up (none tier): a graphics
+- **game**, ten cases, six with `notime`. One says the scene came up (none tier): a graphics
   device, two images on the default window, the audio renderer and the fs family's big file, which
   the scene writes the first time as the fs suite does. Then the frames run, inside the case that
   judges their images; the four after it judge the sound, the reads, the services and the cores
-  from what the frames left, and the two last carry the frames' times. If the scene does not come
+  from what the frames left, and the four last carry the frames' times. If the scene does not come
   up, or its frames do not run, the rest are skipped as `depends`.
 
 ## The scene
@@ -88,24 +88,36 @@ nothing a program can read back.
 
 ## What is timed
 
-The render thread reads the system tick after each present; a frame's time is from the present
-before it, the first frame's from when the render thread took it. The last two cases carry the
-mean and the 99th percentile (nearest rank: the smallest time 99 frames in 100 took no longer than)
-as their `us`, which is what [Time per case](../TimePerCase.md)'s tools and a baseline read; they
-pass when every frame was presented. Their names carry the number of frames, so runs of two
-`frames=` never compare. The time is a frame's whole time, pacing included, not the graphics
-unit's busy time a drawing case carries: on a machine that keeps up it is the display's period,
-about 16667 us at 60 Hz, and it moves when frames are dropped. A note gives the rest:
+Two times per frame, each summed up by two cases that carry its mean and its 99th percentile
+(nearest rank: the smallest time 99 frames in 100 took no longer than) as their `us`, which is what
+[Time per case](../TimePerCase.md)'s tools and a baseline read. The cases pass when every frame was
+presented; their names carry the number of frames, so runs of two `frames=` never compare.
+
+- **Present to present** is what a player feels. The render thread reads the system tick after
+  each present, and a frame's time runs from the present before it (the first frame's from when
+  the render thread took it): pacing included, so on a machine that keeps up it is the display's
+  period, about 16667 us at 60 Hz, whatever the frame cost. It moves only when frames are dropped.
+- **A frame's work without the waits** is what shows a regression while there is room to spare.
+  It is the main thread's part of the frame, from taking its slot to handing the frame over (the
+  services, the world's step, the slot's writes), and the render thread's, from the image in hand
+  to the fence of its submit signalled (recording the list, the submit, the graphics unit's work);
+  every wait between them is left out: for an image from the display, for the present, and each
+  thread's wait for the other. A machine that gets 20% slower moves it by 20% long before a
+  frame stops fitting in 16.7 ms and present to present moves at all.
+
+Neither is the graphics unit's busy time a drawing case carries. A note gives the rest:
 
 ```json
-{"type":"note","text":"game: 600 frames in 10.07 s; present to present: mean 16782 us, 99th percentile 16997 us, longest 101166 us at frame 0; 1 over 33333 us, two frames at 60 Hz: frame 0; the audio thread waited for 2014 renderer frames, the longest wait 14675 us, 2 over 10000 us; the file thread made 600 reads of 64 KiB, the longest 64 us"}
+{"type":"note","text":"game: 600 frames in 10.07 s; present to present: mean 16780 us, 99th percentile 17026 us, longest 99653 us at frame 0; 1 over 33333 us, two frames at 60 Hz: frame 0; a frame's work without the waits: mean 1506 us, 99th percentile 2344 us, longest 97242 us at frame 0; the audio thread waited for 2016 renderer frames, the longest wait 8180 us, 0 over 10000 us; the file thread made 600 reads of 64 KiB, the longest 53 us"}
 ```
 
 That is ScarletNX (its main of 29 October, headless, on RADV): every frame at the display's period
-but the first, which pays for the device's first work as a drawing suite's first case does.
+but the first, which pays for the device's first work as a drawing suite's first case does, while
+a frame's work is about a tenth of the period: it could grow several times over before present to
+present saw any of it.
 
 A frame over 33333 us is a hitch: more than two frames at 60 Hz, a stutter a player sees. The note
-names the first eight by number and counts the rest. With `notime` the two timing cases and the
+names the first eight by number and counts the rest. With `notime` the four timing cases and the
 note are left out and the scene runs the same frames.
 
 ## What rests on reasoning

@@ -303,33 +303,43 @@ static void CheckNote(void) {
     s.hitches = 2u;
     s.hitch_at[0] = 0u;
     s.hitch_at[1] = 377u;
+    GameFrameStats work;
+    memset(&work, 0, sizeof(work));
+    work.frames = 600u;
+    work.mean = 4120u;
+    work.p99 = 5210u;
+    work.longest = 80000u;
+    work.longest_at = 0u;
     const GameThreadTimes threads = { 2004u, 10200u, 1u, 600u, 1500u };
     char text[REPORT_NOTE_MAX + 1];
-    GameDescribeTimes(text, sizeof(text), &s, &threads);
+    GameDescribeTimes(text, sizeof(text), &s, &work, &threads);
     Expect(&t,
            strcmp(text, "game: 600 frames in 10.01 s; present to present: mean 16687 us, 99th "
                         "percentile 17012 us, longest 41000 us at frame 0; 2 over 33333 us, two "
-                        "frames at 60 Hz: frames 0, 377; the audio thread waited for 2004 "
+                        "frames at 60 Hz: frames 0, 377; a frame's work without the waits: mean "
+                        "4120 us, 99th percentile 5210 us, longest 80000 us at frame 0; the "
+                        "audio thread waited for 2004 "
                         "renderer frames, the longest wait 10200 us, 1 over 10000 us; the file "
                         "thread made 600 reads of 64 KiB, the longest 1500 us") == 0,
            text);
 
     s.hitches = 0u;
-    GameDescribeTimes(text, sizeof(text), &s, &threads);
-    Expect(&t, strstr(text, "; none over 33333 us, two frames at 60 Hz; the audio") != NULL,
+    GameDescribeTimes(text, sizeof(text), &s, &work, &threads);
+    Expect(&t, strstr(text, "; none over 33333 us, two frames at 60 Hz; a frame's work") != NULL,
            "no hitches");
 
     s.hitches = 11u;
     for (uint32_t i = 0; i < GAME_HITCHES_LISTED; ++i) {
         s.hitch_at[i] = i * 10u;
     }
-    GameDescribeTimes(text, sizeof(text), &s, &threads);
+    GameDescribeTimes(text, sizeof(text), &s, &work, &threads);
     Expect(&t, strstr(text, "11 over 33333 us, two frames at 60 Hz: frames 0, 10, 20, 30, 40, "
-                            "50, 60, 70 and 3 more;") != NULL,
+                            "50, 60, 70 and 3 more; a frame's work") != NULL,
            "the hitches past the eighth counted");
     s.hitches = 1u;
-    GameDescribeTimes(text, sizeof(text), &s, &threads);
-    Expect(&t, strstr(text, "1 over 33333 us, two frames at 60 Hz: frame 0;") != NULL,
+    GameDescribeTimes(text, sizeof(text), &s, &work, &threads);
+    Expect(&t,
+           strstr(text, "1 over 33333 us, two frames at 60 Hz: frame 0; a frame's work") != NULL,
            "one hitch");
 
     // Every number at its widest still fits a note whole.
@@ -339,16 +349,18 @@ static void CheckNote(void) {
                                       UINT32_MAX, UINT32_MAX, UINT32_MAX } };
     const GameThreadTimes slowest = { UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX,
                                       UINT32_MAX };
-    Expect(&t, GameDescribeTimes(text, sizeof(text), &widest, &slowest) < REPORT_NOTE_MAX - 1u,
+    Expect(&t,
+           GameDescribeTimes(text, sizeof(text), &widest, &widest, &slowest) < REPORT_NOTE_MAX - 1u,
            "the widest note fits a note");
 
     char tiny[24];
     memset(tiny, 'x', sizeof(tiny));
-    const size_t length = GameDescribeTimes(tiny, sizeof(tiny), &s, &threads);
+    const size_t length = GameDescribeTimes(tiny, sizeof(tiny), &s, &work, &threads);
     Expect(&t, length == sizeof(tiny) - 1u && tiny[sizeof(tiny) - 1u] == '\0' &&
                    strncmp(tiny, "game: 600 frames in", 19u) == 0,
            "a buffer too small is cut and terminated");
-    Report("game: the timing note says the frames, their times and the hitches by number", &t);
+    Report("game: the timing note says the frames, their times, the hitches by number and the work",
+           &t);
 }
 
 void RunReferenceGame(void) {

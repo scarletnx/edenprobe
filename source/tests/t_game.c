@@ -120,6 +120,10 @@ static uint32_t expected[MODE_FRAMES_MAX][GAME_REGIONS];
 static uint32_t chunk_hash[GAME_FILE_CHUNKS];
 static uint32_t frame_us[MODE_FRAMES_MAX];
 static uint32_t sorted_us[MODE_FRAMES_MAX];
+// A frame's work with every wait left out: the main thread's part, which the render thread adds
+// its own to once the frame's fence has signalled.
+static uint32_t main_us[MODE_FRAMES_MAX];
+static uint32_t work_us[MODE_FRAMES_MAX];
 static uint8_t wrong_pixels[GAME_IMAGE_BYTES];
 static uint8_t want_pixels[GAME_IMAGE_BYTES];
 static GameWorld world;
@@ -264,9 +268,12 @@ static void BindDepth(bool test, bool write) {
     dkCmdBufBindDepthStencilState(gpu.cmdbuf, &state);
 }
 
-/// Records, submits and presents frame @p k from @p slot, then judges its copy.
-static void DrawFrame(uint32_t k, uint32_t slot) {
+/// Records, submits and presents frame @p k from @p slot, then judges its copy. Hands back the
+/// render thread's part of the frame's work: from the image in hand to the fence of its submit
+/// signalled, so neither the wait for an image nor the present is in it.
+static uint64_t DrawFrame(uint32_t k, uint32_t slot) {
     const int image = dkQueueAcquireImage(gpu.queue, swapchain);
+    const uint64_t began = armGetSystemTick();
     GpuBeginPass(&gpu);
     // The processor rewrote this slot after the graphics unit last read it, through memory the
     // unit caches in its level two cache: what the previous frame left there is dropped. The
@@ -318,8 +325,9 @@ static void DrawFrame(uint32_t k, uint32_t slot) {
     GpuBindVertices(&gpu, &common_vs, &texture_fs, compose_quad, 6u * (uint32_t)sizeof(GpuVertex));
     dkCmdBufDraw(gpu.cmdbuf, DkPrimitive_Triangles, 6, 1, 0, 0);
     GpuSubmit(&gpu);
+    const uint64_t worked = armGetSystemTick() - began;
     if (!gpu.ready) {
-        return;
+        return worked;
     }
     dkQueuePresentImage(gpu.queue, swapchain, image);
     ++render.presented;
@@ -332,6 +340,7 @@ static void DrawFrame(uint32_t k, uint32_t slot) {
         memcpy(render.got, got, sizeof(got));
         memcpy(wrong_pixels, pixels, GAME_IMAGE_BYTES);
     }
+    return worked;
 }
 
 static void RenderMain(void *argument) {
@@ -343,11 +352,12 @@ static void RenderMain(void *argument) {
             previous = armGetSystemTick();
         }
         Look(&render.core, RENDER_CORE, k);
-        if (gpu.ready) {
-            DrawFrame(k, k % SLOTS);
-        }
+        const uint64_t worked = gpu.ready ? DrawFrame(k, k % SLOTS) : 0u;
         const uint64_t now = armGetSystemTick();
         frame_us[k] = Microseconds(now - previous);
+        // main_us[k] was written before the semaphore that handed this frame over.
+        const uint64_t work = (uint64_t)main_us[k] + Microseconds(worked);
+        work_us[k] = work > UINT32_MAX ? UINT32_MAX : (uint32_t)work;
         previous = now;
         semaphoreSignal(&slot_free);
     }
@@ -691,12 +701,14 @@ static bool RunFrames(char *why, size_t why_size) {
     GameWorldStart(&world);
     for (uint32_t k = 0; k < frames; ++k) {
         semaphoreWait(&slot_free);
+        const uint64_t began = armGetSystemTick();
         AskServices(k, &pad, &last);
         if (k > 0u) {
             GameWorldStep(&world);
         }
         WriteSlot(k % SLOTS, &world);
         semaphoreSignal(&file_go);
+        main_us[k] = Microseconds(armGetSystemTick() - began);
         semaphoreSignal(&frame_go);
     }
     Finish(&render_thread);
@@ -868,23 +880,32 @@ static void JudgeCores(const char *name) {
                "%s", detail);
 }
 
-static void Times(const char *mean_name, const char *p99_name) {
-    GameFrameStats stats;
-    GameFrameStatsOf(frame_us, frames, sorted_us, &stats);
+/// The two cases of one measure: its mean and its 99th percentile as their lines' times.
+static void TimeCases(const char *const names[2], const GameFrameStats *stats, bool all,
+                      const char *detail) {
+    if (ReportStart(SUITE, names[0])) {
+        ReportCaseTime(SUITE, names[0], CHECK_NONE, all, detail, stats->mean);
+    }
+    if (ReportStart(SUITE, names[1])) {
+        ReportCaseTime(SUITE, names[1], CHECK_NONE, all, detail, stats->p99);
+    }
+}
+
+static void Times(const char *const present_names[2], const char *const work_names[2]) {
+    GameFrameStats present;
+    GameFrameStatsOf(frame_us, frames, sorted_us, &present);
+    GameFrameStats work;
+    GameFrameStatsOf(work_us, frames, sorted_us, &work);
     const bool all = render.presented == frames;
     char detail[160];
     snprintf(detail, sizeof(detail), "%u of %u frames presented", (unsigned)render.presented,
              (unsigned)frames);
-    if (ReportStart(SUITE, mean_name)) {
-        ReportCaseTime(SUITE, mean_name, CHECK_NONE, all, detail, stats.mean);
-    }
-    if (ReportStart(SUITE, p99_name)) {
-        ReportCaseTime(SUITE, p99_name, CHECK_NONE, all, detail, stats.p99);
-    }
+    TimeCases(present_names, &present, all, detail);
+    TimeCases(work_names, &work, all, detail);
     const GameThreadTimes threads = { sound.steps, sound.longest, sound.late, reads.reads,
                                       reads.longest };
     char note[REPORT_NOTE_MAX + 1];
-    GameDescribeTimes(note, sizeof(note), &stats, &threads);
+    GameDescribeTimes(note, sizeof(note), &present, &work, &threads);
     ReportNote("%s", note);
 }
 
@@ -896,6 +917,8 @@ void RunGame(void) {
     static char services_name[96];
     static char mean_name[96];
     static char p99_name[96];
+    static char work_mean_name[96];
+    static char work_p99_name[96];
     static const char SOUND_NAME[] = "the audio thread's tone keeps the level the renderer's "
                                      "model gives";
     static const char CORES_NAME[] = "the main, render, audio and file threads run on the cores "
@@ -910,6 +933,13 @@ void RunGame(void) {
              (unsigned)frames);
     snprintf(p99_name, sizeof(p99_name), "%u frames, present to present: the 99th percentile",
              (unsigned)frames);
+    snprintf(work_mean_name, sizeof(work_mean_name),
+             "%u frames, a frame's work without the waits: the mean", (unsigned)frames);
+    snprintf(work_p99_name, sizeof(work_p99_name),
+             "%u frames, a frame's work without the waits: the 99th percentile",
+             (unsigned)frames);
+    const char *const present_names[2] = { mean_name, p99_name };
+    const char *const work_names[2] = { work_mean_name, work_p99_name };
     const char *const after[] = { SOUND_NAME, reads_name, services_name, CORES_NAME };
 
     if (!ReportStart(SUITE, bring_up)) {
@@ -963,15 +993,15 @@ void RunGame(void) {
         JudgeServices(services_name);
         JudgeCores(CORES_NAME);
         if (timing) {
-            Times(mean_name, p99_name);
+            Times(present_names, work_names);
         }
     } else {
         for (size_t i = 0; i < sizeof(after) / sizeof(after[0]); ++i) {
             ReportSkip(SUITE, after[i], REPORT_REASON_DEPENDS, why);
         }
-        if (timing) {
-            ReportSkip(SUITE, mean_name, REPORT_REASON_DEPENDS, why);
-            ReportSkip(SUITE, p99_name, REPORT_REASON_DEPENDS, why);
+        for (size_t i = 0; timing && i < 4u; ++i) {
+            ReportSkip(SUITE, i < 2u ? present_names[i] : work_names[i - 2u],
+                       REPORT_REASON_DEPENDS, why);
         }
     }
 

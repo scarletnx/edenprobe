@@ -219,12 +219,12 @@ static bool Append(char *out, size_t out_size, const char *fmt, ...) {
 }
 
 size_t GameDescribeTimes(char *out, size_t out_size, const GameFrameStats *frames,
-                         const GameThreadTimes *threads) {
+                         const GameFrameStats *work, const GameThreadTimes *threads) {
     if (out == NULL || out_size == 0u) {
         return 0;
     }
     out[0] = '\0';
-    if (frames == NULL || threads == NULL) {
+    if (frames == NULL || work == NULL || threads == NULL) {
         return 0;
     }
     Append(out, out_size,
@@ -247,6 +247,11 @@ size_t GameDescribeTimes(char *out, size_t out_size, const GameFrameStats *frame
             Append(out, out_size, " and %u more", (unsigned)(frames->hitches - listed));
         }
     }
+    Append(out, out_size,
+           "; a frame's work without the waits: mean %u us, 99th percentile %u us, longest %u us "
+           "at frame %u",
+           (unsigned)work->mean, (unsigned)work->p99, (unsigned)work->longest,
+           (unsigned)work->longest_at);
     Append(out, out_size,
            "; the audio thread waited for %u renderer frames, the longest wait %u us, %u over "
            "10000 us; the file thread made %u reads of 64 KiB, the longest %u us",

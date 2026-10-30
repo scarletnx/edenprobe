@@ -151,10 +151,11 @@ typedef struct {
 } GameThreadTimes;
 
 /// The note a timed run of the scene ends on, without the braces around it: the frames, their
-/// times, the hitches by number, and what the audio and file threads waited. Returns the length;
-/// the text is always terminated, and cut short rather than overrun.
+/// times present to present, the hitches by number, a frame's work without the waits (@p work),
+/// and what the audio and file threads waited. Returns the length; the text is always
+/// terminated, and cut short rather than overrun.
 size_t GameDescribeTimes(char *out, size_t out_size, const GameFrameStats *frames,
-                         const GameThreadTimes *threads);
+                         const GameFrameStats *work, const GameThreadTimes *threads);
 
 #ifdef __cplusplus
 }

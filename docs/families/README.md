@@ -7,7 +7,7 @@ when its word asks for it. A run is 1007 cases: 939 for the judge, the processor
 family, 15 for the fs family, 53 for the net family; the pad family adds thirty five when named,
 the kernel family seven, the display family four, the video family twenty seven, the audio family
 twelve when named or with `listen`, the service family one hundred and nineteen, the game family
-eight (six with `notime`), the mode word `stress` adds one, and `fatal` runs the cases the may-crash table names, which
+ten (six with `notime`), the mode word `stress` adds one, and `fatal` runs the cases the may-crash table names, which
 are otherwise skipped. The
 order, and what a failure in each suite points at, is in [The roadmap](../Roadmap.md). A case that
 ends the program costs that case and not the rest of the run: see [When the program ends in the
