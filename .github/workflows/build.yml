@@ -14,9 +14,8 @@ on:
 permissions:
   contents: read
 
-# A pull request's newer push cancels the build of the one it replaced, which would only hold a runner and the job
-# following it for its card (cards-watch.yml); a push to main and a tag are never cancelled, each its own nightly or
-# release
+# A pull request's newer push cancels the build of the one it replaced, which would only hold a runner; a push to main
+# and a tag are never cancelled, each its own nightly or release
 concurrency:
   group: build-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

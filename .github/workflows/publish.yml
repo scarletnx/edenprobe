@@ -6,15 +6,15 @@ name: Publish builds
 # becomes the prerelease nightly-<date>-<commit>, the newest 30 kept, and the prerelease "nightly" takes its files, so
 # .../releases/download/nightly/edenprobe.nro is always the newest; a version tag (v...) whose run passed becomes that
 # version's release, the latest. A pull request's NRO is not published: it stays its run's artifact. Nothing of a pull
-# request runs here: the checkout is main's. The secrets: DISCORD_WEBHOOK_RELEASES and DISCORD_WEBHOOK_NIGHTLY are the
-# channels' webhooks (without one, nothing is posted there and the run says so)
+# request runs here: the checkout is main's. The secret DISCORD_WEBHOOK_RELEASES is the releases channel's webhook
+# (without it, nothing is posted there and the run says so)
 on:
   workflow_run:
     workflows: [Build]
     types: [completed]
 
 permissions:
-  contents: write # the releases and their tags, and the cards' branch (discord-cards)
+  contents: write # the releases and their tags
   actions: read # the Build run's artifact
 
 jobs:
@@ -32,7 +32,6 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PYTHONUNBUFFERED: '1' # each line in the log as it happens
       DISCORD_WEBHOOK_RELEASES: ${{ secrets.DISCORD_WEBHOOK_RELEASES }}
-      DISCORD_WEBHOOK_NIGHTLY: ${{ secrets.DISCORD_WEBHOOK_NIGHTLY }}
     steps:
       # main's scripts, and its history and tags for the changes the notes list
       - uses: actions/checkout@v7

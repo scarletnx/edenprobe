@@ -19,13 +19,14 @@ Nothing is built: the NRO is the run's artifact edenprobe-<commit>.nro, which th
 the two, and every release holds it as edenprobe.nro with edenprobe.nro.sha256 beside it, which sha256sum -c reads.
 
 Discord: a version's release gets a message on DISCORD_WEBHOOK_RELEASES's channel, the NRO linked with its size, and
-the changes since the version before. A nightly's card (discord-cards.py), posted when it was pushed, is drawn again
-once it is published. Without a webhook nothing is posted, and the run says so. gh reads and writes with GH_TOKEN.
+the changes since the version before; without the webhook nothing is posted, and the run says so. gh reads and writes
+with GH_TOKEN.
 --dry-run reads and prints each write instead. .github/workflows/publish.yml runs this; test_publish_builds.py beside
 it runs it against a fake gh and a fake Discord.
 """
 
 import argparse
+import datetime
 import hashlib
 import importlib.util
 import json
@@ -35,15 +36,23 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
-spec = importlib.util.spec_from_file_location("discord_cards", Path(__file__).with_name("discord-cards.py"))
-cards = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(cards)
-notes = cards.notes
+spec = importlib.util.spec_from_file_location("nightly_notes", Path(__file__).with_name("nightly-notes.py"))
+notes = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(notes)
 
 SERVER = notes.SERVER
+# a run's NRO, as build.yml uploads it: named after the commit's first 7 digits
+ARTIFACT = "edenprobe-{short}.nro"
+# a version's colour (the cover's sunset), and the cover beside its message, as the loader shows it
+SUNSET = 0xFF2E88
+COVER = "https://raw.githubusercontent.com/{repo}/main/icon.jpg"
+# a version's changes listed, at most, before "and N more"; Discord's limits, an embed's description and its whole text
+MOST_LINES, DESCRIPTION, EMBED = 10, 4096, 6000
 VERSION = re.compile(r"v\d[0-9A-Za-z.+-]*")
 ROLLING = "nightly"
 # Where every NRO says what it is: the header's magic, after the first 16 bytes
@@ -56,17 +65,109 @@ def published(release):
     return release.get("published_at") or ""
 
 
-class Publisher(cards.Hub):
+class Hub:
+    """GitHub through gh, with GH_TOKEN, and Discord's webhooks"""
+
+    def __init__(self, repo, dry):
+        self.repo, self.dry = repo, dry
+
+    def gh(self, args, data=None, write=False):
+        if write and self.dry:
+            print("would run: gh", " ".join(args), json.dumps(data) if data is not None else "")
+            return {}
+        run = subprocess.run(
+            ["gh", *args],
+            input=json.dumps(data) if data is not None else None,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if run.returncode:
+            raise RuntimeError(f"gh {' '.join(args)}: {run.stderr.strip() or run.stdout.strip()}")
+        return json.loads(run.stdout) if run.stdout.strip() else {}
+
+    def read(self, path):
+        return self.gh(["api", path])
+
+    def pages(self, path):
+        """every item of a listing, 100 a page"""
+        items, page = [], 1
+        while True:
+            sep = "&" if "?" in path else "?"
+            got = self.gh(["api", f"{path}{sep}per_page=100&page={page}"])
+            items += got
+            if len(got) < 100:
+                return items
+            page += 1
+
+    def write(self, method, path, data=None):
+        args = ["api", "-X", method, path, *(["--input", "-"] if data is not None else [])]
+        return self.gh(args, data, write=True)
+
+    def releases(self):
+        return self.pages(f"repos/{self.repo}/releases")
+
+    def post(self, channel, embed):
+        """a message on channel's webhook (DISCORD_WEBHOOK_<CHANNEL>)"""
+        hook = os.environ.get(f"DISCORD_WEBHOOK_{channel.upper()}", "")
+        if not hook:
+            print(f"::notice::No DISCORD_WEBHOOK_{channel.upper()}: nothing posted on Discord")
+            return
+        body = {"embeds": [embed], "allowed_mentions": {"parse": []}}
+        if self.dry:
+            print(f"would post on Discord ({channel}):", json.dumps(body))
+            return
+        # a webhook of a forum channel or a thread names it in its query (thread_id=...), which the request keeps
+        base, _, query = hook.partition("?")
+        request = urllib.request.Request(
+            f"{base}?" + (f"{query}&" if query else "") + "wait=true",
+            data=json.dumps(body).encode(),
+            method="POST",
+            # Discord refuses urllib's own agent
+            headers={"Content-Type": "application/json", "User-Agent": f"DiscordBot ({SERVER}/{self.repo}, 1)"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30):
+                pass
+        except urllib.error.HTTPError as error:
+            print(f"::warning::Discord answered {error.code} to the {channel} message: {error.read()[:200]!r}")
+        except (urllib.error.URLError, OSError) as error:
+            print(f"::warning::Discord could not be reached for the {channel} message: {error}")
+
+    def embed(self, title, url, description, fields=()):
+        """a message's embed, its description cut by whole lines, the last first, to what Discord takes: what it lists
+        gives way, the fields stay"""
+        title = title[:256]
+        room = max(0, min(DESCRIPTION, EMBED - len(title) - sum(len(f["name"]) + len(f["value"]) for f in fields)))
+        while len(description) > room:
+            description = description.rsplit("\n", 1)[0] if "\n" in description else description[:room]
+        made = {
+            "title": title,
+            "url": url,
+            "description": description,
+            "color": SUNSET,
+            "thumbnail": {"url": COVER.format(repo=self.repo)},
+            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+        }
+        if fields:
+            made["fields"] = list(fields)
+        return made
+
+
+def listed(lines, more_url, most):
+    shown = [f"- {line}" for line in lines[:most]]
+    if len(lines) > most:
+        shown.append(f"- and [{len(lines) - most} more]({more_url})")
+    return shown
+
+
+class Publisher(Hub):
     def __init__(self, args):
         super().__init__(args.repo, args.dry_run)
         self.checkout, self.keep = args.checkout, args.keep
         self.artifacts = Path(args.artifacts) if args.artifacts else None
         self.work = Path(tempfile.mkdtemp(prefix="publish-builds-"))
         self.output = {}
-
-    def cards_now(self):
-        """the cards, as GitHub has them now"""
-        return cards.Cards(self, self.checkout, self.keep)
 
     def release(self, tag):
         return next((r for r in self.releases() if r["tag_name"] == tag), None)
@@ -100,7 +201,7 @@ class Publisher(cards.Hub):
     def nro(self, run, sha):
         """the run's NRO as a release holds it, and its checksum file: each name to its path, and the NRO's SHA-256.
         actions/download-artifact puts a file it does not unpack at the artifact's path, or in a folder of that name"""
-        name = cards.ARTIFACT.format(short=sha[:7])
+        name = ARTIFACT.format(short=sha[:7])
         found = self.artifacts / name
         if found.is_dir():
             inside = sorted(path for path in found.rglob("*") if path.is_file())
@@ -152,7 +253,6 @@ class Publisher(cards.Hub):
         print(f"{'published' if new else 'replaced the files of'} {tag}")
         url = made.get("html_url", f"{SERVER}/{self.repo}/releases/tag/{tag}")
         self.point_rolling(title, url, sha, previous, files, size, digest)
-        self.cards_now().nightly(sha)
 
     def point_rolling(self, title, url, sha, previous, files, size, digest):
         """the prerelease ROLLING: the newest nightly's files and notes, its tag on that commit"""
@@ -205,7 +305,7 @@ class Publisher(cards.Hub):
         said = "\n".join(
             [
                 f"Built from [`{sha[:7]}`]({commit}). SHA-256 `{digest}`.",
-                *cards.Cards.listed(lines, compare, cards.MOST_LINES),
+                *listed(lines, compare, MOST_LINES),
             ]
         )
         self.post("releases", self.embed(title, url, said, fields))
