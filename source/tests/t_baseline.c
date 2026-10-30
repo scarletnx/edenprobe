@@ -598,6 +598,20 @@ static void CheckBuilds(const char *scratch) {
     const bool several =
         Noted("compare=builds-check: the file's 4 samples come from 3 edenprobe builds, v0.5.0 "
               "first and v0.5.0-3-gabc second") != NULL;
+    // Two builds, the fewest that mix, say so as well.
+    Seed(path, 2, 1000);
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 1000);
+    uint32_t number = 0;
+    uint32_t after = 0;
+    (void)BaselineAddFile(path, "v0.6.0", "", &number, &after);
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 1000);
+    CaptureReset();
+    const bool read_two =
+        BaselineCompareFile(path, "builds-check", &CAPTURE, &totals) == BASELINE_READ;
+    const bool two = Noted("compare=builds-check: the file's 3 samples come from 2 edenprobe "
+                           "builds, build first and v0.6.0 second") != NULL;
     // One build, the usual file, says nothing about it.
     Seed(path, 3, 1000);
     BaselineReset();
@@ -607,8 +621,9 @@ static void CheckBuilds(const char *scratch) {
         BaselineCompareFile(path, "builds-check", &CAPTURE, &totals) == BASELINE_READ;
     const bool quiet = Noted("edenprobe build") == NULL;
     CHECK_TRUE(SUITE, "baseline: samples of more than one build say how many and the first two",
-               CHECK_NONE, read && several && read_one && quiet, "several %d, one quiet %d: %.300s",
-               (int)several, (int)quiet, Notes());
+               CHECK_NONE, read && several && read_two && two && read_one && quiet,
+               "three %d, two %d, one quiet %d: %.300s", (int)several, (int)two, (int)quiet,
+               Notes());
     BaselineReset();
     (void)remove(path);
 }
