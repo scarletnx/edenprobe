@@ -19,15 +19,17 @@ sample it was and how many the file now has. The name follows the label's rules:
 dot, dash and underscore, at most 32, not starting with a dot.
 
 A baseline is a machine's, not a build's, so it is named after the machine: `console`,
-`eden-master`, `scarletnx`. A few runs make one; at least three before anything is compared, and
-five or more where a case runs at one of two speeds per process (see below), which three runs can
-all miss. The file is plain text, one line per case of each sample, and travels: a console's copied
-to an emulator's memory card is what `compare=console` holds the emulator to. A line is read only
-whole, every field and its closing brace: one cut short when the program ended while writing it,
-inside a number say, is no case, and the next sample added starts on a line of its own, which a
-note says. A sample is read only whole too, every case its first line says it has: one short of
-them, one that opened with none, and one whose first line was lost are left out, each named in a
-note with its counts.
+`eden-master`, `scarletnx`. It is one edenprobe build's too, though: a newer edenprobe can time a
+case differently, so a comparison whose file has samples of more than one says how many builds and
+names the first two. A few runs make one; at least three before anything is compared, and five or
+more where a case runs at one of two speeds per process (see below), which three runs can all miss.
+The file is plain text, one line per case of each sample, and travels: a console's copied to an
+emulator's memory card is what `compare=console` holds the emulator to. A line is read only whole,
+every field and its closing brace: one cut short when the program ended while writing it, inside a
+number say, is no case, and the next sample added starts on a line of its own, which a note says. A
+sample is read only whole too, every case its first line says it has: one short of them, one that
+opened with none, and one whose first line was lost are left out, each named in a note with its
+counts.
 
 A run with `notime` has no times and adds nothing, nor does one whose families time no case: only
 the drawing suites and `fs` are timed, so `quick cpu` adds nothing. Neither does a run that went on

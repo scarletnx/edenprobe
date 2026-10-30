@@ -399,6 +399,42 @@ static void CheckShort(const char *scratch) {
     (void)remove(path);
 }
 
+/// Samples of more than one edenprobe build: a case's time moves with the probe's own code as well
+/// as with the machine, so the comparison says how many builds and the first two.
+static void CheckBuilds(const char *scratch) {
+    char path[512];
+    snprintf(path, sizeof(path), "%.400s/builds-check.jsonl", scratch);
+    (void)remove(path);
+    static const char *const BUILDS[] = { "v0.5.0", "v0.5.0", "v0.5.0-3-gabc", "v0.6.0" };
+    for (size_t i = 0; i < sizeof(BUILDS) / sizeof(BUILDS[0]); ++i) {
+        BaselineReset();
+        BaselineTake("order", "the case that slows", 1000);
+        uint32_t number = 0;
+        uint32_t after = 0;
+        (void)BaselineAddFile(path, BUILDS[i], "", &number, &after);
+    }
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 1000);
+    BaselineTotals totals;
+    CaptureReset();
+    const bool read = BaselineCompareFile(path, "builds-check", &CAPTURE, &totals);
+    const bool several =
+        Noted("compare=builds-check: the file's 4 samples come from 3 edenprobe builds, v0.5.0 "
+              "first and v0.5.0-3-gabc second") != NULL;
+    // One build, the usual file, says nothing about it.
+    Seed(path, 3, 1000);
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 1000);
+    CaptureReset();
+    const bool read_one = BaselineCompareFile(path, "builds-check", &CAPTURE, &totals);
+    const bool quiet = Noted("edenprobe build") == NULL;
+    CHECK_TRUE(SUITE, "baseline: samples of more than one build say how many and the first two",
+               CHECK_NONE, read && several && read_one && quiet, "several %d, one quiet %d: %.300s",
+               (int)several, (int)quiet, Notes());
+    BaselineReset();
+    (void)remove(path);
+}
+
 /// Whether a line of the file at @p path opens sample @p sample, read whole.
 static bool Opens(const char *path, uint32_t sample) {
     FILE *const file = fopen(path, "r");
@@ -577,4 +613,5 @@ void RunSupportBaseline(const char *scratch) {
     CheckCut(scratch);
     CheckLineEnd(scratch);
     CheckShort(scratch);
+    CheckBuilds(scratch);
 }
