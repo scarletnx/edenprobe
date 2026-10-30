@@ -41,7 +41,8 @@ extern "C" {
 #define BASELINE_SAMPLES_MAX 64u
 /// The most timed cases one run keeps for a baseline. Past it a case is counted, not kept.
 #define BASELINE_CASES_MAX 2048u
-/// The longest suite and case names kept. A longer name is cut, the same way on both sides.
+/// The longest suite and case names kept, as a file's line carries them (escaped for a JSON
+/// string), with the terminator. A longer name is cut, the same way when kept and read back.
 #define BASELINE_SUITE_MAX 32u
 #define BASELINE_NAME_MAX 192u
 /// The longest line a baseline file holds or this module writes.
@@ -85,17 +86,20 @@ const char *BaselineMoveWord(BaselineMove move);
 size_t BaselineBuildSampleLine(char *out, size_t out_size, uint32_t sample, const char *build,
                                const char *label, size_t cases);
 
-/// One case of sample @p sample in a baseline file.
+/// One case of sample @p sample in a baseline file. @p suite and @p name are JSON string text,
+/// already escaped, as BaselineTake keeps them and BaselineParseLine reads them back.
 size_t BaselineBuildCaseLine(char *out, size_t out_size, uint32_t sample, const char *suite,
                              const char *name, uint32_t us);
 
-/// Reads a baseline file's line: true for a case line, with its fields; false for the line that
+/// Reads a baseline file's line: true for a case line, with its fields (the names as the line
+/// carries them, escapes and all, cut as BaselineTake cuts them); false for the line that
 /// opens a sample (whose number, when @p opens_sample is not NULL, goes there) and for anything
 /// this module did not write, which then leaves @p opens_sample at 0.
 bool BaselineParseLine(const char *line, uint32_t *sample, char *suite, size_t suite_size,
                        char *name, size_t name_size, uint32_t *us, uint32_t *opens_sample);
 
-/// The report's line for a case that moved past its limit.
+/// The report's line for a case that moved past its limit. @p suite and @p name are JSON string
+/// text, as BaselineTake keeps them.
 size_t BaselineBuildMovedLine(char *out, size_t out_size, const char *baseline, const char *suite,
                               const char *name, BaselineMove move, uint32_t us,
                               BaselineLimit limit, size_t samples);
