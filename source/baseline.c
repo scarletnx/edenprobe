@@ -293,9 +293,9 @@ BaselineLineKind BaselineParseLine(const char *line, BaselineFileLine *out) {
     return BASELINE_LINE_OTHER;
 }
 
-size_t BaselineBuildMovedLine(char *out, size_t out_size, const char *baseline, const char *suite,
-                              const char *name, BaselineMove move, uint32_t us,
-                              BaselineLimit limit, size_t samples) {
+size_t BaselineBuildHeldLine(char *out, size_t out_size, const char *baseline, const char *suite,
+                             const char *name, BaselineMove move, uint32_t us, BaselineLimit limit,
+                             size_t samples) {
     if (out == NULL || out_size == 0u) {
         return 0;
     }
@@ -307,10 +307,10 @@ size_t BaselineBuildMovedLine(char *out, size_t out_size, const char *baseline, 
                   snprintf(out, out_size,
                            "{\"type\":\"baseline\",\"baseline\":\"%s\",\"suite\":\"%s\","
                            "\"name\":\"%s\",\"result\":\"%s\",\"us\":%u,\"reference_us\":%u,"
-                           "\"limit_percent\":%u,\"samples\":%zu}",
+                           "\"limit_percent\":%u,\"floor_us\":%u,\"samples\":%zu}",
                            safe_baseline, safe_suite, safe_name, BaselineMoveWord(move),
                            (unsigned)us, (unsigned)limit.reference_us,
-                           (unsigned)limit.limit_percent, samples));
+                           (unsigned)limit.limit_percent, (unsigned)BASELINE_FLOOR_US, samples));
 }
 
 size_t BaselineBuildSummaryLine(char *out, size_t out_size, const char *baseline,
@@ -577,16 +577,15 @@ bool BaselineCompareFile(const char *path, const char *name, const BaselineSink 
         const BaselineLimit limit = BaselineLimitOf(c->samples, samples);
         const BaselineMove move = BaselineJudge(c->us, limit);
         ++totals->compared;
-        if (move == BASELINE_SAME) {
-            continue;
-        }
         if (move == BASELINE_SLOWER) {
             ++totals->slower;
-        } else {
+        } else if (move == BASELINE_FASTER) {
             ++totals->faster;
         }
-        if (BaselineBuildMovedLine(line, sizeof(line), name, c->suite, c->name, move, c->us,
-                                   limit, samples) > 0u) {
+        // Every case held, the ones that did not move too: how far each case is from the
+        // machine the samples came from is what a baseline is read for.
+        if (BaselineBuildHeldLine(line, sizeof(line), name, c->suite, c->name, move, c->us, limit,
+                                  samples) > 0u) {
             SinkLine(sink, line);
         }
     }

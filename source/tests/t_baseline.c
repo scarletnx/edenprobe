@@ -120,12 +120,13 @@ static void CheckLines(void) {
                CHECK_NONE, none, "read as one: %.300s", taken);
 
     const BaselineLimit limit = { 980, 63 };
-    BaselineBuildMovedLine(line, sizeof(line), "console", "order", "the order case",
-                           BASELINE_SLOWER, 1700, limit, 5);
-    CHECK_TRUE(SUITE, "baseline: the report's line for a case that moved", CHECK_NONE,
+    BaselineBuildHeldLine(line, sizeof(line), "console", "order", "the order case",
+                          BASELINE_SLOWER, 1700, limit, 5);
+    CHECK_TRUE(SUITE, "baseline: the report's line for a case held to its samples", CHECK_NONE,
                strcmp(line, "{\"type\":\"baseline\",\"baseline\":\"console\",\"suite\":\"order\","
                             "\"name\":\"the order case\",\"result\":\"slower\",\"us\":1700,"
-                            "\"reference_us\":980,\"limit_percent\":63,\"samples\":5}") == 0,
+                            "\"reference_us\":980,\"limit_percent\":63,\"floor_us\":100,"
+                            "\"samples\":5}") == 0,
                "%.400s", line);
     BaselineTotals totals = { 5, 300, 2, 1, 12, 0 };
     BaselineBuildSummaryLine(line, sizeof(line), "console", &totals);
@@ -234,7 +235,8 @@ static void CheckFile(const char *scratch) {
     BaselineTake("order", "indices before a wait", 2600);
     BaselineTake("fs", "reads a large file", 3000);
     BaselineTake("fill", "a case no sample has", 400);
-    const bool moved = BaselineCompareFile(path, "check", NULL, &totals);
+    CaptureReset();
+    const bool moved = BaselineCompareFile(path, "check", &CAPTURE, &totals);
     CHECK_TRUE(SUITE,
                "baseline: a slower case, a faster one and one with no samples are told apart",
                CHECK_NONE,
@@ -242,6 +244,19 @@ static void CheckFile(const char *scratch) {
                    totals.too_few == 1u,
                "read %d compared %zu slower %zu faster %zu too few %zu", (int)moved,
                totals.compared, totals.slower, totals.faster, totals.too_few);
+    // Every case held to its samples says how far it is, the ones that did not move too: a
+    // console's baseline is read for the distance of each case, not only the ones past a limit.
+    // The case with no samples has no line; the summary's too_few counts it.
+    CHECK_TRUE(SUITE, "baseline: every case compared gets its line, a same one too", CHECK_NONE,
+               captured.lines == 3u &&
+                   strcmp(captured.line[0],
+                          "{\"type\":\"baseline\",\"baseline\":\"check\",\"suite\":\"clear\","
+                          "\"name\":\"clear to cyan\",\"result\":\"same\",\"us\":230,"
+                          "\"reference_us\":230,\"limit_percent\":20,\"floor_us\":100,"
+                          "\"samples\":3}") == 0 &&
+                   strstr(captured.line[1], "\"result\":\"slower\",\"us\":2600,") != NULL &&
+                   strstr(captured.line[2], "\"result\":\"faster\",\"us\":3000,") != NULL,
+               "%zu lines: %.300s / %.150s", captured.lines, captured.line[0], captured.line[1]);
 
     BaselineReset();
     const bool gone = remove(path) == 0;
