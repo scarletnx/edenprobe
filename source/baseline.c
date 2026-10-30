@@ -18,6 +18,9 @@
 typedef struct {
     char suite[BASELINE_SUITE_MAX];
     char name[BASELINE_NAME_MAX];
+    /// A hash of the names as the suite gave them, whole: two cases a file cannot tell apart
+    /// differ here.
+    uint64_t whole;
     uint32_t us;
     uint32_t samples[BASELINE_SAMPLES_MAX];
     uint32_t sample_count;
@@ -32,6 +35,10 @@ typedef struct {
 static KeptCase kept[BASELINE_CASES_MAX];
 static size_t kept_count;
 static size_t dropped_count;
+/// Cases left out for reading the same as an earlier one once a file carries them, and the
+/// first such earlier one, by its index.
+static size_t met_count;
+static size_t first_met;
 
 /// Where each kept case is found by its names: an open-addressed table of indices into kept,
 /// twice its size so a search stops soon. Zero is empty, so an index is stored plus one.
@@ -74,7 +81,22 @@ static void JsonText(char *out, size_t out_size, const char *text) {
 void BaselineReset(void) {
     kept_count = 0;
     dropped_count = 0;
+    met_count = 0;
+    first_met = 0;
     memset(slots, 0, sizeof(slots));
+}
+
+/// FNV-1a over both names whole, 64 bits, a zero byte between.
+static uint64_t WholeHashOf(const char *suite, const char *name) {
+    uint64_t h = 14695981039346656037u;
+    for (const char *p = suite; *p != '\0'; ++p) {
+        h = (h ^ (uint8_t)*p) * 1099511628211u;
+    }
+    h = (h ^ 0u) * 1099511628211u;
+    for (const char *p = name; *p != '\0'; ++p) {
+        h = (h ^ (uint8_t)*p) * 1099511628211u;
+    }
+    return h;
 }
 
 void BaselineTake(const char *suite, const char *name, uint32_t us) {
@@ -82,11 +104,22 @@ void BaselineTake(const char *suite, const char *name, uint32_t us) {
     char n[BASELINE_NAME_MAX];
     JsonText(s, sizeof(s), suite);
     JsonText(n, sizeof(n), name);
+    const uint64_t whole = WholeHashOf(suite != NULL ? suite : "", name != NULL ? name : "");
     KeptCase *const known = Find(s, n);
-    if (known != NULL) {
+    if (known != NULL && known->whole == whole) {
         // Two lines of one case in one run (a suite that reports a name twice): the last one is
         // the run's, as it is the last a reader of the report sees.
         known->us = us;
+        return;
+    }
+    if (known != NULL) {
+        // Another case a file cannot tell from this one, cut at the same place or with a control
+        // character where the other has a space: its samples would be both cases' times, so the
+        // first one keeps the name and this one is left out.
+        if (met_count == 0u) {
+            first_met = (size_t)(known - kept);
+        }
+        ++met_count;
         return;
     }
     if (kept_count >= BASELINE_CASES_MAX) {
@@ -96,6 +129,7 @@ void BaselineTake(const char *suite, const char *name, uint32_t us) {
     KeptCase *const c = &kept[kept_count];
     memcpy(c->suite, s, sizeof(s));
     memcpy(c->name, n, sizeof(n));
+    c->whole = whole;
     c->us = us;
     c->sample_count = 0;
     uint32_t i = HashOf(s, n) % BASELINE_SLOTS;
@@ -829,6 +863,14 @@ BaselineOutcome BaselineFinish(const char *directory, const char *add_to, const 
         SinkNote(sink, &outcome.notes,
                  "baseline: %zu timed cases past the %u this program keeps are left out",
                  dropped_count, (unsigned)BASELINE_CASES_MAX);
+    }
+    if (met_count > 0u) {
+        SinkNote(sink, &outcome.notes,
+                 "baseline: %zu timed case%s the same as an earlier one once a baseline file "
+                 "carries them (cut to %u bytes, a control character as a space), so only the "
+                 "earlier one's time is held and added; the first is suite %s, \"%s\"",
+                 met_count, met_count == 1u ? " reads" : "s read",
+                 (unsigned)(BASELINE_NAME_MAX - 2u), kept[first_met].suite, kept[first_met].name);
     }
     if (comparing) {
         if (resumed) {
