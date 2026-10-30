@@ -347,6 +347,8 @@ typedef struct {
 
 /// How many left-out samples get a note of their own; one more note counts the rest.
 #define BASELINE_LEFT_OUT_NOTED 4u
+/// How many builds a file's samples are told apart by; past it the count says "at least".
+#define BASELINE_BUILDS_KNOWN 64u
 
 /// What reading a baseline file found, beyond the samples each kept case got.
 typedef struct {
@@ -359,6 +361,11 @@ typedef struct {
     /// The samples left out, and the first few of them.
     uint32_t left_out;
     LeftOut first_left_out[BASELINE_LEFT_OUT_NOTED];
+    /// The edenprobe builds the whole samples came from, by a hash of each, and the first two.
+    uint32_t builds;
+    bool builds_past_known;
+    uint64_t build_hashes[BASELINE_BUILDS_KNOWN];
+    char first_builds[2][BASELINE_BUILD_MAX];
 } FileRead;
 
 /// The sample being read: its number and the cases its opening line said, or none open, and the
@@ -368,6 +375,7 @@ static struct {
     uint32_t sample;
     uint32_t said;
     uint32_t read;
+    char build[BASELINE_BUILD_MAX];
     /// Case lines of a sample whose opening line was not read: its number, or 0.
     uint32_t stray_sample;
     uint32_t stray_read;
@@ -385,6 +393,31 @@ static void LeaveOut(FileRead *read_out, uint32_t sample, bool opened, uint32_t 
         left->read = lines;
     }
     ++read_out->left_out;
+}
+
+/// Counts @p build among the builds a file's samples came from, keeping the first two.
+static void CountBuild(FileRead *read_out, const char *build) {
+    // FNV-1a, 64 bits: a hash per build is all telling them apart needs.
+    uint64_t h = 14695981039346656037u;
+    for (const char *p = build; *p != '\0'; ++p) {
+        h = (h ^ (uint8_t)*p) * 1099511628211u;
+    }
+    const uint32_t known =
+        read_out->builds < BASELINE_BUILDS_KNOWN ? read_out->builds : BASELINE_BUILDS_KNOWN;
+    for (uint32_t i = 0; i < known; ++i) {
+        if (read_out->build_hashes[i] == h) {
+            return;
+        }
+    }
+    if (read_out->builds >= BASELINE_BUILDS_KNOWN) {
+        read_out->builds_past_known = true;
+        return;
+    }
+    if (read_out->builds < 2u) {
+        snprintf(read_out->first_builds[read_out->builds], sizeof(read_out->first_builds[0]), "%s",
+                 build);
+    }
+    read_out->build_hashes[read_out->builds++] = h;
 }
 
 /// Ends the sample being read: whole, its times join each case's samples; short of what its
@@ -409,6 +442,7 @@ static void EndSample(FileRead *read_out) {
         }
         if (whole) {
             ++read_out->samples;
+            CountBuild(read_out, reading.build);
         } else {
             LeaveOut(read_out, reading.sample, true, reading.said, reading.read);
         }
@@ -461,6 +495,7 @@ static bool ReadFile(const char *path, FileRead *read_out, bool fill_cases) {
             reading.sample = read.sample;
             reading.said = read.cases;
             reading.read = 0;
+            memcpy(reading.build, read.build, sizeof(reading.build));
             continue;
         }
         if (!reading.open || read.sample != reading.sample) {
@@ -566,6 +601,14 @@ bool BaselineCompareFile(const char *path, const char *name, const BaselineSink 
     }
     totals->samples = read.samples;
     NoteLeftOut(sink, &totals->notes, "compare", name, &read);
+    if (read.builds > 1u) {
+        SinkNote(sink, &totals->notes,
+                 "compare=%s: the file's %u samples come from %s%u edenprobe builds, %s first and "
+                 "%s second: a case's time moves with the probe's own code as well as with the "
+                 "machine",
+                 name, (unsigned)read.samples, read.builds_past_known ? "at least " : "",
+                 (unsigned)read.builds, read.first_builds[0], read.first_builds[1]);
+    }
     char line[REPORT_LINE_MAX];
     for (size_t i = 0; i < kept_count; ++i) {
         KeptCase *const c = &kept[i];
