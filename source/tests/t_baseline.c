@@ -316,6 +316,24 @@ static void CheckFinish(const char *scratch) {
                (int)untimed.compared, (int)untimed.added, untimed.notes, captured.lines,
                (unsigned)SamplesIn(path), Notes());
 
+    // A run of families that time nothing, cpu alone say, has no sample to give: an empty one
+    // would only make the file's count of samples say more runs than any case has.
+    char empty[512];
+    snprintf(empty, sizeof(empty), "%.400s/empty-check.jsonl", scratch);
+    (void)remove(empty);
+    BaselineReset();
+    CaptureReset();
+    const BaselineOutcome none = BaselineFinish(scratch, "empty-check", NULL, "build", "", true,
+                                                false, &CAPTURE);
+    struct stat made;
+    const bool no_file = stat(empty, &made) != 0;
+    CHECK_TRUE(SUITE, "baseline: a run that timed no case adds no sample, and says so", CHECK_NONE,
+               !none.added && no_file &&
+                   Noted("baseline=empty-check: this run timed no case") != NULL,
+               "added %d as %u, file made %d: %.300s", (int)none.added, (unsigned)none.sample,
+               (int)!no_file, Notes());
+    (void)remove(empty);
+
     BaselineReset();
     const bool gone = remove(path) == 0;
     CHECK_TRUE(SUITE, "baseline: the run checks take their file away again", CHECK_NONE, gone,

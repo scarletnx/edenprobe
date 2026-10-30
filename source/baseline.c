@@ -555,6 +555,12 @@ BaselineOutcome BaselineFinish(const char *directory, const char *add_to, const 
                      "baseline=%s: this run went on after the program ended inside it, and this "
                      "launch has only %zu of its timed cases, so no sample was added",
                      add_to, kept_count);
+        } else if (kept_count == 0u) {
+            // A sample of nothing would add to the file's count of runs and to no case's.
+            SinkNote(sink, &outcome.notes,
+                     "baseline=%s: this run timed no case (only the drawing suites and fs are "
+                     "timed), so no sample was added",
+                     add_to);
         } else {
             Add(directory, add_to, build, label, sink, &outcome);
         }

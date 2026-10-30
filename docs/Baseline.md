@@ -23,9 +23,10 @@ five or more where a case runs at one of two speeds per process (see below), whi
 all miss. The file is plain text, one line per case of each sample, and travels: a console's copied
 to an emulator's memory card is what `compare=console` holds the emulator to.
 
-A run with `notime` has no times and adds nothing. Neither does a run that went on after the program
-ended inside it: its first launch's times went with that launch, and a sample with half its cases
-would pull every reference toward the half it has. Both say so in a note.
+A run with `notime` has no times and adds nothing, nor does one whose families time no case: only
+the drawing suites and `fs` are timed, so `quick cpu` adds nothing. Neither does a run that went on
+after the program ended inside it: its first launch's times went with that launch, and a sample
+with half its cases would pull every reference toward the half it has. Each says so in a note.
 
 ## Holding a run to one
 
