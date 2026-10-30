@@ -472,7 +472,9 @@ static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t p
     }
     if (mode->frames_named) {
         const size_t used = strlen(out);
-        snprintf(out + used, out_size - used, "; frames %u", (unsigned)mode->frames);
+        const bool game = (ModeFamiliesToRun(mode, present) & MODE_FAMILY_GAME) != 0u;
+        snprintf(out + used, out_size - used, "; frames %u%s", (unsigned)mode->frames,
+                 game ? "" : ", for the game family, which this run leaves out");
     }
     if (mode->frames_was_refused) {
         const size_t used = strlen(out);
@@ -627,7 +629,7 @@ size_t ModeFormat(char *out, size_t out_size, const RunMode *mode) {
     if (mode == NULL) {
         return 0;
     }
-    char key[128];
+    char key[MODE_KEY_MAX];
     ModeKey(key, sizeof(key), mode);
     bool fits = (mode->detailed || AppendWord(out, out_size, "quick")) &&
                 (key[0] == '\0' || AppendWord(out, out_size, key)) &&
@@ -664,7 +666,7 @@ size_t ModeChosenWords(char *out, size_t out_size, const RunMode *mode) {
     if (mode == NULL) {
         return 0;
     }
-    char key[128];
+    char key[MODE_KEY_MAX];
     ModeKey(key, sizeof(key), mode);
     const bool fits = AppendWord(out, out_size, "screen") &&
                       (key[0] == '\0' || AppendWord(out, out_size, key)) &&
@@ -709,8 +711,8 @@ RunMode ModeWithChosen(RunMode from_file, const char *chosen) {
     RunMode file_rest = from_file;
     RunMode chosen_rest = mode;
     file_rest.fatal = file_rest.retry = chosen_rest.fatal = chosen_rest.retry = false;
-    char before[128];
-    char after[128];
+    char before[MODE_KEY_MAX];
+    char after[MODE_KEY_MAX];
     ModeKey(before, sizeof(before), &file_rest);
     ModeKey(after, sizeof(after), &chosen_rest);
     mode.chosen_on_screen = strcmp(before, after) != 0 || mode.detailed != from_file.detailed;
@@ -730,7 +732,7 @@ void ModeJournalWords(char *run_key, size_t run_key_size, char *chosen, size_t c
     }
     const RunMode *const in_file = mode->saved_by_screen ? mode : from_file;
     ModeKey(run_key, run_key_size, in_file);
-    char run[128];
+    char run[MODE_KEY_MAX];
     ModeKey(run, sizeof(run), mode);
     if (chosen != NULL && (strcmp(run, run_key) != 0 || mode->detailed != in_file->detailed)) {
         ModeChosenWords(chosen, chosen_size, mode);

@@ -134,6 +134,11 @@ typedef enum {
 /// The longest folder name ModeRunFolder makes, the separator included.
 #define MODE_FOLDER_MAX (MODE_HASH_MAX + 1u + MODE_LABEL_MAX)
 
+/// Room for every word ModeKey writes with all of them on and `frames=` at its widest, 121
+/// characters, with room to grow: the support suite holds the widest to it, and the journal's
+/// fields are sized from it (journal.h, JOURNAL_MODE_MAX).
+#define MODE_KEY_MAX 192u
+
 /// A name a word carries after its sign, `baseline=<name>` or `compare=<name>`: the last good one,
 /// or empty, and the last one refused, as written and cut to fit, for the mode line. A refusal
 /// leaves an earlier good name alone.

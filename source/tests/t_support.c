@@ -717,6 +717,7 @@ static void CheckReportLine(void) {
 // what is left here is what happens before and after them: the launch and the mode file.
 static void CheckLabel(void);
 static void CheckFrames(void);
+static void CheckWidestMode(void);
 
 static void CheckLaunchAndMode(void) {
     // The pad is waited for until it answers, and no longer.
@@ -850,7 +851,7 @@ static void CheckLaunchAndMode(void) {
                        strcmp(saved, "quick noprogress") == 0 && length > strlen(tail) &&
                        strcmp(said + length - strlen(tail), tail) == 0 &&
                        ModeFromText("noprogresses").unknown_count == 1u,
-                   "plain %d, noprogress %d, unknown %u, keys \"%s\" \"%s\", saved \"%.40s\", "
+                   "plain %d, noprogress %d, unknown %u, keys \"%.60s\" \"%.60s\", saved \"%.40s\", "
                    "said \"%.200s\"",
                    (int)plain.no_progress, (int)still.no_progress, (unsigned)still.unknown_count,
                    key_plain, key_still, saved, said);
@@ -998,6 +999,7 @@ static void CheckLaunchAndMode(void) {
 
     CheckLabel();
     CheckFrames();
+    CheckWidestMode();
 }
 
 /// `label=<name>` names the folder a run goes in beside the build's hash, and a name a folder
@@ -1174,7 +1176,7 @@ static void CheckFrames(void) {
         { "frames=99999999999999999999",
           "; frames=9999999999999999... is not a whole number from 1 to 36000: it keeps 600",
           600u, true },
-        { "frames=120 frames=abc",
+        { "game frames=120 frames=abc",
           "; frames 120; frames=abc is not a whole number from 1 to 36000: it keeps 120", 120u,
           false },
     };
@@ -1216,6 +1218,14 @@ static void CheckFrames(void) {
                       whole.frames == 1200u,
                   "a number cut by the limit");
 
+    // Given with no game family to run it: the line says the scene is left out.
+    const RunMode unused = ModeFromText("quick net frames=120");
+    ModeDescribe(said, sizeof(said), &unused, MODE_FAMILIES_PRESENT);
+    FRAMES_EXPECT(unused.frames == 120u &&
+                      strstr(said, "; frames 120, for the game family, which this run leaves "
+                                   "out") != NULL,
+                  "frames=120 with no game family");
+
     FRAMES_EXPECT(UiFamilyOf("game") == UI_FAMILY_GAME &&
                       strcmp(UiFamilyName(UI_FAMILY_GAME), "game") == 0,
                   "the screens' family");
@@ -1224,6 +1234,73 @@ static void CheckFrames(void) {
                       "number says the one it keeps",
                CHECK_NONE, wrong == 0u, "%u readings wrong, the first: %.80s", (unsigned)wrong,
                first);
+}
+
+_Static_assert(JOURNAL_MODE_MAX >= MODE_KEY_MAX + sizeof("screen  quick") - 1u,
+               "a chosen record holds the widest key with the words around it");
+_Static_assert(JOURNAL_LINE_MAX >= sizeof("run   \t\n") + JOURNAL_SUITE_MAX + JOURNAL_NAME_MAX +
+                                       JOURNAL_MODE_MAX,
+               "a run record with every field at its widest fits a journal line");
+
+/// The widest mode a file can ask for, every word on and `frames=` at its widest: its key is whole
+/// in MODE_KEY_MAX, the run and chosen records hold it, and a launch after a crash goes on with
+/// the run in that mode rather than starting over with an empty key.
+static void CheckWidestMode(void) {
+    static const char WIDEST[] = "quick audio cpu display fatal frames=36000 fs game graphics hang "
+                                 "images kernel listen net notime pad retry service stress video";
+    static const char KEY[] = "audio cpu display fatal frames=36000 fs game graphics hang images "
+                              "kernel listen net notime pad retry service stress video";
+    const RunMode file = ModeFromText(WIDEST);
+    char key[MODE_KEY_MAX];
+    const size_t key_length = ModeKey(key, sizeof(key), &file);
+    // The start screen chose it differently: not quick, and no graphics.
+    RunMode chosen = file;
+    chosen.families_named &= ~MODE_FAMILY_GRAPHICS;
+    chosen.quick = false;
+    chosen.detailed = true;
+    chosen.chosen_on_screen = true;
+    char run_key[JOURNAL_MODE_MAX];
+    char words[JOURNAL_MODE_MAX];
+    ModeJournalWords(run_key, sizeof(run_key), words, sizeof(words), &file, &chosen);
+
+    static char build[JOURNAL_NAME_MAX];
+    memset(build, 'b', sizeof(build) - 1u);
+    build[sizeof(build) - 1u] = '\0';
+    char text[2048] = "";
+    JournalRecord record;
+    memset(&record, 0, sizeof(record));
+    record.kind = JOURNAL_RUN;
+    snprintf(record.suite, sizeof(record.suite), "0.5.0");
+    snprintf(record.name, sizeof(record.name), "%s", build);
+    snprintf(record.mode, sizeof(record.mode), "%s", run_key);
+    char line[JOURNAL_LINE_MAX];
+    const size_t run_line = JournalFormat(line, sizeof(line), &record);
+    snprintf(text, sizeof(text), "%s", line);
+    memset(&record, 0, sizeof(record));
+    record.kind = JOURNAL_CHOSEN;
+    snprintf(record.mode, sizeof(record.mode), "%s", words);
+    const size_t chosen_line = JournalFormat(line, sizeof(line), &record);
+    snprintf(text + strlen(text), sizeof(text) - strlen(text), "%slaunch 1\t\n", line);
+    JournalState state;
+    JournalStateInit(&state);
+    JournalReadText(&state, text, strlen(text));
+    const JournalPlan plan = JournalPlanStart(&state, "0.5.0", build, key, 0);
+    const RunMode resumed = ModeWithChosen(file, state.chosen);
+    char resumed_key[MODE_KEY_MAX];
+    ModeKey(resumed_key, sizeof(resumed_key), &resumed);
+    char chosen_key[MODE_KEY_MAX];
+    ModeKey(chosen_key, sizeof(chosen_key), &chosen);
+
+    CHECK_TRUE(SUITE, "the widest mode goes into the journal whole and a launch goes on in it",
+               CHECK_NONE,
+               key_length == sizeof(KEY) - 1u && strcmp(key, KEY) == 0 &&
+                   strcmp(run_key, KEY) == 0 && words[0] != '\0' && run_line > 0u &&
+                   chosen_line > 0u && plan.start != JOURNAL_FRESH &&
+                   strcmp(resumed_key, chosen_key) == 0 && resumed.detailed,
+               "key %zu of %zu characters, \"%.60s...\"; chosen words %zu; run record %zu, chosen "
+               "%zu bytes; plan %d; resumed \"%.60s...\"",
+               key_length, sizeof(KEY) - 1u, key, strlen(words), run_line, chosen_line,
+               (int)plan.start, resumed_key);
 }
 
 /// How much of the heading band is drawn in the colour a failure is shouted in.

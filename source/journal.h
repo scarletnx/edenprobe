@@ -34,10 +34,12 @@ extern "C" {
 /// at most 127 characters of a name, so every name a line can hold fits.
 #define JOURNAL_SUITE_MAX 32u
 #define JOURNAL_NAME_MAX 160u
-/// The longest record, and the longest line read: a longer one is not a record.
-#define JOURNAL_LINE_MAX 256u
-/// The mode words a run was started with, as the run record keeps them.
-#define JOURNAL_MODE_MAX 96u
+/// The longest record, and the longest line read: a longer one is not a record. A run record
+/// with every field at its widest fits.
+#define JOURNAL_LINE_MAX 512u
+/// The mode words a run was started with, as the run record keeps them: the widest mode key
+/// (mode.h, MODE_KEY_MAX), and the word `screen` and `quick` around it a chosen record adds.
+#define JOURNAL_MODE_MAX 208u
 #define JOURNAL_BUILD_MAX 64u
 
 /// What a case came to, as its end record says. A skip whose reason is `crashed` is counted
