@@ -325,6 +325,64 @@ static uint32_t SamplesIn(const char *path) {
                                                                               : 0u;
 }
 
+/// One name twice in a run, and two names that read the same once a file carries them. The same
+/// case reported twice is held by its last time, as a reader of the report sees it last. Two
+/// different names a file cannot tell apart (past the cut, or a tab against a space) are one
+/// case to a baseline: the first one's time is held and added, the other is left out, and a
+/// note says how many and names the first.
+static void CheckSameName(const char *scratch) {
+    char path[512];
+    snprintf(path, sizeof(path), "%.400s/same-check.jsonl", scratch);
+    Seed(path, 3, 1000);
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 1000);
+    BaselineTake("order", "the case that slows", 5000);
+    BaselineTotals totals;
+    const bool twice = BaselineCompareFile(path, "check", NULL, &totals) == BASELINE_READ &&
+                       BaselineKept() == 1u && totals.slower == 1u;
+    CHECK_TRUE(SUITE, "baseline: a case reported twice in a run is held by its last time",
+               CHECK_NONE, twice, "kept %zu, compared %zu slower %zu", BaselineKept(),
+               totals.compared, totals.slower);
+
+    static char first[300];
+    static char second[300];
+    memset(first, 'n', sizeof(first) - 1u);
+    first[sizeof(first) - 1u] = '\0';
+    memcpy(second, first, sizeof(second));
+    second[sizeof(second) - 2u] = 'm';
+    char cut[BASELINE_NAME_MAX];
+    (void)ReportEscape(cut, sizeof(cut), first);
+    (void)remove(path);
+    for (size_t i = 0; i < 3u; ++i) {
+        BaselineReset();
+        BaselineTake("order", first, 1000);
+        uint32_t number = 0;
+        uint32_t after = 0;
+        (void)BaselineAddFile(path, "build", "", &number, &after);
+    }
+    BaselineReset();
+    BaselineTake("order", first, 1000);
+    BaselineTake("order", second, 9000);
+    BaselineTake("order", "a tab\there", 1000);
+    BaselineTake("order", "a tab here", 9000);
+    CaptureReset();
+    const BaselineOutcome met =
+        BaselineFinish(scratch, NULL, "same-check", "build", "", true, false, &CAPTURE);
+    char said[160];
+    snprintf(said, sizeof(said), "baseline: 2 timed cases read the same as an earlier one once a "
+             "baseline file carries them");
+    const char *const named = Noted(said);
+    CHECK_TRUE(SUITE, "baseline: two names a file cannot tell apart are one case, and said",
+               CHECK_NONE,
+               BaselineKept() == 2u && met.compared && met.totals.compared == 1u &&
+                   met.totals.slower == 0u && named != NULL && strstr(named, cut) != NULL &&
+                   strstr(named, "suite order") != NULL,
+               "kept %zu, compared %zu slower %zu: %.300s", BaselineKept(), met.totals.compared,
+               met.totals.slower, Notes());
+    BaselineReset();
+    (void)remove(path);
+}
+
 /// Appends @p text to the file at @p path as it is, for a file a write was cut short in.
 static void Append(const char *path, const char *text) {
     FILE *const file = fopen(path, "a");
@@ -710,6 +768,7 @@ void RunSupportBaseline(const char *scratch) {
     CheckShort(scratch);
     CheckBuilds(scratch);
     CheckNewest(scratch);
+    CheckSameName(scratch);
 #if !defined(__SWITCH__) && defined(__GLIBC__)
     CheckUnreadable(scratch);
 #endif

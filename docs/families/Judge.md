@@ -7,7 +7,7 @@ family reports can be believed without them.
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and eighty three cases, no hardware involved: what the program does around
+- **support**, one hundred and eighty five cases, no hardware involved: what the program does around
   a verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
   detailed mode's store, screens and navigation, the start screen, the screen that asks whether to
   go on with a run, the running screen, the listening screen, the pad screen and the touch suite's,
@@ -17,7 +17,7 @@ family reports can be believed without them.
   launch decides from them (twenty seven cases, see [When the program ends in the
   middle](../Crashes.md)), the last copy a device waits for before it closes, and the note a late
   one leaves (eight cases), and a baseline: the limit a case's samples allow, its file and lines,
-  the words that name one and what a run with them does (thirty cases, see
+  the words that name one and what a run with them does (thirty two cases, see
   [Baselines](../Baseline.md)). One case carries the whole idea: the diff picture is built from what
   the judge decided pixel by pixel, not from comparing two images, so a pixel that differs and was
   allowed to is not painted as a difference. Every line is the none tier, because none of it is a

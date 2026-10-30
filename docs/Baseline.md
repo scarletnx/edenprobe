@@ -29,7 +29,9 @@ every field and its closing brace: one cut short when the program ended while wr
 number say, is no case, and the next sample added starts on a line of its own, which a note says. A
 sample is read only whole too, every case its first line says it has: one short of them, one that
 opened with none, and one whose first line was lost are left out, each named in a note with its
-counts.
+counts. A case is found in the file by its suite and name as a line carries them, cut to 190
+bytes: two names a file cannot tell apart, the same that far or a tab where the other has a space,
+are one case to a baseline, which holds and adds the first one's time and says so in a note.
 
 A run with `notime` has no times and adds nothing, nor does one whose families time no case: only
 the drawing suites and `fs` are timed, so `quick cpu` adds nothing. Neither does a run that went on
