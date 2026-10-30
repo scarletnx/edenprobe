@@ -129,6 +129,60 @@ static void CheckLines(void) {
                "%.400s", line);
 }
 
+/// What a baseline wrote, read back here instead of going into the report this suite is part of.
+#define CAPTURED_MAX 8u
+typedef struct {
+    size_t lines;
+    size_t notes;
+    char line[CAPTURED_MAX][REPORT_LINE_MAX];
+    char note[CAPTURED_MAX][REPORT_NOTE_MAX + 1];
+} Captured;
+
+static Captured captured;
+
+static void CaptureLine(void *context, const char *line) {
+    Captured *const c = context;
+    if (c->lines < CAPTURED_MAX) {
+        snprintf(c->line[c->lines], sizeof(c->line[0]), "%s", line);
+    }
+    ++c->lines;
+}
+
+static void CaptureNote(void *context, const char *text) {
+    Captured *const c = context;
+    if (c->notes < CAPTURED_MAX) {
+        snprintf(c->note[c->notes], sizeof(c->note[0]), "%s", text);
+    }
+    ++c->notes;
+}
+
+static const BaselineSink CAPTURE = { CaptureLine, CaptureNote, &captured };
+
+static void CaptureReset(void) {
+    memset(&captured, 0, sizeof(captured));
+}
+
+/// The first note captured that holds @p text, or NULL.
+static const char *Noted(const char *text) {
+    for (size_t i = 0; i < captured.notes && i < CAPTURED_MAX; ++i) {
+        if (strstr(captured.note[i], text) != NULL) {
+            return captured.note[i];
+        }
+    }
+    return NULL;
+}
+
+/// The notes captured, one after the other, for a failing case's detail.
+static const char *Notes(void) {
+    static char all[512];
+    all[0] = '\0';
+    for (size_t i = 0; i < captured.notes && i < CAPTURED_MAX; ++i) {
+        const size_t used = strlen(all);
+        snprintf(all + used, sizeof(all) - used, "%s[%s]", i > 0u ? " " : "", captured.note[i]);
+    }
+    return all;
+}
+
 /// One made-up run of three timed cases, the second @p second microseconds.
 static void TakeRun(uint32_t second) {
     BaselineReset();
@@ -143,7 +197,7 @@ static void CheckFile(const char *scratch) {
     (void)remove(path);
 
     BaselineTotals totals;
-    const bool missing = BaselineCompareFile(path, &totals, NULL);
+    const bool missing = BaselineCompareFile(path, "check", NULL, &totals);
     // Three runs of one machine, the order case at one of its two speeds each time.
     static const uint32_t SPEEDS[] = { 970, 1390, 980 };
     bool added = true;
@@ -161,7 +215,7 @@ static void CheckFile(const char *scratch) {
                (unsigned)numbers[0], (unsigned)numbers[1], (unsigned)numbers[2], (unsigned)after);
 
     TakeRun(1385);
-    const bool same = BaselineCompareFile(path, &totals, NULL);
+    const bool same = BaselineCompareFile(path, "check", NULL, &totals);
     CHECK_TRUE(SUITE, "baseline: a run within its samples moves nothing", CHECK_NONE,
                same && totals.samples == 3u && totals.compared == 3u && totals.slower == 0u &&
                    totals.faster == 0u && totals.too_few == 0u,
@@ -174,7 +228,7 @@ static void CheckFile(const char *scratch) {
     BaselineTake("order", "indices before a wait", 2600);
     BaselineTake("fs", "reads a large file", 3000);
     BaselineTake("fill", "a case no sample has", 400);
-    const bool moved = BaselineCompareFile(path, &totals, NULL);
+    const bool moved = BaselineCompareFile(path, "check", NULL, &totals);
     CHECK_TRUE(SUITE,
                "baseline: a slower case, a faster one and one with no samples are told apart",
                CHECK_NONE,
@@ -186,6 +240,85 @@ static void CheckFile(const char *scratch) {
     BaselineReset();
     const bool gone = remove(path) == 0;
     CHECK_TRUE(SUITE, "baseline: this check takes its file away again", CHECK_NONE, gone,
+               "%.400s is still there", path);
+}
+
+/// A file at @p path of @p count samples, each of one case at @p us microseconds.
+static void Seed(const char *path, size_t count, uint32_t us) {
+    (void)remove(path);
+    for (size_t i = 0; i < count; ++i) {
+        BaselineReset();
+        BaselineTake("order", "the case that slows", us);
+        uint32_t sample = 0;
+        uint32_t after = 0;
+        (void)BaselineAddFile(path, "build", "", &sample, &after);
+    }
+}
+
+/// The samples the file at @p path has, as a comparison reads them.
+static uint32_t SamplesIn(const char *path) {
+    BaselineTotals totals;
+    return BaselineCompareFile(path, "check", NULL, &totals) ? totals.samples : 0u;
+}
+
+/// What BaselineFinish does with both words, with a run that went on after a crash, and with
+/// notime: the order that keeps a run from being held to itself, and the two runs that add nothing.
+static void CheckFinish(const char *scratch) {
+    char path[512];
+    snprintf(path, sizeof(path), "%.400s/finish-check.jsonl", scratch);
+
+    // Three samples at a millisecond and a run at five: held to the three, it is slower; held to
+    // four that include itself, its own sample would have widened the limit past it.
+    Seed(path, 3, 1000);
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 5000);
+    CaptureReset();
+    const BaselineOutcome both = BaselineFinish(scratch, "finish-check", "finish-check", "build",
+                                                "", true, false, &CAPTURE);
+    CHECK_TRUE(SUITE,
+               "baseline: a run with both words is held to the samples before it, then added",
+               CHECK_NONE,
+               both.compared && both.totals.samples == 3u && both.totals.slower == 1u &&
+                   both.added && both.sample == 4u && both.samples_after == 4u &&
+                   SamplesIn(path) == 4u,
+               "compared %d samples %u slower %zu, added %d as %u, after %u: %.300s",
+               (int)both.compared, (unsigned)both.totals.samples, both.totals.slower,
+               (int)both.added, (unsigned)both.sample, (unsigned)both.samples_after, Notes());
+
+    Seed(path, 3, 1000);
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 5000);
+    CaptureReset();
+    const BaselineOutcome resumed = BaselineFinish(scratch, "finish-check", "finish-check",
+                                                   "build", "", true, true, &CAPTURE);
+    CHECK_TRUE(SUITE, "baseline: a run that went on after the program ended is compared, not added",
+               CHECK_NONE,
+               resumed.compared && resumed.totals.slower == 1u && !resumed.added &&
+                   SamplesIn(path) == 3u &&
+                   Noted("this launch has only 1 of its timed cases, so no sample was added") !=
+                       NULL,
+               "compared %d slower %zu added %d, file %u samples: %.300s",
+               (int)resumed.compared, resumed.totals.slower, (int)resumed.added,
+               (unsigned)SamplesIn(path), Notes());
+
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 5000);
+    CaptureReset();
+    const BaselineOutcome untimed = BaselineFinish(scratch, "finish-check", "finish-check",
+                                                   "build", "", false, false, &CAPTURE);
+    CHECK_TRUE(SUITE, "baseline: a run with notime compares and adds nothing, and says both",
+               CHECK_NONE,
+               !untimed.compared && !untimed.added && untimed.notes == 2u &&
+                   captured.lines == 0u && SamplesIn(path) == 3u &&
+                   Noted("baseline=finish-check: this run has notime") != NULL &&
+                   Noted("compare=finish-check: this run has notime") != NULL,
+               "compared %d added %d, %zu notes %zu lines, file %u samples: %.300s",
+               (int)untimed.compared, (int)untimed.added, untimed.notes, captured.lines,
+               (unsigned)SamplesIn(path), Notes());
+
+    BaselineReset();
+    const bool gone = remove(path) == 0;
+    CHECK_TRUE(SUITE, "baseline: the run checks take their file away again", CHECK_NONE, gone,
                "%.400s is still there", path);
 }
 
@@ -241,4 +374,5 @@ void RunSupportBaseline(const char *scratch) {
     CheckLines();
     CheckMode();
     CheckFile(scratch);
+    CheckFinish(scratch);
 }
