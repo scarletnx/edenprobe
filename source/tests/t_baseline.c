@@ -127,7 +127,7 @@ static void CheckLines(void) {
                             "\"name\":\"the order case\",\"result\":\"slower\",\"us\":1700,"
                             "\"reference_us\":980,\"limit_percent\":63,\"samples\":5}") == 0,
                "%.400s", line);
-    BaselineTotals totals = { 5, 300, 2, 1, 12 };
+    BaselineTotals totals = { 5, 300, 2, 1, 12, 0 };
     BaselineBuildSummaryLine(line, sizeof(line), "console", &totals);
     CHECK_TRUE(SUITE, "baseline: the report's line that sums a comparison up", CHECK_NONE,
                strcmp(line, "{\"type\":\"baseline_summary\",\"baseline\":\"console\",\"samples\":5,"
@@ -344,6 +344,46 @@ static void CheckCut(const char *scratch) {
     (void)remove(path);
 }
 
+/// A sample is all its cases or none: one short of the cases its first line said, one that
+/// opened with none, and one whose opening line went onto a cut line are left out, each said
+/// with its number and counts. Here each would have hidden a run two and a half times slower:
+/// the short one with the cut sample's 10, the one with no opening line with a run of its own.
+static void CheckShort(const char *scratch) {
+    char path[512];
+    snprintf(path, sizeof(path), "%.400s/short-check.jsonl", scratch);
+    Seed(path, 5, 10000);
+    Append(path, "{\"type\":\"sample\",\"sample\":6,\"build\":\"build\",\"label\":\"\","
+                 "\"cases\":2}\n{\"sample\":6,\"suite\":\"order\",\"name\":\"the case that "
+                 "slows\",\"us\":10}\n{\"sample\":6,\"suite\":\"order\",\"name\":\"the next "
+                 "on\"\n"
+                 "{\"type\":\"sample\",\"sample\":7,\"build\":\"build\",\"label\":\"\","
+                 "\"cases\":0}\n"
+                 "{\"type\":\"sample\",\"sample\":8,\"build\":\"build\",\"label\":\"\","
+                 "\"cases\":1}\n{\"sample\":8,\"suite\":\"order\",\"name\":\"the case that "
+                 "slows\",\"us\":10{\"type\":\"sample\",\"sample\":9,\"build\":\"build\","
+                 "\"label\":\"\",\"cases\":1}\n{\"sample\":9,\"suite\":\"order\",\"name\":"
+                 "\"the case that slows\",\"us\":25000}\n");
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 25000);
+    BaselineTotals totals;
+    CaptureReset();
+    const bool read = BaselineCompareFile(path, "short-check", &CAPTURE, &totals);
+    CHECK_TRUE(SUITE, "baseline: a sample short of the cases it opened with is left out, and said",
+               CHECK_NONE,
+               read && totals.samples == 5u && totals.compared == 1u && totals.slower == 1u &&
+                   Noted("compare=short-check: sample 6 of the file is left out: it opened with 2 "
+                         "cases and 1 whole line of it was read") != NULL &&
+                   Noted("sample 7 of the file is left out: it opened with 0 cases") != NULL &&
+                   Noted("sample 8 of the file is left out: it opened with 1 case and 0 whole "
+                         "lines of it were read") != NULL &&
+                   Noted("sample 9 of the file is left out: no line opening it was read, and 1 "
+                         "whole line of it was") != NULL,
+               "read %d samples %u compared %zu slower %zu: %.300s", (int)read,
+               (unsigned)totals.samples, totals.compared, totals.slower, Notes());
+    BaselineReset();
+    (void)remove(path);
+}
+
 /// Whether a line of the file at @p path opens sample @p sample, read whole.
 static bool Opens(const char *path, uint32_t sample) {
     FILE *const file = fopen(path, "r");
@@ -378,7 +418,8 @@ static void CheckLineEnd(const char *scratch) {
                CHECK_NONE,
                outcome.added && outcome.sample == 5u && Opens(path, 5u) &&
                    Noted("baseline=end-check: the last line of ") != NULL &&
-                   Noted("had no line end, so one was written before sample 5") != NULL,
+                   Noted("had no line end, so one was written before sample 5") != NULL &&
+                   Noted("which now has 4 whole and 1 left out") != NULL,
                "added %d as %u, sample 5 opens %d: %.300s", (int)outcome.added,
                (unsigned)outcome.sample, (int)Opens(path, 5u), Notes());
     BaselineReset();
@@ -520,4 +561,5 @@ void RunSupportBaseline(const char *scratch) {
     CheckNames(scratch);
     CheckCut(scratch);
     CheckLineEnd(scratch);
+    CheckShort(scratch);
 }

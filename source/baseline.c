@@ -21,6 +21,9 @@ typedef struct {
     uint32_t us;
     uint32_t samples[BASELINE_SAMPLES_MAX];
     uint32_t sample_count;
+    /// Its time in the sample being read, which joins samples only if that sample is whole.
+    uint32_t pending_us;
+    bool pending;
 } KeptCase;
 
 /// Static, as every buffer here: a run's cases fit, and nothing is allocated between suites.
@@ -333,20 +336,102 @@ static void PathOf(char *out, size_t out_size, const char *directory, const char
     snprintf(out, out_size, "%s/%s.jsonl", directory, name);
 }
 
+/// A sample a comparison leaves out, for its note: its number, whether a line opening it was read
+/// and the cases that line said, and the whole case lines of it read.
+typedef struct {
+    uint32_t sample;
+    bool opened;
+    uint32_t said;
+    uint32_t read;
+} LeftOut;
+
+/// How many left-out samples get a note of their own; one more note counts the rest.
+#define BASELINE_LEFT_OUT_NOTED 4u
+
 /// What reading a baseline file found, beyond the samples each kept case got.
 typedef struct {
-    /// The samples the file opens.
+    /// The samples the file has whole: every case its opening line said, read whole.
     uint32_t samples;
     /// The largest sample number on any whole line, so the next sample's is new.
     uint32_t highest;
     /// The last line has no line end: a write cut short left it.
     bool open_end;
+    /// The samples left out, and the first few of them.
+    uint32_t left_out;
+    LeftOut first_left_out[BASELINE_LEFT_OUT_NOTED];
 } FileRead;
 
-/// Reads @p path into @p read, giving each kept case the samples it has there when
+/// The sample being read: its number and the cases its opening line said, or none open, and the
+/// kept cases its lines gave a time, which join their samples only once it turns out whole.
+static struct {
+    bool open;
+    uint32_t sample;
+    uint32_t said;
+    uint32_t read;
+    /// Case lines of a sample whose opening line was not read: its number, or 0.
+    uint32_t stray_sample;
+    uint32_t stray_read;
+    uint32_t touched[BASELINE_CASES_MAX];
+    size_t touched_count;
+} reading;
+
+static void LeaveOut(FileRead *read_out, uint32_t sample, bool opened, uint32_t said,
+                     uint32_t lines) {
+    if (read_out->left_out < BASELINE_LEFT_OUT_NOTED) {
+        LeftOut *const left = &read_out->first_left_out[read_out->left_out];
+        left->sample = sample;
+        left->opened = opened;
+        left->said = said;
+        left->read = lines;
+    }
+    ++read_out->left_out;
+}
+
+/// Ends the sample being read: whole, its times join each case's samples; short of what its
+/// opening line said, or opened with none, it is left out.
+static void EndSample(FileRead *read_out) {
+    if (reading.open) {
+        const bool whole = reading.said > 0u && reading.read == reading.said;
+        for (size_t i = 0; i < reading.touched_count; ++i) {
+            KeptCase *const c = &kept[reading.touched[i]];
+            if (whole) {
+                if (c->sample_count < BASELINE_SAMPLES_MAX) {
+                    c->samples[c->sample_count++] = c->pending_us;
+                } else {
+                    // Full: the newest samples are the ones a machine's state is closest to,
+                    // so the oldest goes.
+                    memmove(c->samples, c->samples + 1,
+                            sizeof(c->samples) - sizeof(c->samples[0]));
+                    c->samples[BASELINE_SAMPLES_MAX - 1u] = c->pending_us;
+                }
+            }
+            c->pending = false;
+        }
+        if (whole) {
+            ++read_out->samples;
+        } else {
+            LeaveOut(read_out, reading.sample, true, reading.said, reading.read);
+        }
+    }
+    reading.open = false;
+    reading.touched_count = 0;
+}
+
+/// Ends a run of case lines whose sample's opening line was not read: left out, as nothing says
+/// how many cases it had.
+static void EndStray(FileRead *read_out) {
+    if (reading.stray_sample != 0u) {
+        LeaveOut(read_out, reading.stray_sample, false, 0, reading.stray_read);
+    }
+    reading.stray_sample = 0;
+    reading.stray_read = 0;
+}
+
+/// Reads @p path into @p read_out, giving each kept case the samples it has there when
 /// @p fill_cases. False when it cannot be opened.
 static bool ReadFile(const char *path, FileRead *read_out, bool fill_cases) {
     memset(read_out, 0, sizeof(*read_out));
+    memset(&reading, 0, sizeof(reading));
     FILE *const file = fopen(path, "r");
     if (file == NULL) {
         return false;
@@ -354,6 +439,7 @@ static bool ReadFile(const char *path, FileRead *read_out, bool fill_cases) {
     if (fill_cases) {
         for (size_t i = 0; i < kept_count; ++i) {
             kept[i].sample_count = 0;
+            kept[i].pending = false;
         }
     }
     static char line[BASELINE_LINE_MAX + 2u];
@@ -369,26 +455,35 @@ static bool ReadFile(const char *path, FileRead *read_out, bool fill_cases) {
             read_out->highest = read.sample;
         }
         if (kind == BASELINE_LINE_OPENS) {
-            ++read_out->samples;
+            EndSample(read_out);
+            EndStray(read_out);
+            reading.open = true;
+            reading.sample = read.sample;
+            reading.said = read.cases;
+            reading.read = 0;
             continue;
         }
-        const uint32_t us = read.us;
-        if (!fill_cases) {
+        if (!reading.open || read.sample != reading.sample) {
+            if (reading.stray_sample != read.sample) {
+                EndStray(read_out);
+                reading.stray_sample = read.sample;
+            }
+            ++reading.stray_read;
             continue;
         }
-        KeptCase *const c = Find(read.suite, read.name);
+        ++reading.read;
+        KeptCase *const c = fill_cases ? Find(read.suite, read.name) : NULL;
         if (c == NULL) {
             continue;
         }
-        if (c->sample_count < BASELINE_SAMPLES_MAX) {
-            c->samples[c->sample_count++] = us;
-        } else {
-            // Full: the newest samples are the ones a machine's state is closest to, so the
-            // oldest goes.
-            memmove(c->samples, c->samples + 1, sizeof(c->samples) - sizeof(c->samples[0]));
-            c->samples[BASELINE_SAMPLES_MAX - 1u] = us;
+        if (!c->pending) {
+            c->pending = true;
+            reading.touched[reading.touched_count++] = (uint32_t)(c - kept);
         }
+        c->pending_us = read.us;
     }
+    EndSample(read_out);
+    EndStray(read_out);
     fclose(file);
     return true;
 }
@@ -431,6 +526,37 @@ static void SinkNote(const BaselineSink *sink, size_t *count, const char *fmt, .
     }
 }
 
+/// Says which samples reading the file left out, the first few one by one.
+static void NoteLeftOut(const BaselineSink *sink, size_t *notes, const char *word,
+                        const char *name, const FileRead *read) {
+    for (uint32_t i = 0; i < read->left_out && i < BASELINE_LEFT_OUT_NOTED; ++i) {
+        const LeftOut *const left = &read->first_left_out[i];
+        if (!left->opened) {
+            SinkNote(sink, notes,
+                     "%s=%s: sample %u of the file is left out: no line opening it was read, and "
+                     "%u whole line%s of it %s, so nothing says how many cases it had",
+                     word, name, (unsigned)left->sample, (unsigned)left->read,
+                     left->read == 1u ? "" : "s", left->read == 1u ? "was" : "were");
+        } else if (left->said == 0u) {
+            SinkNote(sink, notes,
+                     "%s=%s: sample %u of the file is left out: it opened with 0 cases, and %u "
+                     "whole lines of it were read",
+                     word, name, (unsigned)left->sample, (unsigned)left->read);
+        } else {
+            SinkNote(sink, notes,
+                     "%s=%s: sample %u of the file is left out: it opened with %u case%s and %u "
+                     "whole line%s of it %s read, as a write cut short leaves it",
+                     word, name, (unsigned)left->sample, (unsigned)left->said,
+                     left->said == 1u ? "" : "s", (unsigned)left->read,
+                     left->read == 1u ? "" : "s", left->read == 1u ? "was" : "were");
+        }
+    }
+    if (read->left_out > BASELINE_LEFT_OUT_NOTED) {
+        SinkNote(sink, notes, "%s=%s: %u more samples of the file are left out the same way", word,
+                 name, (unsigned)(read->left_out - BASELINE_LEFT_OUT_NOTED));
+    }
+}
+
 bool BaselineCompareFile(const char *path, const char *name, const BaselineSink *sink,
                          BaselineTotals *totals) {
     memset(totals, 0, sizeof(*totals));
@@ -439,6 +565,7 @@ bool BaselineCompareFile(const char *path, const char *name, const BaselineSink 
         return false;
     }
     totals->samples = read.samples;
+    NoteLeftOut(sink, &totals->notes, "compare", name, &read);
     char line[REPORT_LINE_MAX];
     for (size_t i = 0; i < kept_count; ++i) {
         KeptCase *const c = &kept[i];
@@ -466,55 +593,74 @@ bool BaselineCompareFile(const char *path, const char *name, const BaselineSink 
     return true;
 }
 
-/// BaselineAddFile, and whether the file's last line had to get its line end first.
-static bool AddTo(const char *path, const char *build, const char *label, uint32_t *sample,
-                  uint32_t *samples_after, bool *ended_line) {
+/// What adding a sample did: its number, the file's whole samples after it, whether the last
+/// line had to get its line end first, and the samples reading the file left out.
+typedef struct {
+    bool written;
+    uint32_t sample;
+    uint32_t samples_after;
+    bool ended_line;
+    uint32_t left_out;
+    /// errno when it was not written, taken before a note can change it.
+    int error;
+} Added;
+
+static Added AddTo(const char *path, const char *build, const char *label) {
+    Added added;
+    memset(&added, 0, sizeof(added));
     FileRead read;
     // A missing file is a new baseline: its first sample is number one.
     (void)ReadFile(path, &read, false);
-    *sample = read.highest + 1u;
-    *samples_after = read.samples;
-    *ended_line = false;
+    added.sample = read.highest + 1u;
+    added.samples_after = read.samples;
+    added.left_out = read.left_out;
     FILE *const file = fopen(path, "a");
     if (file == NULL) {
-        return false;
+        added.error = errno;
+        return added;
     }
     // A line a write was cut short in has no end: this sample's first line would go on the same
     // line and be lost with it.
     if (read.open_end) {
         if (fputc('\n', file) == EOF) {
+            added.error = errno;
             fclose(file);
-            return false;
+            return added;
         }
-        *ended_line = true;
+        added.ended_line = true;
     }
     static char line[BASELINE_LINE_MAX + 2u];
-    bool written = BaselineBuildSampleLine(line, sizeof(line), *sample, build, label, kept_count) >
-                       0u &&
-                   fprintf(file, "%s\n", line) > 0;
+    bool written =
+        BaselineBuildSampleLine(line, sizeof(line), added.sample, build, label, kept_count) > 0u &&
+        fprintf(file, "%s\n", line) > 0;
     for (size_t i = 0; written && i < kept_count; ++i) {
-        written = BaselineBuildCaseLine(line, sizeof(line), *sample, kept[i].suite, kept[i].name,
-                                        kept[i].us) > 0u &&
+        written = BaselineBuildCaseLine(line, sizeof(line), added.sample, kept[i].suite,
+                                        kept[i].name, kept[i].us) > 0u &&
                   fprintf(file, "%s\n", line) > 0;
     }
-    written = fclose(file) == 0 && written;
-    if (written) {
-        *samples_after = read.samples + 1u;
+    added.written = fclose(file) == 0 && written;
+    added.error = errno;
+    if (added.written) {
+        added.samples_after = read.samples + 1u;
     }
-    return written;
+    return added;
 }
 
 bool BaselineAddFile(const char *path, const char *build, const char *label, uint32_t *sample,
                      uint32_t *samples_after) {
-    bool ended_line = false;
-    return AddTo(path, build, label, sample, samples_after, &ended_line);
+    const Added added = AddTo(path, build, label);
+    *sample = added.sample;
+    *samples_after = added.samples_after;
+    return added.written;
 }
 
 static void Compare(const char *directory, const char *name, const BaselineSink *sink,
                     BaselineOutcome *outcome) {
     char path[256];
     PathOf(path, sizeof(path), directory, name);
-    if (!BaselineCompareFile(path, name, sink, &outcome->totals)) {
+    const bool read = BaselineCompareFile(path, name, sink, &outcome->totals);
+    outcome->notes += outcome->totals.notes;
+    if (!read) {
         SinkNote(sink, &outcome->notes,
                  "compare=%s: no baseline file at %s (%s), so nothing was compared; "
                  "baseline=%s in the mode file makes one, a sample a run",
@@ -533,30 +679,35 @@ static void Add(const char *directory, const char *name, const char *build, cons
     char path[256];
     PathOf(path, sizeof(path), directory, name);
     mkdir(directory, 0777);
-    uint32_t sample = 0;
-    uint32_t samples = 0;
-    bool ended_line = false;
-    const bool written = AddTo(path, build, label, &sample, &samples, &ended_line);
-    if (ended_line) {
+    const Added added = AddTo(path, build, label);
+    if (added.ended_line) {
         SinkNote(sink, &outcome->notes,
                  "baseline=%s: the last line of %s had no line end, so one was written before "
                  "sample %u: a write the program did not finish leaves a line so, and this "
                  "sample's first line would have gone onto it",
-                 name, path, (unsigned)sample);
+                 name, path, (unsigned)added.sample);
     }
-    if (!written) {
+    if (!added.written) {
         SinkNote(sink, &outcome->notes,
                  "baseline=%s: sample %u of %zu timed cases could not be written to %s (%s), so "
                  "the file may end inside it",
-                 name, (unsigned)sample, kept_count, path, strerror(errno));
+                 name, (unsigned)added.sample, kept_count, path, strerror(added.error));
         return;
     }
     outcome->added = true;
-    outcome->sample = sample;
-    outcome->samples_after = samples;
-    SinkNote(sink, &outcome->notes,
-             "baseline=%s: sample %u of %zu timed cases added to %s, which now has %u", name,
-             (unsigned)sample, kept_count, path, (unsigned)samples);
+    outcome->sample = added.sample;
+    outcome->samples_after = added.samples_after;
+    if (added.left_out > 0u) {
+        SinkNote(sink, &outcome->notes,
+                 "baseline=%s: sample %u of %zu timed cases added to %s, which now has %u whole "
+                 "and %u left out, short of the cases they opened with (compare=%s names them)",
+                 name, (unsigned)added.sample, kept_count, path, (unsigned)added.samples_after,
+                 (unsigned)added.left_out, name);
+    } else {
+        SinkNote(sink, &outcome->notes,
+                 "baseline=%s: sample %u of %zu timed cases added to %s, which now has %u", name,
+                 (unsigned)added.sample, kept_count, path, (unsigned)added.samples_after);
+    }
 }
 
 BaselineOutcome BaselineFinish(const char *directory, const char *add_to, const char *compare,
