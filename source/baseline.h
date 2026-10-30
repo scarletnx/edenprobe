@@ -128,7 +128,7 @@ size_t BaselineBuildMovedLine(char *out, size_t out_size, const char *baseline, 
 
 /// What a comparison came to, for the report's line that sums it up.
 typedef struct {
-    /// Samples in the file.
+    /// Samples in the file, whole: a sample short of the cases its first line said is left out.
     uint32_t samples;
     /// Cases of this run held to their samples, and what they came to.
     size_t compared;
@@ -136,6 +136,8 @@ typedef struct {
     size_t faster;
     /// Cases with fewer than BASELINE_MIN_SAMPLES samples in the file, none included.
     size_t too_few;
+    /// The notes the comparison wrote about its file.
+    size_t notes;
 } BaselineTotals;
 
 /// The report's line that sums a comparison up.
