@@ -10,6 +10,7 @@
 #include "../baseline.h"
 #include "../check.h"
 #include "../mode.h"
+#include "../perf.h"
 #include "../report.h"
 #include "tests.h"
 
@@ -323,6 +324,73 @@ static uint32_t SamplesIn(const char *path) {
     BaselineTotals totals;
     return BaselineCompareFile(path, "check", NULL, &totals) == BASELINE_READ ? totals.samples
                                                                               : 0u;
+}
+
+/// One pass of a made-up timed suite, as main's RunTimed runs one, muted but for the verdict
+/// pass: a case that draws for @p first nanoseconds, one that draws nothing, and one that draws
+/// for @p third in two pieces.
+static void TimedPass(PerfPass pass, uint64_t first, uint64_t third) {
+    PerfPassBegin(pass);
+    // After the pass has begun, as RunTimed has it.
+    ReportRehearse(pass == PERF_VERDICT ? NULL : SUITE);
+    PerfAddWork(first);
+    ReportCase(SUITE, "baseline: a made-up timed suite's case that draws", CHECK_NONE, true, NULL);
+    ReportCase(SUITE, "baseline: a made-up timed suite's case that draws nothing", CHECK_NONE,
+               true, NULL);
+    PerfAddWork(third / 2u);
+    PerfAddWork(third - third / 2u);
+    ReportCase(SUITE, "baseline: a made-up timed suite's case that draws twice", CHECK_NONE, true,
+               NULL);
+}
+
+/// The wire from a case's line to a baseline: a timed suite run as main runs one, a warm-up and
+/// eight muted rehearsals before the verdict pass, keeps only the verdict pass's cases that drew,
+/// each at the time its line carries, the smallest of the nine samples. The three cases are
+/// lines of their own in this suite, the verdict pass's, as they would be in a drawing suite.
+static void CheckTimedSuite(const char *scratch) {
+    BaselineReset();
+    PerfSuiteBegin();
+    // The warm-up is fastest and still does not count.
+    TimedPass(PERF_WARMUP, 100000u, 100000u);
+    for (uint64_t i = 0; i < PERF_REHEARSALS; ++i) {
+        TimedPass(PERF_REHEARSAL, 400000u + i * 1000u, 2000000u + i * 1000u);
+    }
+    const size_t before_verdict = BaselineKept();
+    TimedPass(PERF_VERDICT, 450000u, 1999000u);
+    PerfPassBegin(PERF_UNTIMED);
+    const size_t after_verdict = BaselineKept();
+
+    char path[512];
+    snprintf(path, sizeof(path), "%.400s/timed-check.jsonl", scratch);
+    (void)remove(path);
+    uint32_t number = 0;
+    uint32_t after = 0;
+    (void)BaselineAddFile(path, "build", "", &number, &after);
+    uint32_t times[2] = { 0, 0 };
+    size_t cases = 0;
+    FILE *const file = fopen(path, "r");
+    static char line[BASELINE_LINE_MAX + 2u];
+    static BaselineFileLine read;
+    while (file != NULL && fgets(line, sizeof(line), file) != NULL) {
+        if (BaselineParseLine(line, &read) == BASELINE_LINE_CASE) {
+            if (cases < 2u) {
+                times[cases] = read.us;
+            }
+            ++cases;
+        }
+    }
+    if (file != NULL) {
+        fclose(file);
+    }
+    (void)remove(path);
+    BaselineReset();
+    CHECK_TRUE(SUITE, "baseline: a timed suite's verdict pass alone is kept, at its lines' times",
+               CHECK_NONE,
+               before_verdict == 0u && after_verdict == 2u && cases == 2u && times[0] == 400u &&
+                   times[1] == 1999u,
+               "kept %zu before the verdict pass and %zu after; the file has %zu cases at %u and "
+               "%u",
+               before_verdict, after_verdict, cases, (unsigned)times[0], (unsigned)times[1]);
 }
 
 /// One name twice in a run, and two names that read the same once a file carries them. The same
@@ -769,6 +837,7 @@ void RunSupportBaseline(const char *scratch) {
     CheckBuilds(scratch);
     CheckNewest(scratch);
     CheckSameName(scratch);
+    CheckTimedSuite(scratch);
 #if !defined(__SWITCH__) && defined(__GLIBC__)
     CheckUnreadable(scratch);
 #endif
