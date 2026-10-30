@@ -1,5 +1,15 @@
 # The video family
 
+## Index
+
+* [How a job is handed over](#how-a-job-is-handed-over)
+* [The common setup](#the-common-setup)
+* [How a case passes](#how-a-case-passes)
+* [The cases](#the-cases)
+* [The open questions](#the-open-questions)
+* [What Eden does](#what-eden-does)
+* [The judge, pinned](#the-judge-pinned)
+
 The video image compositor, the VIC, is the engine that converts, scales and composites video
 frames. The family hands it input the processor wrote, not frames the decoder made, and reads back
 what it left byte by byte; the decoder has a suite of its own, [nvdec](Nvdec.md). Only the word

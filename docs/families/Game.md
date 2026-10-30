@@ -1,5 +1,12 @@
 # The game family
 
+## Index
+
+* [The scene](#the-scene)
+* [What is judged](#what-is-judged)
+* [What is timed](#what-is-timed)
+* [What rests on reasoning](#what-rests-on-reasoning)
+
 Every other family asks the machine one thing at a time. A game asks everything at once: it draws,
 plays sound, reads its files, calls services and computes on several threads in the same frame,
 and presents the frame when the display is ready for it. The game family is one scene that does
