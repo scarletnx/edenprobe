@@ -38,11 +38,8 @@ linked from a comment on the pull request (a fork's run lists it on the run's pa
   prerelease `nightly-<date>-<commit>` (never the latest) and the prerelease `nightly`, whose tag
   and files follow the newest; for a tag, its release, the latest (a tag with a `-` is a
   prerelease). Each release lists what changed since the one before it.
-- **`.github/workflows/cards.yml`** and **`cards-watch.yml`**: a Discord card for each nightly,
-  pull request and issue, edited as it changes; a message for each version. The webhooks are the
-  secrets `DISCORD_WEBHOOK_NIGHTLY`, `DISCORD_WEBHOOK_PRS`, `DISCORD_WEBHOOK_ISSUES` and
-  `DISCORD_WEBHOOK_RELEASES`; without one, nothing is posted there and the run says so. Each
-  card's message id is kept in the `discord-cards` branch.
+- A version's release also gets a message on Discord, on the channel of the secret
+  `DISCORD_WEBHOOK_RELEASES`; without it, nothing is posted there and the run says so.
 
 To release a version: change `VERSION` on `main`, then tag that commit `v<VERSION>` and push the
 tag. The scripts are in `.github/scripts`, and `make -f host.mk host-run` runs their tests against

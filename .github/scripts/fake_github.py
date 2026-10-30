@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 """A fake gh (a small GitHub kept in a JSON file: releases and tags, pull requests, issues and their comments, Build
-runs with their jobs and artifacts, files of a branch) and a fake Discord (a local HTTP server keeping each webhook's
+runs with their jobs and artifacts) and a fake Discord (a local HTTP server keeping each webhook's
 messages), for the tests of the scripts beside it. Offline."""
 
 import http.server
@@ -133,51 +133,6 @@ elif rest == 'actions/workflows/build.yml/runs':
     out({'workflow_runs': [r for r in s['runs'] if r['head_sha'] == query.get('head_sha')]})
 elif rest == '' and method == 'GET':
     out({'full_name': repo, 'default_branch': 'main'})
-elif rest.startswith('git/ref/heads/'):
-    branch = rest[len('git/ref/heads/'):]
-    heads = s.setdefault('heads', {'main': 'c0ffee' * 6 + 'c0ff'})
-    if s.pop('hide_branch_once', None) == branch:  # another run makes it right after this look
-        save()
-        stop('gh: Not Found (HTTP 404)')
-    if branch not in heads:
-        stop('gh: Not Found (HTTP 404)')
-    out({'ref': f'refs/heads/{branch}', 'object': {'sha': heads[branch]}})
-elif rest == 'git/refs' and method == 'POST':
-    heads = s.setdefault('heads', {'main': 'c0ffee' * 6 + 'c0ff'})
-    if data['ref'][len('refs/heads/'):] in heads:
-        stop('gh: Reference already exists (HTTP 422)')
-    heads[data['ref'][len('refs/heads/'):]] = data['sha']
-    save()
-    out({'ref': data['ref']})
-elif rest.startswith('contents/'):
-    files = s.setdefault('files', {})
-    name = rest[len('contents/'):]
-    branch = query.get('ref') or (data or {}).get('branch') or 'main'
-    if branch not in s.setdefault('heads', {'main': 'c0ffee' * 6 + 'c0ff'}):
-        stop('gh: No commit found for the ref (HTTP 404)')
-    key = f'{branch}:{name}'
-    if method == 'GET':
-        out(files[key]) if key in files else stop('gh: Not Found (HTTP 404)')
-    elif method == 'DELETE':
-        if key not in files or data.get('sha') != files[key]['sha']:
-            stop('gh: sha does not match (HTTP 409)')
-        del files[key]
-        save()
-    else:
-        if s.get('pass_puts'):  # the writes before the one that fails
-            s['pass_puts'] -= 1
-        elif s.get('fail_puts'):  # another run's write came first, or one that cannot be done
-            s['fail_puts'] -= 1
-            save()
-            stop(s.get('put_error', 'gh: is at 1a2b3c but expected 4d5e6f (HTTP 409)'))
-        if key in files and data.get('sha') != files[key]['sha']:
-            if 'sha' not in data:
-                stop('gh: Invalid request.\n\n"sha" wasn\'t supplied. (HTTP 422)')
-            stop('gh: is at x but expected y (HTTP 409)')
-        s['next'] += 1
-        files[key] = {'content': data['content'], 'sha': f'blob{s["next"]}'}
-        save()
-        out({'content': files[key]})
 elif re.fullmatch(r'issues/\d+', rest):
     out(s['issues'][rest.split('/')[1]])
 elif re.fullmatch(r'issues/\d+/comments', rest) and method == 'POST':

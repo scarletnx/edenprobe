@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """publish-builds.py against fake_github.py's fake gh and fake Discord: which Build runs are published; a nightly
 prerelease with the NRO and its checksum, kept to the newest N, never one older than the newest, its files and notes
-copied to the "nightly" prerelease whose tag follows it; a version tag's release, the latest, and its Discord message;
-an artifact that is missing or is no NRO stopping the run. Offline."""
+copied to the "nightly" prerelease whose tag follows it, and nothing said on Discord; a version tag's release, the
+latest, and its Discord message, or a notice without the webhook; an artifact that is missing or is no NRO stopping the
+run. Offline."""
 
-import base64
 import hashlib
 import json
 import os
@@ -120,7 +120,7 @@ class Publish(unittest.TestCase):
         output.write_text("")
         env = {"GITHUB_EVENT_NAME": name, "GITHUB_EVENT_PATH": str(event_file), "GITHUB_OUTPUT": str(output)}
         if hooks:
-            env.update(DISCORD_WEBHOOK_RELEASES=f"{HOOK}-releases", DISCORD_WEBHOOK_NIGHTLY=f"{HOOK}-nightly")
+            env.update(DISCORD_WEBHOOK_RELEASES=f"{HOOK}-releases")
         done = self.world.run(python(SCRIPT, step, "--repo", REPO, *extra), **env)
         planned = dict(line.split("=", 1) for line in output.read_text().splitlines())
         return done, planned
@@ -153,10 +153,6 @@ class Publish(unittest.TestCase):
                 "head_repository": {"full_name": repo},
             }
         }
-
-    def card_id(self, key):
-        entry = self.world.state().get("files", {}).get(f"discord-cards:cards/{key}")
-        return base64.b64decode(entry["content"]).decode().strip() if entry else None
 
     # ---- what plan publishes
     def test_a_green_push_to_main_is_planned_as_a_nightly(self):
@@ -218,24 +214,13 @@ class Publish(unittest.TestCase):
         writes = [c for c in self.world.calls() if "-X" in c["args"] or c["args"][0] == "release"]
         self.assertTrue(writes)
         self.assertTrue(all(c["token"] == "repo-token" and REPO in " ".join(c["args"]) for c in writes), writes)
-        # its card, on the nightly channel, the NRO linked with its size
-        posts = sent("nightly", mark)
-        self.assertEqual([p["method"] for p in posts], ["POST"])
-        self.assertTrue(posts[0]["path"].endswith("?wait=true"))
-        card = posts[0]["body"]["embeds"][0]
-        self.assertEqual(card["title"], f"edenprobe nightly 2026-10-15 ({self.sha[:7]})")
-        self.assertEqual(card["url"], f"https://github.com/{REPO}/releases/tag/{self.tag}")
-        self.assertEqual([f["name"] for f in card["fields"]], ["NRO", "Host tests", "Source", "Newest"])
-        self.assertEqual(card["fields"][0]["value"], f"[NRO]({where}/edenprobe.nro)\n0.0 MB")
-        self.assertTrue(card["thumbnail"]["url"].endswith(f"{REPO}/main/icon.jpg"))
-        self.assertEqual(self.card_id(f"nightly-{self.sha}"), posts[0]["reply"])
+        # nothing said on Discord: a nightly has no message
+        self.assertEqual(Discord.requests[mark:], [])
 
-    def test_a_nightly_again_replaces_it_and_edits_its_card(self):
-        mark = len(Discord.requests)
+    def test_a_nightly_again_replaces_it(self):
         self.publish("nightly", self.sha, "--keep", "2")
         done = self.publish("nightly", self.sha, "--keep", "2")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual([p["method"] for p in sent("nightly", mark)], ["POST", "PATCH"])
         self.assertEqual(len([r for r in self.world.state()["releases"] if r["tag_name"] == self.tag]), 1)
 
     def test_an_older_commit_is_not_published(self):
@@ -281,10 +266,12 @@ class Publish(unittest.TestCase):
         self.assertEqual(self.world.state()["tags"]["nightly"], self.sha)
 
     def test_without_a_webhook_published_and_said(self):
-        done = self.publish("nightly", self.sha, hooks=False)
+        mark = len(Discord.requests)
+        done = self.publish("release", self.sha, "--tag", "v0.2.0", hooks=False)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIn("::notice::No DISCORD_WEBHOOK_NIGHTLY", done.stdout)
-        self.assertIsNotNone(self.find(self.tag))
+        self.assertIn("::notice::No DISCORD_WEBHOOK_RELEASES", done.stdout)
+        self.assertIsNotNone(self.find("v0.2.0"))
+        self.assertEqual(Discord.requests[mark:], [])
 
     # ---- a version
     def add_first_version(self):
