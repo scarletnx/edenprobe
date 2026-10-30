@@ -86,9 +86,38 @@ or median fixed that without hiding real slowdowns. A limit taken from each case
 same machine did: none of 400 comparisons of the build against itself called slower, and delays
 planted in the runtime (5 microseconds a draw, 1 a file read, 50 a draw) were each found in all 400,
 in the cases that do that work. That was measured on the reports outside the program, three runs a
-side. The same limit inside it, one run held to five samples of the same machine and runtime, called
-nothing slower or faster in three runs (331 cases each); with 5 microseconds planted on every draw
-it called the seven cases slower that draw hundreds or thousands of times (`order`, `stream`,
-`fill`, `ring`), and one faster: `fill`'s first depth tested quad, whose time is mostly a first
-use's; with 1 microsecond on every file read, the seven `fs` cases that read a thousand times or
-more, and not the three that read a few large pieces or 256 small files once each.
+side.
+
+## What it calls on one machine
+
+Inside the program, on the same machine and recompiler: twenty runs of one runtime, one after the
+other in one game folder, `quick graphics fs`, 331 timed cases each. Each run was held to every set
+of 5, 10 and 15 of the other nineteen with this program's own code, and a run with a delay planted
+in the runtime to every set of the twenty:
+
+| samples | comparisons | calling a case that had not changed | the same with a floor of 50 |
+|---|---|---|---|
+| 5 | 232560 | 10.2 percent | 22.2 percent |
+| 10 | 1847560 | 10.0 percent | 19.9 percent |
+| 15 | 77520 | 10.0 percent | 16.3 percent |
+
+At the floor of 100 that is 3 in 10000 of the case comparisons, and the same two of the twenty runs
+every time, whatever the samples: one with a case at four times its usual time once (414
+microseconds against about 105, in `order`), and the first run in the folder, with `fill`'s first
+depth tested quad at two thirds of its usual time (849 against about 1240). On this machine one run
+in ten carries a case like that (two in twenty, which twenty runs pin only roughly), and more
+samples do not stop it being called: the run moved, not the samples. Inside the program the twenty
+said the same, each held to the runs before it from the fourth on: one of the seventeen called a
+case, the run with the 414.
+
+The planted delays, with nothing called faster, and at a floor of 50 the same but for one number,
+`swizzle`'s upload in 78 percent of the five-sample comparisons against 74:
+
+- 5 microseconds on every draw: 9 to 10 cases slower a comparison. The four `order` cases, both
+  `stream` ones, the two 128-quad `fill` ones and `ring`'s 4096 draws, which draw hundreds or
+  thousands of times, in 99 percent of the comparisons or more; `swizzle`'s 4 MiB upload in 24
+  (fifteen samples) to 74 percent (five).
+- 1 microsecond on every file read: 6 a comparison. The sequential reads of 512 bytes and 4 KiB, the
+  4096 random reads at either offset and the 4096 reads of the same 4 KiB in 99 percent or more, the
+  sequential 64 KiB reads in 87 to 100, the 64 KiB reads walking the file backwards in 0 to 21;
+  not the sequential 1 MiB and 16 MiB reads, a few large pieces, nor the 256 small files.

@@ -23,11 +23,12 @@ extern "C" {
 ///
 /// A case is compared once its file has BASELINE_MIN_SAMPLES samples of it. Its reference is the
 /// samples' median; its limit the larger of BASELINE_THRESHOLD_PERCENT and one and a half times
-/// the farthest a sample lies from that median, and a move must also pass BASELINE_FLOOR_US. That
-/// is the method measured on one build against itself (twelve runs, 0 of 400 comparisons called
-/// slower, every planted slowdown caught; docs/Baseline.md), which a fixed percentage alone was
-/// not: two cases there run at one of two speeds per process. No verdict moves: a slower case is
-/// a line of its own and a count in the baseline's summary, never a failure in the run's.
+/// the farthest a sample lies from that median, and a move must also pass BASELINE_FLOOR_US: a
+/// fixed percentage alone called two cases that run at one of two speeds per process slower. What
+/// it calls is measured in docs/Baseline.md: on one machine, one run in ten carried a case called
+/// though nothing had changed, and planted delays were called in the cases doing that work. No
+/// verdict moves: a slower case is a line of its own and a count in the baseline's summary, never
+/// a failure in the run's.
 
 /// Samples a case needs before it is compared.
 #define BASELINE_MIN_SAMPLES 3u
