@@ -344,6 +344,47 @@ static void CheckCut(const char *scratch) {
     (void)remove(path);
 }
 
+/// Whether a line of the file at @p path opens sample @p sample, read whole.
+static bool Opens(const char *path, uint32_t sample) {
+    FILE *const file = fopen(path, "r");
+    if (file == NULL) {
+        return false;
+    }
+    static char line[BASELINE_LINE_MAX + 2u];
+    static BaselineFileLine read;
+    bool found = false;
+    while (!found && fgets(line, sizeof(line), file) != NULL) {
+        found = BaselineParseLine(line, &read) == BASELINE_LINE_OPENS && read.sample == sample;
+    }
+    fclose(file);
+    return found;
+}
+
+/// A file whose last line a write was cut short in has no line end: the next sample's first line
+/// would land on it and be lost with it, so one is written first, and said.
+static void CheckLineEnd(const char *scratch) {
+    char path[512];
+    snprintf(path, sizeof(path), "%.400s/end-check.jsonl", scratch);
+    Seed(path, 3, 1000);
+    Append(path, "{\"type\":\"sample\",\"sample\":4,\"build\":\"build\",\"label\":\"\","
+                 "\"cases\":1}\n{\"sample\":4,\"suite\":\"order\",\"name\":\"the case that "
+                 "slows\",\"us\":10");
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 1000);
+    CaptureReset();
+    const BaselineOutcome outcome =
+        BaselineFinish(scratch, "end-check", NULL, "build", "", true, false, &CAPTURE);
+    CHECK_TRUE(SUITE, "baseline: a file cut short gets its line end before the next sample",
+               CHECK_NONE,
+               outcome.added && outcome.sample == 5u && Opens(path, 5u) &&
+                   Noted("baseline=end-check: the last line of ") != NULL &&
+                   Noted("had no line end, so one was written before sample 5") != NULL,
+               "added %d as %u, sample 5 opens %d: %.300s", (int)outcome.added,
+               (unsigned)outcome.sample, (int)Opens(path, 5u), Notes());
+    BaselineReset();
+    (void)remove(path);
+}
+
 /// What BaselineFinish does with both words, with a run that went on after a crash, and with
 /// notime: the order that keeps a run from being held to itself, and the two runs that add nothing.
 static void CheckFinish(const char *scratch) {
@@ -478,4 +519,5 @@ void RunSupportBaseline(const char *scratch) {
     CheckFinish(scratch);
     CheckNames(scratch);
     CheckCut(scratch);
+    CheckLineEnd(scratch);
 }
