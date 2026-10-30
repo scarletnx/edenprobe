@@ -833,10 +833,38 @@ static void CheckMode(void) {
                "cut \"%s\" whole \"%s\"", cut.compare.name, whole.compare.name);
 }
 
+/// A mode line longer than a note carries, the three names refused with long words: cut, it says
+/// where and how long it was, rather than ending inside a quote with nothing to say so.
+static void CheckLongModeLine(void) {
+    static const char TEXT[] =
+        "detailed images notime stress fatal hang retry nojournal noprogress listen cpu pad "
+        "graphics fs kernel display video audio service net label=ok "
+        "label=\"bad!label-with-many-chars-xxxxxxxxxxxxx baseline=good "
+        "baseline=bad!baseline-with-many-chars-xxxxxxxxx compare=good2 "
+        "compare=bad!compare-with-many-chars-xxxxxxxxxxxx zzunknownone zzunknowntwo";
+    const RunMode mode = ModeFromText(TEXT);
+    static char whole[2048];
+    const size_t length = ModeDescribe(whole, sizeof(whole), &mode, MODE_FAMILIES_PRESENT);
+    char said[REPORT_NOTE_MAX + 1];
+    const size_t cut = ModeDescribe(said, sizeof(said), &mode, MODE_FAMILIES_PRESENT);
+    char ending[96];
+    snprintf(ending, sizeof(ending), "...; the mode line is cut here, its whole is %zu bytes",
+             length);
+    const size_t ends = strlen(ending);
+    CHECK_TRUE(SUITE, "baseline: a mode line too long for a note says where it was cut", CHECK_NONE,
+               length > REPORT_NOTE_MAX && cut == REPORT_NOTE_MAX && strlen(said) == cut &&
+                   strcmp(said + cut - ends, ending) == 0 &&
+                   strncmp(said, whole, cut - ends) == 0 &&
+                   strstr(whole, "cut here") == NULL,
+               "whole %zu, cut to %zu: ...%.200s", length, cut,
+               cut > 200u ? said + cut - 200u : said);
+}
+
 void RunSupportBaseline(const char *scratch) {
     CheckLimit();
     CheckLines();
     CheckMode();
+    CheckLongModeLine();
     CheckFile(scratch);
     CheckFinish(scratch);
     CheckNames(scratch);

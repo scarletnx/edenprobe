@@ -361,14 +361,8 @@ static void DescribeName(char *out, size_t out_size, const char *word, const Mod
     }
 }
 
-size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t present) {
-    if (out == NULL || out_size == 0u) {
-        return 0;
-    }
-    out[0] = '\0';
-    if (mode == NULL) {
-        return 0;
-    }
+/// ModeDescribe's line, whole when @p out_size is large enough.
+static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t present) {
     const char *why;
     if (mode->chosen_on_screen) {
         why = mode->detailed ? "detailed, chosen on the start screen"
@@ -458,6 +452,36 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
         snprintf(out + used, out_size - used, "; %u unknown word%s ignored: %s",
                  (unsigned)mode->unknown_count, mode->unknown_count == 1u ? "" : "s",
                  mode->unknown);
+    }
+}
+
+size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t present) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (mode == NULL) {
+        return 0;
+    }
+    // Whole first, so a line too long for @p out (three refused names with long words say a few
+    // hundred bytes each) says where it was cut and how long it was instead of ending mid-quote.
+    char whole[2048];
+    whole[0] = '\0';
+    Describe(whole, sizeof(whole), mode, present);
+    const size_t length = strlen(whole);
+    if (length < out_size) {
+        memcpy(out, whole, length + 1u);
+        return length;
+    }
+    char ending[96];
+    snprintf(ending, sizeof(ending), "...; the mode line is cut here, its whole is %s%zu bytes",
+             length + 1u >= sizeof(whole) ? "at least " : "", length);
+    const size_t ends = strlen(ending);
+    const size_t kept = out_size > ends ? out_size - 1u - ends : out_size - 1u;
+    memcpy(out, whole, kept);
+    out[kept] = '\0';
+    if (out_size > ends) {
+        memcpy(out + kept, ending, ends + 1u);
     }
     return strlen(out);
 }
