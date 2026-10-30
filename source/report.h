@@ -268,6 +268,14 @@ size_t ReportBuildTimedResultLine(char *out, size_t out_size, const char *suite,
 /// A line that is not a case: progress, a note, an environment fact worth recording.
 void ReportNote(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
+/// A line another module built whole, the baseline's (baseline.h), written as every other line is:
+/// on both channels and through the journal. Nothing is counted.
+void ReportLine(const char *line);
+
+/// @p text with the escapes a JSON string needs, as every line here writes a name: the length of
+/// @p text that made it in.
+size_t ReportEscape(char *out, size_t out_size, const char *text);
+
 /// The last line, carrying the counts a runner checks without parsing everything above it.
 void ReportSummary(void);
 

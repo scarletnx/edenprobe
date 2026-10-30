@@ -40,6 +40,7 @@ leaves. The [README](../README.md) at the root says what edenprobe is.
 
 - **[What it reports](./Report.md)** - the report's lines, and where a run leaves them
 - **[Time per case](./TimePerCase.md)** - what a number measures, and comparing two builds
+- **[Baselines](./Baseline.md)** - a machine's own times, and a run held to them
 - **[What a failing case leaves behind](./FailurePictures.md)** - the pictures and the diff
 - **[When the program ends in the middle](./Crashes.md)** - the journal, the crash list, the tables
 - **[Versions](./Versions.md)** - the version, the build and the cover

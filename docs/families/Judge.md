@@ -7,20 +7,22 @@ family reports can be believed without them.
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, one hundred and fifty three cases, no hardware involved: what the program does around
-  a verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
+- **support**, one hundred and seventy one cases, no hardware involved: what the program does around a
+  verdict rather than to reach one. The pictures a failing case leaves and the names they get, the
   detailed mode's store, screens and navigation, the start screen, the screen that asks whether to
   go on with a run, the running screen, the listening screen, the pad screen and the touch suite's,
-  a tap on each of them and the touch bar's boxes, the mode file and
-  its words, the label and the folder it names, the `skip` result, the time a case reports (nineteen
-  cases, see [Time per case](../TimePerCase.md)), the journal, the crash list, the may-crash and
-  hang tables and what a launch decides from them (twenty seven cases, see [When the program ends in
-  the middle](../Crashes.md)), and the last copy a device waits for before it closes, and the note a
-  late one leaves (eight cases). One case carries the whole idea: the diff picture is built from
-  what the judge decided pixel by pixel, not from comparing two images, so a pixel that differs and
-  was allowed to is not painted as a difference. Every line is the none tier, because none of it is
-  a claim about a machine. On a computer (`make -f host.mk host-run`) the suite has one case more: a
-  backward seek that drops a buffered line, which needs the C library's own stream buffer.
+  a tap on each of them and the touch bar's boxes, the mode file and its words, the label and the
+  folder it names, the `skip` result, the time a case reports (nineteen cases, see [Time per
+  case](../TimePerCase.md)), the journal, the crash list, the may-crash and hang tables and what a
+  launch decides from them (twenty seven cases, see [When the program ends in the
+  middle](../Crashes.md)), the last copy a device waits for before it closes, and the note a late
+  one leaves (eight cases), and a baseline: the limit a case's samples allow, its file and lines,
+  and the words that name one (eighteen cases, see [Baselines](../Baseline.md)). One case carries
+  the whole idea: the diff picture is built from what the judge decided pixel by pixel, not from
+  comparing two images, so a pixel that differs and was allowed to is not painted as a difference.
+  Every line is the none tier, because none of it is a claim about a machine. On a computer
+  (`make -f host.mk host-run`) the suite has one case more: a backward seek that drops a buffered
+  line, which needs the C library's own stream buffer.
 - **reference**, three hundred and forty nine cases, no hardware involved either: the other half of
   the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,

@@ -28,6 +28,10 @@ void RunSupportScreens(void);
 /// which hands it a directory of its own to write a file into and take it away again.
 void RunSupportJournal(const char *scratch);
 
+/// A baseline's limit, its file and its lines, and the mode words that name one: part of the
+/// support suite, which hands it a directory to write a baseline file into and take it away.
+void RunSupportBaseline(const char *scratch);
+
 /// The time each drawing case reports and the perf line each drawing suite ends on: the sampling,
 /// the arithmetic and the shape of both lines. Support cases, so it runs in both builds.
 void RunSupportPerf(void);

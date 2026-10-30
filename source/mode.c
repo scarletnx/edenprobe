@@ -126,29 +126,75 @@ bool ModeLabelValid(const char *label) {
     return true;
 }
 
-/// Takes the name after `label=`, @p length bytes of it: kept when a folder can be named after
-/// it, quoted in the mode line otherwise.
-static void TakeLabel(RunMode *mode, const char *value, size_t length) {
+/// Takes the name after a word's sign, @p length bytes of it, into @p slot: kept when a file can
+/// be named after it, quoted in the mode line otherwise.
+static void TakeName(ModeName *slot, const char *value, size_t length) {
     char name[MODE_LABEL_MAX + 2u];
     const size_t kept = length < sizeof(name) - 1u ? length : sizeof(name) - 1u;
     memcpy(name, value, kept);
     name[kept] = '\0';
     if (length <= MODE_LABEL_MAX && ModeLabelValid(name)) {
-        memcpy(mode->label, name, kept + 1u);
-        mode->label_was_refused = false;
-        mode->label_refused[0] = '\0';
-        mode->label_refused_cut = false;
+        memcpy(slot->name, name, kept + 1u);
+        slot->was_refused = false;
+        slot->refused[0] = '\0';
+        slot->refused_cut = false;
         return;
     }
-    mode->label_was_refused = true;
+    slot->was_refused = true;
     // Quoted as written, as much as fits; anything a line could not carry as itself is a '?'.
     const size_t quoted = length < MODE_LABEL_MAX ? length : MODE_LABEL_MAX;
     for (size_t i = 0; i < quoted; ++i) {
         const unsigned char c = (unsigned char)value[i];
-        mode->label_refused[i] = c < 0x20u || c >= 0x7Fu || c == '"' || c == '\\' ? '?' : (char)c;
+        slot->refused[i] = c < 0x20u || c >= 0x7Fu || c == '"' || c == '\\' ? '?' : (char)c;
     }
-    mode->label_refused[quoted] = '\0';
-    mode->label_refused_cut = length > MODE_LABEL_MAX;
+    slot->refused[quoted] = '\0';
+    slot->refused_cut = length > MODE_LABEL_MAX;
+}
+
+/// Takes the name after `label=`, which the label's own fields keep.
+static void TakeLabel(RunMode *mode, const char *value, size_t length) {
+    ModeName slot;
+    memcpy(slot.name, mode->label, sizeof(slot.name));
+    TakeName(&slot, value, length);
+    memcpy(mode->label, slot.name, sizeof(mode->label));
+    if (slot.was_refused) {
+        mode->label_was_refused = true;
+        memcpy(mode->label_refused, slot.refused, sizeof(mode->label_refused));
+        mode->label_refused_cut = slot.refused_cut;
+    } else {
+        mode->label_was_refused = false;
+        mode->label_refused[0] = '\0';
+        mode->label_refused_cut = false;
+    }
+}
+
+/// The words a name follows, and the length of each with its sign.
+static const struct {
+    const char *word;
+    size_t length;
+} NAMED[] = {
+    { "label", 5u },
+    { "baseline", 8u },
+    { "compare", 7u },
+};
+
+/// Which of NAMED the @p length letters of @p word are, or -1.
+static int NamedWord(const char *word, size_t length) {
+    for (size_t i = 0; i < sizeof(NAMED) / sizeof(NAMED[0]); ++i) {
+        if (length == NAMED[i].length && memcmp(word, NAMED[i].word, length) == 0) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+/// The name after the sign of NAMED[@p which], @p length bytes of @p value.
+static void TakeNamed(RunMode *mode, int which, const char *value, size_t length) {
+    if (which == 0) {
+        TakeLabel(mode, value, length);
+    } else {
+        TakeName(which == 1 ? &mode->baseline : &mode->compare, value, length);
+    }
 }
 
 /// The words in the first @p size bytes of @p text, or up to a terminator if one comes first.
@@ -166,13 +212,14 @@ static void ReadWords(RunMode *mode, const char *text, size_t size) {
             }
             continue;
         }
-        if (c == '=' && length == 5u && !cut && memcmp(word, "label", 5u) == 0) {
+        const int named = c == '=' && !cut ? NamedWord(word, length) : -1;
+        if (named >= 0) {
             // A name rather than words: it runs to the next space or line end, whatever it holds.
             size_t end = i + 1u;
             while (end < size && !EndsValue(text[end])) {
                 ++end;
             }
-            TakeLabel(mode, text + i + 1u, end - i - 1u);
+            TakeNamed(mode, named, text + i + 1u, end - i - 1u);
             length = 0;
             i = end - 1u;
             continue;
@@ -197,15 +244,26 @@ static size_t LastPiece(const char *text, size_t length) {
     return length;
 }
 
-static bool StartsWithLabel(const char *text) {
-    static const char LABEL[] = "label=";
-    for (size_t i = 0; i < sizeof(LABEL) - 1u; ++i) {
-        const char c = text[i];
-        if ((c >= 'A' && c <= 'Z' ? (char)(c - 'A' + 'a') : c) != LABEL[i]) {
-            return false;
+/// The length of the word and sign @p text starts with when it is one of NAMED's, of the at most
+/// @p length bytes there are, or 0.
+static size_t StartsWithNamed(const char *text, size_t length) {
+    for (size_t n = 0; n < sizeof(NAMED) / sizeof(NAMED[0]); ++n) {
+        const size_t sign = NAMED[n].length;
+        if (length <= sign || text[sign] != '=') {
+            continue;
+        }
+        size_t i = 0;
+        for (; i < sign; ++i) {
+            const char c = text[i];
+            if ((c >= 'A' && c <= 'Z' ? (char)(c - 'A' + 'a') : c) != NAMED[n].word[i]) {
+                break;
+            }
+        }
+        if (i == sign) {
+            return sign + 1u;
         }
     }
-    return true;
+    return 0;
 }
 
 /// Detailed unless the file asked for the quick run: the default is for a person, and a script
@@ -226,9 +284,9 @@ RunMode ModeFromFile(ModeSource source, const char *text, size_t length, bool lo
     if (source == MODE_SOURCE_FILE && text != NULL) {
         mode.longer = longer;
         const size_t piece = LastPiece(text, length);
-        if (longer && !EndsValue(text[length]) && length - piece >= 6u &&
-            StartsWithLabel(text + piece)) {
-            // A label's name runs on past the limit: what was read of it names another folder.
+        if (longer && !EndsValue(text[length]) &&
+            StartsWithNamed(text + piece, length - piece) > 0u) {
+            // A name runs on past the limit: what was read of it names another folder or file.
             length = piece;
         } else if (longer && IsLetter(text[length])) {
             // The last word runs on past the limit, so what was read of it is a fragment.
@@ -283,6 +341,23 @@ static void AppendFamilies(char *out, size_t out_size, uint32_t set) {
     if (!any) {
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "none");
+    }
+}
+
+/// The part of the mode line a `<word>=<name>` adds: the name and what it does, then a refused
+/// one as written.
+static void DescribeName(char *out, size_t out_size, const char *word, const ModeName *slot,
+                         const char *what) {
+    if (slot->name[0] != '\0') {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; %s %s, %s", word, slot->name, what);
+    }
+    if (slot->was_refused) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used,
+                 "; %s refused: \"%s%s\", a file name takes 1 to %u letters, digits, dots, "
+                 "dashes and underscores, the first not a dot",
+                 word, slot->refused, slot->refused_cut ? "..." : "", (unsigned)MODE_LABEL_MAX);
     }
 }
 
@@ -361,6 +436,8 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
                  mode->label_refused, mode->label_refused_cut ? "..." : "",
                  (unsigned)MODE_LABEL_MAX);
     }
+    DescribeName(out, out_size, "baseline", &mode->baseline, "this run's times added as a sample");
+    DescribeName(out, out_size, "compare", &mode->compare, "this run's times held to its samples");
     if (mode->saved_by_screen) {
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; saved to the mode file by the start screen");
@@ -480,6 +557,17 @@ size_t ModeFormat(char *out, size_t out_size, const RunMode *mode) {
         char label[MODE_LABEL_MAX + 8u];
         snprintf(label, sizeof(label), "label=%s", mode->label);
         fits = AppendWord(out, out_size, label);
+    }
+    // The file's baseline and compare names, which the start screen does not choose and keeps.
+    if (fits && ModeLabelValid(mode->baseline.name)) {
+        char named[MODE_LABEL_MAX + 12u];
+        snprintf(named, sizeof(named), "baseline=%s", mode->baseline.name);
+        fits = AppendWord(out, out_size, named);
+    }
+    if (fits && ModeLabelValid(mode->compare.name)) {
+        char named[MODE_LABEL_MAX + 12u];
+        snprintf(named, sizeof(named), "compare=%s", mode->compare.name);
+        fits = AppendWord(out, out_size, named);
     }
     if (!fits) {
         out[0] = '\0';

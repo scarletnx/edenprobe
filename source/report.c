@@ -15,6 +15,7 @@
 #include <switch.h>
 #endif
 
+#include "baseline.h"
 #include "hang.h"
 #include "maycrash.h"
 #include "report.h"
@@ -677,6 +678,10 @@ static void EndCase(const char *suite, const char *name, CheckTier tier, bool pa
     ReportBuildTimedCaseLine(line, sizeof(line), suite, name, TierName(tier), passed_, detail,
                              &paths, timed ? &us : NULL);
     Emit(line);
+    if (timed) {
+        // The time the line carries, the one a baseline holds the run to (baseline.h).
+        BaselineTake(suite, name, us);
+    }
     Keep(suite, name, TierName(tier), passed_ ? REPORT_PASS : REPORT_FAIL, detail,
          PictureKept(pictures));
     // After the line, so a launch that finds this case ended finds its line in the report.
@@ -902,6 +907,23 @@ size_t ReportMayCrashUnreached(char *out, size_t out_size) {
 
 bool ReportStartsRequired(void) {
     return starts_required;
+}
+
+void ReportLine(const char *line) {
+    if (line != NULL) {
+        Emit(line);
+    }
+}
+
+size_t ReportEscape(char *out, size_t out_size, const char *text) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    if (out_size < 3u) {
+        out[0] = '\0';
+        return 0;
+    }
+    return EscapeInto(out, out_size, text != NULL ? text : "");
 }
 
 void ReportNote(const char *fmt, ...) {

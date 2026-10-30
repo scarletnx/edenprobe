@@ -59,11 +59,13 @@ extern "C" {
 ///   net       another: the online services, nifm to friend, against the backend the file
 ///             sdmc:/edenprobe/net names (see netref.h).
 ///
-/// And one that is not a word: `label=<name>`, the name of the folder the run's report goes in
-/// beside this build's hash (ModeRunFolder), so runs of one build against two emulators keep
-/// apart. The name runs to the next space or line end; letters, digits, dot, dash and
-/// underscore, at most MODE_LABEL_MAX, not starting with a dot. Anything else is refused, said
-/// in the mode line, and the run goes in the folder with no label.
+/// And three that are not words, a name after each: `label=<name>`, the name of the folder the
+/// run's report goes in beside this build's hash (ModeRunFolder), so runs of one build against two
+/// emulators keep apart; `baseline=<name>`, the baseline file this run's times go into as a new
+/// sample, and `compare=<name>`, the one they are held to (baseline.h). A name runs to the next
+/// space or line end; letters, digits, dot, dash and underscore, at most MODE_LABEL_MAX, not
+/// starting with a dot. Anything else is refused and said in the mode line: a refused label puts
+/// the run in the folder with no label, a refused baseline or compare name leaves that out.
 ///
 /// Families choose which suites beyond the judge run. None named means every family this build
 /// has but audio, display, kernel, pad, service and video. The judge itself (selfcheck, support,
@@ -124,6 +126,16 @@ typedef enum {
 /// The longest folder name ModeRunFolder makes, the separator included.
 #define MODE_FOLDER_MAX (MODE_HASH_MAX + 1u + MODE_LABEL_MAX)
 
+/// A name a word carries after its sign, `baseline=<name>` or `compare=<name>`: the last good one,
+/// or empty, and the last one refused, as written and cut to fit, for the mode line. A refusal
+/// leaves an earlier good name alone.
+typedef struct {
+    char name[MODE_LABEL_MAX + 1u];
+    bool was_refused;
+    char refused[MODE_LABEL_MAX + 1u];
+    bool refused_cut;
+} ModeName;
+
 typedef struct {
     /// What was at the path. Nothing changes with it but the line that says so.
     ModeSource source;
@@ -175,6 +187,11 @@ typedef struct {
     bool label_was_refused;
     char label_refused[MODE_LABEL_MAX + 1u];
     bool label_refused_cut;
+    /// `baseline=<name>`: this run's times go into sdmc:/edenprobe/baseline/<name>.jsonl as a new
+    /// sample. Like the label, it decides nothing the suites report, so it stays out of the key.
+    ModeName baseline;
+    /// `compare=<name>`: this run's times are held to that file's samples once the suites end.
+    ModeName compare;
 } RunMode;
 
 /// Reads the words in @p text. NULL means there was no file, which reads like an empty one.

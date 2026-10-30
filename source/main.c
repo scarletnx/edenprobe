@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <switch.h>
 
+#include "baseline.h"
 #include "journal.h"
 #include "maycrash.h"
 #include "mode.h"
@@ -29,6 +30,8 @@ static const char *const MODE_PATH = "sdmc:/edenprobe/mode";
 // The folder the latest launch went to, relative to sdmc:/edenprobe: how a runner, or a person
 // with a file manager, finds the report without knowing the build's hash.
 static const char *const LAST_RUN_PATH = "sdmc:/edenprobe/last-run";
+/// Where the baselines `baseline=` adds to and `compare=` reads are (baseline.h).
+static const char *const BASELINE_DIRECTORY = "sdmc:/edenprobe/baseline";
 
 static char run_directory[128];
 static char report_path[sizeof(run_directory) + 16u];
@@ -467,6 +470,7 @@ int main(int argc, char **argv) {
     if (!mode.no_progress) {
         ViewerProgressBegin(running, run_directory, steps, !mode.detailed, mode.detailed);
     }
+    BaselineReset();
     uint32_t step_number = 0;
     for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
         const Step *const step = &STEPS[i];
@@ -514,6 +518,10 @@ int main(int argc, char **argv) {
         ReportNote("%s", settled);
     }
     NoteCrashes(&plan);
+    // After every suite and before the summary, which it leaves as it is: a baseline's lines say
+    // how this run's times compare, never whether a case passed.
+    BaselineFinish(BASELINE_DIRECTORY, mode.baseline.name, mode.compare.name, EDENPROBE_BUILD,
+                   mode.label, timing, plan.start != JOURNAL_FRESH);
     ReportSummary();
 
     ReportClose();
