@@ -23,8 +23,8 @@ parses back, the screens and the navigation between them against frames composed
 from a fixture shaped like a real run, the store the screens read, the mode file's words, and the
 time a case reports. Last it runs the tests of the tools, `tools/perf.py`, `tools/run.py` (with a
 script standing in for the emulator, crashing, hanging and finishing as each test asks),
-`tools/validate.py`, `tools/astc-blocks.py`, `tools/vic-expect.py` and `tools/blit2d-expect.py`
-(each against the table its reference cases hold) and `tools/vp9-jobs.py` (the nvdec suite's jobs
+`tools/validate.py`, `tools/astc-blocks.py`, `tools/astc-images.py`, `tools/vic-expect.py` and
+`tools/blit2d-expect.py` (each against the table its reference cases hold) and `tools/vp9-jobs.py` (the nvdec suite's jobs
 checked against the frames they carry, with neither FFmpeg nor the vectors), which need Python 3
 and nothing else. Writing those jobs again needs both: see [The nvdec suite](families/Nvdec.md).
 Then the tests of the CI's scripts in `.github/scripts`, against a fake GitHub and a fake Discord,

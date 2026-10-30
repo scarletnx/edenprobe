@@ -1,6 +1,6 @@
 # The graphics family
 
-The twenty nine drawing suites, clear to blit2d, in the order they run.
+The thirty drawing suites, clear to blit2d, in the order they run.
 
 - **clear**, five cases, on the graphics unit: whether the device came up (no tier, it compares
   nothing), and four that clear a 64 by 64 RGBA8 target and copy all 4096 pixels back. Three cover
@@ -284,6 +284,26 @@ The twenty nine drawing suites, clear to blit2d, in the order they run.
   texels in this profile, as astcenc has it. In an emulator a failure points at the ASTC decoder
   it uses (`video_core/host_shaders/astc_decoder.comp`, `video_core/textures/astc.cpp`): the 4-bit
   and 5-bit cases at the weight unquantization, the partition cases at the partition hash.
+
+- **astcimage**, eleven cases. Whole ASTC textures, as a game's are. One 128x128 picture in four
+  regions (smooth gradients; hard edges where three colours meet inside a block; fine noise; alpha,
+  a ramp above and a cutout below), made by `tools/astc-images.py` and encoded by ARM's astcenc
+  (9fbec680, `-medium`) at 4x4, 6x6, 8x8 and 12x12, and in its sRGB mode at 4x4 and 8x8, each written
+  by the processor in the block linear layout and fetched onto a 128x128 target, a texel a pixel.
+  A linear texel may be any of three bytes: the specification's default decode, C / 65536 cut to
+  FP16 and rounded as the target is written, C / 65535 rounded, or C's top byte where the texture
+  unit decodes to eight bits. An sRGB one is the code `source/astcref.c` decodes in that mode (each
+  endpoint `(e << 8) | 0x80`, the result's top byte, as astcenc has it), which the texture unit
+  turns into linear: red, green and blue may be either byte beside that value times 255, alpha is
+  the code. The reference suite holds both decodes of the picture to astcenc's. A failure says how
+  many texels are wrong, how far the worst channel is, and the PSNR over the picture and over each
+  region: an emulator whose host has no ASTC and compresses the decoded texels again to save memory
+  (to BC7, say) fails here, and those numbers are what it cost. Then two 2048x2048 textures of the
+  same blocks repeated, 4x4 and 8x8, each made and fetched at every sixteenth texel, whose times are
+  the upload, decoding included; and the 4x4 one fetched by 256 draws, each texel once, whose time
+  is sampling it. In an emulator a failure points at its ASTC decoder, or at what it does with the
+  texels after (`video_core/host_shaders/astc_decoder.comp`, `astc_recompression`), and the times
+  at how it uploads and keeps an ASTC texture.
 
 - **eac**, four cases. The one- and two-channel 11-bit EAC formats of ETC2 (the library's
   R_ETC2 and RG_ETC2), one 4x4 block each written by the processor and fetched texel by texel:

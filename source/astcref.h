@@ -37,9 +37,23 @@ typedef enum {
 AstcBlockKind AstcDecodeBlock(const uint8_t block[16], uint32_t width, uint32_t height,
                               uint16_t texels[][4]);
 
+/// AstcDecodeBlock in the sRGB decode mode, which the sRGB ASTC formats use: each 8-bit endpoint
+/// becomes (e << 8) | 0x80 rather than e * 257, and a texel is C's top eight bits, the sRGB code
+/// the texture unit then converts to linear for red, green and blue. Alpha is that byte as it is.
+/// What astcenc's sRGB profile decodes (astcenc_color_unquantize.cpp, the four channels alike).
+AstcBlockKind AstcDecodeBlockSrgb(const uint8_t block[16], uint32_t width, uint32_t height,
+                                  uint8_t texels[][4]);
+
 /// The two eight bit values an implementation may hand back for the 16-bit value @p c of an
 /// UNORM ASTC texel: C / 65535 rounded to eight bits, and C's top eight bits.
 void AstcUnorm8Answers(uint16_t c, uint8_t *rounded, uint8_t *truncated);
+
+/// The eight bit value an UNORM ASTC texel @p c reaches an eight bit target as when it is
+/// decoded the way the specification decodes by default, to FP16: C / 65536 cut to FP16's
+/// eleven bits (65535 is 1.0), then rounded to nearest, ties to even, as it is written. Neither of
+/// AstcUnorm8Answers' two in 2,080 of the 65,536 values: 0x8101 is 128 here and 129 both ways
+/// there. What astcenc's linear decode to eight bits is (unorm16_to_sf16, then * 255 rounded).
+uint8_t AstcUnorm8Fp16(uint16_t c);
 
 /// What the fields of a block say, for the reference suite and for a case's detail line.
 typedef struct {

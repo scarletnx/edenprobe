@@ -103,6 +103,7 @@ static const Step STEPS[] = {
     { "geometry", RunGeometry, MODE_FAMILY_GRAPHICS, true, true },
     { "bindless", RunBindless, MODE_FAMILY_GRAPHICS, true, true },
     { "astc", RunAstc, MODE_FAMILY_GRAPHICS, true, true },
+    { "astcimage", RunAstcImage, MODE_FAMILY_GRAPHICS, true, true },
     { "eac", RunEac, MODE_FAMILY_GRAPHICS, true, true },
     { "etc2", RunEtc2, MODE_FAMILY_GRAPHICS, true, true },
     { "bcn", RunBcn, MODE_FAMILY_GRAPHICS, true, true },

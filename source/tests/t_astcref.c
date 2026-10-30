@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "../astcblocks.h"
+#include "../astcimages.h"
 #include "../astcref.h"
 #include "../check.h"
 #include "../report.h"
@@ -36,6 +37,23 @@ void RunReferenceAstc(void) {
                    (unsigned)hash, (unsigned)b->hash);
     }
 
+    // The astcimage suite's picture, every block of each footprint, both ways astcenc decoded it:
+    // to FP16 and to eight bits (the same for an sRGB image, so checked once).
+    static uint8_t picture[ASTC_IMAGE_SIZE * ASTC_IMAGE_SIZE * 4];
+    for (uint32_t i = 0; i < ASTC_IMAGES; ++i) {
+        const AstcImage *const image = &ASTC_IMAGE[i];
+        for (uint32_t way = 0; way < (image->srgb ? 1u : 2u); ++way) {
+            AstcImageDecode(image, way == 1u, picture);
+            const uint32_t hash = AstcFnv1a(picture, (uint32_t)sizeof(picture));
+            const uint32_t want = way == 1u ? image->hash_unorm8 : image->hash;
+            char name[160];
+            snprintf(name, sizeof(name),
+                     "the reference decodes the picture's %s blocks%s as ARM's decoder does",
+                     image->name, image->srgb ? "" : way == 1u ? " to eight bits" : " to FP16");
+            CHECK_TRUE(SUITE, name, CHECK_NONE, hash == want, "hash 0x%08x, astcenc's 0x%08x",
+                       (unsigned)hash, (unsigned)want);
+        }
+    }
     // By hand: a 4-bit weight replicated to six bits, then one added above 32 (23.17).
     // 7 = 0111 -> 011101 = 29; 8 = 1000 -> 100010 = 34 -> 35; 13 = 1101 -> 110111 = 55 -> 56.
     CHECK_TRUE(SUITE, "4-bit weights 7, 8 and 13 unquantize to 29, 35 and 56", CHECK_NONE,

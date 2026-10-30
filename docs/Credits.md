@@ -27,10 +27,14 @@
 
 - **astcenc**, https://github.com/ARM-software/astc-encoder (Apache 2.0): ARM's reference ASTC
   codec. None of its code is in this repository; `source/astcblocks.c` carries hashes of what its
-  decoder (commit 9fbec680) makes of each block the astc suite samples, and `source/astcref.c`
-  follows its reading of two points the specification leaves to the decoder: bits past the end of
-  an integer sequence read as nought, and an HDR endpoint mode in the LDR profile is the error
-  colour on its own partition only.
+  decoder (commit 9fbec680) makes of each block the astc suite samples, `source/astcimages.c` the
+  blocks its encoder made of `tools/astc-images.py`'s picture and hashes of its decodes of them,
+  and `source/astcref.c`
+  follows its reading of three points the specification leaves to the decoder: bits past the end of
+  an integer sequence read as nought, an HDR endpoint mode in the LDR profile is the error colour
+  on its own partition only, and in the sRGB mode every channel's endpoint, alpha's too, is
+  widened with 0x80 below it (`astcenc_color_unquantize.cpp`; its comment says alpha is
+  replicated, its code does not, and its decodes of the picture agree with the code).
 
 - **libvpx's test vectors**, https://storage.googleapis.com/downloads.webmproject.org/test_data/libvpx/
   (BSD-3-Clause, copyright 2010 The WebM Project authors): `source/vp9jobs.c` carries the frames of

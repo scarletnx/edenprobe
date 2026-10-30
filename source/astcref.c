@@ -772,8 +772,10 @@ static AstcBlockKind Decode(const uint8_t block[16], uint32_t width, uint32_t he
     return info->kind = ASTC_BLOCK_NORMAL;
 }
 
-AstcBlockKind AstcDecodeBlock(const uint8_t block[16], uint32_t width, uint32_t height,
-                              uint16_t texels[][4]) {
+// The specification's C per channel. An 8-bit endpoint becomes 16 bits by replication, or in the
+// sRGB decode mode by itself shifted up with 0x80 below, on all four channels as astcenc has it.
+static AstcBlockKind DecodeTexels(const uint8_t block[16], uint32_t width, uint32_t height,
+                                  bool srgb, uint16_t texels[][4]) {
     static Decoded d;
     const AstcBlockKind kind = Decode(block, width, height, &d);
     const bool small_block = width * height < 31u;
@@ -798,10 +800,29 @@ AstcBlockKind AstcDecodeBlock(const uint8_t block[16], uint32_t width, uint32_t 
             for (uint32_t c = 0; c < 4u; ++c) {
                 const uint32_t plane = d.info.dual_plane && c == d.ccs ? 1u : 0u;
                 const uint32_t w = d.weights[plane][t * width + s];
-                const uint32_t c0 = (uint32_t)d.e0[p][c] * 257u;
-                const uint32_t c1 = (uint32_t)d.e1[p][c] * 257u;
+                const uint32_t e0 = (uint32_t)d.e0[p][c];
+                const uint32_t e1 = (uint32_t)d.e1[p][c];
+                const uint32_t c0 = srgb ? e0 << 8 | 0x80u : e0 * 257u;
+                const uint32_t c1 = srgb ? e1 << 8 | 0x80u : e1 * 257u;
                 out[c] = (uint16_t)((c0 * (64u - w) + c1 * w + 32u) >> 6);
             }
+        }
+    }
+    return kind;
+}
+
+AstcBlockKind AstcDecodeBlock(const uint8_t block[16], uint32_t width, uint32_t height,
+                              uint16_t texels[][4]) {
+    return DecodeTexels(block, width, height, false, texels);
+}
+
+AstcBlockKind AstcDecodeBlockSrgb(const uint8_t block[16], uint32_t width, uint32_t height,
+                                  uint8_t texels[][4]) {
+    static uint16_t wide[ASTC_MAX_TEXELS][4];
+    const AstcBlockKind kind = DecodeTexels(block, width, height, true, wide);
+    for (uint32_t i = 0; i < width * height; ++i) {
+        for (uint32_t c = 0; c < 4u; ++c) {
+            texels[i][c] = (uint8_t)(wide[i][c] >> 8);
         }
     }
     return kind;
@@ -812,6 +833,28 @@ void AstcDescribeBlock(const uint8_t block[16], uint32_t width, uint32_t height,
     static Decoded d;
     Decode(block, width, height, &d);
     *info = d.info;
+}
+
+uint8_t AstcUnorm8Fp16(uint16_t c) {
+    if (c == 0xFFFFu) {
+        return 255u;
+    }
+    // C / 65536 in FP16, cut to its top eleven significant bits (below four it is a subnormal and
+    // exact). With at most eleven bits times 255 the product is exact, so the rounding is too.
+    uint32_t kept = c;
+    for (uint32_t bits = 16u; bits > 11u; --bits) {
+        if ((kept >> (bits - 1u)) != 0u) {
+            kept &= ~((1u << (bits - 11u)) - 1u);
+            break;
+        }
+    }
+    const uint32_t product = kept * 255u;
+    uint32_t out = product >> 16;
+    const uint32_t rest = product & 0xFFFFu;
+    if (rest > 0x8000u || (rest == 0x8000u && (out & 1u) != 0u)) {
+        ++out;
+    }
+    return (uint8_t)out;
 }
 
 void AstcUnorm8Answers(uint16_t c, uint8_t *rounded, uint8_t *truncated) {
