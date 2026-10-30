@@ -403,6 +403,43 @@ static void CheckShort(const char *scratch) {
     (void)remove(path);
 }
 
+/// More samples of a case than BASELINE_SAMPLES_MAX: it is held to its newest, and the note says
+/// how many there were and how many count. Six old samples at a tenth of a second, then the 64
+/// newest at a millisecond, and a run back at a tenth: held to the newest it is slower; held to
+/// the oldest, the six would have stretched its limit past it.
+static void CheckNewest(const char *scratch) {
+    char path[512];
+    snprintf(path, sizeof(path), "%.400s/newest-check.jsonl", scratch);
+    FILE *const file = fopen(path, "w");
+    const uint32_t total = BASELINE_SAMPLES_MAX + 6u;
+    char line[BASELINE_LINE_MAX];
+    for (uint32_t sample = 1; file != NULL && sample <= total; ++sample) {
+        BaselineBuildSampleLine(line, sizeof(line), sample, "build", "", 1);
+        fprintf(file, "%s\n", line);
+        BaselineBuildCaseLine(line, sizeof(line), sample, "order", "the case that slows",
+                              sample <= 6u ? 100000u : 1000u);
+        fprintf(file, "%s\n", line);
+    }
+    if (file != NULL) {
+        fclose(file);
+    }
+    BaselineReset();
+    BaselineTake("order", "the case that slows", 100000);
+    BaselineTotals totals;
+    CaptureReset();
+    const bool read =
+        BaselineCompareFile(path, "newest-check", &CAPTURE, &totals) == BASELINE_READ;
+    CHECK_TRUE(SUITE, "baseline: a case with more than 64 samples is held to its newest, and said",
+               CHECK_NONE,
+               read && totals.samples == total && totals.compared == 1u && totals.slower == 1u &&
+                   Noted("compare=newest-check: 1 case has more samples in the file than the 64 a "
+                         "case is held to (70 the most), so each is held to its newest 64") != NULL,
+               "read %d samples %u compared %zu slower %zu: %.300s", (int)read,
+               (unsigned)totals.samples, totals.compared, totals.slower, Notes());
+    BaselineReset();
+    (void)remove(path);
+}
+
 /// Samples of more than one edenprobe build: a case's time moves with the probe's own code as well
 /// as with the machine, so the comparison says how many builds and the first two.
 static void CheckBuilds(const char *scratch) {
@@ -672,6 +709,7 @@ void RunSupportBaseline(const char *scratch) {
     CheckLineEnd(scratch);
     CheckShort(scratch);
     CheckBuilds(scratch);
+    CheckNewest(scratch);
 #if !defined(__SWITCH__) && defined(__GLIBC__)
     CheckUnreadable(scratch);
 #endif
