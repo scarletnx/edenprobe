@@ -366,6 +366,8 @@ typedef struct {
     bool builds_past_known;
     uint64_t build_hashes[BASELINE_BUILDS_KNOWN];
     char first_builds[2][BASELINE_BUILD_MAX];
+    /// errno when it could not be opened or read.
+    int error;
 } FileRead;
 
 /// The sample being read: its number and the cases its opening line said, or none open, and the
@@ -462,13 +464,15 @@ static void EndStray(FileRead *read_out) {
 }
 
 /// Reads @p path into @p read_out, giving each kept case the samples it has there when
-/// @p fill_cases. False when it cannot be opened.
-static bool ReadFile(const char *path, FileRead *read_out, bool fill_cases) {
+/// @p fill_cases. Only a file that is not there is BASELINE_NO_FILE; any other error opening it,
+/// or reading it, is BASELINE_UNREADABLE, its errno in @p read_out.
+static BaselineRead ReadFile(const char *path, FileRead *read_out, bool fill_cases) {
     memset(read_out, 0, sizeof(*read_out));
     memset(&reading, 0, sizeof(reading));
     FILE *const file = fopen(path, "r");
     if (file == NULL) {
-        return false;
+        read_out->error = errno;
+        return read_out->error == ENOENT ? BASELINE_NO_FILE : BASELINE_UNREADABLE;
     }
     if (fill_cases) {
         for (size_t i = 0; i < kept_count; ++i) {
@@ -517,10 +521,13 @@ static bool ReadFile(const char *path, FileRead *read_out, bool fill_cases) {
         }
         c->pending_us = read.us;
     }
+    // A read that failed ends the loop as the end of the file does: only the stream says which.
+    const bool failed = ferror(file) != 0;
+    read_out->error = failed ? errno : 0;
     EndSample(read_out);
     EndStray(read_out);
     fclose(file);
-    return true;
+    return failed ? BASELINE_UNREADABLE : BASELINE_READ;
 }
 
 static void LineToReport(void *context, const char *line) {
@@ -592,12 +599,14 @@ static void NoteLeftOut(const BaselineSink *sink, size_t *notes, const char *wor
     }
 }
 
-bool BaselineCompareFile(const char *path, const char *name, const BaselineSink *sink,
-                         BaselineTotals *totals) {
+BaselineRead BaselineCompareFile(const char *path, const char *name, const BaselineSink *sink,
+                                 BaselineTotals *totals) {
     memset(totals, 0, sizeof(*totals));
     FileRead read;
-    if (!ReadFile(path, &read, true)) {
-        return false;
+    const BaselineRead result = ReadFile(path, &read, true);
+    if (result != BASELINE_READ) {
+        totals->error = read.error;
+        return result;
     }
     totals->samples = read.samples;
     NoteLeftOut(sink, &totals->notes, "compare", name, &read);
@@ -632,7 +641,7 @@ bool BaselineCompareFile(const char *path, const char *name, const BaselineSink 
             SinkLine(sink, line);
         }
     }
-    return true;
+    return BASELINE_READ;
 }
 
 /// What adding a sample did: its number, the file's whole samples after it, whether the last
@@ -643,6 +652,8 @@ typedef struct {
     uint32_t samples_after;
     bool ended_line;
     uint32_t left_out;
+    /// The file is there and could not be read, so nothing was written.
+    bool unreadable;
     /// errno when it was not written, taken before a note can change it.
     int error;
 } Added;
@@ -651,8 +662,15 @@ static Added AddTo(const char *path, const char *build, const char *label) {
     Added added;
     memset(&added, 0, sizeof(added));
     FileRead read;
-    // A missing file is a new baseline: its first sample is number one.
-    (void)ReadFile(path, &read, false);
+    // A missing file is a new baseline: its first sample is number one. One that is there and
+    // cannot be read is not added to: neither its last sample's number nor whether its last line
+    // ends is known, so a sample written after it could repeat one or land on a cut line.
+    const BaselineRead result = ReadFile(path, &read, false);
+    if (result == BASELINE_UNREADABLE) {
+        added.unreadable = true;
+        added.error = read.error;
+        return added;
+    }
     added.sample = read.highest + 1u;
     added.samples_after = read.samples;
     added.left_out = read.left_out;
@@ -700,13 +718,19 @@ static void Compare(const char *directory, const char *name, const BaselineSink 
                     BaselineOutcome *outcome) {
     char path[256];
     PathOf(path, sizeof(path), directory, name);
-    const bool read = BaselineCompareFile(path, name, sink, &outcome->totals);
+    const BaselineRead read = BaselineCompareFile(path, name, sink, &outcome->totals);
     outcome->notes += outcome->totals.notes;
-    if (!read) {
+    if (read == BASELINE_NO_FILE) {
         SinkNote(sink, &outcome->notes,
                  "compare=%s: no baseline file at %s (%s), so nothing was compared; "
                  "baseline=%s in the mode file makes one, a sample a run",
-                 name, path, strerror(errno), name);
+                 name, path, strerror(outcome->totals.error), name);
+        return;
+    }
+    if (read == BASELINE_UNREADABLE) {
+        SinkNote(sink, &outcome->notes,
+                 "compare=%s: %s could not be read (%s), so nothing was compared", name, path,
+                 strerror(outcome->totals.error));
         return;
     }
     outcome->compared = true;
@@ -722,6 +746,13 @@ static void Add(const char *directory, const char *name, const char *build, cons
     PathOf(path, sizeof(path), directory, name);
     mkdir(directory, 0777);
     const Added added = AddTo(path, build, label);
+    if (added.unreadable) {
+        SinkNote(sink, &outcome->notes,
+                 "baseline=%s: %s could not be read (%s), so no sample was added: its last "
+                 "sample's number and whether its last line ends are not known",
+                 name, path, strerror(added.error));
+        return;
+    }
     if (added.ended_line) {
         SinkNote(sink, &outcome->notes,
                  "baseline=%s: the last line of %s had no line end, so one was written before "
