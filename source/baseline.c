@@ -6,6 +6,7 @@
 #include "report.h"
 
 #include <errno.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -369,7 +370,46 @@ static bool ReadFile(const char *path, uint32_t *samples_in_file, uint32_t *high
     return true;
 }
 
-bool BaselineCompareFile(const char *path, BaselineTotals *totals, const char *lines_for) {
+static void LineToReport(void *context, const char *line) {
+    (void)context;
+    ReportLine(line);
+}
+
+static void NoteToReport(void *context, const char *text) {
+    (void)context;
+    ReportNote("%s", text);
+}
+
+const BaselineSink *BaselineToReport(void) {
+    static const BaselineSink sink = { LineToReport, NoteToReport, NULL };
+    return &sink;
+}
+
+static void SinkLine(const BaselineSink *sink, const char *line) {
+    if (sink != NULL && sink->line != NULL) {
+        sink->line(sink->context, line);
+    }
+}
+
+/// A note to @p sink, counted in @p count, cut where the report would cut it.
+static void SinkNote(const BaselineSink *sink, size_t *count, const char *fmt, ...)
+    __attribute__((format(printf, 3, 4)));
+static void SinkNote(const BaselineSink *sink, size_t *count, const char *fmt, ...) {
+    char text[REPORT_NOTE_MAX + 1];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(text, sizeof(text), fmt, args);
+    va_end(args);
+    if (count != NULL) {
+        ++*count;
+    }
+    if (sink != NULL && sink->note != NULL) {
+        sink->note(sink->context, text);
+    }
+}
+
+bool BaselineCompareFile(const char *path, const char *name, const BaselineSink *sink,
+                         BaselineTotals *totals) {
     memset(totals, 0, sizeof(*totals));
     uint32_t highest = 0;
     if (!ReadFile(path, &totals->samples, &highest, true)) {
@@ -394,12 +434,9 @@ bool BaselineCompareFile(const char *path, BaselineTotals *totals, const char *l
         } else {
             ++totals->faster;
         }
-        if (lines_for == NULL) {
-            continue;
-        }
-        if (BaselineBuildMovedLine(line, sizeof(line), lines_for, c->suite, c->name, move, c->us,
+        if (BaselineBuildMovedLine(line, sizeof(line), name, c->suite, c->name, move, c->us,
                                    limit, samples) > 0u) {
-            ReportLine(line);
+            SinkLine(sink, line);
         }
     }
     return true;
@@ -433,77 +470,94 @@ bool BaselineAddFile(const char *path, const char *build, const char *label, uin
     return written;
 }
 
-static void Compare(const char *directory, const char *name) {
+static void Compare(const char *directory, const char *name, const BaselineSink *sink,
+                    BaselineOutcome *outcome) {
     char path[256];
     PathOf(path, sizeof(path), directory, name);
-    BaselineTotals totals;
-    if (!BaselineCompareFile(path, &totals, name)) {
-        ReportNote("compare=%s: no baseline file at %s (%s), so nothing was compared; "
-                   "baseline=%s in the mode file makes one, a sample a run",
-                   name, path, strerror(errno), name);
+    if (!BaselineCompareFile(path, name, sink, &outcome->totals)) {
+        SinkNote(sink, &outcome->notes,
+                 "compare=%s: no baseline file at %s (%s), so nothing was compared; "
+                 "baseline=%s in the mode file makes one, a sample a run",
+                 name, path, strerror(errno), name);
         return;
     }
+    outcome->compared = true;
     char line[REPORT_LINE_MAX];
-    if (BaselineBuildSummaryLine(line, sizeof(line), name, &totals) > 0u) {
-        ReportLine(line);
+    if (BaselineBuildSummaryLine(line, sizeof(line), name, &outcome->totals) > 0u) {
+        SinkLine(sink, line);
     }
 }
 
-static void Add(const char *directory, const char *name, const char *build, const char *label) {
+static void Add(const char *directory, const char *name, const char *build, const char *label,
+                const BaselineSink *sink, BaselineOutcome *outcome) {
     char path[256];
     PathOf(path, sizeof(path), directory, name);
     mkdir(directory, 0777);
     uint32_t sample = 0;
     uint32_t samples = 0;
     if (!BaselineAddFile(path, build, label, &sample, &samples)) {
-        ReportNote("baseline=%s: sample %u of %zu timed cases could not be written to %s (%s), so "
-                   "the file may end inside it",
-                   name, (unsigned)sample, kept_count, path, strerror(errno));
+        SinkNote(sink, &outcome->notes,
+                 "baseline=%s: sample %u of %zu timed cases could not be written to %s (%s), so "
+                 "the file may end inside it",
+                 name, (unsigned)sample, kept_count, path, strerror(errno));
         return;
     }
-    ReportNote("baseline=%s: sample %u of %zu timed cases added to %s, which now has %u", name,
-               (unsigned)sample, kept_count, path, (unsigned)samples);
+    outcome->added = true;
+    outcome->sample = sample;
+    outcome->samples_after = samples;
+    SinkNote(sink, &outcome->notes,
+             "baseline=%s: sample %u of %zu timed cases added to %s, which now has %u", name,
+             (unsigned)sample, kept_count, path, (unsigned)samples);
 }
 
-void BaselineFinish(const char *directory, const char *add_to, const char *compare,
-                    const char *build, const char *label, bool timed, bool resumed) {
+BaselineOutcome BaselineFinish(const char *directory, const char *add_to, const char *compare,
+                               const char *build, const char *label, bool timed, bool resumed,
+                               const BaselineSink *sink) {
+    BaselineOutcome outcome;
+    memset(&outcome, 0, sizeof(outcome));
     const bool adding = add_to != NULL && add_to[0] != '\0';
     const bool comparing = compare != NULL && compare[0] != '\0';
     if (!adding && !comparing) {
-        return;
+        return outcome;
     }
     if (!timed) {
         if (adding) {
-            ReportNote("baseline=%s: this run has notime, so its cases carry no time and no sample "
-                       "was added",
-                       add_to);
+            SinkNote(sink, &outcome.notes,
+                     "baseline=%s: this run has notime, so its cases carry no time and no "
+                     "sample was added",
+                     add_to);
         }
         if (comparing) {
-            ReportNote("compare=%s: this run has notime, so its cases carry no time and nothing "
-                       "was compared",
-                       compare);
+            SinkNote(sink, &outcome.notes,
+                     "compare=%s: this run has notime, so its cases carry no time and nothing "
+                     "was compared",
+                     compare);
         }
-        return;
+        return outcome;
     }
     if (dropped_count > 0u) {
-        ReportNote("baseline: %zu timed cases past the %u this program keeps are left out",
-                   dropped_count, (unsigned)BASELINE_CASES_MAX);
+        SinkNote(sink, &outcome.notes,
+                 "baseline: %zu timed cases past the %u this program keeps are left out",
+                 dropped_count, (unsigned)BASELINE_CASES_MAX);
     }
     if (comparing) {
         if (resumed) {
-            ReportNote("compare=%s: this run went on after the program ended inside it, so only "
-                       "this launch's %zu timed cases are compared",
-                       compare, kept_count);
+            SinkNote(sink, &outcome.notes,
+                     "compare=%s: this run went on after the program ended inside it, so only "
+                     "this launch's %zu timed cases are compared",
+                     compare, kept_count);
         }
-        Compare(directory, compare);
+        Compare(directory, compare, sink, &outcome);
     }
     if (adding) {
         if (resumed) {
-            ReportNote("baseline=%s: this run went on after the program ended inside it, and this "
-                       "launch has only %zu of its timed cases, so no sample was added",
-                       add_to, kept_count);
+            SinkNote(sink, &outcome.notes,
+                     "baseline=%s: this run went on after the program ended inside it, and this "
+                     "launch has only %zu of its timed cases, so no sample was added",
+                     add_to, kept_count);
         } else {
-            Add(directory, add_to, build, label);
+            Add(directory, add_to, build, label, sink, &outcome);
         }
     }
+    return outcome;
 }

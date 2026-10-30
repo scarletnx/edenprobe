@@ -520,8 +520,9 @@ int main(int argc, char **argv) {
     NoteCrashes(&plan);
     // After every suite and before the summary, which it leaves as it is: a baseline's lines say
     // how this run's times compare, never whether a case passed.
-    BaselineFinish(BASELINE_DIRECTORY, mode.baseline.name, mode.compare.name, EDENPROBE_BUILD,
-                   mode.label, timing, plan.start != JOURNAL_FRESH);
+    (void)BaselineFinish(BASELINE_DIRECTORY, mode.baseline.name, mode.compare.name,
+                         EDENPROBE_BUILD, mode.label, timing, plan.start != JOURNAL_FRESH,
+                         BaselineToReport());
     ReportSummary();
 
     ReportClose();

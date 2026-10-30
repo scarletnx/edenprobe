@@ -116,10 +116,23 @@ typedef struct {
 size_t BaselineBuildSummaryLine(char *out, size_t out_size, const char *baseline,
                                 const BaselineTotals *totals);
 
-/// Holds the kept cases to the baseline file at @p path, the totals into @p totals. With
-/// @p lines_for, the baseline's name, a case that moved writes its line to the report; NULL
-/// writes nothing, for a check. False when the file cannot be opened, errno saying why.
-bool BaselineCompareFile(const char *path, BaselineTotals *totals, const char *lines_for);
+/// Where a baseline's report lines and notes go: the report's (BaselineToReport), or a check's,
+/// which reads them back instead of writing them into the run it is part of. A NULL member, or a
+/// NULL sink, writes nothing of that kind.
+typedef struct {
+    void (*line)(void *context, const char *line);
+    void (*note)(void *context, const char *text);
+    void *context;
+} BaselineSink;
+
+/// The sink that writes lines with ReportLine and notes with ReportNote.
+const BaselineSink *BaselineToReport(void);
+
+/// Holds the kept cases to the baseline file at @p path, the totals into @p totals: a case that
+/// moved writes its line, named after the baseline @p name, to @p sink. False when the file
+/// cannot be opened, errno saying why.
+bool BaselineCompareFile(const char *path, const char *name, const BaselineSink *sink,
+                         BaselineTotals *totals);
 
 /// Adds the kept cases to the baseline file at @p path as a new sample, made if missing: its number
 /// into @p sample and the file's samples after it into @p samples_after. False when the file
@@ -127,14 +140,30 @@ bool BaselineCompareFile(const char *path, BaselineTotals *totals, const char *l
 bool BaselineAddFile(const char *path, const char *build, const char *label, uint32_t *sample,
                      uint32_t *samples_after);
 
+/// What BaselineFinish did, for its caller and its checks.
+typedef struct {
+    /// The file `compare=` names was read and this run held to it, with what that came to.
+    bool compared;
+    BaselineTotals totals;
+    /// This run went into the file `baseline=` names: as which sample, and the file's samples
+    /// after it.
+    bool added;
+    uint32_t sample;
+    uint32_t samples_after;
+    /// The notes it wrote.
+    size_t notes;
+} BaselineOutcome;
+
 /// Compares this run's kept cases with @p directory/<compare>.jsonl, when @p compare names one,
-/// then adds them as a sample to @p directory/<add_to>.jsonl, when @p add_to names one, writing
-/// the report's lines and notes. @p timed false is a run with no times (`notime`), which compares
-/// and adds nothing and says so; @p resumed is a run that went on after the program ended inside
-/// it, whose earlier launches' times this one does not have: it compares what it has and adds no
-/// sample. Call it once the suites have ended and before the summary.
-void BaselineFinish(const char *directory, const char *add_to, const char *compare,
-                    const char *build, const char *label, bool timed, bool resumed);
+/// then adds them as a sample to @p directory/<add_to>.jsonl, when @p add_to names one, its lines
+/// and notes to @p sink. Comparing first is what keeps a run with both words from being held to
+/// itself. @p timed false is a run with no times (`notime`), which compares and adds nothing and
+/// says so; @p resumed is a run that went on after the program ended inside it, whose earlier
+/// launches' times this one does not have: it compares what it has and adds no sample. Call it
+/// once the suites have ended and before the summary.
+BaselineOutcome BaselineFinish(const char *directory, const char *add_to, const char *compare,
+                               const char *build, const char *label, bool timed, bool resumed,
+                               const BaselineSink *sink);
 
 #ifdef __cplusplus
 }
