@@ -9,6 +9,9 @@ agrees, or when the difference between the builds is what is being measured. The
 what a case asks or how it judges changes: a new suite or case is a minor step, a changed verdict
 for an existing case at least that, and the counts in these pages move with it.
 
-The cover a loader shows is `icon.jpg`, drawn from `static/icon.svg` (the reden mark, the Eden
-sunset without the palm, on the site's dark ground) by `make icon`; the JPEG is committed so a build
-needs neither drawing tool.
+The cover a loader shows is `icon.jpg`, drawn from `static/icon.svg` by `make icon`; the JPEG is
+committed so a build needs neither drawing tool. The cover is Wimsy as edenprobe, in Eden's sunset
+colours with a test probe, over the reden mark (the Eden sunset without the palm, cut by its
+bands) on the site's dark ground, with the program's name. `static/icon.svg` is made in
+wimsy-dist (https://github.com/scarletnx/wimsy-dist, `tools/make_edenprobe.py`), where Wimsy's
+other designs are.
