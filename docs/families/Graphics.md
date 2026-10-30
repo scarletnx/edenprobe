@@ -278,9 +278,12 @@ The thirty drawing suites, clear to blit2d, in the order they run.
   What each texel must be is `source/astcref.c`, an LDR profile decoder written from the Khronos
   Data Format Specification's ASTC chapter, which the reference suite holds block by block to ARM's
   reference decoder (astcenc 9fbec680) and which agreed with it on 458,752 random blocks over
-  every 2D footprint when it was written. A texel may be either byte its 16-bit value gives,
-  divided by 65535 and rounded or its top byte, since the texture unit may decode to eight bits;
-  nothing else. HDR endpoint modes are the error colour, opaque magenta, on their own partition's
+  every 2D footprint when it was written. A texel may be any of three bytes its 16-bit value gives:
+  the specification's default decode, divided by 65536 and cut to FP16, then rounded as the target
+  is written; divided by 65535 and rounded; or its top byte, where the texture unit decodes to eight
+  bits. Nothing else. In 2,080 of the 65,536 values the first is a byte neither other way gives
+  (0x8101 is 128 from FP16, 129 both other ways), so a texture unit that follows the specification
+  would fail where the case allowed only two. HDR endpoint modes are the error colour, opaque magenta, on their own partition's
   texels in this profile, as astcenc has it. In an emulator a failure points at the ASTC decoder
   it uses (`video_core/host_shaders/astc_decoder.comp`, `video_core/textures/astc.cpp`): the 4-bit
   and 5-bit cases at the weight unquantization, the partition cases at the partition hash.

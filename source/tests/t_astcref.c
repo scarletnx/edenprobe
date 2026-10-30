@@ -54,6 +54,17 @@ void RunReferenceAstc(void) {
                        (unsigned)hash, (unsigned)want);
         }
     }
+    // By hand: 0x8101 / 65536 cut to FP16's eleven bits is 0x8100 / 65536 = 0.50390625, times
+    // 255 is 128.49609375, so 128; C / 65535 * 255 is 129.0039 and the top byte 0x81 is 129.
+    {
+        uint8_t r = 0;
+        uint8_t t = 0;
+        AstcUnorm8Answers(0x8101u, &r, &t);
+        CHECK_TRUE(SUITE, "the 16-bit texel 0x8101 is 128 from FP16 and 129 the other two ways",
+                   CHECK_NONE, AstcUnorm8Fp16(0x8101u) == 128u && r == 129u && t == 129u,
+                   "got %u from FP16, %u rounded and %u truncated",
+                   (unsigned)AstcUnorm8Fp16(0x8101u), (unsigned)r, (unsigned)t);
+    }
     // By hand: a 4-bit weight replicated to six bits, then one added above 32 (23.17).
     // 7 = 0111 -> 011101 = 29; 8 = 1000 -> 100010 = 34 -> 35; 13 = 1101 -> 110111 = 55 -> 56.
     CHECK_TRUE(SUITE, "4-bit weights 7, 8 and 13 unquantize to 29, 35 and 56", CHECK_NONE,
