@@ -363,8 +363,27 @@ static void CheckBreadcrumbs(void) {
                "%.240s / %.240s", described, plain);
 }
 
+/// What a case that times its own parts reads: the work since the line before, outside a timed
+/// suite too, and nothing once a line has claimed it.
+static void CheckCaseWork(void) {
+    PerfPassBegin(PERF_UNTIMED);
+    const uint64_t before = PerfCaseWork();
+    PerfAddWork(1500u);
+    PerfAddWork(2500u);
+    const uint64_t during = PerfCaseWork();
+    uint32_t us = 0;
+    const bool timed = PerfCaseEnd("times its own parts", &us);
+    const uint64_t after = PerfCaseWork();
+    CHECK_TRUE(SUITE, "a case reads the work it has done so far, outside the timed passes too",
+               CHECK_NONE, before == 0u && during == 4000u && !timed && after == 0u,
+               "before %llu, after two submits %llu, after its line %llu (timed %d)",
+               (unsigned long long)before, (unsigned long long)during, (unsigned long long)after,
+               (int)timed);
+}
+
 void RunSupportPerf(void) {
     CheckArithmetic();
+    CheckCaseWork();
     CheckSampling();
     CheckLines();
     CheckRehearsal();

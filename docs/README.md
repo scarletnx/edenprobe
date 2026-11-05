@@ -23,7 +23,7 @@ New here? Start with [Build](./Build.md), then [the mode file](./ModeFile.md) an
 - **[What it checks](./families/README.md)**:
   - **[The judge](./families/Judge.md)** - selfcheck, support and reference
   - **[Processor](./families/Cpu.md)**, **[pad](./families/Pad.md)** and **[touch](./families/Touch.md)**
-  - **[Graphics](./families/Graphics.md)** - the drawing suites, clear to blit2d, and
+  - **[Graphics](./families/Graphics.md)** - the drawing suites, clear to tex8k, and
     **[blit2d](./families/Blit2d.md)**
   - **[fs](./families/Fs.md)**, **[kernel](./families/Kernel.md)** and **[display](./families/Display.md)**
   - **[Video](./families/Video.md)** - the VIC, and **[nvdec](./families/Nvdec.md)**, VP9 through the decode engine

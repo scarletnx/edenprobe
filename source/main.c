@@ -118,6 +118,10 @@ static const Step STEPS[] = {
     { "query", RunQuery, MODE_FAMILY_GRAPHICS, true, true },
     { "dma", RunDma, MODE_FAMILY_GRAPHICS, true, true },
     { "blit2d", RunBlit2d, MODE_FAMILY_GRAPHICS, true, true },
+    // Last of the family, since a machine that runs out of memory on a texture this large may
+    // take the launch down with it. Untimed by the passes: one pass makes the uploads a game
+    // makes once, and each case times its own work.
+    { "tex8k", RunTex8k, MODE_FAMILY_GRAPHICS, false, true },
     { "fs", RunFs, MODE_FAMILY_FS, true, true },
     // Untimed: what a case judges is the order its threads ran in, and each waits on purpose.
     { "sched", RunSched, MODE_FAMILY_KERNEL, false, true },
@@ -462,6 +466,7 @@ int main(int argc, char **argv) {
     const bool timing = !mode.no_timing;
     GameSetFrames(mode.frames);
     GameSetTiming(timing);
+    Tex8kSetTiming(timing);
     // The running screen, for a run with a screen: a detailed one, or one the start screen made
     // quick. Counted over every step the run has, done ones included, so a launch that goes on
     // says how far the whole run is.

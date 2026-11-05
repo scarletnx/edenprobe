@@ -196,6 +196,13 @@ void RunDma(void);
 /// bytes and in a copy to buffer, against blit2dref.c's images under each answer.
 void RunBlit2d(void);
 
+/// 8192x8192 textures in RGBA8, BC1, BC7 and ASTC: the upload, the first draw, a frame that changes a
+/// region, a copy out, and an 8192x4096 RGBA16F target the processor reads, each timed once.
+void RunTex8k(void);
+
+/// Whether the tex8k cases carry their times: off for a run with the mode word `notime`.
+void Tex8kSetTiming(bool on);
+
 /// Reads from the memory card through FsFile, in the patterns a game reads its files: sequential
 /// in five block sizes, random, backwards, the same place again, many small files, and the edges.
 /// Every byte is checked; the times are the point.
@@ -302,6 +309,10 @@ void RunReferenceService(void);
 /// The game scene's world, frames, reads and frame times against answers worked out by hand:
 /// part of the reference suite.
 void RunReferenceGame(void);
+
+/// The tex8k suite's judge: its BC7 and BC1 blocks against Pillow's decode, its ASTC texels
+/// against the picture's, and where its regions, levels and samples sit.
+void RunReferenceTex8k(void);
 
 #ifdef __cplusplus
 }

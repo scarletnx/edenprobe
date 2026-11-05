@@ -26,6 +26,9 @@
 // their own alignment instead.
 #define SCRATCH_ALIGNMENT 256u
 
+// The result module deko3d aborts with (source/dk_device.cpp, MAKERESULT(359, result)).
+#define DK_RESULT_MODULE 359u
+
 // The four bytes the formats the older suites use occupy: the staging for texture uploads and
 // the pitch of the processor-written images are sized off it. The format suite's targets name
 // their own size through GpuFormatBytes.
@@ -170,8 +173,9 @@ void GpuSpecDefaults(GpuSpec *spec, uint32_t width, uint32_t height) {
 }
 
 /// Lays out one 2D image, @p pitch_or_tile going into the maker's union.
-static void LayOut(GpuContext *gpu, DkImageLayout *layout, DkImageFormat format, uint32_t width,
-                   uint32_t height, uint32_t flags, uint32_t pitch_or_tile) {
+static void LayOutLevels(GpuContext *gpu, DkImageLayout *layout, DkImageFormat format,
+                         uint32_t width, uint32_t height, uint32_t flags, uint32_t pitch_or_tile,
+                         uint32_t levels) {
     DkImageLayoutMaker maker;
     dkImageLayoutMakerDefaults(&maker, gpu->device);
     maker.type = DkImageType_2D;
@@ -179,9 +183,14 @@ static void LayOut(GpuContext *gpu, DkImageLayout *layout, DkImageFormat format,
     maker.format = format;
     maker.dimensions[0] = width;
     maker.dimensions[1] = height;
-    maker.mipLevels = 1;
+    maker.mipLevels = levels;
     maker.pitchStride = pitch_or_tile;
     dkImageLayoutInitialize(layout, &maker);
+}
+
+static void LayOut(GpuContext *gpu, DkImageLayout *layout, DkImageFormat format, uint32_t width,
+                   uint32_t height, uint32_t flags, uint32_t pitch_or_tile) {
+    LayOutLevels(gpu, layout, format, width, height, flags, pitch_or_tile, 1u);
 }
 
 /// Lays out one image and gives it memory out of @p block at @p used, which it advances. The
@@ -480,9 +489,15 @@ bool GpuOpenSpec(GpuContext *gpu, const GpuSpec *spec) {
         // runtime's abort, which during bring-up is almost always the graphics library raising
         // it but is not only ever that.
         char text[96];
-        snprintf(text, sizeof(text), "the graphics library or the runtime aborted (result 0x%08x)",
+        // The library aborts with its own result module and the DkResult it raised.
+        const bool out_of_memory = open_failure_result == MAKERESULT(DK_RESULT_MODULE,
+                                                                      DkResult_OutOfMemory);
+        snprintf(text, sizeof(text), "%s (result 0x%08x)",
+                 out_of_memory ? "the graphics library ran out of memory"
+                               : "the graphics library or the runtime aborted",
                  (unsigned)open_failure_result);
         GpuClose(gpu);
+        gpu->out_of_memory = out_of_memory;
         return Fail(gpu, text);
     }
 
@@ -994,6 +1009,20 @@ bool GpuCreateImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImag
         *cpu_bytes = (uint8_t *)dkMemBlockGetCpuAddr(block) + offset;
     }
     return true;
+}
+
+bool GpuCreateMipTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout,
+                         DkImageFormat format, uint32_t width, uint32_t height, uint32_t levels) {
+    if (gpu == NULL || !gpu->ready) {
+        return false;
+    }
+    if (gpu->extra_image_memory == NULL) {
+        return Complain(gpu, "an image, and the spec asked for no image memory");
+    }
+    LayOutLevels(gpu, layout, format, width, height, 0, 0, levels);
+    const char *problem =
+        PlaceLaidOut(out, layout, gpu->extra_image_memory, &gpu->extra_image_used, NULL);
+    return problem == NULL || Complain(gpu, problem);
 }
 
 bool GpuCreateArrayImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImageFormat format,
