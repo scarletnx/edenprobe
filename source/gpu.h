@@ -85,6 +85,9 @@ typedef struct {
     uint32_t height;
     uint32_t bytes_per_pixel;
     bool ready;
+    /// The bring-up stopped because the graphics library ran out of memory: the machine refused
+    /// the size asked for, which a suite asking for hundreds of megabytes reports as a skip.
+    bool out_of_memory;
     char failure[256];       ///< why Ready() is false, for the report
 } GpuContext;
 
@@ -198,6 +201,12 @@ void *GpuAllocData(GpuContext *gpu, uint32_t size, uint32_t alignment, DkGpuAddr
 /// Carves image memory for a texture and initialises @p out over it.
 bool GpuCreateTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImageFormat format,
                       uint32_t width, uint32_t height);
+
+/// Carves image memory for a block linear 2D texture of @p levels mip levels, laid out as the
+/// library chooses, and initialises @p out over it. In the ordinary image block, which the
+/// processor cannot reach: the copy engine fills it.
+bool GpuCreateMipTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout,
+                         DkImageFormat format, uint32_t width, uint32_t height, uint32_t levels);
 
 /// Carves processor-visible image memory for a block linear 2D array of @p layers layers and
 /// @p levels mip levels, laid out as the library chooses, and stores its first byte in

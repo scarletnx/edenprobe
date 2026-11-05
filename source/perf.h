@@ -58,6 +58,11 @@ void PerfPassBegin(PerfPass pass);
 /// hands a case another case's time.
 bool PerfCaseEnd(const char *name, uint32_t *microseconds);
 
+/// The graphics work the case under way has done so far, in nanoseconds: what PerfCaseEnd would
+/// claim now. For a case that times its own parts, a frame at a time or an upload apart from its
+/// draw, by the difference between two reads.
+uint64_t PerfCaseWork(void);
+
 /// Which pass is under way, counted from one with the warm-up first, and how many cases of it
 /// have closed. For the line that says where a hang happened.
 uint32_t PerfPassNumber(void);

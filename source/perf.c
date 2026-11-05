@@ -152,6 +152,10 @@ bool PerfCaseEnd(const char *name, uint32_t *microseconds) {
     return true;
 }
 
+uint64_t PerfCaseWork(void) {
+    return pending_ns;
+}
+
 uint32_t PerfPassNumber(void) {
     return pass_number;
 }

@@ -32,10 +32,11 @@
 * [query](#query)
 * [dma](#dma)
 * [blit2d](#blit2d)
+* [tex8k](#tex8k)
 * [What a console run settles](#what-a-console-run-settles)
 * [Where reden falls short](#where-reden-falls-short)
 
-The thirty drawing suites, clear to blit2d, in the order they run.
+The thirty drawing suites, clear to blit2d, in the order they run, and tex8k after them.
 
 ## clear
 
@@ -559,6 +560,54 @@ whose rows start and end inside a gob's 16 byte runs. Every pixel is judged twic
 bytes the processor reads and in a copy to buffer, against the image each answer to two open
 questions gives. See [The blit2d suite](Blit2d.md).
 
+## tex8k
+
+Forty seven cases, on textures as large as a game's largest: 8192x8192, which the texture unit
+takes (its limit is 16384), in RGBA8, BC1, BC7, ASTC 4x4 and ASTC 8x8, and one BC1 at 16384x16384.
+The question is what each costs, so the suite runs once, not ten times: the uploads are the ones a
+game makes once, and a run stays seconds long. Each case times its own work on the graphics unit
+(the submits, as every timed case does) and its line carries that time; the frames case carries its
+median frame. The detail gives the parts: the copies apart from the draw, the first and the slowest
+frame, and what the processor spent filling the staging, writing a region and reading back, from
+the system tick, since an emulator can spend there what the console does not. `notime` drops the
+times and the parts.
+
+Every texture has a device of its own, sized for it, so a run never holds two. The copy engine
+uploads it from staging the processor filled, the first eight levels (8192 down to 64), each a
+square of level 0's staging from a corner of its own, so a fetch of the wrong level reads other
+texels; one RGBA8 texture is pitch linear instead, in memory the processor writes, with no staging
+and no copy. Then, per texture:
+
+- a draw fetches level 7 alone, the size of the 64x64 target, a texel a pixel: an emulator that
+  makes all eight levels before it samples one pays for that here;
+- a draw fetches 4096 texels spread over level 0, every 128th, and the same draw again;
+- sixteen frames each write a 256x256 region of level 0 somewhere else, by the copy engine from a
+  staging slot the processor fills that frame (or by the processor, in the pitch linear one), and
+  fetch every sixteenth texel of it onto a 16x16 cell in the same list;
+- the 4096 texels again, which now read each frame's region where one wrote and the upload
+  elsewhere;
+- a 256x256 region of level 0, half inside a frame's region, copied out to a buffer and compared
+  byte for byte, blocks for the compressed formats.
+
+Last, an 8192x4096 RGBA16F target in memory the processor reads is cleared and drawn over a
+rectangle, and the processor reads eight texels through memory, four inside and four outside.
+
+Every texel's value follows from its place, the upload or frame that wrote it last and the format
+(`source/tex8kref.c`): an RGBA8 texel is `x | y << 13 | salt << 26`, so every texel of the texture
+differs; a BC1 block is one colour from a mix of its place, and a channel may read as its code with
+the bits repeated or the code over its largest rounded, which part ways on some codes; a BC7 block
+is mode 6 with both endpoints from the mix and texel t taking index t, so its sixteen texels differ;
+an ASTC block is one of astcimage's picture's blocks, the picture tiled and each tile turned by a
+shift its place and the salt choose, any of the three bytes the astc suite allows. The reference
+suite holds the BC7 and BC1 blocks to Pillow's decode of the same bytes, the ASTC texels to the
+picture's, and the regions, levels and samples to where they must sit. Exact tier, the device
+opening none. A device the machine has no memory for is a skip, `unavailable`, naming the sizes:
+the homebrew menu in applet mode has far less memory than a title, and may refuse the RGBA8
+texture's 341 MiB with its 256 MiB of staging, where the menu started over a title takes them. In
+an emulator a failure or a time points at how it uploads a texture that
+large: in pieces or in one allocation, whole on every change or by the region that changed, a
+compressed format decoded or encoded again, and how a render target reaches memory.
+
 ## What a console run settles
 
 Questions only a console answers, asked about the cases both emulators fail in this family; each
@@ -575,6 +624,9 @@ whether the machine does.
 - **Q5, geometry.** Does the geometry shader make the four squares, and only two in the second case?
 - **Q6, query notes.** What CONDITIONAL does over the value one, over two to the 32 and over a
   report of 9600 in the same list, which says which of its bytes decide.
+- **Q7, tex8k.** What the console's times are: the copies of 341 MiB, a region's frame, the first
+  draw of a level, the processor's fill and reads; an emulator's are held to them. And whether the
+  eight RGBA16F texels read through memory after a full barrier and a wait.
 
 The blit2d suite asks two questions of its own, which texel each origin samples when the copy
 scales and how a fraction in the scale is stepped; they are on [its page](Blit2d.md), as its Q1

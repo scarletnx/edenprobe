@@ -558,7 +558,7 @@ static const struct {
     { "occlusion", UI_FAMILY_GRAPHICS }, { "drawtex", UI_FAMILY_GRAPHICS },
     { "geometry", UI_FAMILY_GRAPHICS },
     { "query", UI_FAMILY_GRAPHICS },  { "dma", UI_FAMILY_GRAPHICS },
-    { "blit2d", UI_FAMILY_GRAPHICS },
+    { "blit2d", UI_FAMILY_GRAPHICS }, { "tex8k", UI_FAMILY_GRAPHICS },
     { "fs", UI_FAMILY_FS },           { "sched", UI_FAMILY_KERNEL },
     { "binder", UI_FAMILY_DISPLAY },
     { "vic", UI_FAMILY_VIDEO },       { "nvdec", UI_FAMILY_VIDEO },

@@ -2378,4 +2378,5 @@ void RunReference(void) {
     RunReferenceBlit2d();
     RunReferenceService();
     RunReferenceGame();
+    RunReferenceTex8k();
 }
