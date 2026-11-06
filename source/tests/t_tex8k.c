@@ -36,6 +36,10 @@
 // Last, an 8192x4096 RGBA16F target is cleared and drawn, and the processor reads eight of its
 // texels through memory.
 //
+// A host that samples no ASTC may keep an ASTC texture as BC7, which moves texels: such a texel
+// passes when it is within BC7's loss measured on the same texels (TEX8K_BC7_BOUND), and the line
+// then says bound instead of exact, with how far it moved in each region of the picture.
+//
 // Untimed by the passes: one pass makes the uploads a game makes once, and a run stays seconds
 // long. Each case times its own work on the graphics unit (gpu.c's submits), and its line
 // carries that; a frame case carries its median frame, and its detail the first, the 99th
@@ -262,7 +266,10 @@ static uint32_t SaltOf(const Run *r, uint32_t level, uint32_t tx, uint32_t ty) {
 
 typedef struct {
     uint32_t wrong;
-    /// The first wrong pixel: where and what it fetched.
+    /// Pixels an ASTC texture moved within BC7's bound, and the farthest a region.
+    uint32_t off;
+    uint32_t worst[ASTC_IMAGE_REGIONS];
+    /// The first wrong pixel: where, what it fetched, and how far it was from the answer.
     bool drawn;
     uint32_t x;
     uint32_t y;
@@ -270,6 +277,8 @@ typedef struct {
     uint32_t tx;
     uint32_t ty;
     uint32_t salt;
+    uint32_t distance;
+    uint32_t bound;
     uint8_t got[4];
     uint8_t want[4];
 } Judged;
@@ -305,7 +314,19 @@ static void Judge(const Run *r, const uint8_t *pixels, const Window *windows, ui
                 Tex8kTexel(&e->ref, ox + tx, oy + ty, salt, answers);
             }
             const uint8_t *const pixel = GpuPixel(pixels, TEX8K_TARGET, x, y);
-            const bool right = Tex8kMatches(pixel, answers);
+            bool right = Tex8kMatches(pixel, answers);
+            uint32_t bound = 0;
+            if (!right && w != NULL && e->ref.kind == TEX8K_ASTC) {
+                const uint32_t region = Tex8kAstcRegion(&e->ref, ox + tx, oy + ty, salt);
+                const uint32_t distance = Tex8kDistance(pixel, answers);
+                bound = TEX8K_BC7_BOUND[region];
+                if (distance <= bound) {
+                    right = true;
+                    ++out->off;
+                    out->worst[region] =
+                        distance > out->worst[region] ? distance : out->worst[region];
+                }
+            }
             PictureSet(picture, x, y, answers[0], right ? PICTURE_MATCHED : PICTURE_WRONG);
             if (right) {
                 continue;
@@ -318,6 +339,8 @@ static void Judge(const Run *r, const uint8_t *pixels, const Window *windows, ui
                 out->tx = tx;
                 out->ty = ty;
                 out->salt = salt;
+                out->distance = Tex8kDistance(pixel, answers);
+                out->bound = bound;
                 memcpy(out->got, pixel, 4);
                 memcpy(out->want, answers[0], 4);
             }
@@ -325,9 +348,18 @@ static void Judge(const Run *r, const uint8_t *pixels, const Window *windows, ui
     }
 }
 
-/// The detail of a judged target: the wrong pixels and the first, and @p times after them.
+/// The tier a judged target reports: exact unless an ASTC texel moved, wrong or within BC7's
+/// bound.
+static CheckTier TierOf(const Run *r, const Judged *j) {
+    return r->e->ref.kind == TEX8K_ASTC && (j->off != 0u || j->wrong != 0u) ? CHECK_BOUND
+                                                                            : CHECK_EXACT;
+}
+
+/// The detail of a judged target: the wrong pixels and the first, those within BC7's bound, and
+/// @p times after them.
 static void Describe(char *out, size_t size, const Judged *j, const char *times) {
     char wrong[224] = "";
+    char off[192] = "";
     if (j->wrong != 0u && j->drawn) {
         snprintf(wrong, sizeof(wrong),
                  "%u of %u pixels wrong; pixel %u,%u fetched texel %u,%u of level %u, salt %u, as "
@@ -336,6 +368,11 @@ static void Describe(char *out, size_t size, const Judged *j, const char *times)
                  (unsigned)j->y, (unsigned)j->tx, (unsigned)j->ty, (unsigned)j->level,
                  (unsigned)j->salt, j->got[0], j->got[1], j->got[2], j->got[3], j->want[0],
                  j->want[1], j->want[2], j->want[3]);
+        if (j->bound != 0u) {
+            const size_t used = strlen(wrong);
+            snprintf(wrong + used, sizeof(wrong) - used, ", %u off where BC7's bound is %u",
+                     (unsigned)j->distance, (unsigned)j->bound);
+        }
     } else if (j->wrong != 0u) {
         snprintf(wrong, sizeof(wrong),
                  "%u of %u pixels wrong; pixel %u,%u, where no draw fetched, reads "
@@ -343,8 +380,18 @@ static void Describe(char *out, size_t size, const Judged *j, const char *times)
                  (unsigned)j->wrong, (unsigned)(TEX8K_TARGET * TEX8K_TARGET), (unsigned)j->x,
                  (unsigned)j->y, j->got[0], j->got[1], j->got[2], j->got[3]);
     }
-    snprintf(out, size, "%s%s%s", wrong, wrong[0] != '\0' && times[0] != '\0' ? "; " : "",
-             times);
+    if (j->off != 0u) {
+        snprintf(off, sizeof(off),
+                 "within BC7's bound: %u pixels off, by at most %u of %u in %s, %u of %u in %s, "
+                 "%u of %u in %s, %u of %u in %s",
+                 (unsigned)j->off, (unsigned)j->worst[0], (unsigned)TEX8K_BC7_BOUND[0],
+                 ASTC_IMAGE_REGION[0], (unsigned)j->worst[1], (unsigned)TEX8K_BC7_BOUND[1],
+                 ASTC_IMAGE_REGION[1], (unsigned)j->worst[2], (unsigned)TEX8K_BC7_BOUND[2],
+                 ASTC_IMAGE_REGION[2], (unsigned)j->worst[3], (unsigned)TEX8K_BC7_BOUND[3],
+                 ASTC_IMAGE_REGION[3]);
+    }
+    snprintf(out, size, "%s%s%s%s%s", wrong, wrong[0] != '\0' && off[0] != '\0' ? "; " : "",
+             off, (wrong[0] != '\0' || off[0] != '\0') && times[0] != '\0' ? "; " : "", times);
 }
 
 /// Clears the target, records @p count draws in one list, submits it and reads the target back;
@@ -368,8 +415,8 @@ static const char *Why(const GpuContext *gpu, const char *otherwise) {
     return gpu->failure[0] != '\0' ? gpu->failure : otherwise;
 }
 
-/// Fetches @p count draws and judges them, ending case @p name; @p before goes ahead of the times
-/// in the detail.
+/// Fetches @p count draws and judges them, ending case @p name: exact, or bound for an ASTC
+/// texture that moved; @p before goes ahead of the times in the detail.
 static void FetchAndJudge(Run *r, const char *name, const Window *windows, uint32_t count,
                           const char *before) {
     uint64_t draw_ns = 0;
@@ -391,7 +438,7 @@ static void FetchAndJudge(Run *r, const char *name, const Window *windows, uint3
     }
     char detail[512];
     Describe(detail, sizeof(detail), &j, times);
-    End(name, CHECK_EXACT, j.wrong == 0u, detail, work);
+    End(name, TierOf(r, &j), j.wrong == 0u, detail, work);
 }
 
 /// Skips every case of the texture after the one that could not leave what they need.
@@ -587,7 +634,7 @@ static bool Upload(Run *r, const char *name) {
     }
     char detail[512];
     Describe(detail, sizeof(detail), &j, times);
-    End(name, CHECK_EXACT, j.wrong == 0u, detail, work);
+    End(name, TierOf(r, &j), j.wrong == 0u, detail, work);
     return true;
 }
 
@@ -693,7 +740,7 @@ static void Frames(Run *r, const char *name) {
     }
     char detail[512];
     Describe(detail, sizeof(detail), &j, times);
-    End(name, CHECK_EXACT, j.wrong == 0u, detail, median);
+    End(name, TierOf(r, &j), j.wrong == 0u, detail, median);
 }
 
 /// A 256x256 region of level 0, a quarter in frame 3's region, copied out to a buffer and held to

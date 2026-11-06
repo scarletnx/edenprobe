@@ -226,6 +226,8 @@ static const char *TierName(CheckTier tier) {
         return "position";
     case CHECK_LEVEL:
         return "level";
+    case CHECK_BOUND:
+        return "bound";
     }
     return "unknown";
 }

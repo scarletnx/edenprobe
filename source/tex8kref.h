@@ -93,6 +93,21 @@ void Tex8kTexel(const Tex8kFormat *format, uint32_t x, uint32_t y, uint32_t salt
 /// Whether @p rgba is one of the @p answers.
 bool Tex8kMatches(const uint8_t rgba[4], const uint8_t answers[3][4]);
 
+/// How far @p rgba is from the @p answers: its worst channel's distance to the nearest answer
+/// for that channel. Nought when it matches.
+uint32_t Tex8kDistance(const uint8_t rgba[4], const uint8_t answers[3][4]);
+
+/// BC7's loss on the picture the ASTC textures are made of, a bound a channel per region of it
+/// (ASTC_IMAGE_REGION's order: gradients, edges, noise, alpha). Each is the worst channel of
+/// the BC7 encodes of the picture's 4x4 and 8x8 decodes by ScarletNX's bc7_encode.glsl and by
+/// bc7enc (etcpak 0.9.15, levels 0, 2 and 4, linear and perceptual weights), measured against
+/// the nearer of the two decodes astcref.c gives: the texture holds no 4x4 block the picture
+/// does not, so that is the worst those encoders do anywhere in it.
+extern const uint8_t TEX8K_BC7_BOUND[ASTC_IMAGE_REGIONS];
+
+/// The region of the picture texel (@p x, @p y) of level 0 of an ASTC texture comes from.
+uint32_t Tex8kAstcRegion(const Tex8kFormat *format, uint32_t x, uint32_t y, uint32_t salt);
+
 /// The @p percent percentile of @p count values sorted from the smallest, numpy's default: the
 /// value at (count - 1) * percent / 100, the two either side of it weighed by where it falls.
 uint64_t Tex8kPercentile(const uint64_t *sorted, uint32_t count, uint32_t percent);

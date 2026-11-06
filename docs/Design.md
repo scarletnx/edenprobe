@@ -8,7 +8,7 @@ the sine and cosine within an absolute 2^-11 between minus pi and pi, and sub-pi
 implementation reports. A hash of a shaded frame breaks between two machines that are both right. So each case
 works out what it expects and decides inside the program, with the same code on every machine.
 
-## The four tiers
+## The tiers
 
 A case's tier is a claim about the hardware, and the case states it.
 
@@ -19,3 +19,7 @@ A case's tier is a claim about the hardware, and the case states it.
   in, where the order is the verdict and the time is not.
 - **Level.** A level measured over a stretch of sound, within a fraction of the expected one stated per case: the
   audio family, where two correct renderers differ in rounding and in their filters' taps.
+- **Bound.** Within a distance a channel of the exact answer, for texels a machine may keep in a lossy format of its
+  own: tex8k's ASTC textures on an emulator whose host samples no ASTC and encodes them again as BC7. The bound is
+  that format's loss measured on the same texels. A case that came back exact says exact, so this tier on a pass
+  says the texels moved, and by how much is in its detail.

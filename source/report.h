@@ -124,6 +124,11 @@ typedef enum {
     /// A level measured over a stretch of sound, within a stated fraction of the expected one.
     /// For audio, where two correct renderers differ in rounding and in their filters' taps.
     CHECK_LEVEL,
+    /// Within a stated distance a channel of the exact answer, for data a machine may keep in a
+    /// lossy format of its own: an emulator whose host samples no ASTC and encodes the texels
+    /// again as BC7. The bound is that format's measured loss on the same texels. A case that
+    /// came back exact reports CHECK_EXACT instead, so a pass at this tier says the texels moved.
+    CHECK_BOUND,
 } CheckTier;
 
 /// One finished case. @p detail is free text explaining a failure, and is ignored when passing.
