@@ -562,7 +562,7 @@ questions gives. See [The blit2d suite](Blit2d.md).
 
 ## tex8k
 
-Fifty cases, on textures as large as a game's largest: 8192x8192, which the texture unit
+Fifty two cases, on textures as large as a game's largest: 8192x8192, which the texture unit
 takes (its limit is 16384), in RGBA8, BC1, BC7, ASTC 4x4 and ASTC 8x8, and one BC1 at 16384x16384.
 The question is what each costs, so the suite runs once, not ten times: the uploads are the ones a
 game makes once, and a run stays seconds long on a console. Each case times its own work on the
@@ -590,6 +590,12 @@ and no copy. Then, per texture:
   elsewhere;
 - a 256x256 region of level 0, a quarter inside a frame's region, copied out to a buffer and
   compared byte for byte, blocks for the compressed formats.
+
+After the textures, a cold upload, on a pitch linear RGBA8 texture of its own: the processor
+writes all of it and a draw fetches 4096 texels, then the same right after (warm), then 32 frames
+that only sample it, a 60 Hz frame apart, then the whole write again (cold). An emulator that hands
+back the memory it staged an upload in after a few quiet frames pays for it here; the detail gives
+the cold draw, the warm one and the first.
 
 Last, RGBA16F targets in memory the processor reads. An 8192x4096 one, 256 MiB, is cleared and
 drawn over a rectangle and the processor reads eight texels through memory, four inside and four
@@ -628,8 +634,8 @@ there.
 
 In an emulator a failure or a time points at how it uploads a texture that large: in pieces or in
 one allocation, whole on every change or by the region that changed, a compressed format decoded or
-encoded again past BC7's loss, and how a render target or a 2D engine copy reaches memory past an
-allocation's cap.
+encoded again past BC7's loss, staging handed back and taken again, and how a render target or a 2D
+engine copy reaches memory past an allocation's cap.
 
 ## What a console run settles
 
@@ -648,7 +654,7 @@ whether the machine does.
 - **Q6, query notes.** What CONDITIONAL does over the value one, over two to the 32 and over a
   report of 9600 in the same list, which says which of its bytes decide.
 - **Q7, tex8k.** What the console's times are: the copies of 341 MiB, a region's frame and its
-  99th percentile, the first draw of a level, the processor's fill and
+  99th percentile, the first draw of a level, the cold and the warm write, the processor's fill and
   reads; an emulator's are held to them. Whether the RGBA16F texels and the 2D engine's window read
   through memory after a full barrier and a wait.
 

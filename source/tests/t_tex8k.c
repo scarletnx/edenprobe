@@ -33,9 +33,11 @@
 // frame's region where one wrote and the upload elsewhere; then a 256x256 region copied out to a
 // buffer, a quarter in a frame's region, compared byte for byte.
 //
-// Last, RGBA16F targets the processor reads through memory: 8192x4096, 256 MiB, and 8192x8192,
-// 512 MiB, whose window across its 256 MiB mark the 2D engine copies out for the processor to
-// read.
+// After the textures, a cold upload: a fresh pitch linear RGBA8 texture written whole right after
+// another whole write, then again after 32 frames with no upload a 60 Hz frame apart, as a game
+// loads after a stretch of play. Last, RGBA16F targets the processor reads through memory:
+// 8192x4096, 256 MiB, and 8192x8192, 512 MiB, whose window across its 256 MiB mark the 2D engine
+// copies out for the processor to read.
 //
 // A host that samples no ASTC may keep an ASTC texture as BC7, which moves texels: such a texel
 // passes when it is within BC7's loss measured on the same texels (TEX8K_BC7_BOUND), and the line
@@ -56,6 +58,9 @@ static const char *const SUITE = "tex8k";
 // Room past the levels' bytes for the library's alignment and the small levels' padding.
 #define IMAGE_SLACK (8u * MIB)
 #define SCRATCH_SLACK MIB
+// The cold upload's frames with no upload, a 60 Hz frame from one start to the next.
+#define IDLE_FRAMES 32u
+#define FRAME_NS 16666667u
 
 static bool timing = true;
 
@@ -126,6 +131,8 @@ typedef struct {
     bool made;
     /// The frames whose regions are in the texture, which the later judges expect.
     uint32_t frames;
+    /// Level 0's salt where no frame wrote: the upload's, or the cold case's rewrite's.
+    uint32_t base_salt;
 } Run;
 
 static Run g_run;
@@ -262,7 +269,11 @@ static bool RecordWindow(Run *r, const Window *w) {
 
 /// The salt texel (@p tx, @p ty) of @p level holds after everything the run wrote so far.
 static uint32_t SaltOf(const Run *r, uint32_t level, uint32_t tx, uint32_t ty) {
-    return level != 0u ? 0u : Tex8kSaltAt(tx, ty, r->frames);
+    if (level != 0u) {
+        return 0u;
+    }
+    const uint32_t salt = Tex8kSaltAt(tx, ty, r->frames);
+    return salt != 0u ? salt : r->base_salt;
 }
 
 typedef struct {
@@ -906,6 +917,117 @@ static void OneTexture(const Entry *e) {
     GpuClose(&r->gpu);
 }
 
+/// The processor writes all of the cold case's texture with @p salt and a draw fetches 4096
+/// texels across it: the write's and the draw's times, the target judged.
+static bool Rewrite(Run *r, uint32_t salt, uint64_t *write_ns, uint64_t *draw_ns, Judged *j) {
+    const Entry *const e = r->e;
+    const uint64_t writing = armGetSystemTick();
+    Tex8kFillBlocks(&e->ref, r->texels, (size_t)e->size * 4u, 0, 0, e->size, e->size, salt);
+    *write_ns = TickNs(writing);
+    r->base_salt = salt;
+    const Window window = SpreadWindow(e);
+    const uint8_t *const pixels = Fetch(r, &window, 1, draw_ns);
+    if (pixels == NULL) {
+        return false;
+    }
+    Judge(r, pixels, &window, 1, j);
+    return true;
+}
+
+/// A cold upload: the pitch linear RGBA8 texture written whole twice in a row, then 32 frames
+/// that only sample it a 60 Hz frame apart, then written whole again. The third is the cold one;
+/// the second, right after the first, the warm one.
+static void ColdUpload(void) {
+    static const Entry COLD = { "RGBA8 pitch linear", DkImageFormat_RGBA8_Unorm,
+                                { TEX8K_RGBA8, 1, 1, 4, NULL }, 8192, 1, true, false };
+    static const char *const OPEN = "graphics device opens with room for an 8192x8192 RGBA8 "
+                                    "pitch linear texture written cold";
+    char name[160];
+    snprintf(name, sizeof(name),
+             "after %u frames with no upload the processor rewrites the 8192x8192 RGBA8 pitch "
+             "linear texture, and a draw fetches it",
+             (unsigned)IDLE_FRAMES);
+    Run *const r = &g_run;
+    memset(r, 0, sizeof(*r));
+    r->e = &COLD;
+    if (!ReportStart(SUITE, OPEN)) {
+        ReportSkip(SUITE, name, REPORT_REASON_DEPENDS,
+                   "the case that opens the device did not run");
+        return;
+    }
+    if (!Open(r, OPEN)) {
+        ReportSkip(SUITE, name, REPORT_REASON_DEPENDS,
+                   "the device for the texture did not open, or the texture has no memory");
+        return;
+    }
+    if (!ReportStart(SUITE, name)) {
+        GpuClose(&r->gpu);
+        return;
+    }
+    uint64_t write_ns[3] = { 0, 0, 0 };
+    uint64_t draw_ns[3] = { 0, 0, 0 };
+    Judged first;
+    Judged warm;
+    Judged cold;
+    bool done = Rewrite(r, 0, &write_ns[0], &draw_ns[0], &first) &&
+                Rewrite(r, 1, &write_ns[1], &draw_ns[1], &warm);
+    // A frame that samples the texture and changes nothing, as a game's frames between loads.
+    static uint64_t idle_ns[IDLE_FRAMES];
+    const uint64_t idling = armGetSystemTick();
+    const Window window = SpreadWindow(r->e);
+    for (uint32_t f = 0; f < IDLE_FRAMES && done; ++f) {
+        const uint64_t start = armGetSystemTick();
+        GpuBeginPass(&r->gpu);
+        done = RecordWindow(r, &window);
+        const uint64_t before = PerfCaseWork();
+        GpuSubmit(&r->gpu);
+        idle_ns[f] = PerfCaseWork() - before;
+        done = done && r->gpu.ready;
+        const uint64_t spent = TickNs(start);
+        if (spent < FRAME_NS) {
+            svcSleepThread((int64_t)(FRAME_NS - spent));
+        }
+    }
+    const uint64_t idle_total = TickNs(idling);
+    done = done && Rewrite(r, 2, &write_ns[2], &draw_ns[2], &cold);
+    const uint64_t work = PerfCaseWork();
+    if (!done) {
+        End(name, CHECK_NONE, false,
+            Why(&r->gpu, "a write's draw, an idle frame or a readback did not happen"), work);
+        GpuClose(&r->gpu);
+        return;
+    }
+    SortTimes(idle_ns, IDLE_FRAMES);
+    char times[256] = "";
+    if (timing) {
+        snprintf(times, sizeof(times),
+                 "after the idle frames (%u ms, a frame's median %u us) the draw %u us, the "
+                 "processor's write %u us; right after another write the draw %u us, the write %u "
+                 "us; the first write's draw %u us",
+                 (unsigned)(idle_total / 1000000u),
+                 (unsigned)Microseconds(Tex8kPercentile(idle_ns, IDLE_FRAMES, 50)),
+                 (unsigned)Microseconds(draw_ns[2]), (unsigned)Microseconds(write_ns[2]),
+                 (unsigned)Microseconds(draw_ns[1]), (unsigned)Microseconds(write_ns[1]),
+                 (unsigned)Microseconds(draw_ns[0]));
+    }
+    const Judged *const failed =
+        cold.wrong != 0u ? &cold : warm.wrong != 0u ? &warm : first.wrong != 0u ? &first : NULL;
+    char detail[512];
+    if (failed == NULL) {
+        snprintf(detail, sizeof(detail), "%s", times);
+    } else {
+        char which[288];
+        Describe(which, sizeof(which), failed, "");
+        snprintf(detail, sizeof(detail), "%s: %s%s%s",
+                 failed == &cold ? "after the idle frames"
+                 : failed == &warm ? "right after another write"
+                                   : "the first write",
+                 which, times[0] != '\0' ? "; " : "", times);
+    }
+    End(name, CHECK_EXACT, failed == NULL, detail, draw_ns[2]);
+    GpuClose(&r->gpu);
+}
+
 // The large render targets: RGBA16F, in memory the processor reads.
 #define RT_MAX_TEXELS 10u
 #define RT_GOBS 16u
@@ -1200,6 +1322,7 @@ void RunTex8k(void) {
     for (size_t i = 0; i < ENTRY_COUNT; ++i) {
         OneTexture(&ENTRIES[i]);
     }
+    ColdUpload();
     for (size_t i = 0; i < sizeof(RT_TARGETS) / sizeof(RT_TARGETS[0]); ++i) {
         RenderTarget(&RT_TARGETS[i]);
     }
