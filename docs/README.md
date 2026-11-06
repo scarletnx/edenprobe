@@ -2,7 +2,7 @@
 
 New here? Start with [Build](./Build.md), then [the mode file](./ModeFile.md) and [the report](./Report.md).
 
-- **[Design](./Design.md)** - the four tiers a case judges by
+- **[Design](./Design.md)** - the tiers a case judges by
 - **[Roadmap](./Roadmap.md)** - the suites in the order they run, and what a failure in each points at
 - Running it:
   - **[Build](./Build.md)** - the NRO, the host build and the commit hook

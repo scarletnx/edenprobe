@@ -6,6 +6,8 @@
 #include "astcref.h"
 #include "tex8kref.h"
 
+const uint8_t TEX8K_BC7_BOUND[ASTC_IMAGE_REGIONS] = { 8, 76, 61, 8 };
+
 uint32_t Tex8kMix(uint32_t x, uint32_t y, uint32_t salt) {
     uint32_t h = x * 0x9E3779B1u ^ y * 0x85EBCA77u ^ salt * 0xC2B2AE3Du;
     h ^= h >> 15;
@@ -203,6 +205,28 @@ bool Tex8kMatches(const uint8_t rgba[4], const uint8_t answers[3][4]) {
         }
     }
     return true;
+}
+
+uint32_t Tex8kDistance(const uint8_t rgba[4], const uint8_t answers[3][4]) {
+    uint32_t worst = 0;
+    for (uint32_t c = 0; c < 4u; ++c) {
+        uint32_t nearest = 255u;
+        for (uint32_t k = 0; k < 3u; ++k) {
+            const uint32_t d = rgba[c] > answers[k][c] ? rgba[c] - answers[k][c]
+                                                       : answers[k][c] - rgba[c];
+            nearest = d < nearest ? d : nearest;
+        }
+        worst = nearest > worst ? nearest : worst;
+    }
+    return worst;
+}
+
+uint32_t Tex8kAstcRegion(const Tex8kFormat *format, uint32_t x, uint32_t y, uint32_t salt) {
+    uint32_t px = 0;
+    uint32_t py = 0;
+    Tex8kAstcSource(format, x / format->block_width, y / format->block_height, salt, &px, &py);
+    return AstcImageRegion(px * format->block_width + x % format->block_width,
+                           py * format->block_height + y % format->block_height);
 }
 
 uint64_t Tex8kPercentile(const uint64_t *sorted, uint32_t count, uint32_t percent) {

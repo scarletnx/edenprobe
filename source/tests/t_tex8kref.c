@@ -13,8 +13,9 @@
 
 // The tex8k suite's judge, source/tex8kref.c. The BC7 and BC1 blocks are held to bytes and
 // texels Pillow's BCn decoder (12.3.0, DDS DX10 format 98 and DXT1) gave for the same blocks; the
-// ASTC texels to the picture astcenc's decode pins (astcimages.h); the regions, levels and
-// samples to the places they must stay inside.
+// ASTC texels to the picture astcenc's decode pins (astcimages.h), and BC7's bound on them to the
+// texel each region's bound was measured at; the regions, levels and samples to the places they
+// must stay inside.
 
 static const char *const SUITE = "reference";
 
@@ -176,6 +177,52 @@ static void Astc(void) {
     CHECK_TRUE(SUITE, "tex8k's ASTC texels are the picture's, from the block their tile shifts in",
                CHECK_EXACT, wrong == 0u, "%u of %u wrong; %s", (unsigned)wrong, (unsigned)checked,
                detail);
+    // Each region's bound is the distance from the picture to an encoder's texel there, the worst
+    // one measured: the texel and what Pillow decoded that encoder's block to.
+    static const struct {
+        uint32_t image;
+        uint32_t x, y;
+        uint8_t encoded[4];
+    } WORST[ASTC_IMAGE_REGIONS] = {
+        { 0, 47, 43, { 165, 169, 129, 255 } },  // 4x4, bc7enc level 0, perceptual
+        { 2, 115, 55, { 112, 167, 116, 255 } }, // 8x8, bc7enc level 2, perceptual
+        { 0, 44, 99, { 92, 122, 91, 255 } },    // 4x4, bc7enc level 2, perceptual
+        { 2, 105, 64, { 131, 134, 161, 88 } },  // 8x8, bc7enc level 0, perceptual
+    };
+    static uint8_t unorm8[ASTC_IMAGE_SIZE * ASTC_IMAGE_SIZE * 4];
+    uint32_t bounds_wrong = 0;
+    char bounds_detail[160] = "";
+    for (uint32_t r = 0; r < ASTC_IMAGE_REGIONS; ++r) {
+        const AstcImage *const image = &ASTC_IMAGE[WORST[r].image];
+        const uint32_t k = WORST[r].image == 0u ? 0u : 1u;
+        AstcImageDecode(image, true, unorm8);
+        const size_t at = ((size_t)WORST[r].y * ASTC_IMAGE_SIZE + WORST[r].x) * 4u;
+        uint8_t decodes[3][4];
+        memcpy(decodes[0], picture[k] + at, 4);
+        memcpy(decodes[1], unorm8 + at, 4);
+        memcpy(decodes[2], picture[k] + at, 4);
+        const uint32_t distance = Tex8kDistance(WORST[r].encoded, decodes);
+        if ((AstcImageRegion(WORST[r].x, WORST[r].y) != r || distance != TEX8K_BC7_BOUND[r]) &&
+            bounds_wrong++ == 0u) {
+            snprintf(bounds_detail, sizeof(bounds_detail),
+                     "%s: texel %u,%u of region %u is %u from the encoder's, the bound %u",
+                     ASTC_IMAGE_REGION[r], (unsigned)WORST[r].x, (unsigned)WORST[r].y,
+                     (unsigned)AstcImageRegion(WORST[r].x, WORST[r].y), (unsigned)distance,
+                     (unsigned)TEX8K_BC7_BOUND[r]);
+        }
+    }
+    // The texel a tex8k texture holds sits in the region its source texel of the picture does.
+    const Tex8kFormat astc4 = { TEX8K_ASTC, 4, 4, 16, &ASTC_IMAGE[0] };
+    uint32_t px = 0;
+    uint32_t py = 0;
+    Tex8kAstcSource(&astc4, 1000u / 4u, 3000u / 4u, 5, &px, &py);
+    const uint32_t region = AstcImageRegion(px * 4u + 1000u % 4u, py * 4u + 3000u % 4u);
+    CHECK_TRUE(SUITE, "tex8k's BC7 bound a region is the worst texel measured there",
+               CHECK_EXACT,
+               bounds_wrong == 0u && Tex8kAstcRegion(&astc4, 1000, 3000, 5) == region,
+               "%u of 4 wrong; %s; texel 1000,3000 of salt 5 in region %u, its source's %u",
+               (unsigned)bounds_wrong, bounds_detail,
+               (unsigned)Tex8kAstcRegion(&astc4, 1000, 3000, 5), (unsigned)region);
     // Two blocks a tile apart take different blocks of the picture, and so does a frame.
     const Tex8kFormat format = { TEX8K_ASTC, 4, 4, 16, &ASTC_IMAGE[0] };
     uint32_t a[2];
@@ -276,9 +323,17 @@ static void Numbers(void) {
     const uint64_t p99 = Tex8kPercentile(values, 64, 99);
     const uint64_t p50 = Tex8kPercentile(values, 64, 50);
     const uint64_t top = Tex8kPercentile(values, 64, 100);
-    CHECK_TRUE(SUITE, "tex8k's percentile is numpy's", CHECK_EXACT,
-               p99 == 6337u && p50 == 3250u && top == 6400u, "p99 %llu, p50 %llu, p100 %llu",
-               (unsigned long long)p99, (unsigned long long)p50, (unsigned long long)top);
+    // A texel 7 from the nearest answer in its worst channel, nought when it is one.
+    const uint8_t answers[3][4] = { { 10, 20, 30, 40 }, { 11, 20, 30, 40 }, { 9, 20, 30, 40 } };
+    const uint8_t off[4] = { 13, 20, 37, 40 };
+    const uint8_t on[4] = { 11, 20, 30, 40 };
+    CHECK_TRUE(SUITE, "tex8k's percentile is numpy's and its distance the worst channel's",
+               CHECK_EXACT,
+               p99 == 6337u && p50 == 3250u && top == 6400u && Tex8kDistance(off, answers) == 7u &&
+                   Tex8kDistance(on, answers) == 0u,
+               "p99 %llu, p50 %llu, p100 %llu; distances %u and %u", (unsigned long long)p99,
+               (unsigned long long)p50, (unsigned long long)top,
+               (unsigned)Tex8kDistance(off, answers), (unsigned)Tex8kDistance(on, answers));
 }
 
 void RunReferenceTex8k(void) {

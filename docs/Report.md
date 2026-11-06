@@ -7,7 +7,7 @@ without a debugger, and a file on the SD card.
 {"type":"case","suite":"clear","name":"clear to opaque red","tier":"exact","result":"pass","detail":""}
 ```
 
-Each case line carries its tier ([Design](Design.md#the-four-tiers)), since a pass compares only with another of the
+Each case line carries its tier ([Design](Design.md#the-tiers)), since a pass compares only with another of the
 same tolerance: `exact`, `ulp`, `position`, `level`, or `none` for a line that compares nothing the hardware
 produced (the judge's own arithmetic, a precondition such as the device opening, a drawing case stopped before it
 compared, which gives the reason in its detail).

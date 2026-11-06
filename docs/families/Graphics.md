@@ -608,11 +608,24 @@ samples to where they must sit. A device the machine has no memory for is a skip
 and may refuse the RGBA8 texture's 341 MiB with its 272 MiB of staging, where the menu started
 over a title takes them.
 
-Exact tier, the device opening none.
+Exact tier, the device opening none, but for an ASTC texture whose texels moved. A host that
+samples no ASTC may decode it and encode it again as BC7, which moves texels; such a texel passes
+when it is within BC7's loss on the same texels, a bound a channel per region of the picture:
+8 in the gradients, 76 in the edges, 61 in the noise, 8 in the alpha. Each is the worst channel
+of BC7 encodes of the picture's 4x4 and 8x8 decodes by ScarletNX's `bc7_encode.glsl` and by
+bc7enc (etcpak 0.9.15, levels 0, 2 and 4, linear and perceptual weights); the texture holds no
+4x4 block the picture does not, so that is the worst those encoders do anywhere in it, and the
+reference suite holds each bound to the texel it was measured at. A case whose texels all came
+back one of the right bytes says exact; one that passed within the bound says
+[bound](../Design.md#the-tiers), and its detail how many pixels moved and the farthest in each
+region against its bound (`within BC7's bound: 2648 pixels off, by at most 3 of 8 in gradients,
+21 of 76 in edges, 35 of 61 in noise, 3 of 8 in alpha`); a texel past the bound fails, with how
+far it is. An encoder that keeps to BC7's mode 6 alone moves the edges by up to 140 and fails
+there.
 
 In an emulator a failure or a time points at how it uploads a texture that large: in pieces or in
 one allocation, whole on every change or by the region that changed, a compressed format decoded or
-encoded again, and how a render target reaches memory.
+encoded again past BC7's loss, and how a render target reaches memory.
 
 ## What a console run settles
 
