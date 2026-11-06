@@ -562,7 +562,7 @@ questions gives. See [The blit2d suite](Blit2d.md).
 
 ## tex8k
 
-Forty seven cases, on textures as large as a game's largest: 8192x8192, which the texture unit
+Fifty cases, on textures as large as a game's largest: 8192x8192, which the texture unit
 takes (its limit is 16384), in RGBA8, BC1, BC7, ASTC 4x4 and ASTC 8x8, and one BC1 at 16384x16384.
 The question is what each costs, so the suite runs once, not ten times: the uploads are the ones a
 game makes once, and a run stays seconds long on a console. Each case times its own work on the
@@ -591,8 +591,11 @@ and no copy. Then, per texture:
 - a 256x256 region of level 0, a quarter inside a frame's region, copied out to a buffer and
   compared byte for byte, blocks for the compressed formats.
 
-Last, an 8192x4096 RGBA16F target in memory the processor reads is cleared and drawn over a
-rectangle, and the processor reads eight texels through memory, four inside and four outside.
+Last, RGBA16F targets in memory the processor reads. An 8192x4096 one, 256 MiB, is cleared and
+drawn over a rectangle and the processor reads eight texels through memory, four inside and four
+outside. An 8192x8192 one, 512 MiB, the same at ten texels, rows 4095 and 4096 among them, either
+side of its 256 MiB mark; then the 2D engine copies a 64x64 window across that mark and the drawn
+rectangle's edge into a pitch linear image, and the processor reads every texel of it.
 
 Every texel's value follows from its place, the upload or write that wrote it last and the format
 (`source/tex8kref.c`): an RGBA8 texel is `x | y << 13 | s << 26`, s the salt folded into 1 to 63
@@ -605,8 +608,8 @@ any of the three bytes the astc suite allows. The reference suite holds the BC7 
 Pillow's decode of the same bytes, the ASTC texels to the picture's, and the regions, levels and
 samples to where they must sit. A device the machine has no memory for is a skip,
 `unavailable`, naming the sizes: the homebrew menu in applet mode has far less memory than a title,
-and may refuse the RGBA8 texture's 341 MiB with its 272 MiB of staging, where the menu started
-over a title takes them.
+and may refuse the RGBA8 texture's 341 MiB with its 272 MiB of staging, or the 512 MiB target,
+where the menu started over a title takes them.
 
 Exact tier, the device opening none, but for an ASTC texture whose texels moved. A host that
 samples no ASTC may decode it and encode it again as BC7, which moves texels; such a texel passes
@@ -625,7 +628,8 @@ there.
 
 In an emulator a failure or a time points at how it uploads a texture that large: in pieces or in
 one allocation, whole on every change or by the region that changed, a compressed format decoded or
-encoded again past BC7's loss, and how a render target reaches memory.
+encoded again past BC7's loss, and how a render target or a 2D engine copy reaches memory past an
+allocation's cap.
 
 ## What a console run settles
 
@@ -645,8 +649,8 @@ whether the machine does.
   report of 9600 in the same list, which says which of its bytes decide.
 - **Q7, tex8k.** What the console's times are: the copies of 341 MiB, a region's frame and its
   99th percentile, the first draw of a level, the processor's fill and
-  reads; an emulator's are held to them. And whether the
-  eight RGBA16F texels read through memory after a full barrier and a wait.
+  reads; an emulator's are held to them. Whether the RGBA16F texels and the 2D engine's window read
+  through memory after a full barrier and a wait.
 
 The blit2d suite asks two questions of its own, which texel each origin samples when the copy
 scales and how a fraction in the scale is stepped; they are on [its page](Blit2d.md), as its Q1
