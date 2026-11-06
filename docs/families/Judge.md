@@ -29,8 +29,8 @@ family reports can be believed without them.
   case that times itself, with the one that reads its line back off standard output, the debug
   channel only there, to see the time it was given last, the case counted, and a rehearsal of it
   write nothing.
-- **reference**, three hundred and seventy six cases, no hardware involved either: the other half of
-  the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
+- **reference**, three hundred and seventy seven cases, no hardware involved either: the other half
+  of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
   geometry they draw rather than restating it. Fifteen transcendental answers as bit patterns worked
@@ -119,8 +119,8 @@ family reports can be believed without them.
     1024 frames, the frame times' mean, 99th percentile, longest and hitches on runs made to order,
     the audio thread's limit, the timed cases the warm-up is left out of, and the notes they end on
     (see [The game family](Game.md));
-  - seven on the tex8k suite's judge, `source/tex8kref.c`: its BC7 mode 6 and BC1 blocks against the
+  - eight on the tex8k suite's judge, `source/tex8kref.c`: its BC7 mode 6 and BC1 blocks against the
     bytes and texels Pillow 12.3.0 decodes them to, both ways a BC1 code may become eight bits, its
-    RGBA8 texels and their fast fill, its ASTC texels against the picture's from the block their tile
-    shifts in, and where its regions, levels, samples and copy-out sit (see [the graphics
-    family](Graphics.md#tex8k)).
+    RGBA8 texels, their fast fill and a salt past 63 folded, its ASTC texels against the picture's
+    from the block their tile shifts in, where its regions, levels, samples and copy-out sit, and
+    its percentile (see [the graphics family](Graphics.md#tex8k)).

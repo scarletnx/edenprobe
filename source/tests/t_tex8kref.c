@@ -14,7 +14,7 @@
 // The tex8k suite's judge, source/tex8kref.c. The BC7 and BC1 blocks are held to bytes and
 // texels Pillow's BCn decoder (12.3.0, DDS DX10 format 98 and DXT1) gave for the same blocks; the
 // ASTC texels to the picture astcenc's decode pins (astcimages.h); the regions, levels and
-// samples to the sizes they must stay inside.
+// samples to the places they must stay inside.
 
 static const char *const SUITE = "reference";
 
@@ -117,10 +117,22 @@ static void Rgba8(void) {
             wrong += memcmp(one, filled + r * 12u + i * 4u, 4) != 0 ? 1u : 0u;
         }
     }
+    // A salt past 63 folds into 1 to 63, never nought: frame 63's salt, 64, reads as 1.
+    uint8_t folded[4];
+    Tex8kBlock(&RGBA8, 0, 0, TEX8K_FRAMES, folded);
+    uint8_t filled64[4];
+    Tex8kFillBlocks(&RGBA8, filled64, 4, 0, 0, 1, 1, TEX8K_FRAMES);
+    const uint8_t want64[4] = { 0x00, 0x00, 0x00, 0x04 };
     CHECK_TRUE(SUITE, "tex8k's RGBA8 texels are their place and salt, filled a word at a time",
-               CHECK_EXACT, memcmp(texel, want, 4) == 0 && wrong == 0u,
-               "texel 8191,8191 of salt 16 is %02x%02x%02x%02x; %u of 6 filled texels differ",
-               texel[0], texel[1], texel[2], texel[3], (unsigned)wrong);
+               CHECK_EXACT,
+               memcmp(texel, want, 4) == 0 && wrong == 0u && memcmp(folded, want64, 4) == 0 &&
+                   memcmp(filled64, want64, 4) == 0 && Tex8kRgba8Salt(63) == 63u &&
+                   Tex8kRgba8Salt(0) == 0u,
+               "texel 8191,8191 of salt 16 is %02x%02x%02x%02x; %u of 6 filled texels differ; "
+               "texel 0,0 of salt %u is %02x%02x%02x%02x, filled %02x%02x%02x%02x",
+               texel[0], texel[1], texel[2], texel[3], (unsigned)wrong, (unsigned)TEX8K_FRAMES,
+               folded[0], folded[1], folded[2], folded[3], filled64[0], filled64[1], filled64[2],
+               filled64[3]);
 }
 
 static void Astc(void) {
@@ -191,9 +203,9 @@ static void Places(void) {
             uint32_t gx = 0;
             uint32_t gy = 0;
             Tex8kRegion(g, &gx, &gy);
-            if (gx == x) {
+            if (gx == x && gy == y) {
                 ++problems;
-                snprintf(detail, sizeof(detail), "regions %u and %u share a column", (unsigned)g,
+                snprintf(detail, sizeof(detail), "regions %u and %u share a tile", (unsigned)g,
                          (unsigned)f);
             }
         }
@@ -255,10 +267,25 @@ static void Places(void) {
                detail);
 }
 
+static void Numbers(void) {
+    // numpy.percentile of 100, 200, ... 6400: the 99th at 62.37 is 6337, the 50th 3250.
+    uint64_t values[64];
+    for (uint32_t i = 0; i < 64u; ++i) {
+        values[i] = 100u * (i + 1u);
+    }
+    const uint64_t p99 = Tex8kPercentile(values, 64, 99);
+    const uint64_t p50 = Tex8kPercentile(values, 64, 50);
+    const uint64_t top = Tex8kPercentile(values, 64, 100);
+    CHECK_TRUE(SUITE, "tex8k's percentile is numpy's", CHECK_EXACT,
+               p99 == 6337u && p50 == 3250u && top == 6400u, "p99 %llu, p50 %llu, p100 %llu",
+               (unsigned long long)p99, (unsigned long long)p50, (unsigned long long)top);
+}
+
 void RunReferenceTex8k(void) {
     Bc7();
     Bc1();
     Rgba8();
     Astc();
     Places();
+    Numbers();
 }

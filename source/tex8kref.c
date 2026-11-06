@@ -45,6 +45,10 @@ static void Bc7Endpoints(uint32_t bx, uint32_t by, uint32_t salt, uint8_t e0[4],
     *p1 = (h >> 29) & 1u;
 }
 
+uint32_t Tex8kRgba8Salt(uint32_t salt) {
+    return salt == 0u ? 0u : (salt - 1u) % 63u + 1u;
+}
+
 void Tex8kAstcSource(const Tex8kFormat *format, uint32_t bx, uint32_t by, uint32_t salt,
                      uint32_t *px, uint32_t *py) {
     const uint32_t across = ASTC_IMAGE_SIZE / format->block_width;
@@ -61,7 +65,7 @@ void Tex8kBlock(const Tex8kFormat *format, uint32_t bx, uint32_t by, uint32_t sa
                 uint8_t *out) {
     switch (format->kind) {
     case TEX8K_RGBA8: {
-        const uint32_t word = bx | by << 13 | salt << 26;
+        const uint32_t word = bx | by << 13 | Tex8kRgba8Salt(salt) << 26;
         out[0] = (uint8_t)word;
         out[1] = (uint8_t)(word >> 8);
         out[2] = (uint8_t)(word >> 16);
@@ -123,7 +127,7 @@ void Tex8kFillBlocks(const Tex8kFormat *format, uint8_t *out, size_t pitch, uint
         const uint32_t by = by0 + r;
         if (format->kind == TEX8K_RGBA8) {
             // The 256 MiB upload's row, a word at a time: what Tex8kBlock gives, written fast.
-            const uint32_t base = by << 13 | salt << 26;
+            const uint32_t base = by << 13 | Tex8kRgba8Salt(salt) << 26;
             uint32_t *const words = (uint32_t *)(void *)row;
             for (uint32_t i = 0; i < across; ++i) {
                 words[i] = base | (bx0 + i);
@@ -201,6 +205,19 @@ bool Tex8kMatches(const uint8_t rgba[4], const uint8_t answers[3][4]) {
     return true;
 }
 
+uint64_t Tex8kPercentile(const uint64_t *sorted, uint32_t count, uint32_t percent) {
+    if (count == 0u) {
+        return 0u;
+    }
+    const uint64_t at = (uint64_t)(count - 1u) * percent;
+    const uint32_t below = (uint32_t)(at / 100u);
+    const uint64_t part = at % 100u;
+    if (below + 1u >= count || part == 0u) {
+        return sorted[below];
+    }
+    return sorted[below] + (sorted[below + 1u] - sorted[below]) * part / 100u;
+}
+
 void Tex8kLevelOrigin(uint32_t size, uint32_t level, uint32_t *x, uint32_t *y) {
     if (level == 0u) {
         *x = *y = 0u;
@@ -213,7 +230,7 @@ void Tex8kLevelOrigin(uint32_t size, uint32_t level, uint32_t *x, uint32_t *y) {
 
 void Tex8kRegion(uint32_t frame, uint32_t *x, uint32_t *y) {
     *x = TEX8K_REGION * ((5u * frame + 2u) % 32u);
-    *y = TEX8K_REGION * ((11u * frame + 7u) % 32u);
+    *y = TEX8K_REGION * ((11u * frame + 7u + 16u * (frame / 32u)) % 32u);
 }
 
 uint32_t Tex8kSaltAt(uint32_t x, uint32_t y, uint32_t frames) {

@@ -196,8 +196,9 @@ void RunDma(void);
 /// bytes and in a copy to buffer, against blit2dref.c's images under each answer.
 void RunBlit2d(void);
 
-/// 8192x8192 textures in RGBA8, BC1, BC7 and ASTC: the upload, the first draw, a frame that changes a
-/// region, a copy out, and an 8192x4096 RGBA16F target the processor reads, each timed once.
+/// 8192x8192 textures in RGBA8, BC1, BC7 and ASTC: the upload, the first draw, 64 frames that each
+/// change a region, a copy out, and an 8192x4096 RGBA16F target the processor reads, each timed
+/// once.
 void RunTex8k(void);
 
 /// Whether the tex8k cases carry their times: off for a run with the mode word `notime`.
