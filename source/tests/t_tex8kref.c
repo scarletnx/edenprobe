@@ -14,8 +14,8 @@
 // The tex8k suite's judge, source/tex8kref.c. The BC7 and BC1 blocks are held to bytes and
 // texels Pillow's BCn decoder (12.3.0, DDS DX10 format 98 and DXT1) gave for the same blocks; the
 // ASTC texels to the picture astcenc's decode pins (astcimages.h), and BC7's bound on them to the
-// texel each region's bound was measured at; the regions, levels and samples to the places they
-// must stay inside.
+// texel each region's bound was measured at; the regions, levels, samples and raw copies to the
+// places they must stay inside.
 
 static const char *const SUITE = "reference";
 
@@ -265,12 +265,16 @@ static void Places(void) {
                      (unsigned)y);
         }
     }
-    // The levels' squares inside level 0, whole 8x8 blocks.
-    for (uint32_t level = 1; level < TEX8K_LEVELS; ++level) {
+    // The levels' squares inside level 0, whole 8x8 blocks, the BC7 texture's whole chain too.
+    for (uint32_t level = 1; level < TEX8K_BC7_LEVELS; ++level) {
         uint32_t x = 0;
         uint32_t y = 0;
         Tex8kLevelOrigin(8192u, level, &x, &y);
-        if (x % 8u != 0u || x + (8192u >> level) > 8192u || x != y) {
+        uint32_t below = 0;
+        uint32_t ignored = 0;
+        Tex8kLevelOrigin(8192u, level - 1u, &below, &ignored);
+        if (x % 8u != 0u || x + (8192u >> level) > 8192u || x != y ||
+            (level > 1u && x <= below)) {
             ++problems;
             snprintf(detail, sizeof(detail), "level %u from %u,%u", (unsigned)level, (unsigned)x,
                      (unsigned)y);
@@ -309,7 +313,118 @@ static void Places(void) {
         snprintf(detail, sizeof(detail), "the copy-out at %u,%u holds %u of frame 3's texels",
                  (unsigned)x, (unsigned)y, (unsigned)in_frame);
     }
+    // The processor's square in the pitch linear texture: clear of every frame, its rows across
+    // a page edge, and inside the draw that judges it with texels on every side.
+    const uint32_t from_x = TEX8K_EDGE_FROM_X;
+    const uint32_t to_x = from_x + (TEX8K_TARGET - 1u) * TEX8K_EDGE_STEP;
+    const uint32_t from_y = TEX8K_EDGE_FROM_Y;
+    const uint32_t to_y = from_y + (TEX8K_TARGET - 1u) * TEX8K_EDGE_STEP;
+    uint32_t in_frames = 0;
+    for (uint32_t ty = from_y; ty <= to_y; ++ty) {
+        for (uint32_t tx = from_x; tx <= to_x; ++tx) {
+            in_frames += Tex8kSaltAt(tx, ty, TEX8K_FRAMES) != 0u ? 1u : 0u;
+        }
+    }
+    const uint32_t first_page = TEX8K_EDGE_X * 4u / 4096u;
+    const uint32_t last_page = (TEX8K_EDGE_X + TEX8K_EDGE_SIDE - 1u) * 4u / 4096u;
+    if (in_frames != 0u || first_page == last_page || from_x >= TEX8K_EDGE_X ||
+        to_x < TEX8K_EDGE_X + TEX8K_EDGE_SIDE || from_y >= TEX8K_EDGE_Y ||
+        to_y < TEX8K_EDGE_Y + TEX8K_EDGE_SIDE) {
+        ++problems;
+        snprintf(detail, sizeof(detail),
+                 "the edge square at %u,%u: %u texels of its draw in a frame's region",
+                 (unsigned)TEX8K_EDGE_X, (unsigned)TEX8K_EDGE_Y, (unsigned)in_frames);
+    }
     CHECK_TRUE(SUITE, "tex8k's regions, levels, samples and copy-out sit where its judge says",
+               CHECK_NONE, problems == 0u, "%u problems; the last: %s", (unsigned)problems,
+               detail);
+}
+
+/// Counts the blocks of @p level the raw copy [@p from, @p to) covers, and the box they span.
+static uint32_t Covered(const BcnArray *a, uint32_t level, uint32_t from, uint32_t to,
+                        uint32_t box[4]) {
+    uint32_t count = 0;
+    box[0] = box[1] = UINT32_MAX;
+    box[2] = box[3] = 0;
+    for (uint32_t by = 0; by < BcnLevelBlocksY(a, level); ++by) {
+        for (uint32_t bx = 0; bx < BcnLevelBlocksX(a, level); ++bx) {
+            if (!Tex8kRawCovers(a, level, bx, by, from, to)) {
+                continue;
+            }
+            ++count;
+            box[0] = bx < box[0] ? bx : box[0];
+            box[1] = by < box[1] ? by : box[1];
+            box[2] = bx > box[2] ? bx : box[2];
+            box[3] = by > box[3] ? by : box[3];
+        }
+    }
+    return count;
+}
+
+static void Raw(void) {
+    // The BC7 texture as deko3d lays out its fourteen levels (dk_image.cpp calcLevelOffset).
+    BcnArray a;
+    BcnArrayLayout(&a, 8192, 8192, 1, TEX8K_BC7_LEVELS, 16);
+    const uint32_t cross = BcnLevelOffset(&a, TEX8K_CROSS_LEVEL);
+    const uint32_t tail = BcnLevelOffset(&a, TEX8K_TAIL_LEVEL);
+    const uint32_t end = BcnLevelOffset(&a, TEX8K_BC7_LEVELS);
+    uint32_t problems = 0;
+    char detail[192] = "";
+    if (cross != 89128960u || tail != 89477120u || end != 89480704u || tail % 4096u != 0u ||
+        end - tail > 4096u) {
+        ++problems;
+        snprintf(detail, sizeof(detail), "levels 4, 8 and the end at %u, %u, %u", (unsigned)cross,
+                 (unsigned)tail, (unsigned)end);
+    }
+    // Across levels 3 and 4: the last 4 KiB of level 3 are the bottom half of its last tile, the
+    // first 4 KiB of level 4 the top half of its first.
+    uint32_t box[4];
+    const uint32_t from = cross - TEX8K_CROSS_BYTES;
+    const uint32_t to = cross + TEX8K_CROSS_BYTES;
+    const uint32_t three = Covered(&a, 3, from, to, box);
+    if (three != 256u || box[0] != 252u || box[1] != 192u || box[2] != 255u || box[3] != 255u) {
+        ++problems;
+        snprintf(detail, sizeof(detail),
+                 "the copy across holds %u of level 3's blocks, %u,%u to %u,%u", (unsigned)three,
+                 (unsigned)box[0], (unsigned)box[1], (unsigned)box[2], (unsigned)box[3]);
+    }
+    const uint32_t four = Covered(&a, 4, from, to, box);
+    if (four != 256u || box[0] != 0u || box[1] != 0u || box[2] != 3u || box[3] != 63u) {
+        ++problems;
+        snprintf(detail, sizeof(detail),
+                 "the copy across holds %u of level 4's blocks, %u,%u to %u,%u", (unsigned)four,
+                 (unsigned)box[0], (unsigned)box[1], (unsigned)box[2], (unsigned)box[3]);
+    }
+    // Into the tail: the right half of level 9 and all of level 10, nothing of the others.
+    static const uint32_t TAIL_BLOCKS[TEX8K_BC7_LEVELS - TEX8K_TAIL_LEVEL] = { 0, 8, 4, 0, 0, 0 };
+    for (uint32_t level = TEX8K_TAIL_LEVEL; level < TEX8K_BC7_LEVELS; ++level) {
+        const uint32_t n = Covered(&a, level, tail + TEX8K_TAIL_FROM, tail + TEX8K_TAIL_TO, box);
+        if (n != TAIL_BLOCKS[level - TEX8K_TAIL_LEVEL] || (level == 9u && box[0] != 2u)) {
+            ++problems;
+            snprintf(detail, sizeof(detail), "the copy into the tail holds %u of level %u's blocks",
+                     (unsigned)n, (unsigned)level);
+        }
+    }
+    // The bytes: each covered block where the layout puts it, as Tex8kBlock writes it from the
+    // level's origin.
+    static uint8_t bytes[2u * TEX8K_CROSS_BYTES];
+    const uint32_t made = Tex8kRawBytes(&BC7, &a, from, to, TEX8K_CROSS_SALT, bytes);
+    uint32_t ox = 0;
+    uint32_t oy = 0;
+    Tex8kLevelOrigin(8192u, 4u, &ox, &oy);
+    uint8_t want[16];
+    Tex8kBlock(&BC7, ox / 4u + 3u, oy / 4u + 63u, TEX8K_CROSS_SALT, want);
+    const uint32_t at = BcnBlockOffset(&a, 0, 4, 3, 63) - from;
+    static uint8_t tail_bytes[TEX8K_TAIL_TO - TEX8K_TAIL_FROM];
+    const uint32_t tail_made = Tex8kRawBytes(&BC7, &a, tail + TEX8K_TAIL_FROM, tail + TEX8K_TAIL_TO,
+                                             TEX8K_TAIL_SALT, tail_bytes);
+    if (made != 512u || memcmp(bytes + at, want, 16) != 0 || tail_made != 12u) {
+        ++problems;
+        snprintf(detail, sizeof(detail),
+                 "%u blocks across, %u into the tail; level 4's block 3,63 %s", (unsigned)made,
+                 (unsigned)tail_made, memcmp(bytes + at, want, 16) == 0 ? "right" : "wrong");
+    }
+    CHECK_TRUE(SUITE, "tex8k's raw copies into the BC7 texture cover the blocks its judge expects",
                CHECK_NONE, problems == 0u, "%u problems; the last: %s", (unsigned)problems,
                detail);
 }
@@ -342,5 +457,6 @@ void RunReferenceTex8k(void) {
     Rgba8();
     Astc();
     Places();
+    Raw();
     Numbers();
 }

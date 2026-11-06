@@ -243,13 +243,48 @@ uint64_t Tex8kPercentile(const uint64_t *sorted, uint32_t count, uint32_t percen
 }
 
 void Tex8kLevelOrigin(uint32_t size, uint32_t level, uint32_t *x, uint32_t *y) {
-    if (level == 0u) {
-        *x = *y = 0u;
-        return;
-    }
     // The bottom right corner of level 0, eight texels in per level so no two levels start
-    // together.
-    *x = *y = size - (size >> level) - 8u * level;
+    // together; a level under 16 texels starts eight on from the one before it, since the rule
+    // would put it where that one starts.
+    uint32_t at = 0;
+    for (uint32_t l = 1; l <= level; ++l) {
+        const uint32_t side = size >> l;
+        at = side >= 16u ? size - side - 8u * l : at + 8u;
+    }
+    *x = *y = at;
+}
+
+bool Tex8kRawCovers(const BcnArray *array, uint32_t level, uint32_t bx, uint32_t by,
+                    uint32_t from, uint32_t to) {
+    const uint32_t at = BcnBlockOffset(array, 0, level, bx, by);
+    return at >= from && at < to;
+}
+
+uint32_t Tex8kRawBytes(const Tex8kFormat *format, const BcnArray *array, uint32_t from,
+                       uint32_t to, uint32_t salt, uint8_t *out) {
+    memset(out, 0, to - from);
+    uint32_t blocks = 0;
+    for (uint32_t level = 0; level < array->levels; ++level) {
+        const uint32_t start = BcnLevelOffset(array, level);
+        const uint32_t end = BcnLevelOffset(array, level + 1u);
+        if (end <= from || start >= to) {
+            continue;
+        }
+        uint32_t ox = 0;
+        uint32_t oy = 0;
+        Tex8kLevelOrigin(array->width, level, &ox, &oy);
+        for (uint32_t by = 0; by < BcnLevelBlocksY(array, level); ++by) {
+            for (uint32_t bx = 0; bx < BcnLevelBlocksX(array, level); ++bx) {
+                if (!Tex8kRawCovers(array, level, bx, by, from, to)) {
+                    continue;
+                }
+                Tex8kBlock(format, ox / format->block_width + bx, oy / format->block_height + by,
+                           salt, out + (BcnBlockOffset(array, 0, level, bx, by) - from));
+                ++blocks;
+            }
+        }
+    }
+    return blocks;
 }
 
 void Tex8kRegion(uint32_t frame, uint32_t *x, uint32_t *y) {

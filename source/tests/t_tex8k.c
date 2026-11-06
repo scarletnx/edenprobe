@@ -6,6 +6,7 @@
 
 #include <switch.h>
 
+#include "../bcnref.h"
 #include "../check.h"
 #include "../coherref.h"
 #include "../gpu.h"
@@ -23,15 +24,19 @@
 // against tex8kref.c, which says what every texel holds; nothing reads back the large texture.
 //
 // Each texture has a device of its own, sized for it, so the run never holds two. The copy
-// engine uploads it from a staging buffer the processor filled (a game's texture loader), with
-// its first eight levels (8192 down to 64), each a square of level 0's staging; one RGBA8
-// texture is pitch linear instead, written by the processor where the texture unit reads it.
-// The first draw fetches level 7 alone, the size of the target, so a machine that has to make
-// all eight levels before it can sample one pays for that there. Then 4096 texels across level 0,
-// twice. Then 64 frames, each writing a 256x256 region of level 0 somewhere else and fetching
-// it back in the same list, as a game streams; then the 4096 texels again, which now hold each
-// frame's region where one wrote and the upload elsewhere; then a 256x256 region copied out to a
-// buffer, a quarter in a frame's region, compared byte for byte.
+// engine uploads it from a staging buffer the processor filled (a game's texture loader), each
+// level a square of level 0's staging: the first eight levels (8192 down to 64), and all fourteen
+// for BC7; one RGBA8 texture is pitch linear instead, written by the processor where the texture
+// unit reads it. The first draw fetches level 7 alone, the size of the target, so a machine that
+// has to make every level before it can sample one pays for that there. Then 4096 texels across
+// level 0, twice. Then 64 frames, each writing a 256x256 region of level 0 somewhere else and
+// fetching it back in the same list, as a game streams; then the 4096 texels again, which now
+// hold each frame's region where one wrote and the upload elsewhere; then a 256x256 region copied
+// out to a buffer, a quarter in a frame's region, compared byte for byte. Then the writes
+// a partial update has to get right at its edges: into the pitch linear texture the processor
+// writes a square whose rows cross a page edge; into the BC7 one the copy engine copies raw
+// blocks across the end of level 3 and the start of level 4, and into the mip tail, the six
+// smallest levels, which share one 4 KiB page.
 //
 // After the textures, a cold upload: a fresh pitch linear RGBA8 texture written whole right after
 // another whole write, then again after 32 frames with no upload a 60 Hz frame apart, as a game
@@ -58,6 +63,8 @@ static const char *const SUITE = "tex8k";
 // Room past the levels' bytes for the library's alignment and the small levels' padding.
 #define IMAGE_SLACK (8u * MIB)
 #define SCRATCH_SLACK MIB
+// The BC7 texture's two raw copies, across two levels and into the tail.
+#define RAW_BYTES (2u * TEX8K_CROSS_BYTES + (TEX8K_TAIL_TO - TEX8K_TAIL_FROM))
 // The cold upload's frames with no upload, a 60 Hz frame from one start to the next.
 #define IDLE_FRAMES 32u
 #define FRAME_NS 16666667u
@@ -86,7 +93,7 @@ static const Entry ENTRIES[] = {
       true, true },
     { "BC1", DkImageFormat_RGBA_BC1, { TEX8K_BC1, 4, 4, 8, NULL }, 8192, TEX8K_LEVELS, false,
       true },
-    { "BC7", DkImageFormat_RGBA_BC7_Unorm, { TEX8K_BC7, 4, 4, 16, NULL }, 8192, TEX8K_LEVELS,
+    { "BC7", DkImageFormat_RGBA_BC7_Unorm, { TEX8K_BC7, 4, 4, 16, NULL }, 8192, TEX8K_BC7_LEVELS,
       false, true },
     // The astcimage suite's picture, encoded by astcenc: the first is 4x4, the third 8x8.
     { "ASTC 4x4", DkImageFormat_RGBA_ASTC_4x4, { TEX8K_ASTC, 4, 4, 16, &ASTC_IMAGE[0] }, 8192,
@@ -103,6 +110,13 @@ typedef struct {
     int32_t size[4];
     int32_t offset[4];
 } FetchLod;
+
+/// Bytes the copy engine wrote raw into the texture's memory, [from, to), with salt.
+typedef struct {
+    uint32_t from;
+    uint32_t to;
+    uint32_t salt;
+} RawCopy;
 
 /// One texture's device and what the cases leave each other.
 typedef struct {
@@ -131,8 +145,17 @@ typedef struct {
     bool made;
     /// The frames whose regions are in the texture, which the later judges expect.
     uint32_t frames;
-    /// Level 0's salt where no frame wrote: the upload's, or the cold case's rewrite's.
+    /// Level 0's salt where nothing later wrote: the upload's, or the cold case's rewrite's.
     uint32_t base_salt;
+    /// The processor's square in the pitch linear texture, written with TEX8K_EDGE_SALT.
+    bool edge;
+    /// The raw copies into the BC7 texture so far, the latest last, and the layout they were
+    /// placed by.
+    RawCopy raw[2];
+    uint32_t raws;
+    BcnArray array;
+    /// Where the copy engine's texture starts in the image memory.
+    uint32_t image_offset;
 } Run;
 
 static Run g_run;
@@ -181,8 +204,10 @@ static uint32_t LevelSide(const Entry *e, uint32_t level) {
 }
 
 static uint32_t LevelBytes(const Entry *e, uint32_t level) {
-    const uint32_t side = e->size >> level;
-    return (side / e->ref.block_width) * (side / e->ref.block_height) * e->ref.block_bytes;
+    const uint32_t side = LevelSide(e, level);
+    const uint32_t bw = e->ref.block_width;
+    const uint32_t bh = e->ref.block_height;
+    return ((side + bw - 1u) / bw) * ((side + bh - 1u) / bh) * e->ref.block_bytes;
 }
 
 /// One draw onto the target: pixel (x0 + i, y0 + j) fetches texel (tx0 + i * step_x,
@@ -269,8 +294,18 @@ static bool RecordWindow(Run *r, const Window *w) {
 
 /// The salt texel (@p tx, @p ty) of @p level holds after everything the run wrote so far.
 static uint32_t SaltOf(const Run *r, uint32_t level, uint32_t tx, uint32_t ty) {
+    for (uint32_t i = r->raws; i-- > 0u;) {
+        if (Tex8kRawCovers(&r->array, level, tx / r->e->ref.block_width,
+                           ty / r->e->ref.block_height, r->raw[i].from, r->raw[i].to)) {
+            return r->raw[i].salt;
+        }
+    }
     if (level != 0u) {
         return 0u;
+    }
+    if (r->edge && tx >= TEX8K_EDGE_X && tx < TEX8K_EDGE_X + TEX8K_EDGE_SIDE &&
+        ty >= TEX8K_EDGE_Y && ty < TEX8K_EDGE_Y + TEX8K_EDGE_SIDE) {
+        return TEX8K_EDGE_SALT;
     }
     const uint32_t salt = Tex8kSaltAt(tx, ty, r->frames);
     return salt != 0u ? salt : r->base_salt;
@@ -495,7 +530,7 @@ static bool Open(Run *r, const char *name) {
     r->region_pitch = TEX8K_REGION / e->ref.block_width * e->ref.block_bytes;
     r->region_bytes = r->region_pitch * (TEX8K_REGION / e->ref.block_height);
     r->staging_pitch = e->size / e->ref.block_width * e->ref.block_bytes;
-    uint64_t data = SCRATCH_SLACK + r->region_bytes;
+    uint64_t data = SCRATCH_SLACK + r->region_bytes + RAW_BYTES;
     uint64_t image = 0;
     if (e->processor) {
         spec.cpu_image_size = (uint32_t)((uint64_t)e->size * e->size * 4u + MIB);
@@ -560,6 +595,8 @@ static bool Open(Run *r, const char *name) {
                                        &r->texels)
                       : GpuCreateMipTexture(&r->gpu, &r->image, &r->layout, e->format, e->size,
                                             e->size, e->levels);
+        // The last image placed in its block ends where the block's use does.
+        r->image_offset = r->gpu.extra_image_used - (uint32_t)dkImageLayoutGetSize(&r->layout);
         loaded = r->made;
     }
     if (loaded) {
@@ -839,6 +876,105 @@ static void CopyOut(Run *r, const char *name) {
     End(name, CHECK_EXACT, wrong == 0u, detail, work);
 }
 
+/// The processor writes the pitch linear texture's square, whose rows cross a page edge, and a
+/// draw fetches every second texel around it.
+static void EdgeSquare(Run *r, const char *name) {
+    const Entry *const e = r->e;
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    const uint64_t writing = armGetSystemTick();
+    Tex8kFillBlocks(&e->ref,
+                    r->texels + (size_t)TEX8K_EDGE_Y * e->size * 4u + (size_t)TEX8K_EDGE_X * 4u,
+                    (size_t)e->size * 4u, TEX8K_EDGE_X, TEX8K_EDGE_Y, TEX8K_EDGE_SIDE,
+                    TEX8K_EDGE_SIDE, TEX8K_EDGE_SALT);
+    const uint64_t write_ns = TickNs(writing);
+    r->edge = true;
+    const Window window = WholeWindow(0, TEX8K_EDGE_FROM_X, TEX8K_EDGE_FROM_Y, TEX8K_EDGE_STEP,
+                                      TEX8K_EDGE_STEP);
+    char before[64];
+    snprintf(before, sizeof(before), "the processor's write %u us",
+             (unsigned)Microseconds(write_ns));
+    FetchAndJudge(r, name, &window, 1, before);
+}
+
+/// The copy engine copies the raw bytes [@p from, @p to) of the BC7 texture from scratch, as
+/// salt @p salt writes its blocks there, and a draw fetches @p count windows over them.
+static void RawCopyCase(Run *r, const char *name, uint32_t from, uint32_t to, uint32_t salt,
+                        const Window *windows, uint32_t count) {
+    const Entry *const e = r->e;
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    GpuContext *const gpu = &r->gpu;
+    // The raw bytes are placed by bcnref.c's rule for the levels, which has to be the library's.
+    const uint64_t laid = dkImageLayoutGetSize(&r->layout);
+    if (laid != BcnLevelOffset(&r->array, e->levels)) {
+        char why[160];
+        snprintf(why, sizeof(why),
+                 "the library laid the texture out in %llu bytes, bcnref.c's rule says %llu",
+                 (unsigned long long)laid,
+                 (unsigned long long)BcnLevelOffset(&r->array, e->levels));
+        End(name, CHECK_NONE, false, why, PerfCaseWork());
+        return;
+    }
+    DkGpuAddr address = 0;
+    uint8_t *const bytes = (uint8_t *)GpuAllocData(gpu, to - from, 256, &address);
+    if (bytes == NULL) {
+        End(name, CHECK_NONE, false, "no scratch left for the raw copy", PerfCaseWork());
+        return;
+    }
+    Tex8kRawBytes(&e->ref, &r->array, from, to, salt, bytes);
+    dkCmdBufClear(gpu->cmdbuf);
+    dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Full, 0);
+    // Through the memory's pitch mapping, where bytes land as they are written: the image's own
+    // address is a block linear kind's (deko3d dk_memblock.cpp, NvKind_Generic_16BX2).
+    const DkGpuAddr image = dkMemBlockGetGpuAddr(gpu->extra_image_memory) + r->image_offset;
+    dkCmdBufCopyBuffer(gpu->cmdbuf, address, image + from, to - from);
+    dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Full, DkInvalidateFlags_Image);
+    const uint64_t before = PerfCaseWork();
+    GpuSubmit(gpu);
+    const uint64_t copy_ns = PerfCaseWork() - before;
+    if (!gpu->ready) {
+        End(name, CHECK_NONE, false, Why(gpu, "the copy did not happen"), PerfCaseWork());
+        return;
+    }
+    r->raw[r->raws].from = from;
+    r->raw[r->raws].to = to;
+    r->raw[r->raws].salt = salt;
+    ++r->raws;
+    char copy[48];
+    snprintf(copy, sizeof(copy), "the copy %u us", (unsigned)Microseconds(copy_ns));
+    FetchAndJudge(r, name, windows, count, copy);
+}
+
+/// The two raw copies into the BC7 texture: across the end of level 3 and the start of level 4,
+/// each side's window half written; then into the tail, every level of it at a texel a pixel.
+static void RawCopies(Run *r, const char *cross, const char *tail) {
+    BcnArrayLayout(&r->array, r->e->size, r->e->size, 1, r->e->levels, r->e->ref.block_bytes);
+    const uint32_t start = BcnLevelOffset(&r->array, TEX8K_CROSS_LEVEL);
+    // Level 3's last 4 KiB hold texels 1008 to 1023 across, 768 to 1023 down; level 4's first
+    // 4 KiB texels 0 to 15 and 0 to 255. Each window takes 16 columns either side of the edge of
+    // what was written, and every eighth row over twice its height.
+    const Window across[2] = {
+        { 0, 0, 32, 64, TEX8K_CROSS_LEVEL - 1u, 992, 512, 1, 8 },
+        { 32, 0, 32, 64, TEX8K_CROSS_LEVEL, 0, 0, 1, 8 },
+    };
+    RawCopyCase(r, cross, start - TEX8K_CROSS_BYTES, start + TEX8K_CROSS_BYTES, TEX8K_CROSS_SALT,
+                across, 2);
+    const uint32_t tail_start = BcnLevelOffset(&r->array, TEX8K_TAIL_LEVEL);
+    Window levels[TEX8K_BC7_LEVELS - TEX8K_TAIL_LEVEL];
+    uint32_t x = 0;
+    for (uint32_t level = TEX8K_TAIL_LEVEL; level < r->e->levels; ++level) {
+        const uint32_t side = LevelSide(r->e, level);
+        const Window w = { x, 0, side, side, level, 0, 0, 1, 1 };
+        levels[level - TEX8K_TAIL_LEVEL] = w;
+        x += side;
+    }
+    RawCopyCase(r, tail, tail_start + TEX8K_TAIL_FROM, tail_start + TEX8K_TAIL_TO,
+                TEX8K_TAIL_SALT, levels, r->e->levels - TEX8K_TAIL_LEVEL);
+}
+
 static void OneTexture(const Entry *e) {
     Run *const r = &g_run;
     memset(r, 0, sizeof(*r));
@@ -852,6 +988,9 @@ static void OneTexture(const Entry *e) {
     char frames[160];
     char after[160];
     char copy_out[160];
+    char square[160];
+    char cross[160];
+    char tail[160];
     snprintf(open_name, sizeof(open_name), "graphics device opens with room for the %s texture",
              r->texture);
     if (e->processor) {
@@ -879,6 +1018,18 @@ static void OneTexture(const Entry *e) {
     snprintf(copy_out, sizeof(copy_out),
              "a 256x256 region of the %s texture copied out to a buffer holds its bytes",
              r->texture);
+    snprintf(square, sizeof(square),
+             "the processor writes a %ux%u square of the %s texture whose rows cross a page "
+             "edge, and a draw fetches it",
+             (unsigned)TEX8K_EDGE_SIDE, (unsigned)TEX8K_EDGE_SIDE, r->texture);
+    snprintf(cross, sizeof(cross),
+             "the copy engine copies raw blocks across the end of level %u and the start of level "
+             "%u of the %s texture",
+             (unsigned)(TEX8K_CROSS_LEVEL - 1u), (unsigned)TEX8K_CROSS_LEVEL, r->texture);
+    snprintf(tail, sizeof(tail),
+             "the copy engine copies raw blocks into the %s texture's mip tail, levels %u to %u",
+             r->texture, (unsigned)TEX8K_TAIL_LEVEL, (unsigned)(TEX8K_BC7_LEVELS - 1u));
+    const bool raw = e->levels == TEX8K_BC7_LEVELS;
     const char *const rest[] = {
         upload,
         e->levels > 7u ? spread : NULL,
@@ -886,6 +1037,9 @@ static void OneTexture(const Entry *e) {
         e->frames ? frames : NULL,
         e->frames ? after : NULL,
         copy_out,
+        e->processor ? square : NULL,
+        raw ? cross : NULL,
+        raw ? tail : NULL,
     };
     const size_t rest_count = sizeof(rest) / sizeof(rest[0]);
 
@@ -914,6 +1068,12 @@ static void OneTexture(const Entry *e) {
         Spread(r, after);
     }
     CopyOut(r, copy_out);
+    if (e->processor) {
+        EdgeSquare(r, square);
+    }
+    if (raw) {
+        RawCopies(r, cross, tail);
+    }
     GpuClose(&r->gpu);
 }
 

@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include "astcimages.h"
+#include "bcnref.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,6 +37,38 @@ extern "C" {
 #define TEX8K_CELL 8u
 #define TEX8K_CELL_X 5u
 #define TEX8K_CELL_Y 9u
+
+/// The BC7 texture's levels, its whole chain from 8192 down to 1, so its smallest levels share
+/// one 4 KiB page (the mip tail).
+#define TEX8K_BC7_LEVELS 14u
+
+/// The salts the writes after the frames take: the processor's rectangle in the pitch linear
+/// texture, and the copy engine's two raw copies into the BC7 texture.
+#define TEX8K_EDGE_SALT (TEX8K_FRAMES + 1u)
+#define TEX8K_CROSS_SALT (TEX8K_FRAMES + 2u)
+#define TEX8K_TAIL_SALT (TEX8K_FRAMES + 3u)
+
+/// The processor's write into the pitch linear texture: a square whose rows cross a 4 KiB page
+/// edge (texel 1024 starts a page, a row being 32 KiB), clear of every frame's region; and the
+/// draw that judges it, a texel every second one from (TEX8K_EDGE_FROM_X, TEX8K_EDGE_FROM_Y), so
+/// the target holds the square, the page edge inside it and texels on all four sides of it.
+#define TEX8K_EDGE_X 1000u
+#define TEX8K_EDGE_Y 4100u
+#define TEX8K_EDGE_SIDE 48u
+#define TEX8K_EDGE_FROM_X 960u
+#define TEX8K_EDGE_FROM_Y 4076u
+#define TEX8K_EDGE_STEP 2u
+
+/// The copy engine's raw copy across two levels of the BC7 texture: TEX8K_CROSS_BYTES before
+/// level TEX8K_CROSS_LEVEL starts and as many after.
+#define TEX8K_CROSS_LEVEL 4u
+#define TEX8K_CROSS_BYTES 4096u
+
+/// The raw copy into the mip tail: bytes TEX8K_TAIL_FROM to TEX8K_TAIL_TO after level
+/// TEX8K_TAIL_LEVEL starts, which hold half of level 9's blocks and all of level 10's.
+#define TEX8K_TAIL_LEVEL 8u
+#define TEX8K_TAIL_FROM 1280u
+#define TEX8K_TAIL_TO 1792u
 
 typedef enum {
     TEX8K_RGBA8,
@@ -114,8 +147,21 @@ uint64_t Tex8kPercentile(const uint64_t *sorted, uint32_t count, uint32_t percen
 
 /// Where level @p level's texel (0, 0) comes from in level 0 of a @p size texture: each level is
 /// the copy engine's copy of a square of level 0's staging, from here on, so a fetch of the
-/// wrong level reads other texels. Nought for level 0; a multiple of 8 otherwise, whole blocks.
+/// wrong level reads other texels. Nought for level 0; a multiple of 8 otherwise, whole blocks,
+/// each level's further in than the one before.
 void Tex8kLevelOrigin(uint32_t size, uint32_t level, uint32_t *x, uint32_t *y);
+
+/// Whether the raw copy of bytes [@p from, @p to) of a BC texture laid out as @p array covers
+/// block (@p bx, @p by) of @p level.
+bool Tex8kRawCovers(const BcnArray *array, uint32_t level, uint32_t bx, uint32_t by,
+                    uint32_t from, uint32_t to);
+
+/// The bytes [@p from, @p to) of a BC texture laid out as @p array, @p format's blocks, would hold
+/// had every block they cover been written with @p salt, a level's blocks taken from level 0's
+/// at Tex8kLevelOrigin; nought where no block lies (a gob's padding). Into @p out, to - from
+/// bytes. How many blocks it wrote.
+uint32_t Tex8kRawBytes(const Tex8kFormat *format, const BcnArray *array, uint32_t from,
+                       uint32_t to, uint32_t salt, uint8_t *out);
 
 /// Where frame @p frame's region starts in level 0 of an 8192x8192 texture: one of its 32x32
 /// tiles of 256 texels, no two frames' the same. The first 32 take a column each; the next 32
