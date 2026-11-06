@@ -29,11 +29,11 @@ extern "C" {
 #define TEX8K_SPREAD_X 37u
 #define TEX8K_SPREAD_Y 91u
 /// The frames, the region each one writes, and its cell on the target: frame f's draw covers
-/// the 16x16 pixels of cell (f % 4, f / 4), each pixel reading every 16th texel of the region
+/// the 8x8 pixels of cell (f % 8, f / 8), each pixel reading every 32nd texel of the region
 /// from (TEX8K_CELL_X, TEX8K_CELL_Y) on.
-#define TEX8K_FRAMES 16u
+#define TEX8K_FRAMES 64u
 #define TEX8K_REGION 256u
-#define TEX8K_CELL 16u
+#define TEX8K_CELL 8u
 #define TEX8K_CELL_X 5u
 #define TEX8K_CELL_Y 9u
 
@@ -58,12 +58,16 @@ typedef struct {
 /// (0 for the upload, 1 + f for frame f).
 uint32_t Tex8kMix(uint32_t x, uint32_t y, uint32_t salt);
 
+/// The six bits an RGBA8 texel keeps of @p salt: nought for nought, any other salt folded into
+/// 1 to 63, so a frame's region never reads as the upload's.
+uint32_t Tex8kRgba8Salt(uint32_t salt);
+
 /// The bytes of block (@p bx, @p by) of level 0 as @p salt writes it, block_bytes of them: an
-/// RGBA8 texel is x | y << 13 | salt << 26, little endian, so every texel of an 8192x8192
-/// texture differs; a BC1 block is one colour (indices nought) from the mix; a BC7 block is mode
-/// 6, both endpoints and the p-bits from the mix, texel t taking index t, so every texel of a
-/// block differs; an ASTC block is the picture's, from a tile of the picture shifted by its
-/// position and the salt (Tex8kAstcSource).
+/// RGBA8 texel is x | y << 13 | Tex8kRgba8Salt(salt) << 26, little endian, so every texel of an
+/// 8192x8192 texture differs; a BC1 block is one colour (indices nought) from the mix; a BC7
+/// block is mode 6, both endpoints and the p-bits from the mix, texel t taking index t, so every
+/// texel of a block differs; an ASTC block is the picture's, from a tile of the picture shifted
+/// by its position and the salt (Tex8kAstcSource).
 void Tex8kBlock(const Tex8kFormat *format, uint32_t bx, uint32_t by, uint32_t salt,
                 uint8_t *out);
 
@@ -89,13 +93,18 @@ void Tex8kTexel(const Tex8kFormat *format, uint32_t x, uint32_t y, uint32_t salt
 /// Whether @p rgba is one of the @p answers.
 bool Tex8kMatches(const uint8_t rgba[4], const uint8_t answers[3][4]);
 
+/// The @p percent percentile of @p count values sorted from the smallest, numpy's default: the
+/// value at (count - 1) * percent / 100, the two either side of it weighed by where it falls.
+uint64_t Tex8kPercentile(const uint64_t *sorted, uint32_t count, uint32_t percent);
+
 /// Where level @p level's texel (0, 0) comes from in level 0 of a @p size texture: each level is
 /// the copy engine's copy of a square of level 0's staging, from here on, so a fetch of the
 /// wrong level reads other texels. Nought for level 0; a multiple of 8 otherwise, whole blocks.
 void Tex8kLevelOrigin(uint32_t size, uint32_t level, uint32_t *x, uint32_t *y);
 
-/// Where frame @p frame's region starts in level 0 of an 8192x8192 texture. The sixteen regions
-/// are apart: each starts in a column of 256 texels no other one starts in.
+/// Where frame @p frame's region starts in level 0 of an 8192x8192 texture: one of its 32x32
+/// tiles of 256 texels, no two frames' the same. The first 32 take a column each; the next 32
+/// the same columns, half the texture further down.
 void Tex8kRegion(uint32_t frame, uint32_t *x, uint32_t *y);
 
 /// The salt texel (@p x, @p y) of level 0 holds after @p frames frames: 1 + f for the frame

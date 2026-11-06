@@ -18,8 +18,8 @@
 
 // Textures as large as a game's largest: 8192x8192, which the console's texture unit takes (its
 // limit is 16384), in the formats a game ships them in. What each costs is the question: the
-// upload, the draw that first samples it, the same draw again, a frame that changes a part of it,
-// and a copy out of it. Every case judges what it fetched on a 64x64 target, a texel a pixel,
+// upload, the draw that first samples it, the same draw again, frames that each change a part of
+// it, and a copy out of it. Every case judges what it fetched on a 64x64 target, a texel a pixel,
 // against tex8kref.c, which says what every texel holds; nothing reads back the large texture.
 //
 // Each texture has a device of its own, sized for it, so the run never holds two. The copy
@@ -28,19 +28,21 @@
 // texture is pitch linear instead, written by the processor where the texture unit reads it.
 // The first draw fetches level 7 alone, the size of the target, so a machine that has to make
 // all eight levels before it can sample one pays for that there. Then 4096 texels across level 0,
-// twice. Then sixteen frames, each writing a 256x256 region of level 0 somewhere else and fetching
+// twice. Then 64 frames, each writing a 256x256 region of level 0 somewhere else and fetching
 // it back in the same list, as a game streams; then the 4096 texels again, which now hold each
 // frame's region where one wrote and the upload elsewhere; then a 256x256 region copied out to a
-// buffer, half in a frame's region and half not, compared byte for byte. Last, an 8192x4096
-// RGBA16F target is cleared and drawn, and the processor reads eight of its texels through
-// memory.
+// buffer, a quarter in a frame's region, compared byte for byte.
+//
+// Last, an 8192x4096 RGBA16F target is cleared and drawn, and the processor reads eight of its
+// texels through memory.
 //
 // Untimed by the passes: one pass makes the uploads a game makes once, and a run stays seconds
 // long. Each case times its own work on the graphics unit (gpu.c's submits), and its line
-// carries that; a frame case carries its median frame, and its detail the first and the slowest.
-// Where the processor's own work is part of the path (filling the staging, writing a region of
-// the pitch linear texture, reading the target through memory) the detail gives its time too,
-// read from the system tick, since an emulator can spend there what the console does not.
+// carries that; a frame case carries its median frame, and its detail the first, the 99th
+// percentile and the slowest. Where the processor's own work is part of the path (filling the
+// staging, writing a region of the pitch linear texture, reading the target through memory) the
+// detail gives its time too, read from the system tick, since an emulator can spend there what
+// the console does not.
 
 static const char *const SUITE = "tex8k";
 
@@ -161,15 +163,62 @@ static const uint8_t *Take(uint8_t *to, const uint8_t *from, size_t size) {
     return to;
 }
 
+static uint32_t LevelSide(const Entry *e, uint32_t level) {
+    const uint32_t side = e->size >> level;
+    return side != 0u ? side : 1u;
+}
+
 static uint32_t LevelBytes(const Entry *e, uint32_t level) {
     const uint32_t side = e->size >> level;
     return (side / e->ref.block_width) * (side / e->ref.block_height) * e->ref.block_bytes;
 }
 
-/// Records a draw over pixels [x0, x0 + w) by [y0, y0 + h) of the target that fetches texel
-/// pixel * step + offset of @p level, whose side is @p side, into the open pass.
-static bool RecordFetch(Run *r, uint32_t level, uint32_t side, uint32_t step, int32_t ox,
-                        int32_t oy, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h) {
+/// One draw onto the target: pixel (x0 + i, y0 + j) fetches texel (tx0 + i * step_x,
+/// ty0 + j * step_y) of the level.
+typedef struct {
+    uint32_t x0;
+    uint32_t y0;
+    uint32_t w;
+    uint32_t h;
+    uint32_t level;
+    uint32_t tx0;
+    uint32_t ty0;
+    uint32_t step_x;
+    uint32_t step_y;
+} Window;
+
+static Window WholeWindow(uint32_t level, uint32_t tx0, uint32_t ty0, uint32_t step_x,
+                          uint32_t step_y) {
+    const Window w = { 0, 0, TEX8K_TARGET, TEX8K_TARGET, level, tx0, ty0, step_x, step_y };
+    return w;
+}
+
+/// The 4096 texels spread over level 0, every size / 64th.
+static Window SpreadWindow(const Entry *e) {
+    const uint32_t step = e->size / TEX8K_TARGET;
+    return WholeWindow(0, TEX8K_SPREAD_X, TEX8K_SPREAD_Y, step, step);
+}
+
+/// Frame @p f's cell, every 32nd texel of its region.
+static Window CellWindow(uint32_t f) {
+    uint32_t rx = 0;
+    uint32_t ry = 0;
+    Tex8kRegion(f, &rx, &ry);
+    const uint32_t step = TEX8K_REGION / TEX8K_CELL;
+    const Window w = { (f % (TEX8K_TARGET / TEX8K_CELL)) * TEX8K_CELL,
+                       (f / (TEX8K_TARGET / TEX8K_CELL)) * TEX8K_CELL,
+                       TEX8K_CELL,
+                       TEX8K_CELL,
+                       0,
+                       rx + TEX8K_CELL_X,
+                       ry + TEX8K_CELL_Y,
+                       step,
+                       step };
+    return w;
+}
+
+/// Records the draw @p w into the open pass.
+static bool RecordWindow(Run *r, const Window *w) {
     GpuContext *const gpu = &r->gpu;
     DkGpuAddr address = 0;
     uint8_t *const uniform =
@@ -178,8 +227,12 @@ static bool RecordFetch(Run *r, uint32_t level, uint32_t side, uint32_t step, in
         snprintf(gpu->failure, sizeof(gpu->failure), "no scratch left for a draw's uniforms");
         return false;
     }
-    const FetchLod s = { { (int32_t)side, (int32_t)side, (int32_t)step, (int32_t)step },
-                         { ox, oy, (int32_t)level, 0 } };
+    // The shader fetches pixel * step + offset, from the target's corner, not the window's.
+    const int32_t side = (int32_t)LevelSide(r->e, w->level);
+    const FetchLod s = { { side, side, (int32_t)w->step_x, (int32_t)w->step_y },
+                         { (int32_t)w->tx0 - (int32_t)(w->x0 * w->step_x),
+                           (int32_t)w->ty0 - (int32_t)(w->y0 * w->step_y), (int32_t)w->level,
+                           0 } };
     memset(uniform, 0, UNIFORM_SIZE);
     memcpy(uniform, &s, sizeof(s));
     dkCmdBufBindImageDescriptorSet(gpu->cmdbuf, r->image_set, 1);
@@ -187,10 +240,10 @@ static bool RecordFetch(Run *r, uint32_t level, uint32_t side, uint32_t step, in
     dkCmdBufBindTexture(gpu->cmdbuf, DkStage_Fragment, 0, dkMakeTextureHandle(0, 0));
     dkCmdBufBindUniformBuffer(gpu->cmdbuf, DkStage_Fragment, 0, address, UNIFORM_SIZE);
     // Clip space y is +1 at the target's first row.
-    const float left = (float)x0 / TEX8K_TARGET * 2.0f - 1.0f;
-    const float right = (float)(x0 + w) / TEX8K_TARGET * 2.0f - 1.0f;
-    const float top = 1.0f - (float)y0 / TEX8K_TARGET * 2.0f;
-    const float bottom = 1.0f - (float)(y0 + h) / TEX8K_TARGET * 2.0f;
+    const float left = (float)w->x0 / TEX8K_TARGET * 2.0f - 1.0f;
+    const float right = (float)(w->x0 + w->w) / TEX8K_TARGET * 2.0f - 1.0f;
+    const float top = 1.0f - (float)w->y0 / TEX8K_TARGET * 2.0f;
+    const float bottom = 1.0f - (float)(w->y0 + w->h) / TEX8K_TARGET * 2.0f;
     const GpuVertex quad[6] = {
         { left, bottom, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
         { right, bottom, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
@@ -202,19 +255,18 @@ static bool RecordFetch(Run *r, uint32_t level, uint32_t side, uint32_t step, in
     return GpuDrawTriangles(gpu, &r->shaders[0], &r->shaders[1], quad, 6);
 }
 
-typedef enum {
-    /// Pixel (x, y) shows texel (x, y) of level 7.
-    SHOWS_LEVEL7,
-    /// Pixel (x, y) shows Tex8kSpreadTexel of level 0.
-    SHOWS_SPREAD,
-    /// Pixel (x, y) shows Tex8kCellTexel of level 0.
-    SHOWS_CELLS,
-} Shows;
+/// The salt texel (@p tx, @p ty) of @p level holds after everything the run wrote so far.
+static uint32_t SaltOf(const Run *r, uint32_t level, uint32_t tx, uint32_t ty) {
+    return level != 0u ? 0u : Tex8kSaltAt(tx, ty, r->frames);
+}
 
 typedef struct {
     uint32_t wrong;
+    /// The first wrong pixel: where and what it fetched.
+    bool drawn;
     uint32_t x;
     uint32_t y;
+    uint32_t level;
     uint32_t tx;
     uint32_t ty;
     uint32_t salt;
@@ -222,31 +274,36 @@ typedef struct {
     uint8_t want[4];
 } Judged;
 
-/// Judges the target against what each pixel shows, and pictures it.
-static void Judge(const Run *r, const uint8_t *pixels, Shows shows, Judged *out) {
+/// Judges the target against what the @p count draws fetched, the clear where none drew, and
+/// pictures it.
+static void Judge(const Run *r, const uint8_t *pixels, const Window *windows, uint32_t count,
+                  Judged *out) {
     memset(out, 0, sizeof(*out));
-    uint32_t ox = 0;
-    uint32_t oy = 0;
-    Tex8kLevelOrigin(r->e->size, 7u, &ox, &oy);
+    const Entry *const e = r->e;
     Picture *const picture = PictureBegin(TEX8K_TARGET, TEX8K_TARGET, PICTURE_COLOUR, pixels);
     for (uint32_t y = 0; y < TEX8K_TARGET; ++y) {
         for (uint32_t x = 0; x < TEX8K_TARGET; ++x) {
-            uint32_t tx = 0;
-            uint32_t ty = 0;
-            uint32_t salt = 0;
-            if (shows == SHOWS_LEVEL7) {
-                tx = ox + x;
-                ty = oy + y;
-            } else {
-                if (shows == SHOWS_SPREAD) {
-                    Tex8kSpreadTexel(r->e->size, x, y, &tx, &ty);
-                } else {
-                    (void)Tex8kCellTexel(x, y, &tx, &ty);
+            const Window *w = NULL;
+            for (uint32_t i = 0; i < count && w == NULL; ++i) {
+                if (x >= windows[i].x0 && x < windows[i].x0 + windows[i].w &&
+                    y >= windows[i].y0 && y < windows[i].y0 + windows[i].h) {
+                    w = &windows[i];
                 }
-                salt = Tex8kSaltAt(tx, ty, r->frames);
             }
             uint8_t answers[3][4];
-            Tex8kTexel(&r->e->ref, tx, ty, salt, answers);
+            memset(answers, 0, sizeof(answers));
+            uint32_t tx = 0;
+            uint32_t ty = 0;
+            uint32_t ox = 0;
+            uint32_t oy = 0;
+            uint32_t salt = 0;
+            if (w != NULL) {
+                tx = w->tx0 + (x - w->x0) * w->step_x;
+                ty = w->ty0 + (y - w->y0) * w->step_y;
+                salt = SaltOf(r, w->level, tx, ty);
+                Tex8kLevelOrigin(e->size, w->level, &ox, &oy);
+                Tex8kTexel(&e->ref, ox + tx, oy + ty, salt, answers);
+            }
             const uint8_t *const pixel = GpuPixel(pixels, TEX8K_TARGET, x, y);
             const bool right = Tex8kMatches(pixel, answers);
             PictureSet(picture, x, y, answers[0], right ? PICTURE_MATCHED : PICTURE_WRONG);
@@ -254,8 +311,10 @@ static void Judge(const Run *r, const uint8_t *pixels, Shows shows, Judged *out)
                 continue;
             }
             if (out->wrong++ == 0u) {
+                out->drawn = w != NULL;
                 out->x = x;
                 out->y = y;
+                out->level = w != NULL ? w->level : 0u;
                 out->tx = tx;
                 out->ty = ty;
                 out->salt = salt;
@@ -268,28 +327,36 @@ static void Judge(const Run *r, const uint8_t *pixels, Shows shows, Judged *out)
 
 /// The detail of a judged target: the wrong pixels and the first, and @p times after them.
 static void Describe(char *out, size_t size, const Judged *j, const char *times) {
-    if (j->wrong == 0u) {
-        snprintf(out, size, "%s", times);
-        return;
+    char wrong[224] = "";
+    if (j->wrong != 0u && j->drawn) {
+        snprintf(wrong, sizeof(wrong),
+                 "%u of %u pixels wrong; pixel %u,%u fetched texel %u,%u of level %u, salt %u, as "
+                 "%02x%02x%02x%02x, it holds %02x%02x%02x%02x",
+                 (unsigned)j->wrong, (unsigned)(TEX8K_TARGET * TEX8K_TARGET), (unsigned)j->x,
+                 (unsigned)j->y, (unsigned)j->tx, (unsigned)j->ty, (unsigned)j->level,
+                 (unsigned)j->salt, j->got[0], j->got[1], j->got[2], j->got[3], j->want[0],
+                 j->want[1], j->want[2], j->want[3]);
+    } else if (j->wrong != 0u) {
+        snprintf(wrong, sizeof(wrong),
+                 "%u of %u pixels wrong; pixel %u,%u, where no draw fetched, reads "
+                 "%02x%02x%02x%02x, the clear is 00000000",
+                 (unsigned)j->wrong, (unsigned)(TEX8K_TARGET * TEX8K_TARGET), (unsigned)j->x,
+                 (unsigned)j->y, j->got[0], j->got[1], j->got[2], j->got[3]);
     }
-    snprintf(out, size,
-             "%u of %u pixels wrong; pixel %u,%u fetched texel %u,%u of salt %u as "
-             "%02x%02x%02x%02x, it holds %02x%02x%02x%02x%s%s",
-             (unsigned)j->wrong, (unsigned)(TEX8K_TARGET * TEX8K_TARGET), (unsigned)j->x,
-             (unsigned)j->y, (unsigned)j->tx, (unsigned)j->ty, (unsigned)j->salt, j->got[0],
-             j->got[1], j->got[2], j->got[3], j->want[0], j->want[1], j->want[2], j->want[3],
-             times[0] != '\0' ? "; " : "", times);
+    snprintf(out, size, "%s%s%s", wrong, wrong[0] != '\0' && times[0] != '\0' ? "; " : "",
+             times);
 }
 
-/// Clears the target, draws one fetch over all of it and reads it back; @p draw_ns gets the
-/// draw's submit alone.
-static const uint8_t *FetchAll(Run *r, uint32_t level, uint32_t side, uint32_t step, int32_t ox,
-                               int32_t oy, uint64_t *draw_ns) {
+/// Clears the target, records @p count draws in one list, submits it and reads the target back;
+/// @p draw_ns gets the submit alone.
+static const uint8_t *Fetch(Run *r, const Window *windows, uint32_t count, uint64_t *draw_ns) {
     GpuContext *const gpu = &r->gpu;
     GpuClear(gpu, 0.0f, 0.0f, 0.0f, 0.0f);
     GpuBeginPass(gpu);
-    if (!RecordFetch(r, level, side, step, ox, oy, 0, 0, TEX8K_TARGET, TEX8K_TARGET)) {
-        return NULL;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (!RecordWindow(r, &windows[i])) {
+            return NULL;
+        }
     }
     const uint64_t before = PerfCaseWork();
     GpuSubmit(gpu);
@@ -297,13 +364,34 @@ static const uint8_t *FetchAll(Run *r, uint32_t level, uint32_t side, uint32_t s
     return gpu->ready ? Take(g_pixels, GpuReadBack(gpu), sizeof(g_pixels)) : NULL;
 }
 
-static const uint8_t *FetchSpread(Run *r, uint64_t *draw_ns) {
-    return FetchAll(r, 0, r->e->size, r->e->size / TEX8K_TARGET, TEX8K_SPREAD_X, TEX8K_SPREAD_Y,
-                    draw_ns);
-}
-
 static const char *Why(const GpuContext *gpu, const char *otherwise) {
     return gpu->failure[0] != '\0' ? gpu->failure : otherwise;
+}
+
+/// Fetches @p count draws and judges them, ending case @p name; @p before goes ahead of the times
+/// in the detail.
+static void FetchAndJudge(Run *r, const char *name, const Window *windows, uint32_t count,
+                          const char *before) {
+    uint64_t draw_ns = 0;
+    const uint8_t *const pixels = Fetch(r, windows, count, &draw_ns);
+    const uint64_t work = PerfCaseWork();
+    if (pixels == NULL) {
+        End(name, CHECK_NONE, false, Why(&r->gpu, "the draw or the readback did not happen"),
+            work);
+        return;
+    }
+    Judged j;
+    Judge(r, pixels, windows, count, &j);
+    char times[192] = "";
+    if (timing) {
+        snprintf(times, sizeof(times),
+                 "%s%sthe draw %u us; the processor's read of the target %u us", before,
+                 before[0] != '\0' ? ", " : "", (unsigned)Microseconds(draw_ns),
+                 (unsigned)Microseconds(g_read_ns));
+    }
+    char detail[512];
+    Describe(detail, sizeof(detail), &j, times);
+    End(name, CHECK_EXACT, j.wrong == 0u, detail, work);
 }
 
 /// Skips every case of the texture after the one that could not leave what they need.
@@ -313,6 +401,31 @@ static void SkipRest(const char *const names[], size_t count, const char *why) {
             ReportSkip(SUITE, names[i], REPORT_REASON_DEPENDS, why);
         }
     }
+}
+
+/// Points the first image descriptor at @p image, the whole of it, and the first sampler at the
+/// nearest texel of the nearest level.
+static void Descriptors(DkImageDescriptor *images, DkSamplerDescriptor *samplers,
+                       const DkImage *image, bool pitch_linear, uint32_t pitch) {
+    DkImageView view;
+    dkImageViewDefaults(&view, image);
+    dkImageDescriptorInitialize(&images[0], &view, false, false);
+    if (pitch_linear) {
+        // A pitch linear header's word 3 holds the pitch over 32 in its low 16 bits, and the
+        // library writes the sparse tile width (bits 10 to 12) after it: a pitch of 32 KiB or
+        // more loses its bits 15 to 17 (deko3d source/maxwell/tic_generate.cpp, pitch_5_20 then
+        // sparse_tile_width_gobs_log2, at 373bfd4), so 32768 reaches the texture unit as nought.
+        uint32_t words[8];
+        memcpy(words, &images[0], sizeof(words));
+        words[3] = (words[3] & 0xFFFF0000u) | pitch >> 5;
+        memcpy(&images[0], words, sizeof(words));
+    }
+    DkSampler sampler;
+    dkSamplerDefaults(&sampler);
+    sampler.minFilter = DkFilter_Nearest;
+    sampler.magFilter = DkFilter_Nearest;
+    sampler.mipFilter = DkMipFilter_Nearest;
+    dkSamplerDescriptorInitialize(&samplers[0], &sampler);
 }
 
 static bool Open(Run *r, const char *name) {
@@ -328,7 +441,8 @@ static bool Open(Run *r, const char *name) {
     if (e->processor) {
         spec.cpu_image_size = (uint32_t)((uint64_t)e->size * e->size * 4u + MIB);
     } else {
-        data += (uint64_t)LevelBytes(e, 0) + (e->frames ? (uint64_t)TEX8K_FRAMES * r->region_bytes : 0u);
+        data += (uint64_t)LevelBytes(e, 0) +
+                (e->frames ? (uint64_t)TEX8K_FRAMES * r->region_bytes : 0u);
         for (uint32_t level = 0; level < e->levels; ++level) {
             image += LevelBytes(e, level);
         }
@@ -390,25 +504,7 @@ static bool Open(Run *r, const char *name) {
         loaded = r->made;
     }
     if (loaded) {
-        DkImageView view;
-        dkImageViewDefaults(&view, &r->image);
-        dkImageDescriptorInitialize(&images[0], &view, false, false);
-        if (e->processor) {
-            // A pitch linear header's word 3 holds the pitch over 32 in its low 16 bits, and the
-            // library writes the sparse tile width (bits 10 to 12) after it: a pitch of 32 KiB or
-            // more loses its bits 15 to 17 (deko3d source/maxwell/tic_generate.cpp, pitch_5_20 then
-            // sparse_tile_width_gobs_log2, at 373bfd4), so 32768 reaches the texture unit as nought.
-            uint32_t words[8];
-            memcpy(words, &images[0], sizeof(words));
-            words[3] = (words[3] & 0xFFFF0000u) | (e->size * 4u) >> 5;
-            memcpy(&images[0], words, sizeof(words));
-        }
-        DkSampler sampler;
-        dkSamplerDefaults(&sampler);
-        sampler.minFilter = DkFilter_Nearest;
-        sampler.magFilter = DkFilter_Nearest;
-        sampler.mipFilter = DkMipFilter_Nearest;
-        dkSamplerDescriptorInitialize(&samplers[0], &sampler);
+        Descriptors(images, samplers, &r->image, e->processor, e->size * 4u);
     }
     CHECK_TRUE(SUITE, name, CHECK_NONE, loaded, "%s", Why(&r->gpu, "no reason given"));
     if (opened && !loaded) {
@@ -421,7 +517,7 @@ static bool Open(Run *r, const char *name) {
 static void RecordLevels(Run *r) {
     const Entry *const e = r->e;
     for (uint32_t level = 0; level < e->levels; ++level) {
-        const uint32_t side = e->size >> level;
+        const uint32_t side = LevelSide(e, level);
         uint32_t ox = 0;
         uint32_t oy = 0;
         Tex8kLevelOrigin(e->size, level, &ox, &oy);
@@ -463,8 +559,8 @@ static bool Upload(Run *r, const char *name) {
     }
     uint64_t draw_ns = 0;
     const bool level7 = e->levels > 7u;
-    const uint8_t *const pixels =
-        level7 ? FetchAll(r, 7, e->size >> 7, 1, 0, 0, &draw_ns) : FetchSpread(r, &draw_ns);
+    const Window window = level7 ? WholeWindow(7, 0, 0, 1, 1) : SpreadWindow(e);
+    const uint8_t *const pixels = Fetch(r, &window, 1, &draw_ns);
     const uint64_t work = PerfCaseWork();
     if (pixels == NULL) {
         End(name, CHECK_NONE, false, Why(gpu, "the copies, the draw or the readback did not happen"),
@@ -473,7 +569,7 @@ static bool Upload(Run *r, const char *name) {
         return false;
     }
     Judged j;
-    Judge(r, pixels, level7 ? SHOWS_LEVEL7 : SHOWS_SPREAD, &j);
+    Judge(r, pixels, &window, 1, &j);
     char times[192] = "";
     if (timing && e->processor) {
         snprintf(times, sizeof(times),
@@ -495,28 +591,13 @@ static bool Upload(Run *r, const char *name) {
     return true;
 }
 
-/// A fetch of 4096 texels across level 0, judged against the frames done so far.
+/// A fetch of 4096 texels across level 0, judged against everything written so far.
 static void Spread(Run *r, const char *name) {
     if (!ReportStart(SUITE, name)) {
         return;
     }
-    uint64_t draw_ns = 0;
-    const uint8_t *const pixels = FetchSpread(r, &draw_ns);
-    const uint64_t work = PerfCaseWork();
-    if (pixels == NULL) {
-        End(name, CHECK_NONE, false, Why(&r->gpu, "the draw or the readback did not happen"), work);
-        return;
-    }
-    Judged j;
-    Judge(r, pixels, SHOWS_SPREAD, &j);
-    char times[96] = "";
-    if (timing) {
-        snprintf(times, sizeof(times), "the draw %u us; the processor's read of the target %u us",
-                 (unsigned)Microseconds(draw_ns), (unsigned)Microseconds(g_read_ns));
-    }
-    char detail[512];
-    Describe(detail, sizeof(detail), &j, times);
-    End(name, CHECK_EXACT, j.wrong == 0u, detail, work);
+    const Window window = SpreadWindow(r->e);
+    FetchAndJudge(r, name, &window, 1, "");
 }
 
 static void SortTimes(uint64_t *values, uint32_t count) {
@@ -531,16 +612,17 @@ static void SortTimes(uint64_t *values, uint32_t count) {
     }
 }
 
-/// Sixteen frames, each writing region f of level 0 (the copy engine from a staging slot the
+/// Sixty four frames, each writing region f of level 0 (the copy engine from a staging slot the
 /// processor fills that frame, or the processor straight into the pitch linear texture) and
-/// fetching every 16th texel of it onto cell f, in one list; then the target is read back.
+/// fetching every 32nd texel of it onto cell f, in one list; then the target is read back.
 static void Frames(Run *r, const char *name) {
     const Entry *const e = r->e;
     if (!ReportStart(SUITE, name)) {
         return;
     }
     GpuContext *const gpu = &r->gpu;
-    uint64_t frame_ns[TEX8K_FRAMES];
+    static uint64_t frame_ns[TEX8K_FRAMES];
+    static Window cells[TEX8K_FRAMES];
     uint64_t processor_ns = 0;
     GpuClear(gpu, 0.0f, 0.0f, 0.0f, 0.0f);
     bool recorded = gpu->ready;
@@ -574,13 +656,8 @@ static void Frames(Run *r, const char *name) {
             dkCmdBufCopyBufferToImage(gpu->cmdbuf, &source, &view, &rect, 0);
             dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Full, DkInvalidateFlags_Image);
         }
-        const uint32_t cx = (f % (TEX8K_TARGET / TEX8K_CELL)) * TEX8K_CELL;
-        const uint32_t cy = (f / (TEX8K_TARGET / TEX8K_CELL)) * TEX8K_CELL;
-        const uint32_t step = TEX8K_REGION / TEX8K_CELL;
-        recorded = RecordFetch(r, 0, e->size, step,
-                               (int32_t)(rx + TEX8K_CELL_X) - (int32_t)(cx * step),
-                               (int32_t)(ry + TEX8K_CELL_Y) - (int32_t)(cy * step), cx, cy,
-                               TEX8K_CELL, TEX8K_CELL);
+        cells[f] = CellWindow(f);
+        recorded = RecordWindow(r, &cells[f]);
         const uint64_t before = PerfCaseWork();
         GpuSubmit(gpu);
         frame_ns[f] = PerfCaseWork() - before;
@@ -598,26 +675,28 @@ static void Frames(Run *r, const char *name) {
         return;
     }
     Judged j;
-    Judge(r, pixels, SHOWS_CELLS, &j);
-    uint64_t sorted[TEX8K_FRAMES];
+    Judge(r, pixels, cells, TEX8K_FRAMES, &j);
+    static uint64_t sorted[TEX8K_FRAMES];
     memcpy(sorted, frame_ns, sizeof(sorted));
     SortTimes(sorted, TEX8K_FRAMES);
-    const uint64_t median = (sorted[TEX8K_FRAMES / 2u - 1u] + sorted[TEX8K_FRAMES / 2u]) / 2u;
-    char times[192] = "";
+    const uint64_t median = Tex8kPercentile(sorted, TEX8K_FRAMES, 50);
+    char times[224] = "";
     if (timing) {
         snprintf(times, sizeof(times),
-                 "a frame's median %u us, the first %u us, the slowest %u us; the processor's "
-                 "writes %u us in all, its read of the target %u us",
-                 (unsigned)Microseconds(median), (unsigned)Microseconds(frame_ns[0]),
+                 "a frame's median %u us, its 99th percentile %u us, the slowest %u us, the first "
+                 "%u us; the processor's writes %u us in all, its read of the target %u us",
+                 (unsigned)Microseconds(median),
+                 (unsigned)Microseconds(Tex8kPercentile(sorted, TEX8K_FRAMES, 99)),
                  (unsigned)Microseconds(sorted[TEX8K_FRAMES - 1u]),
-                 (unsigned)Microseconds(processor_ns), (unsigned)Microseconds(g_read_ns));
+                 (unsigned)Microseconds(frame_ns[0]), (unsigned)Microseconds(processor_ns),
+                 (unsigned)Microseconds(g_read_ns));
     }
     char detail[512];
     Describe(detail, sizeof(detail), &j, times);
     End(name, CHECK_EXACT, j.wrong == 0u, detail, median);
 }
 
-/// A 256x256 region of level 0, half in frame 3's region, copied out to a buffer and held to
+/// A 256x256 region of level 0, a quarter in frame 3's region, copied out to a buffer and held to
 /// the blocks written there, byte for byte.
 static void CopyOut(Run *r, const char *name) {
     const Entry *const e = r->e;
