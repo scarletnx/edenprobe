@@ -33,8 +33,9 @@
 // frame's region where one wrote and the upload elsewhere; then a 256x256 region copied out to a
 // buffer, a quarter in a frame's region, compared byte for byte.
 //
-// Last, an 8192x4096 RGBA16F target is cleared and drawn, and the processor reads eight of its
-// texels through memory.
+// Last, RGBA16F targets the processor reads through memory: 8192x4096, 256 MiB, and 8192x8192,
+// 512 MiB, whose window across its 256 MiB mark the 2D engine copies out for the processor to
+// read.
 //
 // A host that samples no ASTC may keep an ASTC texture as BC7, which moves texels: such a texel
 // passes when it is within BC7's loss measured on the same texels (TEX8K_BC7_BOUND), and the line
@@ -905,90 +906,234 @@ static void OneTexture(const Entry *e) {
     GpuClose(&r->gpu);
 }
 
-// The large render target: an RGBA16F 8192x4096, 256 MiB, in memory the processor reads.
-#define RT_WIDTH 8192u
-#define RT_HEIGHT 4096u
+// The large render targets: RGBA16F, in memory the processor reads.
+#define RT_MAX_TEXELS 10u
 #define RT_GOBS 16u
 #define RT_TILE 4u
+#define RT_BYTES 8u
+// The 2D engine's window: 64x64 texels across the 8192x8192 target's 256 MiB mark (row 4096)
+// and the drawn rectangle's right edge (column 6144).
+#define BLIT_X 6112u
+#define BLIT_Y 4064u
+#define BLIT_SIDE 64u
 
 typedef struct {
     uint32_t x;
     uint32_t y;
-    bool drawn;
 } RtTexel;
 
-// The drawn rectangle is x 2048 to 6143, y 1024 to 3071; four texels inside, four outside, two
-// of them its neighbours across an edge and two the target's far corners.
-static const RtTexel RT_TEXELS[] = {
-    { 2048, 1024, true }, { 6143, 3071, true }, { 4000, 2000, true }, { 2048, 3071, true },
-    { 0, 0, false },      { 8191, 4095, false }, { 2047, 1024, false }, { 6144, 3071, false },
+typedef struct {
+    uint32_t width;
+    uint32_t height;
+    /// The drawn rectangle, [left, right) by [top, bottom).
+    uint32_t left;
+    uint32_t top;
+    uint32_t right;
+    uint32_t bottom;
+    const RtTexel *texels;
+    uint32_t texel_count;
+    const char *open;
+    const char *name;
+    /// The 2D engine's copy out of it, NULL for none.
+    const char *blit;
+} RtTarget;
+
+// x 2048 to 6143, y 1024 to 3071 drawn; four texels inside, four outside, two of them its
+// neighbours across an edge and two the target's far corners.
+static const RtTexel RT_HALF[] = {
+    { 2048, 1024 }, { 6143, 3071 }, { 4000, 2000 }, { 2048, 3071 },
+    { 0, 0 },       { 8191, 4095 }, { 2047, 1024 }, { 6144, 3071 },
 };
 
-static void RenderTarget(void) {
-    static const char *const OPEN = "graphics device opens with room for an 8192x4096 RGBA16F "
-                                    "target the processor reads";
-    static const char *const NAME = "an 8192x4096 RGBA16F target cleared and drawn reads right "
-                                    "through memory at eight texels";
-    if (!ReportStart(SUITE, OPEN)) {
-        ReportSkip(SUITE, NAME, REPORT_REASON_DEPENDS, "the case that opens the device did not run");
+// x and y 2048 to 6143 drawn; five texels inside and five outside, rows 4095 and 4096 on either
+// side of the 256 MiB mark in both, and the far corner, the last of its 512 MiB.
+static const RtTexel RT_WHOLE[] = {
+    { 2048, 2048 }, { 6143, 6143 }, { 4000, 4095 }, { 4000, 4096 }, { 2048, 6143 },
+    { 0, 0 },       { 8191, 8191 }, { 2047, 4096 }, { 6144, 4095 }, { 8191, 4096 },
+};
+
+static const RtTarget RT_TARGETS[] = {
+    { 8192, 4096, 2048, 1024, 6144, 3072, RT_HALF, sizeof(RT_HALF) / sizeof(RT_HALF[0]),
+      "graphics device opens with room for an 8192x4096 RGBA16F target the processor reads",
+      "an 8192x4096 RGBA16F target cleared and drawn reads right through memory at eight texels",
+      NULL },
+    { 8192, 8192, 2048, 2048, 6144, 6144, RT_WHOLE, sizeof(RT_WHOLE) / sizeof(RT_WHOLE[0]),
+      "graphics device opens with room for an 8192x8192 RGBA16F target the processor reads",
+      "an 8192x8192 RGBA16F target cleared and drawn reads right through memory at ten texels "
+      "either side of its 256 MiB mark",
+      "the 2D engine copies a 64x64 window across the 256 MiB mark of the 8192x8192 RGBA16F "
+      "target, and the processor reads it" },
+};
+
+// Clear 0.25, 0.5, 0.75, 1; drawn 1, 0.125, 2, 0.5: every value a half float holds exactly.
+static const uint16_t CLEARED[4] = { 0x3400, 0x3800, 0x3A00, 0x3C00 };
+static const uint16_t DRAWN[4] = { 0x3C00, 0x3000, 0x4000, 0x3800 };
+
+static bool RtDrawn(const RtTarget *t, uint32_t x, uint32_t y) {
+    return x >= t->left && x < t->right && y >= t->top && y < t->bottom;
+}
+
+static void RtRead(uint16_t out[4], const volatile uint8_t *texel) {
+    for (uint32_t c = 0; c < 4u; ++c) {
+        out[c] = (uint16_t)(texel[2u * c] | texel[2u * c + 1u] << 8);
+    }
+}
+
+/// The 2D engine copies BLIT_SIDE square texels of @p target from (BLIT_X, BLIT_Y) into a pitch
+/// linear image, and the processor reads every one.
+static void Blit(GpuContext *gpu, const RtTarget *t, const DkImage *target) {
+    if (!ReportStart(SUITE, t->blit)) {
         return;
     }
+    DkImage window;
+    DkImageLayout layout;
+    uint8_t *bytes = NULL;
+    const uint32_t pitch = BLIT_SIDE * RT_BYTES;
+    if (!GpuCreateImage(gpu, &window, &layout, DkImageFormat_RGBA16_Float, BLIT_SIDE, BLIT_SIDE,
+                        DkImageFlags_PitchLinear | DkImageFlags_Usage2DEngine, pitch, &bytes)) {
+        End(t->blit, CHECK_NONE, false, Why(gpu, "no room for the window"), PerfCaseWork());
+        return;
+    }
+    memset(bytes, 0, (size_t)pitch * BLIT_SIDE);
+    DkImageView source;
+    dkImageViewDefaults(&source, target);
+    DkImageView destination;
+    dkImageViewDefaults(&destination, &window);
+    const DkImageRect from = { BLIT_X, BLIT_Y, 0, BLIT_SIDE, BLIT_SIDE, 1 };
+    const DkImageRect to = { 0, 0, 0, BLIT_SIDE, BLIT_SIDE, 1 };
+    dkCmdBufClear(gpu->cmdbuf);
+    dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Full, 0);
+    dkCmdBufBlitImage(gpu->cmdbuf, &source, &from, &destination, &to,
+                      DkBlitFlag_FilterNearest | DkBlitFlag_ModeBlit, 0);
+    // The copy is done before the fence the drain waits on, whose cache flush puts it in memory.
+    dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Full, 0);
+    const uint64_t before = PerfCaseWork();
+    GpuSubmit(gpu);
+    const uint64_t blit_ns = PerfCaseWork() - before;
+    const uint64_t work = PerfCaseWork();
+    if (!gpu->ready) {
+        End(t->blit, CHECK_NONE, false, Why(gpu, "the blit did not happen"), work);
+        return;
+    }
+    const uint64_t reading = armGetSystemTick();
+    static uint16_t got[BLIT_SIDE * BLIT_SIDE][4];
+    for (uint32_t y = 0; y < BLIT_SIDE; ++y) {
+        for (uint32_t x = 0; x < BLIT_SIDE; ++x) {
+            RtRead(got[y * BLIT_SIDE + x], bytes + (size_t)y * pitch + (size_t)x * RT_BYTES);
+        }
+    }
+    const uint64_t read_ns = TickNs(reading);
+    uint32_t wrong = 0;
+    uint32_t first = 0;
+    uint32_t past = 0;
+    for (uint32_t i = 0; i < BLIT_SIDE * BLIT_SIDE; ++i) {
+        const uint32_t x = BLIT_X + i % BLIT_SIDE;
+        const uint32_t y = BLIT_Y + i / BLIT_SIDE;
+        const uint16_t *const want = RtDrawn(t, x, y) ? DRAWN : CLEARED;
+        if (memcmp(got[i], want, sizeof(got[i])) != 0) {
+            past += y >= 4096u ? 1u : 0u;
+            if (wrong++ == 0u) {
+                first = i;
+            }
+        }
+    }
+    char times[96] = "";
+    if (timing) {
+        snprintf(times, sizeof(times), "the blit %u us; the processor's reads %u us",
+                 (unsigned)Microseconds(blit_ns), (unsigned)Microseconds(read_ns));
+    }
+    char detail[512];
+    if (wrong == 0u) {
+        snprintf(detail, sizeof(detail), "%s", times);
+    } else {
+        const uint32_t x = BLIT_X + first % BLIT_SIDE;
+        const uint32_t y = BLIT_Y + first / BLIT_SIDE;
+        const uint16_t *const want = RtDrawn(t, x, y) ? DRAWN : CLEARED;
+        snprintf(detail, sizeof(detail),
+                 "%u of %u texels wrong, %u of them past the 256 MiB mark; texel %u,%u reads %04x "
+                 "%04x %04x %04x, it holds %04x %04x %04x %04x (%s)%s%s",
+                 (unsigned)wrong, (unsigned)(BLIT_SIDE * BLIT_SIDE), (unsigned)past, (unsigned)x,
+                 (unsigned)y, got[first][0], got[first][1], got[first][2], got[first][3],
+                 want[0], want[1], want[2], want[3], RtDrawn(t, x, y) ? "drawn" : "cleared",
+                 times[0] != '\0' ? "; " : "", times);
+    }
+    End(t->blit, CHECK_EXACT, wrong == 0u, detail, work);
+}
+
+static void RenderTarget(const RtTarget *t) {
+    if (!ReportStart(SUITE, t->open)) {
+        ReportSkip(SUITE, t->name, REPORT_REASON_DEPENDS,
+                   "the case that opens the device did not run");
+        if (t->blit != NULL) {
+            ReportSkip(SUITE, t->blit, REPORT_REASON_DEPENDS,
+                       "the case that opens the device did not run");
+        }
+        return;
+    }
+    const uint64_t target_bytes = (uint64_t)t->width * t->height * RT_BYTES;
     GpuSpec spec;
     GpuSpecDefaults(&spec, TEX8K_TARGET, TEX8K_TARGET);
     spec.code_size = 32u * 1024u;
     spec.data_size = 64u * 1024u;
-    spec.cpu_image_size = RT_WIDTH * RT_HEIGHT * 8u + MIB;
+    spec.cpu_image_size = (uint32_t)(target_bytes + MIB);
     GpuContext *const gpu = &g_run.gpu;
+    memset(&g_run, 0, sizeof(g_run));
     const bool opened = GpuOpenSpec(gpu, &spec);
     if (!opened && gpu->out_of_memory) {
         char why[320];
         snprintf(why, sizeof(why), "%s, asking for %u MiB: the machine refuses the size",
                  gpu->failure, (unsigned)(spec.cpu_image_size / MIB));
-        ReportSkip(SUITE, OPEN, REPORT_REASON_UNAVAILABLE, why);
-        ReportSkip(SUITE, NAME, REPORT_REASON_DEPENDS, "the device did not open");
+        ReportSkip(SUITE, t->open, REPORT_REASON_UNAVAILABLE, why);
+        ReportSkip(SUITE, t->name, REPORT_REASON_DEPENDS, "the device did not open");
+        if (t->blit != NULL) {
+            ReportSkip(SUITE, t->blit, REPORT_REASON_DEPENDS, "the device did not open");
+        }
         return;
     }
     DkShader shaders[2];
     DkImage target;
     DkImageLayout layout;
     uint8_t *bytes = NULL;
+    const uint32_t flags = DkImageFlags_UsageRender | DkImageFlags_CustomTileSize |
+                           (t->blit != NULL ? DkImageFlags_Usage2DEngine : 0u);
     bool ready = opened &&
                  GpuLoadShader(gpu, &shaders[0], ShaderData(SHADER_COMMON_VERT),
                                ShaderSize(SHADER_COMMON_VERT)) &&
                  GpuLoadShader(gpu, &shaders[1], ShaderData(SHADER_FLAT_FRAG),
                                ShaderSize(SHADER_FLAT_FRAG)) &&
-                 GpuCreateImage(gpu, &target, &layout, DkImageFormat_RGBA16_Float, RT_WIDTH,
-                                RT_HEIGHT, DkImageFlags_UsageRender | DkImageFlags_CustomTileSize,
-                                RT_TILE, &bytes);
-    if (ready && dkImageLayoutGetSize(&layout) != (uint64_t)RT_WIDTH * RT_HEIGHT * 8u) {
+                 GpuCreateImage(gpu, &target, &layout, DkImageFormat_RGBA16_Float, t->width,
+                                t->height, flags, RT_TILE, &bytes);
+    if (ready && dkImageLayoutGetSize(&layout) != target_bytes) {
         snprintf(gpu->failure, sizeof(gpu->failure),
                  "the library laid the target out in %llu bytes, the block linear rule says %llu",
                  (unsigned long long)dkImageLayoutGetSize(&layout),
-                 (unsigned long long)((uint64_t)RT_WIDTH * RT_HEIGHT * 8u));
+                 (unsigned long long)target_bytes);
         ready = false;
     }
-    CHECK_TRUE(SUITE, OPEN, CHECK_NONE, ready, "%s", Why(gpu, "no reason given"));
+    CHECK_TRUE(SUITE, t->open, CHECK_NONE, ready, "%s", Why(gpu, "no reason given"));
     if (!ready) {
-        ReportSkip(SUITE, NAME, REPORT_REASON_DEPENDS, "the device or the target did not come up");
+        ReportSkip(SUITE, t->name, REPORT_REASON_DEPENDS,
+                   "the device or the target did not come up");
+        if (t->blit != NULL) {
+            ReportSkip(SUITE, t->blit, REPORT_REASON_DEPENDS,
+                       "the device or the target did not come up");
+        }
         if (opened) {
             GpuClose(gpu);
         }
         return;
     }
-    if (!ReportStart(SUITE, NAME)) {
+    if (!ReportStart(SUITE, t->name)) {
         GpuClose(gpu);
         return;
     }
-    // Clear 0.25, 0.5, 0.75, 1; drawn 1, 0.125, 2, 0.5: every value a half float holds exactly.
-    static const uint16_t CLEARED[4] = { 0x3400, 0x3800, 0x3A00, 0x3C00 };
-    static const uint16_t DRAWN[4] = { 0x3C00, 0x3000, 0x4000, 0x3800 };
     GpuBeginPass(gpu);
-    GpuSetTarget(gpu, &target, RT_WIDTH, RT_HEIGHT);
+    GpuSetTarget(gpu, &target, t->width, t->height);
     dkCmdBufClearColorFloat(gpu->cmdbuf, 0, DkColorMask_RGBA, 0.25f, 0.5f, 0.75f, 1.0f);
-    const float left = 2048.0f / RT_WIDTH * 2.0f - 1.0f;
-    const float right = 6144.0f / RT_WIDTH * 2.0f - 1.0f;
-    const float top = 1.0f - 1024.0f / RT_HEIGHT * 2.0f;
-    const float bottom = 1.0f - 3072.0f / RT_HEIGHT * 2.0f;
+    const float left = (float)t->left / (float)t->width * 2.0f - 1.0f;
+    const float right = (float)t->right / (float)t->width * 2.0f - 1.0f;
+    const float top = 1.0f - (float)t->top / (float)t->height * 2.0f;
+    const float bottom = 1.0f - (float)t->bottom / (float)t->height * 2.0f;
     const GpuVertex quad[6] = {
         { left, bottom, 0.0f, 0.0f, 0.0f, 1.0f, 0.125f, 2.0f, 0.5f },
         { right, bottom, 0.0f, 0.0f, 0.0f, 1.0f, 0.125f, 2.0f, 0.5f },
@@ -1003,25 +1148,24 @@ static void RenderTarget(void) {
     GpuSubmit(gpu);
     const uint64_t work = PerfCaseWork();
     if (!drew || !gpu->ready) {
-        End(NAME, CHECK_NONE, false, Why(gpu, "the clear or the draw did not happen"), work);
+        End(t->name, CHECK_NONE, false, Why(gpu, "the clear or the draw did not happen"), work);
+        if (t->blit != NULL) {
+            ReportSkip(SUITE, t->blit, REPORT_REASON_DEPENDS, "the target was not drawn");
+        }
         GpuClose(gpu);
         return;
     }
     const uint64_t reading = armGetSystemTick();
-    uint16_t got[sizeof(RT_TEXELS) / sizeof(RT_TEXELS[0])][4];
-    for (size_t i = 0; i < sizeof(RT_TEXELS) / sizeof(RT_TEXELS[0]); ++i) {
-        const volatile uint8_t *const texel =
-            bytes + CohBlockLinearOffset(RT_TEXELS[i].x * 8u, RT_TEXELS[i].y, RT_WIDTH * 8u,
-                                         RT_GOBS);
-        for (uint32_t c = 0; c < 4u; ++c) {
-            got[i][c] = (uint16_t)(texel[2u * c] | texel[2u * c + 1u] << 8);
-        }
+    uint16_t got[RT_MAX_TEXELS][4];
+    for (uint32_t i = 0; i < t->texel_count; ++i) {
+        RtRead(got[i], bytes + CohBlockLinearOffset(t->texels[i].x * RT_BYTES, t->texels[i].y,
+                                                    t->width * RT_BYTES, RT_GOBS));
     }
     const uint64_t read_ns = TickNs(reading);
     uint32_t wrong = 0;
-    size_t first = 0;
-    for (size_t i = 0; i < sizeof(RT_TEXELS) / sizeof(RT_TEXELS[0]); ++i) {
-        const uint16_t *const want = RT_TEXELS[i].drawn ? DRAWN : CLEARED;
+    uint32_t first = 0;
+    for (uint32_t i = 0; i < t->texel_count; ++i) {
+        const uint16_t *const want = RtDrawn(t, t->texels[i].x, t->texels[i].y) ? DRAWN : CLEARED;
         if (memcmp(got[i], want, sizeof(got[i])) != 0 && wrong++ == 0u) {
             first = i;
         }
@@ -1035,17 +1179,20 @@ static void RenderTarget(void) {
     if (wrong == 0u) {
         snprintf(detail, sizeof(detail), "%s", times);
     } else {
-        const uint16_t *const want = RT_TEXELS[first].drawn ? DRAWN : CLEARED;
+        const bool drawn = RtDrawn(t, t->texels[first].x, t->texels[first].y);
+        const uint16_t *const want = drawn ? DRAWN : CLEARED;
         snprintf(detail, sizeof(detail),
                  "%u of %u texels wrong; texel %u,%u reads %04x %04x %04x %04x, it holds %04x "
                  "%04x %04x %04x (%s)%s%s",
-                 (unsigned)wrong, (unsigned)(sizeof(RT_TEXELS) / sizeof(RT_TEXELS[0])),
-                 (unsigned)RT_TEXELS[first].x, (unsigned)RT_TEXELS[first].y, got[first][0],
-                 got[first][1], got[first][2], got[first][3], want[0], want[1], want[2], want[3],
-                 RT_TEXELS[first].drawn ? "drawn" : "cleared", times[0] != '\0' ? "; " : "",
-                 times);
+                 (unsigned)wrong, (unsigned)t->texel_count, (unsigned)t->texels[first].x,
+                 (unsigned)t->texels[first].y, got[first][0], got[first][1], got[first][2],
+                 got[first][3], want[0], want[1], want[2], want[3], drawn ? "drawn" : "cleared",
+                 times[0] != '\0' ? "; " : "", times);
     }
-    End(NAME, CHECK_EXACT, wrong == 0u, detail, work);
+    End(t->name, CHECK_EXACT, wrong == 0u, detail, work);
+    if (t->blit != NULL) {
+        Blit(gpu, t, &target);
+    }
     GpuClose(gpu);
 }
 
@@ -1053,5 +1200,7 @@ void RunTex8k(void) {
     for (size_t i = 0; i < ENTRY_COUNT; ++i) {
         OneTexture(&ENTRIES[i]);
     }
-    RenderTarget();
+    for (size_t i = 0; i < sizeof(RT_TARGETS) / sizeof(RT_TARGETS[0]); ++i) {
+        RenderTarget(&RT_TARGETS[i]);
+    }
 }
