@@ -562,7 +562,7 @@ questions gives. See [The blit2d suite](Blit2d.md).
 
 ## tex8k
 
-Fifty two cases, on textures as large as a game's largest: 8192x8192, which the texture unit
+Fifty five cases, on textures as large as a game's largest: 8192x8192, which the texture unit
 takes (its limit is 16384), in RGBA8, BC1, BC7, ASTC 4x4 and ASTC 8x8, and one BC1 at 16384x16384.
 The question is what each costs, so the suite runs once, not ten times: the uploads are the ones a
 game makes once, and a run stays seconds long on a console. Each case times its own work on the
@@ -574,10 +574,10 @@ since an emulator can spend there what the console does not. `notime` drops the 
 parts.
 
 Every texture has a device of its own, sized for it, so a run never holds two. The copy engine
-uploads it from staging the processor filled, the first eight levels (8192 down to 64), each a
-square of level 0's staging from a corner of its own, so a fetch of the wrong level reads other
-texels; one RGBA8 texture is pitch linear instead, in memory the processor writes, with no staging
-and no copy. Then, per texture:
+uploads it from staging the processor filled, each level a square of level 0's staging from a
+corner of its own, so a fetch of the wrong level reads other texels: the first eight levels (8192
+down to 64), and the BC7 texture's whole chain, fourteen. One RGBA8 texture is pitch linear
+instead, in memory the processor writes, with no staging and no copy. Then, per texture:
 
 - a draw fetches level 7 alone, the size of the 64x64 target, a texel a pixel: an emulator that
   makes every level before it samples one pays for that here;
@@ -590,6 +590,23 @@ and no copy. Then, per texture:
   elsewhere;
 - a 256x256 region of level 0, a quarter inside a frame's region, copied out to a buffer and
   compared byte for byte, blocks for the compressed formats.
+
+Then the writes a partial update of a texture has to get right at its edges, where an emulator that
+reloads only what changed works out which texels a write reached:
+
+- in the pitch linear texture the processor writes a 48x48 square from texel 1000, 4100, whose rows
+  cross the page edge at texel 1024 (a row is 32 KiB), and a draw fetches every second texel around
+  it: the square, the edge inside it and the texels on its four sides;
+- in the BC7 texture the copy engine copies raw blocks, laid out as the texture's memory holds
+  them, over the last 4 KiB of level 3 and the first 4 KiB of level 4, and a draw fetches both
+  levels, half of each window written;
+- then 512 bytes into its mip tail, levels 8 to 13, which share one 4 KiB page: half of level 9's
+  blocks and all of level 10's, and a draw fetches the six levels whole, the four not written
+  holding the upload.
+
+The raw bytes go through the memory's pitch mapping, where a copy lands as it is; where each block
+sits is `source/bcnref.c`'s rule for the levels (deko3d's), and the case first checks the library
+laid the texture out in the size that rule gives.
 
 After the textures, a cold upload, on a pitch linear RGBA8 texture of its own: the processor
 writes all of it and a draw fetches 4096 texels, then the same right after (warm), then 32 frames
@@ -611,8 +628,8 @@ largest rounded, which part ways on some codes; a BC7 block is mode 6 with both 
 mix and texel t taking index t, so its sixteen texels differ; an ASTC block is one of astcimage's
 picture's blocks, the picture tiled and each tile turned by a shift its place and the salt choose,
 any of the three bytes the astc suite allows. The reference suite holds the BC7 and BC1 blocks to
-Pillow's decode of the same bytes, the ASTC texels to the picture's, and the regions, levels and
-samples to where they must sit. A device the machine has no memory for is a skip,
+Pillow's decode of the same bytes, the ASTC texels to the picture's, and the regions, levels,
+samples and raw copies to where they must sit. A device the machine has no memory for is a skip,
 `unavailable`, naming the sizes: the homebrew menu in applet mode has far less memory than a title,
 and may refuse the RGBA8 texture's 341 MiB with its 272 MiB of staging, or the 512 MiB target,
 where the menu started over a title takes them.
@@ -633,9 +650,10 @@ far it is. An encoder that keeps to BC7's mode 6 alone moves the edges by up to 
 there.
 
 In an emulator a failure or a time points at how it uploads a texture that large: in pieces or in
-one allocation, whole on every change or by the region that changed, a compressed format decoded or
-encoded again past BC7's loss, staging handed back and taken again, and how a render target or a 2D
-engine copy reaches memory past an allocation's cap.
+one allocation, whole on every change or by the region that changed, which blocks a write reached
+at a page or a level's edge, a compressed format decoded or encoded again past BC7's loss, staging
+handed back and taken again, and how a render target or a 2D engine copy reaches memory past an
+allocation's cap.
 
 ## What a console run settles
 
@@ -656,7 +674,8 @@ whether the machine does.
 - **Q7, tex8k.** What the console's times are: the copies of 341 MiB, a region's frame and its
   99th percentile, the first draw of a level, the cold and the warm write, the processor's fill and
   reads; an emulator's are held to them. Whether the RGBA16F texels and the 2D engine's window read
-  through memory after a full barrier and a wait.
+  through memory after a full barrier and a wait. And whether the raw copies through the pitch
+  mapping sample as the blocks they carry.
 
 The blit2d suite asks two questions of its own, which texel each origin samples when the copy
 scales and how a fraction in the scale is stepped; they are on [its page](Blit2d.md), as its Q1

@@ -197,8 +197,9 @@ void RunDma(void);
 void RunBlit2d(void);
 
 /// 8192x8192 textures in RGBA8, BC1, BC7 and ASTC: the upload, the first draw, 64 frames that each
-/// change a region, a copy out, a cold upload, and 8192x4096 and 8192x8192 RGBA16F targets the
-/// processor reads, the second through the 2D engine too, each timed once.
+/// change a region, a copy out, the writes at a partial update's edges, a cold upload, and
+/// 8192x4096 and 8192x8192 RGBA16F targets the processor reads, the second through the 2D engine
+/// too, each timed once.
 void RunTex8k(void);
 
 /// Whether the tex8k cases carry their times: off for a run with the mode word `notime`.
