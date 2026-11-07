@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<resources>
+    <color name="probe_red">#ff0000</color>
+    <dimen name="d16dp">16dp</dimen>
+    <dimen name="d7px">7px</dimen>
+    <integer name="answer">42</integer>
+    <bool name="yes">true</bool>
+    <fraction name="half">50%</fraction>
+</resources>
