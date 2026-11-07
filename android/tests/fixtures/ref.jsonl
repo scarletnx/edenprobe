@@ -1,0 +1,7 @@
+{"type":"note","text":"androidprobe 0.1.0 (fixture) starting"}
+{"type":"note","text":"mode: every case, 3 of them"}
+{"type":"case","suite":"framework","name":"case one","tier":"exact","result":"pass","detail":"","id":"framework.one","got":"1","want":"1","us":10}
+{"type":"case","suite":"bionic","name":"case two","tier":"exact","result":"pass","detail":"","id":"bionic.two","got":"Try again","want":"Try again","us":20}
+{"type":"case","suite":"gles","name":"case three","tier":"level","result":"skip","reason":"needs API 30","detail":"API 26","id":"gles.three","us":0}
+{"type":"note","text":"journal: this run took 1 launch"}
+{"type":"summary","passed":2,"failed":0,"skipped":1,"crashed":0}
