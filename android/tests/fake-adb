@@ -1,0 +1,50 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# A device for tests/test-run-adb.sh: its state in FAKE_ADB (a folder), its behaviour at each launch in FAKE_SCENARIO:
+# ok (the run ends whole), die-once (launch 1 ends the process mid-run), stall (launch 1 hangs silent), never (every
+# launch ends the process). Each call is appended to FAKE_ADB/calls.
+d=$FAKE_ADB
+pkg=dev.dravee.androidprobe
+run=/storage/emulated/0/Android/data/$pkg/files/runs/fixture
+echo "$*" >> "$d/calls"
+[ "$1" = -s ] && shift 2
+cmd=$1
+shift
+logline() { echo "11-07 17:00:00.000  4242  4243 I androidprobe: $1" >> "$d/logcat"; }
+case $cmd in
+get-state) echo device ;;
+install) touch "$d/installed"; echo Success ;;
+uninstall) rm -f "$d/installed"; echo Success ;;
+logcat) touch "$d/logcat"; exec tail -n +1 -f "$d/logcat" ;;
+pull) cp "$d/device$1" "$2" ;;
+exec-out) exit 1 ;;
+shell)
+    case "$*" in
+    "pm list packages $pkg") [ -f "$d/installed" ] && echo "package:$pkg" ;;
+    getprop*) echo fake ;;
+    "dumpsys meminfo $pkg") echo "meminfo of $pkg" ;;
+    "pidof $pkg") [ -f "$d/running" ] && echo 4242 ;;
+    "dumpsys activity exit-info $pkg") echo "exit-info of $pkg" ;;
+    "am force-stop $pkg") rm -f "$d/running" ;;
+    "am start -W -n $pkg/.ProbeActivity")
+        n=$(($(cat "$d/launches" 2> /dev/null || echo 0) + 1))
+        echo $n > "$d/launches"
+        mkdir -p "$d/device$run"
+        logline "run folder: $run"
+        if [ "$FAKE_SCENARIO" = never ] || { [ "$FAKE_SCENARIO" = die-once ] && [ $n = 1 ]; }; then
+            head -n 3 "$FAKE_REPORT" > "$d/device$run/report.jsonl"
+            logline "$(sed -n 3p "$FAKE_REPORT")"
+        elif [ "$FAKE_SCENARIO" = stall ] && [ $n = 1 ]; then
+            touch "$d/running"
+        else
+            cp "$FAKE_REPORT" "$d/device$run/report.jsonl"
+            printf 'launch\n' > "$d/device$run/journal"
+            touch "$d/running"
+            logline "done: $run/report.jsonl"
+        fi
+        echo "Status: ok"
+        ;;
+    esac
+    ;;
+esac
+exit 0

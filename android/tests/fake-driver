@@ -1,0 +1,28 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# A scarletnx-android for tests/test-run-scarletnx.sh: FAKE_SCENARIO picks what each launch does (ok, die-once,
+# stall); FAKE_STATE (a folder) keeps the launch count and what the launch saw (its arguments and environment).
+pkg=dev.dravee.androidprobe
+n=$(($(cat "$FAKE_STATE/launches" 2> /dev/null || echo 0) + 1))
+echo $n > "$FAKE_STATE/launches"
+{
+    echo "args $*"
+    echo "DISPLAY=${DISPLAY-unset} WAYLAND_DISPLAY=${WAYLAND_DISPLAY-unset}"
+    echo "XDG_DATA_HOME=$XDG_DATA_HOME"
+} > "$FAKE_STATE/seen-$n"
+run=$XDG_DATA_HOME/scarletnx/android/data/$pkg/external/files/runs/fixture
+mkdir -p "$run"
+echo "I/androidprobe: run folder: $run" >&2
+if [ "$FAKE_SCENARIO" = die-once ] && [ $n = 1 ]; then
+    head -n 3 "$FAKE_REPORT" > "$run/report.jsonl"
+    echo "E/AndroidRuntime: FATAL EXCEPTION: main" >&2
+    exit 1
+fi
+if [ "$FAKE_SCENARIO" = stall ] && [ $n = 1 ]; then
+    sleep 60
+    exit 0
+fi
+cp "$FAKE_REPORT" "$run/report.jsonl"
+printf 'launch\n' > "$run/journal"
+echo "I/androidprobe: done: $run/report.jsonl" >&2
+exit 0
