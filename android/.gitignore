@@ -1,0 +1,5 @@
+# Builds go outside the tree (tools/build.sh OUT); these are what a build run here by hand leaves
+/build/
+/.gradle/
+/.cxx/
+/local.properties

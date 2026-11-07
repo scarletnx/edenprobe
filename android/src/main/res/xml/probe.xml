@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<root xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/probe_xml_root" a="1" b="@string/app_name">
+    <item c="true">text</item>
+</root>

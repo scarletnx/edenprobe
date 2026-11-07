@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<resources>
+    <string name="app_name">androidprobe</string>
+    <string name="greeting">Hello %1$s, %2$d cases</string>
+    <string name="escaped">tab\tquote\" apos\' at@ end</string>
+    <plurals name="cases">
+        <item quantity="one">%d case</item>
+        <item quantity="other">%d cases</item>
+    </plurals>
+    <string-array name="words">
+        <item>alpha</item>
+        <item>beta</item>
+    </string-array>
+    <integer-array name="numbers">
+        <item>3</item>
+        <item>-1</item>
+    </integer-array>
+</resources>
