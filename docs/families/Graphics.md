@@ -9,7 +9,10 @@
 * [blend](#blend)
 * [depth](#depth)
 * [fixed](#fixed)
+* [stencil](#stencil)
 * [texture](#texture)
+* [lod](#lod)
+* [coverage](#coverage)
 * [coherence](#coherence)
 * [fmath](#fmath)
 * [order](#order)
@@ -37,7 +40,7 @@
 * [What a console run settles](#what-a-console-run-settles)
 * [Where reden falls short](#where-reden-falls-short)
 
-The thirty one drawing suites, clear to blit2d, in the order they run, and tex8k after them.
+The thirty four drawing suites, clear to blit2d, in the order they run, and tex8k after them.
 
 ## clear
 
@@ -226,6 +229,36 @@ alpha test (`shader_recompiler`'s alpha test emulation, `vk_pipeline_cache.cpp`)
 swizzle and the window origin (`vk_rasterizer.cpp`, `GetViewportState`; `FrontFace` in
 `maxwell_to_vk.cpp`), and the depth mode (`depth_mode`, VK_EXT_depth_clip_control or the shader's
 z fix-up).
+## stencil
+
+Fifty six cases, on the two depth formats that carry stencil, Z24S8 and ZF32_X24S8 (a 32-bit float
+depth with stencil). The 32 by 32 target is three bands of rows, each cleared to a stencil and a
+depth of its own, so one draw meets three situations at once. A stored stencil is never read as
+bytes, since how a Z24S8 word splits is the zeta suite's open question: a band is checked by a
+draw with the test at EQUAL against the value the band should hold, which marks its pixels, so
+the compare cases come first and everything after leans on them. Per format: the eight compares
+against 0x80 over bands holding 0x40, 0x80 and 0xc0, below, equal and above, which gives each
+compare its own pattern (the reference suite checks the eight differ); eight op cases, GREATER
+against 0x80 over 0xa5 (the test fails), 0x5a nearer than the draw (the depth test fails) and 0x5a
+(both pass), each op once as the fail op, once as the depth fail op and once as the pass op, at
+values where every op leaves its own byte; INCR against INCR_WRAP at 0xff and DECR against
+DECR_WRAP at nought; the write mask (0x0f inverted under 0xf0 is 0xff) and the compare mask (0x3a
+equals 0x5a under 0x1f, and not without it); and the two faces, two quads wound opposite ways
+with front and back references 0x11 and 0x22, where the case asks only that each takes one face's
+whole state, since which winding is front follows the window origin the library sets up, and a
+note says which one was. Exact: every expected value is a byte `source/stencilref.c` works out by
+the specification's rules.
+
+The last six per format are about where the tests run. A fragment shader that writes its own depth
+(`depth_out.frag.glsl`, from the vertex colour's alpha) is tested at that depth and not the
+vertices': a half drawn at 0.25 that writes 0.75 is rejected under LESS against 0.5, and its
+stencil takes the depth fail op. And a shader that writes depth runs for every fragment, the ones
+the depth or the stencil test then rejects included, while one with early fragment tests runs only
+for those that pass (ARB_shader_image_load_store, "Early Fragment Tests"): `count_late.frag.glsl`
+and `count_early.frag.glsl` add one to a storage buffer word per invocation over 1024 pixels with
+half of them rejected, so the count is 1024 or 512. This is the behaviour an emulator has to keep
+when it moves the depth and stencil tests into a shader of its own, as one that emulates ordered
+blending does.
 
 ## texture
 
@@ -236,6 +269,74 @@ one half and every pair of texels averages to a whole byte. Exact, earned by the
 centre comes within a thirty second of a texel boundary (the reference suite measures it), and no
 two texels the linear case blends differ by more than 48, so the filter's weight would have to be
 wrong by one part in 96 before any byte moved.
+
+## lod
+
+Fourteen cases. The level of detail a lookup picks and the texel it then reads, on an R32_Float
+texture of 16 by 8 with its five levels whose every texel is a whole number naming its level and
+place (`source/lodref.c`), one lookup per pixel of a 16 by 1 target at (13/32, 13/32), a
+coordinate at least 3/16 of a texel from any boundary on any level. textureGrad with gradients of
+one, two, four and eight texels along x, along y (where a gradient scaled by the width instead of
+the height lands a level up, which the texture's shape is for) and in the second derivative, and
+with two derivatives of different lengths, where the longer decides; textureGradOffset and
+textureLodOffset, whose offset counts in the texels of the level picked, not of level nought;
+textureLod at levels nought to four; and the sampler's minimum (2), maximum (1) and bias (1).
+Every lambda is a whole number however a machine measures a gradient's length, half a level
+from where nearest mip filtering changes its mind, so these are exact. The last case blends:
+a minimum of 1.25 with linear mip filtering gives a quarter of level 2's texel and three quarters
+of level 1's, 1264.5, a float exactly; the units in the last place tier at a budget of nought.
+The clamp a lookup carries itself (textureClampARB, which a translator meets as the instruction's
+own minimum) is out of reach: the shader compiler refuses ARB_sparse_texture_clamp.
+
+## coverage
+
+Twenty three cases. Multisample coverage, read through coverage to color
+(NV_fragment_coverage_to_color): the fragment's coverage, bit i for sample i, takes the place of
+the red component the shader wrote to an integer target, after the sample mask, alpha to coverage
+and the depth and stencil tests. With more raster samples than colour samples
+(NV_framebuffer_mixed_samples), a one sample R32_Uint target receives every raster sample's bit,
+so the word a pixel holds says which of its samples a draw covered, with no multisample image to
+read. The shader writes 0xdead0000 and the clear is 0xbad, so a pixel holding the first drew
+without its coverage and one holding the second drew nothing.
+
+Every draw that cuts pixels is a rectangle from the left edge to a pixel's centre or a quarter
+into it, and the sample positions are whole sixteenths, so which samples it covers is exact
+(`source/coverageref.c`, whose reference cases keep every split a sixteenth or more from its
+edge). Eight cases: four raster samples write 0xf, and 0x5 at a pixel the standard positions
+split at its centre; two write 0x3 and 0x2; eight 0xff and 0x3a; the sample mask 0x6 is in the
+mask written; positions the list sets (samples 0 and 1 two sixteenths in from the left, 2 and 3
+from the right) split the same pixel as 0x3; every sample at the centre, the library's default,
+leaves a pixel cut a quarter in unwritten, where the standard positions would give 0x4; and the
+2 by 2 grid four samples' positions can vary over, with the mirrored pattern in the odd columns
+(0xc where the even give 0x3) and the same in both rows, so which row the grid starts on decides
+nothing. An emulator that rasterises at the host's own positions and ignores the list's passes
+the first and fails the positions it sets.
+
+Then alpha to coverage, through a second target: at alpha nought no sample is covered, at one
+every sample, and the sample mask still applies. Those are all the specification fixes; the masks
+in between are the machine's, so the suite leaves fourteen notes, alpha one eighth to seven eighths
+with the dither off and on, each with the masks the 256 pixels held. Alpha to one, which the
+library has no call for and goes in as the raw MULTISAMPLE_CONTROL word, must leave the coverage
+the shader's alpha of one half gave, pixel by pixel, and write an alpha of 0xff; a machine where one
+half covers no sample or every sample cannot show the order, and the case says so.
+
+Coverage modulation, four raster samples over two RGBA8 targets: four bands of rows under the
+sample masks 0x1, 0x3, 0x7 and 0xf scale the colour by a quarter to all of it, every channel of
+the two colours a whole byte at each share, with room under a factor kept as an eight bit fraction
+(the reference suite checks it). RGBA scales every channel, RGB leaves alpha, ALPHA leaves the
+colour, the second target is scaled too and keeps its own write mask, the table (entries 3, 7, 11
+and 15 set to one, a quarter, a half and three quarters) takes the share's place, and a pixel the
+standard positions split at its centre gets half the colour.
+
+Then the depth samples outnumbering the colour ones: a four sample depth image under the one sample
+target, samples 0 and 2 drawn nearer first, so the coverage to color draw behind them must leave
+0xa, the raster coverage after the depth test, in every pixel.
+
+The last two need a four sample image: each sample of an R32_Uint one written s + 1 by a draw under
+the sample mask 1 << s and fetched back sample by sample, its left four columns into a 16 by 16
+target, which the last case leans on; then coverage to color on that image after a depth test, samples 0 and 2 drawn nearer
+first, so samples 1 and 3 pass and each must hold 0xa, the coverage left after the test, where 0xf
+would be the coverage before it.
 
 ## coherence
 

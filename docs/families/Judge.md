@@ -40,7 +40,7 @@ family reports can be believed without them.
   its cases skipped as asked, the next step run, and a name no case came up for said; and the same
   run with a runner's `timeout` after the first launch: the case skipped as timeout with the
   runner's two numbers, off the crash list, and started again by the next run.
-- **reference**, three hundred and ninety two cases, no hardware involved either: the other half
+- **reference**, four hundred and sixteen cases, no hardware involved either: the other half
   of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -74,8 +74,8 @@ family reports can be believed without them.
     the two roundings, the saturating shifts, the conversions with 64 fraction bits, the SM4
     inputs from the standard's key and constants, and the rounding shifts, doubling multiplies and
     rounding narrows of the NEON gap cases, from the Arm ARM's pseudocode;
-  - nine on the raw 3D method words the index, instance, drawtex, query and fixed suites send,
-    against words worked out by hand from deko3d's command header layout;
+  - ten on the raw 3D method words the index, instance, drawtex, query, fixed and coverage suites
+    send, against words worked out by hand from deko3d's command header layout;
   - eight on the fixed suite's rules, `source/fixedref.c`, on a 64 by 64 target: the squares its
     four points cover and that no pixel centre sits on their edges, where a rectangle lands
     through each viewport it sets, the face a counter clockwise triangle shows under each of them
@@ -145,4 +145,17 @@ family reports can be believed without them.
     from the block their tile shifts in, BC7's bound in each region against the texel it was
     measured at, where its regions, levels, samples, copy-out and the processor's square sit, the
     blocks its raw copies cover across levels 3 and 4 and in the mip tail, and its percentile and
-    distance (see [the graphics family](Graphics.md#tex8k)).
+    distance (see [the graphics family](Graphics.md#tex8k));
+  - twelve on the coverage suite's answers, `source/coverageref.c`: deko3d's standard sample
+    positions read back to sixteenths, the mask a rectangle to a pixel's centre or a quarter into
+    it covers at two, four and eight samples and with every sample at the centre, the suite's own
+    two patterns and its 2 by 2 grid, each split at least a sixteenth from its edge, the modulation
+    table entries a quarter to all read, and every modulated channel a whole byte under a factor
+    kept to eight bits (see [the graphics family](Graphics.md#coverage));
+  - five on the stencil suite's rules, `source/stencilref.c`: the eight compares against the three
+    bands in eight different ways, every op at the two values the op cases hold, the ends of the
+    range, and the two masks (see [the graphics family](Graphics.md#stencil));
+  - six on the lod suite's rules, `source/lodref.c`: whole lambdas from its gradients, one along y
+    scaled by the width landing a level up, nearest mip filtering's edges, its coordinate's margin
+    on every level, an offset counted in a level's own texels against one in level nought's, and
+    its blended value exact in a float (see [the graphics family](Graphics.md#lod)).

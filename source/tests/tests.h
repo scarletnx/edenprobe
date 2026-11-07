@@ -117,9 +117,20 @@ void RunDepth(void);
 /// to one.
 void RunFixed(void);
 
+/// The stencil test and its operations on Z24S8 and ZF32_X24S8, both masks and both faces, a
+/// depth the fragment shader writes, and how many fragments a shader runs for when the tests
+/// come after it and when they come before.
+void RunStencil(void);
 /// Texture sampling: the texel a coordinate names, the wrap modes, and a filter weight of
 /// exactly one half.
 void RunTexture(void);
+/// The level of detail: explicit gradients and levels, the sampler's minimum, maximum and bias,
+/// and offsets counted in the picked level's texels.
+void RunLod(void);
+/// Multisample coverage through coverage to color: raster samples over a one sample target, the
+/// sample positions, the sample mask, alpha to coverage and alpha to one, coverage modulation,
+/// and the coverage left after a depth test on a four sample target.
+void RunCoverage(void);
 
 /// The caches between draws, submits and copies: a texture rendered, rewritten by the processor
 /// or by the copy engine and sampled again, a uniform buffer rewritten, two formats over one
@@ -342,6 +353,14 @@ void RunReferenceService(void);
 /// part of the reference suite.
 void RunReferenceGame(void);
 
+/// The coverage suite's sample patterns, edges, modulation table entries and modulated bytes,
+/// against answers worked out by hand: part of the reference suite.
+void RunReferenceCoverage(void);
+/// The stencil suite's compares, ops, boundaries and masks: part of the reference suite.
+void RunReferenceStencil(void);
+/// The lod suite's lambdas, coordinate margins, offsets and blended value: part of the reference
+/// suite.
+void RunReferenceLod(void);
 /// The tex8k suite's judge: its BC7 and BC1 blocks against Pillow's decode, its ASTC texels
 /// against the picture's, and where its regions, levels and samples sit.
 void RunReferenceTex8k(void);

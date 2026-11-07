@@ -55,6 +55,14 @@ static const ShaderBlob BLOBS[SHADER_COUNT] = {
     [SHADER_FETCH_STEP_FRAG] = { fetch_step_frag_dksh, (uint32_t)fetch_step_frag_dksh_size },
     [SHADER_FETCH_LOD_FRAG] = { fetch_lod_frag_dksh, (uint32_t)fetch_lod_frag_dksh_size },
     [SHADER_POINT_COORD_FRAG] = { point_coord_frag_dksh, (uint32_t)point_coord_frag_dksh_size },
+    [SHADER_DEPTH_OUT_FRAG] = { depth_out_frag_dksh, (uint32_t)depth_out_frag_dksh_size },
+    [SHADER_COUNT_LATE_FRAG] = { count_late_frag_dksh, (uint32_t)count_late_frag_dksh_size },
+    [SHADER_COUNT_EARLY_FRAG] = { count_early_frag_dksh, (uint32_t)count_early_frag_dksh_size },
+    [SHADER_LOD_FRAG] = { lod_frag_dksh, (uint32_t)lod_frag_dksh_size },
+    [SHADER_COVMASK_FRAG] = { covmask_frag_dksh, (uint32_t)covmask_frag_dksh_size },
+    [SHADER_COVALPHA_FRAG] = { covalpha_frag_dksh, (uint32_t)covalpha_frag_dksh_size },
+    [SHADER_MODULATE_FRAG] = { modulate_frag_dksh, (uint32_t)modulate_frag_dksh_size },
+    [SHADER_MSFETCH_FRAG] = { msfetch_frag_dksh, (uint32_t)msfetch_frag_dksh_size },
 };
 
 const void *ShaderData(ShaderId id) {

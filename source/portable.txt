@@ -50,6 +50,9 @@ source/serviceref.c
 source/gameref.c
 source/tex8kref.c
 source/fixedref.c
+source/coverageref.c
+source/stencilref.c
+source/lodref.c
 source/tests/t_selfcheck.c
 source/tests/t_support.c
 source/tests/t_screens.c
@@ -78,4 +81,7 @@ source/tests/t_baseline.c
 source/tests/t_gameref.c
 source/tests/t_tex8kref.c
 source/tests/t_fixedref.c
+source/tests/t_coverageref.c
+source/tests/t_stencilref.c
+source/tests/t_lodref.c
 source/tests/t_libc.c

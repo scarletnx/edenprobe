@@ -2380,4 +2380,7 @@ void RunReference(void) {
     RunReferenceGame();
     RunReferenceTex8k();
     RunReferenceFixed();
+    RunReferenceCoverage();
+    RunReferenceStencil();
+    RunReferenceLod();
 }

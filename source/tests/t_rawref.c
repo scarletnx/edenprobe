@@ -74,6 +74,14 @@ void RunReferenceRaw(void) {
                    first < 13 ? (unsigned)draw[first] : 0u,
                    first < 13 ? (unsigned)want[first] : 0u);
     }
+    // 0x54F | 0x11 << 16 | 4 << 29: alpha to coverage and alpha to one, inline.
+    {
+        const uint32_t word =
+            RawInlineHeader(RAW_SUBCHANNEL_3D, RAW_3D_MULTISAMPLE_CONTROL,
+                            RAW_MULTISAMPLE_ALPHA_TO_COVERAGE | RAW_MULTISAMPLE_ALPHA_TO_ONE);
+        CHECK_TRUE(SUITE, "alpha to coverage with alpha to one is the inline word 0x8011054f",
+                   CHECK_NONE, word == 0x8011054Fu, "got 0x%08x", (unsigned)word);
+    }
     // 0x554 | 3 << 16 | 1 << 29, then the address high word first and the mode.
     uint32_t enable[4] = { 0, 0, 0, 0 };
     RawRenderEnable(enable, 0x12345678ABull, RAW_RENDER_IF_EQUAL);
