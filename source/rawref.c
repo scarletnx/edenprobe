@@ -3,6 +3,8 @@
 
 #include "rawref.h"
 
+#include <string.h>
+
 // Submission modes, deko3d source/maxwell/command.h.
 #define RAW_MODE_INCREASING 1u
 #define RAW_MODE_INLINE 4u
@@ -26,6 +28,12 @@ size_t RawIndexLimit(uint32_t out[3], uint64_t limit) {
     out[1] = (uint32_t)(limit >> 32);
     out[2] = (uint32_t)limit;
     return 3;
+}
+
+size_t RawViewportScaleY(uint32_t out[2], float scale) {
+    out[0] = RawIncreasingHeader(RAW_SUBCHANNEL_3D, RAW_3D_VIEWPORT_SCALE_Y, 1);
+    memcpy(&out[1], &scale, sizeof(scale));
+    return 2;
 }
 
 size_t RawDrawTexture(uint32_t out[13], uint32_t texture, uint32_t sampler, uint32_t dst_x,

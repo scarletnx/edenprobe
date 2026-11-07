@@ -8,6 +8,7 @@
 * [intmath](#intmath)
 * [blend](#blend)
 * [depth](#depth)
+* [fixed](#fixed)
 * [texture](#texture)
 * [coherence](#coherence)
 * [fmath](#fmath)
@@ -36,7 +37,7 @@
 * [What a console run settles](#what-a-console-run-settles)
 * [Where reden falls short](#where-reden-falls-short)
 
-The thirty drawing suites, clear to blit2d, in the order they run, and tex8k after them.
+The thirty one drawing suites, clear to blit2d, in the order they run, and tex8k after them.
 
 ## clear
 
@@ -162,6 +163,69 @@ twenty four answers out on the processor and checks that the eight really differ
 buffer read back as a float, bit for bit. Exact: the depths are 0.25, 0.5 and 0.75, which survive
 the transform into depth space untouched, so a fragment at the buffer's own depth really is an
 equality. Three cases are about the write rather than the test, the half a colour cannot show.
+
+## fixed
+
+Thirty one cases and three notes. The fixed function state a game's driver sets and Vulkan lacks
+or keeps elsewhere, so an emulator carries it over itself. Every case draws flat colours over whole
+pixels of a 64 by 64 RGBA8 target and reads all 4096 back: exact. The rules past a comparison are
+`source/fixedref.c`'s, pinned by the reference suite. In the order they run:
+
+- **The point size.** Four points in one list, the size set between draws (`dkCmdBufSetPointSize`,
+  the 3D class's PointSpriteSize, with the vertex program's own size off): 1 and 3 on a pixel
+  centre, 4 and 8 on a pixel corner, so no pixel centre sits on a square's edge. A case each,
+  judged over its quarter of the target: the size by size pixels around the centre and nothing
+  else. A host that takes a point's size only from the shader has to write the register's into it.
+- **The alpha test.** Three columns of alpha 0.5 under one compare operation, the reference set
+  between draws to 0.25, 0.5 and 0.75: eight cases, one per operation, the three references giving
+  each operation a pattern of its own (the reference suite checks the eight differ). The fragment's
+  alpha is on the left, as OpenGL's compatibility profile and NVN have it. Red, green and blue are
+  written and alpha masked off, so how a half rounds into eight bits decides nothing. Vulkan has no
+  alpha test: an emulator compiles it into the fragment shader.
+- **The depth bounds.** A ZF32 buffer cleared to 0.5 and a quad over it at 0.25, the depth test on
+  with ALWAYS and no write: the bounds test reads the value in the buffer, never the fragment's,
+  with both ends included (EXT_depth_bounds_test). Bounds 0.125 to 0.375 reject though the fragment
+  is inside them; 0.375 to 0.625 keep; 0.5 to 0.75 and 0.25 to 0.5 keep at either end; 0.625 to
+  0.875 reject; and the test switched off keeps. Six cases.
+- **The rasteriser off.** A quad over the target with RasterizerEnable off writes nothing.
+- **Faces and the viewport.** Two rectangles, one counter clockwise and one clockwise in clip
+  space, back faces culled: the counter clockwise one is front (deko3d's upper left device flips
+  the viewport's y scale and not the winding, and keeps OpenGL's counter clockwise front), and with
+  the front face clockwise the other one is. Then the viewport's y scale written positive by a raw
+  method (`RawViewportScaleY`), the swizzle NegativeY (`dkCmdBufSetViewportSwizzles`), and both:
+  each of the first two mirrors the picture and with it the winding, so the counter clockwise
+  rectangle is culled and the clockwise one drawn where the mirror puts it; together they cancel.
+  The rasteriser decides the face from the triangle as it lands in the target, which is Vulkan's
+  rule for a negative viewport height too; an emulator that tracks the face through the scale's
+  sign and the swizzle apart gets one of them inside out. Last, the swizzle that swaps x and y,
+  with no culling, transposes the picture. Six cases.
+- **A device with the lower left origin** (`DkDeviceFlags_OriginLowerLeft`): the viewport's y scale
+  stays positive, so clip space y of one is the target's last row, and the window origin's FlipY
+  bit flips the winding back, so the counter clockwise rectangle is still front. Two cases.
+- **A device with depth from minus one to one** (`DkDeviceFlags_DepthMinusOneToOne`): four columns
+  at clip z -1, -0.5, 0 and 0.5 over a buffer of 1, depth test ALWAYS with the write on, store 0,
+  0.25, 0.5 and 0.75, bit for bit. The library sets the 3D class's depth mode, which moves the clip
+  volume to minus one, and a z scale and offset of a half: an emulator that only rescales z, and
+  clips where Vulkan clips, loses the first two columns.
+
+The notes, which no machine is held to, since a console run is what says which answer is right:
+
+- **Which way up a point's coordinate runs.** deko3d sets PointCoordReplace's origin to lower
+  left. A point of size 8 drawn with a shader that writes `gl_PointCoord` reads 16 at its first row
+  when the origin is at the top of the target's memory and 239 when it is at the bottom; the note
+  gives both corners.
+- **A depth outside the range, with the clamp off and on.** A quad at z -0.5 and one at 1.5 on the
+  default device, over a buffer of 0.75: drawn at depth 0 or 1 is clamped, the clear and 0.75 is
+  clipped. deko3d's ViewVolumeClipControl words for the clamp off and on are not documented, so the
+  library's word alone does not settle it.
+
+In an emulator a failure points at the 3D engine's registers the state comes from and the way it
+reaches the host: the point size (`maxwell_3d.h`, `point_size`; `vk_graphics_pipeline.cpp`), the
+alpha test (`shader_recompiler`'s alpha test emulation, `vk_pipeline_cache.cpp`), the depth bounds
+(`vk_rasterizer.cpp`, `UpdateDepthBounds`), the rasteriser enable, the viewport transform's scale,
+swizzle and the window origin (`vk_rasterizer.cpp`, `GetViewportState`; `FrontFace` in
+`maxwell_to_vk.cpp`), and the depth mode (`depth_mode`, VK_EXT_depth_clip_control or the shader's
+z fix-up).
 
 ## texture
 
@@ -676,6 +740,11 @@ whether the machine does.
   reads; an emulator's are held to them. Whether the RGBA16F texels and the 2D engine's window read
   through memory after a full barrier and a wait. And whether the raw copies through the pitch
   mapping sample as the blocks they carry.
+- **Q8, fixed.** Does a point's `gl_PointCoord` read 16 or 239 at its first row in memory, under the
+  PointCoordReplace origin deko3d writes (lower left)?
+- **Q9, fixed.** With the clamp off, is a quad at z -0.5 or 1.5 clipped, and with the clamp on is it
+  drawn at depth 0 and 1? And do the face cases hold: is the face decided after the viewport's scale
+  and swizzle, as the cases expect?
 
 The blit2d suite asks two questions of its own, which texel each origin samples when the copy
 scales and how a fraction in the scale is stepped; they are on [its page](Blit2d.md), as its Q1
@@ -708,6 +777,10 @@ Read in reden at 75c12299a6; each gap is a case here that fails, and the new cas
   `shader_recompiler/ir_opt/collect_shader_info_pass.cpp:69-71` throws on a non-generic patch, and
   `quad.tese` reads `gl_TessLevelOuter[0]` (`TessellationLodLeft`, `frontend/ir/patch.h:11`);
   `quad_color.tese`, which does not, separates this from the tessellation stages.
+- **Viewport swizzles other than NegativeY are dropped on a host without VK_NV_viewport_swizzle.**
+  `renderer_vulkan/vk_rasterizer.cpp:82-83` (read at 44395ac49c) emulates NegativeY alone, by
+  negating the viewport's height, and passes no other swizzle on: the fixed suite's swap of x and
+  y comes out untransposed on RADV.
 - **The 2D engine's scaled copy stays in the texture cache.** `engines/fermi_2d.cpp:84-88` and
   `:112-115` send any copy with a scale to `AccelerateSurfaceCopy`, which draws it into the cache's
   image of the destination, and nothing writes that image back to memory before the processor

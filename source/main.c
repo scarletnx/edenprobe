@@ -94,6 +94,8 @@ static const Step STEPS[] = {
     { "intmath", RunIntmath, MODE_FAMILY_GRAPHICS, true, true },
     { "blend", RunBlend, MODE_FAMILY_GRAPHICS, true, true },
     { "depth", RunDepth, MODE_FAMILY_GRAPHICS, true, true },
+    // After depth, whose test the depth bounds and the depth mode cases lean on.
+    { "fixed", RunFixed, MODE_FAMILY_GRAPHICS, true, true },
     { "texture", RunTexture, MODE_FAMILY_GRAPHICS, true, true },
     { "coherence", RunCoherence, MODE_FAMILY_GRAPHICS, true, true },
     { "fmath", RunFmath, MODE_FAMILY_GRAPHICS, true, true },

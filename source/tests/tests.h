@@ -98,6 +98,12 @@ void RunBlend(void);
 /// The depth test, the depth write and the depth buffer's own contents.
 void RunDepth(void);
 
+/// The fixed function state Vulkan lacks or keeps elsewhere: the point size, the alpha test, the
+/// depth bounds, the rasteriser switched off, the viewport's sign and swizzle and the face they
+/// leave a triangle, and devices made with the lower left origin and with depth from minus one
+/// to one.
+void RunFixed(void);
+
 /// Texture sampling: the texel a coordinate names, the wrap modes, and a filter weight of
 /// exactly one half.
 void RunTexture(void);
@@ -315,6 +321,10 @@ void RunReferenceGame(void);
 /// The tex8k suite's judge: its BC7 and BC1 blocks against Pillow's decode, its ASTC texels
 /// against the picture's, and where its regions, levels and samples sit.
 void RunReferenceTex8k(void);
+
+/// The fixed suite's compares, bounds, window depths, point squares, projected rectangles and
+/// faces, against answers worked out by hand: part of the reference suite.
+void RunReferenceFixed(void);
 
 #ifdef __cplusplus
 }

@@ -38,6 +38,15 @@ void RunReferenceRaw(void) {
     CHECK_TRUE(SUITE, "six triangle list vertices from vertex 6 are the word 0x40060006",
                CHECK_NONE, RawInstanceArrayWord(4, 6, 6) == 0x40060006u, "got 0x%08x",
                (unsigned)RawInstanceArrayWord(4, 6, 6));
+    // 0x281 | 1 << 16 | 1 << 29, then 32.0 as its bits, 0x42000000.
+    {
+        uint32_t scale[2] = { 0, 0 };
+        const size_t count = RawViewportScaleY(scale, 32.0f);
+        CHECK_TRUE(SUITE, "viewport 0's y scale of 32 is the words 0x20010281 0x42000000",
+                   CHECK_NONE, count == 2 && scale[0] == 0x20010281u && scale[1] == 0x42000000u,
+                   "got %u words, 0x%08x 0x%08x", (unsigned)count, (unsigned)scale[0],
+                   (unsigned)scale[1]);
+    }
     uint32_t words[3] = { 0, 0, 0 };
     RawIndexLimit(words, 0x12345678ABull);
     CHECK_TRUE(SUITE, "an index limit goes high word first", CHECK_NONE,

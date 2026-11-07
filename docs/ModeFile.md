@@ -16,7 +16,7 @@
 | `nojournal` | no journal between cases, so a crash costs the rest of the run; for measuring what the journal costs |
 | `noprogress` | no running screen while the suites run; for a machine whose window misbehaves while the suites draw |
 | `cpu` | the processor family. It runs in every mode, so naming it alone leaves the graphics, fs and net families out: a few seconds, nothing drawn |
-| `graphics` | the graphics family: the thirty drawing suites, clear to blit2d, and tex8k; selfcheck, support, reference and cpu always run, whatever family is named |
+| `graphics` | the graphics family: the thirty one drawing suites, clear to blit2d, and tex8k; selfcheck, support, reference and cpu always run, whatever family is named |
 | `fs` | the fs family: reads from the memory card, timed and checked; it writes a 64 MiB file and 256 small ones under `sdmc:/edenprobe/fs` the first time |
 | `audio` | the audio family: the renderer's resampler, circular buffer sink and limiter, recorded through its own effect and sink; only when named, since it makes sound (most at a gain of nought) |
 | `listen` | the listening sequence before the audio family's cases, and the audio family with it: about 40 seconds of sound meant to be heard; see [The audio family](families/Audio.md) |
