@@ -11,25 +11,18 @@
 #include <string.h>
 #include <unistd.h>
 
-#ifdef __SWITCH__
-#include <switch.h>
-#endif
-
 #include "baseline.h"
 #include "hang.h"
 #include "maycrash.h"
+#include "platform.h"
 #include "report.h"
 
-// The console reports through the debug string service, which an emulator logs for free and
-// real hardware ignores unless a debugger listens. A host build has neither, and prints, so the
-// same suite runs on a PC and its verdicts can be checked without a device.
+// Each line goes to the machine's log as well as the file (platform.h): the console's debug
+// string service, which an emulator logs for free and real hardware ignores unless a debugger
+// listens; logcat on Android; standard output on a PC, so the same suite runs there and its
+// verdicts can be checked without a device.
 static void SendToDebugChannel(const char *line, size_t length) {
-#ifdef __SWITCH__
-    svcOutputDebugString(line, length);
-#else
-    (void)length;
-    puts(line);
-#endif
+    PlatformLog(line, length);
 }
 
 static FILE *report_file;
@@ -50,7 +43,7 @@ static bool journal_broken;
 // What decides whether a case runs. The crash list is the file's, kept here and written back
 // whole when a case joins or leaves it; the crashed set is this run's, which retry never runs.
 static CrashList crash_list;
-static char crash_list_path[64];
+static char crash_list_path[256];
 static bool retry_listed;
 // Whether the may-crash table's cases run, and which of them this launch reached, with the
 // suites that started a case: an entry whose suite ran and which was never reached names a case
@@ -553,9 +546,10 @@ bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, c
     // list, which is this machine's own evidence; then the may-crash table.
     if (CrashedThisRun(suite, key, &pass)) {
         snprintf(detail, detail_size,
-                 "the program ended inside it earlier in this run%s; it is on the crash list "
-                 "(sdmc:/edenprobe/crashes), and the mode word retry runs it in a later run",
-                 PassWords(pass));
+                 "the program ended inside it earlier in this run%s; it is on the crash list%s%s%s, "
+                 "and the mode word retry runs it in a later run",
+                 PassWords(pass), crash_list_path[0] != '\0' ? " (" : "", crash_list_path,
+                 crash_list_path[0] != '\0' ? ")" : "");
         runs = false;
     } else if (hang != NULL && !hang_asked) {
         why = REPORT_REASON_HANG;
@@ -564,8 +558,10 @@ bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, c
         runs = false;
     } else if (!retry_listed && CrashListHas(&crash_list, suite, key)) {
         snprintf(detail, detail_size,
-                 "on the crash list (sdmc:/edenprobe/crashes): the program ended inside it in "
-                 "an earlier run on this machine; the mode word retry runs it again");
+                 "on the crash list%s%s%s: the program ended inside it in an earlier run on this "
+                 "machine; the mode word retry runs it again",
+                 crash_list_path[0] != '\0' ? " (" : "", crash_list_path,
+                 crash_list_path[0] != '\0' ? ")" : "");
         runs = false;
     } else if (may_crash != NULL && !may_crash_asked) {
         why = REPORT_REASON_MAY_CRASH;

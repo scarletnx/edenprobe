@@ -15,6 +15,7 @@
 #include "../mode.h"
 #include "../picture.h"
 #include "../report.h"
+#include "../runner.h"
 #include "../ui.h"
 #include "tests.h"
 
@@ -718,6 +719,7 @@ static void CheckReportLine(void) {
 static void CheckLabel(void);
 static void CheckFrames(void);
 static void CheckWidestMode(void);
+static void CheckRunnerRoot(void);
 
 static void CheckLaunchAndMode(void) {
     // The pad is waited for until it answers, and no longer.
@@ -1004,6 +1006,7 @@ static void CheckLaunchAndMode(void) {
     CheckLabel();
     CheckFrames();
     CheckWidestMode();
+    CheckRunnerRoot();
 }
 
 /// `label=<name>` names the folder a run goes in beside the build's hash, and a name a folder
@@ -1320,6 +1323,38 @@ static uint32_t CountRed(const UiFrame *frame) {
         }
     }
     return seen;
+}
+
+/// The runner's paths under a frontend's root, and a root too long for them refused.
+static void CheckRunnerRoot(void) {
+    // A root one character longer than the runner holds, then one under the support suite's corner.
+    static char too_long[RUNNER_ROOT_MAX + 2u];
+    memset(too_long, 'r', RUNNER_ROOT_MAX + 1u);
+    too_long[RUNNER_ROOT_MAX + 1u] = '\0';
+    static Runner runner;
+    RunnerFrontend frontend;
+    memset(&frontend, 0, sizeof(frontend));
+    frontend.root = too_long;
+    const bool refused = !RunnerInit(&runner, &frontend);
+    char root[RUNNER_ROOT_MAX];
+    snprintf(root, sizeof(root), "%.100s/runner-root", Scratch());
+    frontend.root = root;
+    char mode_path[RUNNER_ROOT_MAX + 8u];
+    char crashes[RUNNER_ROOT_MAX + 16u];
+    snprintf(mode_path, sizeof(mode_path), "%s/mode", root);
+    snprintf(crashes, sizeof(crashes), "%s/crashes", root);
+    const bool named = RunnerInit(&runner, &frontend) && strcmp(runner.mode_path, mode_path) == 0 &&
+                       strcmp(runner.crash_list_path, crashes) == 0 &&
+                       strstr(runner.runs_directory, "/runner-root/runs") != NULL &&
+                       strstr(runner.last_run_path, "/runner-root/last-run") != NULL &&
+                       strstr(runner.baseline_directory, "/runner-root/baseline") != NULL;
+    (void)rmdir(root);
+    CHECK_TRUE(SUITE, "the runner names its files under a frontend's root, and refuses one too long",
+               CHECK_NONE, refused && named,
+               "a root of %u characters %s; under %.80s the mode file is %.100s, the crash list %.100s, "
+               "runs %.100s",
+               (unsigned)(RUNNER_ROOT_MAX + 1u), refused ? "refused" : "taken", root,
+               runner.mode_path, runner.crash_list_path, runner.runs_directory);
 }
 
 static void CheckLayout(void) {

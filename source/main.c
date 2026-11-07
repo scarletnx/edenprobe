@@ -3,71 +3,25 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <switch.h>
 
-#include "baseline.h"
 #include "journal.h"
 #include "maycrash.h"
 #include "mode.h"
-#include "perf.h"
 #include "picture.h"
 #include "report.h"
-#include "settle.h"
+#include "runner.h"
 #include "tests/tests.h"
 #include "viewer.h"
 #include "version.h"
 
+// The console's frontend (docs/Frontends.md): the run itself is runner.c's, the same on every
+// frontend; what is the console's own is here: its steps, the screens a person sees around the
+// run, and the settings its suites take from the mode.
+
 // Where the run leaves its report on the machine it ran on. On an emulator this is a plain
-// directory on the host; on the console it is the memory card. Each build, and each label the
-// mode file gives, has a folder of its own under runs/, named after its hash: the report, the
-// pictures of the failing cases and the journal go there, so one folder is the whole of what a
-// run leaves behind and runs of two builds never mix. The mode file, the net file and the
-// crash list stay at the top, since they belong to the person and the machine, not a build.
+// directory on the host; on the console it is the memory card.
 static const char *const PROBE_DIRECTORY = "sdmc:/edenprobe";
-static const char *const RUNS_DIRECTORY = "sdmc:/edenprobe/runs";
-static const char *const MODE_PATH = "sdmc:/edenprobe/mode";
-// The folder the latest launch went to, relative to sdmc:/edenprobe: how a runner, or a person
-// with a file manager, finds the report without knowing the build's hash.
-static const char *const LAST_RUN_PATH = "sdmc:/edenprobe/last-run";
-/// Where the baselines `baseline=` adds to and `compare=` reads are (baseline.h).
-static const char *const BASELINE_DIRECTORY = "sdmc:/edenprobe/baseline";
-
-static char run_directory[128];
-static char report_path[sizeof(run_directory) + 16u];
-static char journal_path[sizeof(run_directory) + 16u];
-
-/// The run's folder for this build and @p mode's label, made if it is not there, and every path
-/// under it; and last-run, naming it.
-static void PlaceRun(const RunMode *mode) {
-    char folder[MODE_FOLDER_MAX + 1u];
-    if (ModeRunFolder(folder, sizeof(folder), EDENPROBE_HASH, mode) == 0u) {
-        snprintf(folder, sizeof(folder), "unknown");
-    }
-    snprintf(run_directory, sizeof(run_directory), "%s/%s", RUNS_DIRECTORY, folder);
-    snprintf(report_path, sizeof(report_path), "%s/report.jsonl", run_directory);
-    snprintf(journal_path, sizeof(journal_path), "%s/%s", run_directory, JOURNAL_FILE_NAME);
-    mkdir(RUNS_DIRECTORY, 0777);
-    mkdir(run_directory, 0777);
-    char last[MODE_FOLDER_MAX + 8u];
-    snprintf(last, sizeof(last), "runs/%s\n", folder);
-    (void)JournalWriteFile(LAST_RUN_PATH, last);
-}
-
-_Static_assert(sizeof("sdmc:/edenprobe/runs/") + MODE_FOLDER_MAX <= sizeof(run_directory),
-               "the longest folder fits run_directory");
-
-/// What main runs as one, and the journal records as one: a suite, or a family run by one call.
-typedef struct {
-    const char *name;
-    void (*run)(void);
-    /// The family it belongs to, or nought for the steps every mode runs.
-    uint32_t family;
-    /// A drawing suite, timed with a warm-up and rehearsals before its verdict pass.
-    bool timed;
-    /// Its cases ask the machine something, so each says it started before its work.
-    bool asks;
-} Step;
 
 static void RunSupportSteps(void) {
     RunSupport();
@@ -78,7 +32,7 @@ static void RunSupportSteps(void) {
 // The order they run in, which is the roadmap's: the judge first and always, since the
 // selfcheck suite proves the comparisons every family then leans on; then the processor, which
 // needs no device and runs in every mode; then the families.
-static const Step STEPS[] = {
+static const RunnerStep STEPS[] = {
     { "selfcheck", RunSelfcheck, 0, false, false },
     { "support", RunSupportSteps, 0, false, false },
     { "reference", RunReference, 0, false, false },
@@ -148,115 +102,20 @@ static const Step STEPS[] = {
     { "game", RunGame, MODE_FAMILY_GAME, false, true },
 };
 
-static void JournalSimple(JournalKind kind, const char *step, uint32_t number) {
-    JournalRecord record;
-    memset(&record, 0, sizeof(record));
-    record.kind = kind;
-    snprintf(record.suite, sizeof(record.suite), "%s", step != NULL ? step : "");
-    record.number = number;
-    ReportJournalWrite(&record);
-}
+// The console's frontend for the runner: its folder, its build and its steps.
+static const RunnerFrontend FRONTEND = {
+    .root = PROBE_DIRECTORY,
+    .version = EDENPROBE_VERSION,
+    .build = EDENPROBE_BUILD,
+    .hash = EDENPROBE_HASH,
+    .steps = STEPS,
+    .step_count = sizeof(STEPS) / sizeof(STEPS[0]),
+    .present = MODE_FAMILIES_PRESENT,
+    .asked = MODE_FAMILIES_ASKED,
+};
 
-/// Runs one drawing suite for its time and then for its verdict.
-///
-/// Each suite opens its own graphics device and closes it before it returns, so the passes before
-/// the verdict pass leave it nothing to inherit but the emulator's shader cache, which a second
-/// `make run` inherits anyway. They are muted: no line, no count, no picture. The verdict pass is
-/// the same code with the report open, and each of its lines carries the smallest of its samples.
-///
-/// A hang in a rehearsal is read from three places: the report ends on this suite's timing note,
-/// which says why nothing of the suite follows it, the emulator's log ends on the
-/// `EDENPROBE TIMING` line naming the pass and the case that was about to run, and the journal
-/// ends on that case's start. With the mode word `notime` none of this happens and the suite
-/// runs once, as it did before cases were timed.
-static void RunTimed(const char *suite, void (*run)(void), bool timing) {
-    if (!timing) {
-        run();
-        return;
-    }
-    ReportNote("timing %s: %u warm-up and %u rehearsals before the verdict pass", suite,
-               (unsigned)PERF_WARMUPS, (unsigned)PERF_REHEARSALS);
-
-    PerfSuiteBegin();
-    for (unsigned i = 0; i < PERF_WARMUPS + PERF_REHEARSALS; ++i) {
-        PerfPassBegin(i < PERF_WARMUPS ? PERF_WARMUP : PERF_REHEARSAL);
-        JournalSimple(JOURNAL_PASS, suite, PerfPassNumber());
-        // After the pass has begun, so the first breadcrumb carries its number.
-        ReportRehearse(suite);
-        run();
-    }
-    ReportRehearse(NULL);
-    PerfPassBegin(PERF_VERDICT);
-    JournalSimple(JOURNAL_PASS, suite, PerfPassNumber());
-    run();
-    PerfPassBegin(PERF_UNTIMED);
-    ReportPerf(suite);
-}
-
-// What the card holds about the run before this launch, and the crash list.
-static JournalState journal;
-static CrashList crashes;
-
-/// Starts the report the way the plan says, and the journal of a run that goes on. A new run's
-/// journal is begun by BeginJournal, once the start screen has chosen what runs; the run before's
-/// goes now, so a launch that ends before then does not go on with that run in this report.
-static void OpenRun(const JournalPlan *plan) {
-    if (plan->start == JOURNAL_FRESH) {
-        ReportOpen(report_path);
-        ReportNote("edenprobe %s (%s) starting", EDENPROBE_VERSION, EDENPROBE_BUILD);
-        ReportNote("folder: %s", run_directory);
-        (void)remove(journal_path);
-        return;
-    }
-    ReportResume(report_path, plan->offset, plan->start == JOURNAL_RESUME_CASE, &plan->counts);
-    if (!ReportJournalOpen(journal_path, false)) {
-        ReportNote("journal: %s cannot be written to go on with, so a crash from here costs "
-                   "the rest of the run",
-                   journal_path);
-    }
-    JournalSimple(JOURNAL_LAUNCH, NULL, plan->launch);
-    if (plan->start == JOURNAL_RESUME_CASE) {
-        JournalRecord record = plan->crash;
-        record.kind = JOURNAL_CRASH;
-        ReportJournalWrite(&record);
-        // What the step drew before the program ended: it runs again from its start, and the
-        // pictures it leaves are the ones its new lines name.
-        (void)PictureRemoveSuite(journal.step.suite);
-    } else if (plan->start == JOURNAL_RESUME_STEP) {
-        JournalSimple(JOURNAL_DONE, journal.step.suite, 0);
-    }
-}
-
-/// A new run's journal: the run record, with the words a launch that goes on with it will find
-/// in the mode file, the screen's when it wrote them there; what the screen chose, when the file
-/// does not say it; and the first launch.
-static void BeginJournal(const RunMode *from_file, const RunMode *mode) {
-    if (mode->no_journal) {
-        return;
-    }
-    if (!ReportJournalOpen(journal_path, true)) {
-        ReportNote("journal: %s cannot be written, so a crash costs the rest of the run",
-                   journal_path);
-        return;
-    }
-    char run_key[JOURNAL_MODE_MAX];
-    char chosen[JOURNAL_MODE_MAX];
-    ModeJournalWords(run_key, sizeof(run_key), chosen, sizeof(chosen), from_file, mode);
-    JournalRecord record;
-    memset(&record, 0, sizeof(record));
-    record.kind = JOURNAL_RUN;
-    snprintf(record.suite, sizeof(record.suite), "%s", EDENPROBE_VERSION);
-    snprintf(record.name, sizeof(record.name), "%s", EDENPROBE_BUILD);
-    snprintf(record.mode, sizeof(record.mode), "%s", run_key);
-    ReportJournalWrite(&record);
-    if (chosen[0] != '\0') {
-        memset(&record, 0, sizeof(record));
-        record.kind = JOURNAL_CHOSEN;
-        snprintf(record.mode, sizeof(record.mode), "%s", chosen);
-        ReportJournalWrite(&record);
-    }
-    JournalSimple(JOURNAL_LAUNCH, NULL, 1u);
-}
+// The run, static: the journal and the crash list it holds are tens of kilobytes.
+static Runner runner;
 
 /// Writes the words the start screen chose into the mode file, when it was asked to; a file that
 /// cannot be written leaves the choice this run's alone, and says so.
@@ -268,11 +127,11 @@ static void SaveModeFile(RunMode *mode) {
     const size_t length = ModeFormat(text, sizeof(text) - 1u, mode);
     text[length] = '\n';
     text[length + 1u] = '\0';
-    if (!JournalWriteFile(MODE_PATH, text)) {
+    if (!JournalWriteFile(runner.mode_path, text)) {
         mode->saved_by_screen = false;
         ReportNote("mode file: %s could not be written, so what the start screen chose is this "
                    "run's only",
-                   MODE_PATH);
+                   runner.mode_path);
     }
 }
 
@@ -307,48 +166,34 @@ static RunMode StartScreen(const RunMode *from_file) {
     return UiStartMode(&chosen, *from_file, MODE_FAMILIES_PRESENT);
 }
 
-/// Whether @p step runs in a run of @p families: the steps every mode runs, and its families'.
-static bool StepRuns(const Step *step, uint32_t families) {
-    return step->family == 0u || (families & step->family) != 0u;
-}
-
 /// The screen that asks whether to go on with the run the journal left in the middle, before
 /// anything is opened. Starting over makes the plan a new run's; the case the program ended
 /// inside stays in it, for the crash list.
-static void AskToGoOn(JournalPlan *plan, const RunMode *mode) {
+static void AskToGoOn(const RunMode *mode) {
     static UiResumeInfo info;
     memset(&info, 0, sizeof(info));
     static char heading[96];
     snprintf(heading, sizeof(heading), "edenprobe %s (%s)", EDENPROBE_VERSION, EDENPROBE_BUILD);
     static char where[JOURNAL_SUITE_MAX + JOURNAL_NAME_MAX + 96u];
-    JournalDescribeStop(where, sizeof(where), plan, &journal);
+    JournalDescribeStop(where, sizeof(where), &runner.plan, &runner.journal);
     info.heading = heading;
     info.where = where;
-    info.folder = run_directory;
-    info.launch = plan->launch;
-    const uint32_t families = ModeFamiliesToRun(mode, MODE_FAMILIES_PRESENT);
+    info.folder = runner.run_directory;
+    info.launch = runner.plan.launch;
+    const uint32_t families = RunnerFamilies(&runner, mode);
     for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
-        if (StepRuns(&STEPS[i], families)) {
+        if (STEPS[i].family == 0u || (families & STEPS[i].family) != 0u) {
             ++info.steps;
-            info.steps_done += JournalStepDone(&journal, STEPS[i].name) ? 1u : 0u;
+            info.steps_done += JournalStepDone(&runner.journal, STEPS[i].name) ? 1u : 0u;
         }
     }
-    info.passed = plan->counts.counts[JOURNAL_PASSED];
-    info.failed = plan->counts.counts[JOURNAL_FAILED];
-    info.skipped = plan->counts.counts[JOURNAL_SKIPPED];
-    info.crashed = plan->counts.counts[JOURNAL_CRASHED];
+    info.passed = runner.plan.counts.counts[JOURNAL_PASSED];
+    info.failed = runner.plan.counts.counts[JOURNAL_FAILED];
+    info.skipped = runner.plan.counts.counts[JOURNAL_SKIPPED];
+    info.crashed = runner.plan.counts.counts[JOURNAL_CRASHED];
     bool start_over = false;
     if (ViewerResumeScreen(&info, &start_over) && start_over) {
-        JournalPlanRestart(plan);
-    }
-}
-
-/// The note before the summary of a run that took more than one launch or skipped cases as
-/// crashed: how many launches, how many such cases, and which ended the program in this run.
-static void NoteCrashes(const JournalPlan *plan) {
-    char text[REPORT_NOTE_MAX + 1];
-    if (JournalDescribeRun(text, sizeof(text), plan, &journal, (uint32_t)ReportCrashed()) > 0u) {
-        ReportNote("%s", text);
+        JournalPlanRestart(&runner.plan);
     }
 }
 
@@ -360,73 +205,26 @@ int main(int argc, char **argv) {
     // problem on a new machine is never "did the screen work". The screens up before the report
     // closes, the one that asks whether to go on, the start screen, the running screen and the
     // listening sequence, only choose what runs and say what is happening.
-    mkdir(PROBE_DIRECTORY, 0777);
+    (void)RunnerInit(&runner, &FRONTEND);
 
     // What the card says before anything is opened: the mode file's words, then, in the folder
     // they and this build name, the journal of the run before, and the crash list. Whether this
     // launch goes on with that run or starts a new one depends on all three, and on this build.
-    const RunMode from_file = ViewerModeFromFile(MODE_PATH);
-    PlaceRun(&from_file);
-    PictureSetRoot(run_directory);
-    char key[JOURNAL_MODE_MAX];
-    ModeKey(key, sizeof(key), &from_file);
-    JournalStateInit(&journal);
-    (void)JournalReadPath(&journal, journal_path);
-    CrashListInit(&crashes);
-    {
-        static char text[CRASH_LIST_MAX * (JOURNAL_SUITE_MAX + JOURNAL_NAME_MAX + 2u) + 1024u];
-        const int64_t length = JournalReadFile(CRASH_LIST_PATH, text, sizeof(text), NULL);
-        if (length > 0) {
-            CrashListParse(&crashes, text, (size_t)length);
-        }
-    }
-    JournalPlan plan = JournalPlanStart(&journal, EDENPROBE_VERSION, EDENPROBE_BUILD, key,
-                                        JournalFileSize(report_path));
-    if (from_file.no_journal && plan.start != JOURNAL_FRESH) {
-        // Asked for no journal: nothing goes on, and the run starts over unjournaled.
-        plan.start = JOURNAL_FRESH;
-        plan.launch = 1u;
-    }
-    // A launch that goes on with a run keeps what its start screen chose; the label is the
-    // file's, since it named the folder the journal is in.
-    RunMode mode = plan.start != JOURNAL_FRESH ? ModeWithChosen(from_file, journal.chosen)
-                                               : from_file;
+    const RunMode from_file = RunnerModeFromFile(runner.mode_path);
+    RunnerPlan(&runner, &from_file);
+    RunMode mode = RunnerModeAtStart(&runner, &from_file);
     // A person in front of a detailed run chooses whether to go on with the run left in the
     // middle or start over; a quick run is a script's, and goes on.
-    if (JournalPlanAsks(&plan, mode.detailed)) {
-        AskToGoOn(&plan, &mode);
-        if (plan.start == JOURNAL_FRESH) {
+    if (JournalPlanAsks(&runner.plan, mode.detailed)) {
+        AskToGoOn(&mode);
+        if (runner.plan.start == JOURNAL_FRESH) {
             mode = from_file;
         }
     }
 
     // Opened first, because reading the pad touches a service this program otherwise never
     // uses, and a run that dies there should still leave a report.
-    OpenRun(&plan);
-    ReportSetCrashList(&crashes, CRASH_LIST_PATH, mode.retry);
-    // A case the program ended inside goes on the crash list whether this run goes on or not:
-    // the machine did end inside it.
-    const bool listed = plan.crashed && ReportCrashListAdd(plan.crash.suite, plan.crash.name);
-    const bool usual = plan.start == JOURNAL_FRESH && !plan.crashed &&
-                       (plan.why_new == JOURNAL_NEW_NO_JOURNAL ||
-                        plan.why_new == JOURNAL_NEW_FINISHED);
-    if (!usual) {
-        char said[REPORT_NOTE_MAX + 1];
-        JournalDescribePlan(said, sizeof(said), &plan, &journal);
-        ReportNote("%s%s", said,
-                   plan.crashed && !listed ? " (it was on the crash list already)" : "");
-    }
-    if (plan.start != JOURNAL_FRESH) {
-        for (uint32_t i = 0; i < journal.crash_count; ++i) {
-            ReportAddCrashed(&journal.crashes[i]);
-        }
-        if (plan.start == JOURNAL_RESUME_CASE) {
-            ReportAddCrashed(&plan.crash);
-            if (journal.crash_count < JOURNAL_CRASHES_MAX) {
-                journal.crashes[journal.crash_count++] = plan.crash;
-            }
-        }
-    }
+    RunnerOpen(&runner, &mode);
 
     // What the mode changes is which families run, whether the finished cases and pictures are
     // kept in memory and shown once everything is over, and whether every drawing case writes
@@ -435,23 +233,16 @@ int main(int argc, char **argv) {
     // launch's start screen chose. A new detailed run's start screen chooses it, and the
     // journal begins once it has.
     mode = ViewerModeWithPad(mode);
-    if (plan.start == JOURNAL_FRESH) {
+    if (runner.plan.start == JOURNAL_FRESH) {
         const RunMode asked = mode;
         if (mode.detailed) {
             mode = StartScreen(&asked);
             SaveModeFile(&mode);
         }
-        BeginJournal(&asked, &mode);
+        RunnerBeginJournal(&runner, &asked, &mode);
     }
-    const uint32_t families = ModeFamiliesToRun(&mode, MODE_FAMILIES_PRESENT);
-    ReportSetRetry(mode.retry);
-    ReportSetMayCrash(mode.fatal);
-    ReportSetHang(mode.hang);
-    if (plan.start == JOURNAL_FRESH) {
-        char described[REPORT_NOTE_MAX + 1];
-        ModeDescribe(described, sizeof(described), &mode, MODE_FAMILIES_PRESENT);
-        ReportNote("%s", described);
-    }
+    const uint32_t families = RunnerFamilies(&runner, &mode);
+    RunnerApplyMode(&runner, &mode);
     // A step the screens know no family for is shown under other, away from its own. The net
     // and service steps report under their suites' names, which the screens know.
     for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
@@ -477,84 +268,18 @@ int main(int argc, char **argv) {
     // says how far the whole run is.
     uint32_t steps = 0;
     for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
-        steps += StepRuns(&STEPS[i], families) ? 1u : 0u;
+        steps += STEPS[i].family == 0u || (families & STEPS[i].family) != 0u ? 1u : 0u;
     }
     static char running[96];
     snprintf(running, sizeof(running), "edenprobe %s (%s)", EDENPROBE_VERSION, EDENPROBE_BUILD);
     PadSetHeading(running);
     TouchSetHeading(running);
     if (!mode.no_progress) {
-        ViewerProgressBegin(running, run_directory, steps, !mode.detailed, mode.detailed);
+        ViewerProgressBegin(running, runner.run_directory, steps, !mode.detailed, mode.detailed);
     }
-    BaselineReset();
-    uint32_t step_number = 0;
-    for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
-        const Step *const step = &STEPS[i];
-        if (!StepRuns(step, families)) {
-            continue;
-        }
-        ++step_number;
-        if (plan.start != JOURNAL_FRESH &&
-            (JournalStepDone(&journal, step->name) ||
-             (plan.start == JOURNAL_RESUME_STEP && journal.in_step &&
-              strcmp(journal.step.suite, step->name) == 0))) {
-            continue;
-        }
-        JournalRecord record;
-        memset(&record, 0, sizeof(record));
-        record.kind = JOURNAL_STEP;
-        snprintf(record.suite, sizeof(record.suite), "%s", step->name);
-        record.offset = ReportOffset();
-        record.counts = ReportCounts();
-        ReportJournalWrite(&record);
-        ViewerProgressStep(step_number, step->name, step->timed && timing);
-        ReportRequireStarts(step->asks);
-        if (step->timed) {
-            RunTimed(step->name, step->run, timing);
-        } else {
-            step->run();
-        }
-        ReportRequireStarts(false);
-        JournalSimple(JOURNAL_DONE, step->name, 0);
-    }
+    RunnerSteps(&runner, families, timing, ViewerProgressStep);
     ViewerProgressEnd();
-    {
-        // A table entry this launch's suites never reached names a case this build lacks, and
-        // would protect nothing.
-        char unreached[REPORT_NOTE_MAX - 96];
-        if (ReportMayCrashUnreached(unreached, sizeof(unreached)) > 0u) {
-            ReportNote("may crash: the table names %s, which the suites that ran never reached",
-                       unreached);
-        }
-    }
-    // Only when some close had to wait: a machine that delivers its copies before the queue is
-    // idle, as the console does, gets the same report it always did.
-    char settled[REPORT_NOTE_MAX + 1];
-    if (SettleDescribe(settled, sizeof(settled), SettleRun())) {
-        ReportNote("%s", settled);
-    }
-    NoteCrashes(&plan);
-    // After every suite and before the summary, which it leaves as it is: a baseline's lines say
-    // how this run's times compare, never whether a case passed.
-    (void)BaselineFinish(BASELINE_DIRECTORY, mode.baseline.name, mode.compare.name,
-                         EDENPROBE_BUILD, mode.label, timing, plan.start != JOURNAL_FRESH,
-                         BaselineToReport());
-    ReportSummary();
-
-    ReportClose();
-    JournalRecord finished;
-    memset(&finished, 0, sizeof(finished));
-    finished.kind = JOURNAL_FINISHED;
-    finished.counts = ReportCounts();
-    ReportJournalWrite(&finished);
-    ReportJournalClose();
-
-    // A runner watching the log knows the process is finished and what it decided, without
-    // parsing the lines above or waiting out a timeout.
-    char done[160];
-    snprintf(done, sizeof(done), "EDENPROBE DONE passed=%zu failed=%zu skipped=%zu crashed=%zu",
-             ReportPassed(), ReportFailed(), ReportSkipped(), ReportCrashed());
-    svcOutputDebugString(done, strlen(done));
+    RunnerFinish(&runner, &mode, timing);
 
     // Last, and only now: the report is written, counted and closed, so nothing a person does
     // in front of the screen can reach it.
@@ -562,7 +287,7 @@ int main(int argc, char **argv) {
         // The one line that comes after the summary, and only on this path: a detailed run
         // nobody attended says it left by itself, on both channels, so a script that forgot the
         // mode file finds out why its emulator took ten seconds longer to stop.
-        ReportAppend(report_path);
+        ReportAppend(runner.report_path);
         ReportNote("detailed mode: nothing pressed for %u seconds after the report closed, "
                    "left by itself",
                    (unsigned)(UI_UNATTENDED_NANOSECONDS / 1000000000ull));
