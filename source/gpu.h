@@ -211,6 +211,14 @@ bool GpuCreateTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkIm
 bool GpuCreateMipTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout,
                          DkImageFormat format, uint32_t width, uint32_t height, uint32_t levels);
 
+/// Carves image memory for a block linear 2D image of @p samples samples that the graphics unit
+/// renders into and then samples or reads back, and initialises @p out over it. A depth or
+/// stencil format makes a depth target. DkMsMode_1x makes an ordinary 2D image; more makes a 2DMS
+/// one, which a texture view samples as such. In the ordinary image block: the processor never
+/// reaches these.
+bool GpuCreateRenderImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout,
+                          DkImageFormat format, uint32_t width, uint32_t height, DkMsMode samples);
+
 /// Carves processor-visible image memory for a block linear 2D array of @p layers layers and
 /// @p levels mip levels, laid out as the library chooses, and stores its first byte in
 /// @p cpu_bytes.

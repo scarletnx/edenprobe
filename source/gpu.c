@@ -1026,6 +1026,29 @@ bool GpuCreateMipTexture(GpuContext *gpu, DkImage *out, DkImageLayout *layout,
     return problem == NULL || Complain(gpu, problem);
 }
 
+bool GpuCreateRenderImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout,
+                          DkImageFormat format, uint32_t width, uint32_t height, DkMsMode samples) {
+    if (gpu == NULL || !gpu->ready) {
+        return false;
+    }
+    if (gpu->extra_image_memory == NULL) {
+        return Complain(gpu, "a render image, and the spec asked for no image memory");
+    }
+    DkImageLayoutMaker maker;
+    dkImageLayoutMakerDefaults(&maker, gpu->device);
+    maker.type = samples == DkMsMode_1x ? DkImageType_2D : DkImageType_2DMS;
+    maker.flags = DkImageFlags_UsageRender;
+    maker.format = format;
+    maker.msMode = samples;
+    maker.dimensions[0] = width;
+    maker.dimensions[1] = height;
+    maker.mipLevels = 1;
+    dkImageLayoutInitialize(layout, &maker);
+    const char *problem =
+        PlaceLaidOut(out, layout, gpu->extra_image_memory, &gpu->extra_image_used, NULL);
+    return problem == NULL || Complain(gpu, problem);
+}
+
 bool GpuCreateArrayImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImageFormat format,
                          uint32_t width, uint32_t height, uint32_t layers, uint32_t levels,
                          uint8_t **cpu_bytes) {

@@ -546,6 +546,8 @@ static const struct {
     { "raster", UI_FAMILY_GRAPHICS }, { "intmath", UI_FAMILY_GRAPHICS },
     { "blend", UI_FAMILY_GRAPHICS },  { "depth", UI_FAMILY_GRAPHICS },
     { "fixed", UI_FAMILY_GRAPHICS },
+    { "stencil", UI_FAMILY_GRAPHICS }, { "lod", UI_FAMILY_GRAPHICS },
+    { "coverage", UI_FAMILY_GRAPHICS },
     { "texture", UI_FAMILY_GRAPHICS }, { "coherence", UI_FAMILY_GRAPHICS },
     { "fmath", UI_FAMILY_GRAPHICS },  { "order", UI_FAMILY_GRAPHICS },
     { "index", UI_FAMILY_GRAPHICS },  { "instance", UI_FAMILY_GRAPHICS },

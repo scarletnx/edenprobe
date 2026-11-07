@@ -494,7 +494,8 @@ static void CheckFamilies(void) {
         { "clear", UI_FAMILY_GRAPHICS },    { "format", UI_FAMILY_GRAPHICS },
         { "raster", UI_FAMILY_GRAPHICS },   { "intmath", UI_FAMILY_GRAPHICS },
         { "blend", UI_FAMILY_GRAPHICS },    { "depth", UI_FAMILY_GRAPHICS },
-        { "fixed", UI_FAMILY_GRAPHICS },
+        { "fixed", UI_FAMILY_GRAPHICS },    { "stencil", UI_FAMILY_GRAPHICS },
+        { "lod", UI_FAMILY_GRAPHICS },      { "coverage", UI_FAMILY_GRAPHICS },
         { "texture", UI_FAMILY_GRAPHICS },  { "coherence", UI_FAMILY_GRAPHICS },
         { "fmath", UI_FAMILY_GRAPHICS },    { "order", UI_FAMILY_GRAPHICS },
         { "index", UI_FAMILY_GRAPHICS },    { "instance", UI_FAMILY_GRAPHICS },
@@ -563,7 +564,7 @@ static void CheckFamilies(void) {
     }
     // A run with every family has a group for each suite, so the index holds them all.
     CHECK_TRUE(SUITE, "every suite a run reports is shown under its own family", CHECK_NONE,
-               wrong == 0u && count == 92u && count <= UI_MAX_GROUPS &&
+               wrong == 0u && count == 95u && count <= UI_MAX_GROUPS &&
                    UiFamilyOf("weird") == UI_FAMILY_OTHER && UiFamilyOf(NULL) == UI_FAMILY_OTHER,
                "%u of %u suites under the wrong family, the first %s; the index holds %u groups",
                (unsigned)wrong, (unsigned)count, first, (unsigned)UI_MAX_GROUPS);

@@ -54,7 +54,11 @@ static const RunnerStep STEPS[] = {
     { "depth", RunDepth, MODE_FAMILY_GRAPHICS, true, true },
     // After depth, whose test the depth bounds and the depth mode cases lean on.
     { "fixed", RunFixed, MODE_FAMILY_GRAPHICS, true, true },
+    { "stencil", RunStencil, MODE_FAMILY_GRAPHICS, true, true },
     { "texture", RunTexture, MODE_FAMILY_GRAPHICS, true, true },
+    { "lod", RunLod, MODE_FAMILY_GRAPHICS, true, true },
+    // After lod: its last cases fetch a four sample texture, which leans on the texture suites.
+    { "coverage", RunCoverage, MODE_FAMILY_GRAPHICS, true, true },
     { "coherence", RunCoherence, MODE_FAMILY_GRAPHICS, true, true },
     { "fmath", RunFmath, MODE_FAMILY_GRAPHICS, true, true },
     { "order", RunOrder, MODE_FAMILY_GRAPHICS, true, true },

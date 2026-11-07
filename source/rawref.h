@@ -34,6 +34,11 @@ extern "C" {
 /// VIEWPORT_TRANSFORM's y scale of viewport 0: its x scale is 0x280, and the y and z scales and
 /// the three offsets follow (deko3d source/maxwell/engine_3d.def).
 #define RAW_3D_VIEWPORT_SCALE_Y 0x281u
+/// MULTISAMPLE_CONTROL, byte 0x153C: alpha to coverage in bit 0 and alpha to one in bit 4 (deko3d
+/// source/maxwell/engine_3d.def, MultisampleControl). The library writes only the first.
+#define RAW_3D_MULTISAMPLE_CONTROL 0x54Fu
+#define RAW_MULTISAMPLE_ALPHA_TO_COVERAGE 0x01u
+#define RAW_MULTISAMPLE_ALPHA_TO_ONE 0x10u
 
 /// The modes of SET_RENDER_ENABLE_C. IF_EQUAL and IF_NOT_EQUAL compare the 64-bit words at the
 /// address and 16 bytes past it; CONDITIONAL looks at the address alone.
