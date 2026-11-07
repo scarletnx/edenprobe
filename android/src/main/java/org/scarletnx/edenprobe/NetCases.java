@@ -1,5 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
-package dev.dravee.androidprobe;
+package org.scarletnx.edenprobe;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -40,7 +41,7 @@ final class NetCases {
                     } catch (Exception ignored) {
                         // the client's read times out and reports it
                     }
-                }, "androidprobe-echo");
+                }, "edenprobe-echo");
                 t.start();
                 try (Socket c = new Socket()) {
                     c.connect(new InetSocketAddress("127.0.0.1", server.getLocalPort()), TIMEOUT_MS);
@@ -54,14 +55,7 @@ final class NetCases {
         }
     }
 
-    static final class NativeTcpLoopback implements Case {
-        @Override public Outcome run(Env env) {
-            NativeLib.require();
-            return Outcome.check("listening on a port, accepted, abc", NativeLib.tcpLoopback());
-        }
-    }
-
-    /** A connection to a closed port on loopback: ConnectException in Java, ECONNREFUSED (111) in C. */
+    /** A connection to a closed port on loopback: ConnectException (C's side is the socket suite's). */
     static final class ConnectRefused implements Case {
         @Override public Outcome run(Env env) throws Exception {
             int port = closedPort();
@@ -72,8 +66,7 @@ final class NetCases {
             } catch (ConnectException e) {
                 java = e.getClass().getName();
             }
-            NativeLib.require();
-            return Outcome.check("java.net.ConnectException|-1 errno 111", java + "|" + NativeLib.connectRefused(closedPort()));
+            return Outcome.check("java.net.ConnectException", java);
         }
     }
 
@@ -82,12 +75,11 @@ final class NetCases {
         @Override public Outcome run(Env env) {
             String java;
             try {
-                java = "resolved " + InetAddress.getByName("androidprobe.invalid");
+                java = "resolved " + InetAddress.getByName("edenprobe.invalid");
             } catch (UnknownHostException e) {
                 java = e.getClass().getName();
             }
-            NativeLib.require();
-            return Outcome.check("java.net.UnknownHostException|" + "getaddrinfo 7", java + "|" + NativeLib.resolve("androidprobe.invalid"));
+            return Outcome.check("java.net.UnknownHostException|" + "getaddrinfo 7", java + "|" + NativeLib.resolve("edenprobe.invalid"));
         }
     }
 
@@ -96,7 +88,6 @@ final class NetCases {
         @Override public Outcome run(Env env) throws Exception {
             List<String> java = new ArrayList<>();
             for (InetAddress a : InetAddress.getAllByName("localhost")) java.add(a.getHostAddress());
-            NativeLib.require();
             return Outcome.check("java [127.0.0.1]|native 127.0.0.1", "java " + java + "|native " + NativeLib.resolve("localhost"));
         }
     }

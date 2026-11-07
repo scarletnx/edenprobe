@@ -16,6 +16,7 @@
 #include "../mode.h"
 #include "../perf.h"
 #include "../picture.h"
+#include "../platform.h"
 #include "../report.h"
 #include "tests.h"
 
@@ -388,7 +389,10 @@ void RunSupportPerf(void) {
     CheckLines();
     CheckRehearsal();
 #ifndef __SWITCH__
-    CheckSelfTimed();
+    // Where the log is standard output alone: Android's is logcat, which a case cannot read back
+    if (PlatformLogIsStandardOutput()) {
+        CheckSelfTimed();
+    }
 #endif
     CheckBreadcrumbs();
 }

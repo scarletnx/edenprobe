@@ -1,0 +1,7 @@
+{"type":"note","text":"edenprobe 0.9.0 (fixture) starting"}
+{"type":"note","text":"folder: /storage/emulated/0/Android/data/org.scarletnx.edenprobe/files/edenprobe/runs/fixture"}
+{"type":"note","text":"mode: quick, from the mode file; pictures of failures only; families graphics net libc jni framework"}
+{"type":"case","suite":"framework","name":"case one","tier":"exact","result":"pass","detail":""}
+{"type":"case","suite":"libc","name":"case two","tier":"exact","result":"fail","detail":"got Resource temporarily unavailable, expected Try again"}
+{"type":"case","suite":"gles","name":"case three","tier":"none","result":"skip","reason":"unavailable","detail":"needs API 30, this is API 26"}
+{"type":"summary","passed":1,"failed":1,"skipped":1,"crashed":0}

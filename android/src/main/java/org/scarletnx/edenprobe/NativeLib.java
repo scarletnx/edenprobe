@@ -1,50 +1,24 @@
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
-package dev.dravee.androidprobe;
+package org.scarletnx.edenprobe;
 
 /**
- * libandroidprobe.so: the bionic, JNI, GLES and native net cases. Each native case calls require() first, so a library
- * that did not load fails every one of them with the same cause instead of a bare UnsatisfiedLinkError.
+ * The native side of Android's own cases, in libedenprobe.so beside the engine, which Engine loaded: each returns
+ * what it measured as text, and the case compares it with what Android gives.
  */
 final class NativeLib {
     private NativeLib() {}
 
-    private static final Throwable LOAD_ERROR;
-    static {
-        Throwable error = null;
-        try {
-            System.loadLibrary("androidprobe");
-        } catch (Throwable t) {
-            error = t;
-        }
-        LOAD_ERROR = error;
-    }
-
-    static void require() {
-        if (LOAD_ERROR != null) throw new IllegalStateException("libandroidprobe.so did not load: " + Outcome.describe(LOAD_ERROR), LOAD_ERROR);
-    }
-
-    /** null when the library loaded, else why not */
-    static String loadError() {
-        return LOAD_ERROR == null ? null : Outcome.describe(LOAD_ERROR);
-    }
-
-    // the library: its ABI, and JNI_OnLoad's count and checks
-    static native String abi();
+    // the library: JNI_OnLoad's count and checks
     static native String onLoad();
 
-    // bionic
-    static native String printf();
-    static native String scanf();
-    static native String strtod();
+    // bionic's own words and the system under it
+    static native String printfWords();
     static native String strerror();
-    static native String threads();
-    static native String time();
     static native String dl();
     static native String memory();
     static native String procSelf(String packageName);
     static native String signals();
-    static native String jumps();
-    static native String math();
     static native String property();
     static native String multibyte();
 
@@ -71,9 +45,7 @@ final class NativeLib {
     static native String gl3Framebuffer();
     static native String gl1ClearRead();
 
-    // net
-    static native String tcpLoopback();
-    static native String connectRefused(int port);
+    // bionic's resolver
     static native String resolve(String host);
 
     // what the JNI cases call back

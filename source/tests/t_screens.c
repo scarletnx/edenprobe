@@ -455,8 +455,9 @@ static void CheckIndex(void) {
 }
 
 /// The store the screens read, against the cases this very run has reported so far: all of them
-/// when the run keeps them, which a detailed run and the host build do, and none otherwise. The
-/// host build turns it on itself, so there none is a store that failed.
+/// when the run keeps them, which a detailed run and the host build do, and none otherwise, as on
+/// a quick run of the console or any run of Android's. The host build turns it on itself, so there
+/// none is a store that failed.
 static void CheckStore(void) {
     size_t count = 0;
     const ReportRecord *const records = ReportRecords(&count);
@@ -467,10 +468,10 @@ static void CheckStore(void) {
                           strcmp(last->name, INDEX_CASE) == 0 &&
                           strcmp(last->tier, "none") == 0 && last->picture == -1 &&
                           (last->result == REPORT_PASS) == (last->detail[0] == '\0');
-#ifdef __SWITCH__
-    const bool kept_none = !ReportIsRetaining() && count == 0u && records == NULL;
-#else
+#ifdef EDENPROBE_HOST
     const bool kept_none = false;
+#else
+    const bool kept_none = !ReportIsRetaining() && count == 0u && records == NULL;
 #endif
     CHECK_TRUE(SUITE, "every case the run has reported is on record for the screens, or none is",
                CHECK_NONE, kept_all || kept_none,

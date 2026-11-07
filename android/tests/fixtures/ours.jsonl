@@ -1,7 +1,0 @@
-{"type":"note","text":"androidprobe 0.1.0 (fixture) starting"}
-{"type":"note","text":"mode: every case, 3 of them"}
-{"type":"case","suite":"framework","name":"case one","tier":"exact","result":"pass","detail":"","id":"framework.one","got":"1","want":"1","us":12}
-{"type":"case","suite":"bionic","name":"case two","tier":"exact","result":"fail","detail":"got Resource temporarily unavailable, expected Try again","id":"bionic.two","got":"Resource temporarily unavailable","want":"Try again","us":25}
-{"type":"case","suite":"gles","name":"case three","tier":"level","result":"crashed","detail":"launch 1 ended during this case (a crash, or a kill on a timeout); the run went on after it","id":"gles.three"}
-{"type":"note","text":"journal: this run took 2 launches"}
-{"type":"summary","passed":1,"failed":1,"skipped":0,"crashed":1}

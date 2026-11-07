@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors -->
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <resources>
-    <string name="app_name">androidprobe</string>
+    <string name="app_name">edenprobe</string>
+    <string name="running">edenprobe is running its cases</string>
+    <string name="done">edenprobe finished: %1$d failed</string>
+    <string name="no_mode">edenprobe did not start: the mode the launch gave could not be written</string>
+    <string name="no_storage">edenprobe did not start: this device gives the app no external files folder</string>
     <string name="greeting">Hello %1$s, %2$d cases</string>
     <string name="escaped">tab\tquote\" apos\' at@ end</string>
     <plurals name="cases">

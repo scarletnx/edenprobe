@@ -17,6 +17,10 @@ void PlatformLog(const char *line, size_t length) {
     svcOutputDebugString(line, length);
 }
 
+bool PlatformLogIsStandardOutput(void) {
+    return false;
+}
+
 const char *PlatformError(void) {
     return error;
 }

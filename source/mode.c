@@ -27,6 +27,8 @@ static const struct {
     { "game", MODE_FAMILY_GAME },
     { "nvn", MODE_FAMILY_NVN },
     { "libc", MODE_FAMILY_LIBC },
+    { "jni", MODE_FAMILY_JNI },
+    { "framework", MODE_FAMILY_FRAMEWORK },
 };
 
 static bool IsLetter(char c) {
@@ -571,11 +573,13 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { (mode->families_named & MODE_FAMILY_DISPLAY) != 0u, "display" },
         { mode->fatal, "fatal" },
         { mode->frames != MODE_FRAMES_DEFAULT, frames },
+        { (mode->families_named & MODE_FAMILY_FRAMEWORK) != 0u, "framework" },
         { (mode->families_named & MODE_FAMILY_FS) != 0u, "fs" },
         { (mode->families_named & MODE_FAMILY_GAME) != 0u, "game" },
         { (mode->families_named & MODE_FAMILY_GRAPHICS) != 0u, "graphics" },
         { mode->hang, "hang" },
         { mode->every_case, "images" },
+        { (mode->families_named & MODE_FAMILY_JNI) != 0u, "jni" },
         { (mode->families_named & MODE_FAMILY_KERNEL) != 0u, "kernel" },
         { (mode->families_named & MODE_FAMILY_LIBC) != 0u, "libc" },
         { mode->listen, "listen" },

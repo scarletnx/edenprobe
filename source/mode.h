@@ -57,11 +57,14 @@ extern "C" {
 ///   service   another: commands a game sends to the system's services, each answer held to
 ///             reden's. It runs only when named until a console has shown what it answers.
 ///   net       another: the online services, nifm to friend, against the backend the file
-///             sdmc:/edenprobe/net names (see netref.h).
+///             sdmc:/edenprobe/net names (see netref.h). On Android, the Java side's sockets and
+///             names.
 ///   libc      another: the C library and what it asks of the system, the same cases on every
 ///             frontend: formatting, parsing, strings, libm, jumps, dates, then threads and the
 ///             clock, then sockets on loopback. On the console it runs only when named, so a run
 ///             that names none reports what it always did.
+///   jni       another, Android's: native code and the Java runtime calling each other.
+///   framework another, Android's: the framework's Java API an app calls, and its resources.
 ///   game      another: a scene that runs everything at once, as a game does, on every core the
 ///             program has, and times its frames. It runs only when named until a console has
 ///             run it.
@@ -99,6 +102,8 @@ enum {
     MODE_FAMILY_GAME = 1u << 10,
     MODE_FAMILY_NVN = 1u << 11,
     MODE_FAMILY_LIBC = 1u << 12,
+    MODE_FAMILY_JNI = 1u << 13,
+    MODE_FAMILY_FRAMEWORK = 1u << 14,
 };
 
 /// The families the console's build carries. A family named in the file and missing here is

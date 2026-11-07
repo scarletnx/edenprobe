@@ -13,6 +13,10 @@ void PlatformLog(const char *line, size_t length) {
     puts(line);
 }
 
+bool PlatformLogIsStandardOutput(void) {
+    return true;
+}
+
 const char *PlatformError(void) {
     return "";
 }

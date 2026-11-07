@@ -1,5 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
-package dev.dravee.androidprobe;
+package org.scarletnx.edenprobe;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -54,7 +55,7 @@ final class FrameworkCases {
     /** The SDK's descriptor is ()Ljava/net/Inet4Address;: a framework that returns InetAddress has no such method. */
     static final class LinkPropertiesDhcp implements Case {
         @Override public Outcome run(Env env) {
-            if (Build.VERSION.SDK_INT < 30) return Outcome.skip("needs API 30", "API " + Build.VERSION.SDK_INT);
+            if (Build.VERSION.SDK_INT < 30) return Outcome.skip("needs API 30, this is API " + Build.VERSION.SDK_INT);
             Inet4Address a = new LinkProperties().getDhcpServerAddress();
             return Outcome.check("null", String.valueOf(a));
         }
@@ -70,7 +71,7 @@ final class FrameworkCases {
                 return Outcome.check("java.io.FileNotFoundException", "returned");
             } catch (Exception e) {
                 Outcome o = Outcome.check("java.io.FileNotFoundException", e.getClass().getName());
-                return o.result.equals("pass") ? o : Outcome.fail(Outcome.describe(e), o.got, o.want);
+                return o.passed ? o : Outcome.fail(o.detail + "; " + Outcome.describe(e));
             } finally {
                 mp.release();
             }
@@ -87,7 +88,7 @@ final class FrameworkCases {
             paint.setColor(Color.RED);
             c.drawRect(20, 20, 180, 80, paint);
             paint.setTextSize(24);
-            c.drawText("androidprobe", 20, 140, paint);
+            c.drawText("edenprobe", 20, 140, paint);
             doc.finishPage(page);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             doc.writeTo(out);
@@ -161,7 +162,7 @@ final class FrameworkCases {
             long deadline = System.currentTimeMillis() + Env.UI_TIMEOUT_MS;
             while (env.onUi(() -> env.root.getWindowToken() == null)) {
                 if (System.currentTimeMillis() > deadline)
-                    return Outcome.fail("the activity's window had no token after " + Env.UI_TIMEOUT_MS + " ms", "no window token", null);
+                    return Outcome.fail("the activity's window had no token after " + Env.UI_TIMEOUT_MS + " ms");
                 Thread.sleep(50);
             }
             TextView content = env.onUi(() -> {
@@ -190,7 +191,7 @@ final class FrameworkCases {
     /** A Handler runs the message at the front first, then by time: an immediate one before a delayed one. */
     static final class HandlerOrder implements Case {
         @Override public Outcome run(Env env) throws Exception {
-            HandlerThread t = new HandlerThread("androidprobe-order");
+            HandlerThread t = new HandlerThread("edenprobe-order");
             t.start();
             try {
                 Handler h = new Handler(t.getLooper());
@@ -247,9 +248,9 @@ final class FrameworkCases {
     /** commit writes the file shared_prefs/NAME.xml in the app's data folder, in Android's XML. */
     static final class SharedPreferencesFile implements Case {
         @Override public Outcome run(Env env) throws Exception {
-            SharedPreferences sp = env.activity.getSharedPreferences("androidprobe", Context.MODE_PRIVATE);
+            SharedPreferences sp = env.activity.getSharedPreferences("edenprobe", Context.MODE_PRIVATE);
             boolean ok = sp.edit().putInt("i", 7).putString("s", "x\"<y").commit();
-            File f = new File(env.activity.getFilesDir().getParentFile(), "shared_prefs/androidprobe.xml");
+            File f = new File(env.activity.getFilesDir().getParentFile(), "shared_prefs/edenprobe.xml");
             String xml = f.exists() ? new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8) : "";
             String got = "commit " + ok + ", file " + f.exists() + ", int " + xml.contains("<int name=\"i\" value=\"7\" />")
                 + ", string " + xml.contains("<string name=\"s\">x&quot;&lt;y</string>") + ", read " + sp.getInt("i", 0) + " " + sp.getString("s", null);
@@ -290,8 +291,8 @@ final class FrameworkCases {
     /** With no log.tag property, Log.isLoggable is true from INFO up and false for DEBUG. */
     static final class LogIsLoggable implements Case {
         @Override public Outcome run(Env env) {
-            return Outcome.check("debug false, info true", "debug " + Log.isLoggable("androidprobe", Log.DEBUG) + ", info "
-                + Log.isLoggable("androidprobe", Log.INFO));
+            return Outcome.check("debug false, info true", "debug " + Log.isLoggable("edenprobe", Log.DEBUG) + ", info "
+                + Log.isLoggable("edenprobe", Log.INFO));
         }
     }
 

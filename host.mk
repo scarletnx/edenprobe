@@ -6,36 +6,12 @@
 
 HOSTCC   ?= cc
 HOSTOUT  := build-host/edenprobe-host
-HOSTSRC  := source/platform_host.c source/runner.c \
-            source/report.c source/baseline.c source/journal.c source/maycrash.c source/hang.c source/check.c source/mode.c \
-            source/picture.c \
-            source/ui.c \
-            source/raster.c source/intref.c source/blendref.c source/texref.c \
-            source/fmathref.c source/coherref.c source/formatref.c source/netref.c source/cpuref.c source/perf.c \
-            source/settle.c \
-            source/rawref.c source/astcref.c source/astcblocks.c source/astcimages.c source/astcimageref.c \
-            source/eacref.c \
-            source/etc2ref.c source/etc2blocks.c source/bcnref.c source/audioref.c source/vicref.c \
-            source/padref.c source/touchref.c \
-            source/md5.c source/vp9jobs.c source/vp9ref.c \
-            source/schedref.c source/binderref.c source/blit2dref.c source/serviceref.c \
-            source/gameref.c source/tex8kref.c source/fixedref.c \
-            source/tests/t_selfcheck.c source/tests/t_support.c source/tests/t_screens.c \
-            source/tests/t_perf.c source/tests/t_settle.c source/tests/t_reference.c source/tests/t_netref.c \
-            source/tests/t_cpuref.c source/tests/t_rawref.c source/tests/t_astcref.c \
-            source/tests/t_eacref.c source/tests/t_journal.c source/tests/t_etc2ref.c \
-            source/tests/t_bcnref.c source/tests/t_audioref.c source/tests/t_vicref.c \
-            source/tests/t_padref.c source/tests/t_touchref.c \
-            source/tests/t_md5ref.c source/tests/t_vp9ref.c \
-            source/tests/t_schedref.c source/tests/t_binderref.c source/tests/t_blit2dref.c \
-            source/tests/t_serviceref.c source/tests/t_baseline.c source/tests/t_gameref.c \
-            source/tests/t_tex8kref.c source/tests/t_fixedref.c \
-            source/tests/t_libc.c \
-            source/host_main.c
+HOSTSRC  := source/platform_host.c $(shell grep -v '^\#' source/portable.txt) source/host_main.c
 
 # One object per source, so the -MMD below has somewhere to put its dependency files. Without
 # them an edited header rebuilds nothing and the run reports the previous binary's answer.
-HOSTFLAGS := -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -O1 -g -MMD -MP -Isource
+# EDENPROBE_HOST: the few judge cases that hold this build to what host_main.c sets up
+HOSTFLAGS := -std=c11 -Wall -Wextra -Werror -Wno-unused-parameter -O1 -g -MMD -MP -Isource -DEDENPROBE_HOST
 HOSTOBJ  := $(patsubst source/%.c,build-host/%.o,$(HOSTSRC))
 HOSTDEP  := $(HOSTOBJ:.o=.d)
 
@@ -52,13 +28,16 @@ $(HOSTOUT): $(HOSTOBJ)
 
 # Twice, the second from somewhere else on purpose: a path built relative to the working
 # directory works from here and nowhere else, and the suite has to be able to notice that. Then
-# the report tools, which read what the binary wrote and have tests of their own, and the CI's
-# scripts in .github/scripts, against a fake GitHub and a fake Discord.
+# the report tools, which read what the binary wrote and have tests of their own, the CI's
+# scripts in .github/scripts, against a fake GitHub and a fake Discord, and the APK's runners,
+# against a fake adb and a fake ScarletNX driver.
 host-run: $(HOSTOUT)
 	./$(HOSTOUT)
 	cd / && exec $(CURDIR)/$(HOSTOUT)
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .github/scripts
+	bash android/tests/test-run-adb.sh
+	bash android/tests/test-run-scarletnx.sh
 
 host-clean:
 	rm -rf build-host

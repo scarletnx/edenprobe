@@ -3,7 +3,8 @@
 The families run in this order: the judge, the processor, pad (when a word names it), graphics, nvn (when its word
 names it), fs, then kernel,
 display, video, audio and service (each when a word names it), net, and game (when its word names it); libc, on the
-console, when a word names it. The
+console, when a word names it. Android's frontend has the judge, libc, graphics, net, jni and framework
+([On Android](../Android.md)). The
 [mode file](../ModeFile.md) says which words name what, and [the roadmap](../Roadmap.md) what a failure in each suite
 points at. A case that ends the program costs that case, not the rest of the run
 ([When the program ends in the middle](../Crashes.md)).

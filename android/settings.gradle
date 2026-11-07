@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
 pluginManagement {
     repositories {
         google()
@@ -11,4 +13,4 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = 'androidprobe'
+rootProject.name = 'edenprobe'

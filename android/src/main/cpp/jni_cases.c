@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
 /* JNI as ART gives it to native code: the version, FindClass's class loaders, strings, exceptions, arrays, calls. */
 #include "probe.h"
 
@@ -20,7 +21,7 @@ static void* find_from_attached(void* arg) {
         snprintf(out, 256, "attach failed");
         return NULL;
     }
-    jclass c = (*env)->FindClass(env, "dev/dravee/androidprobe/NativeLib");
+    jclass c = (*env)->FindClass(env, "org/scarletnx/edenprobe/NativeLib");
     if (c) {
         snprintf(out, 256, "found");
         (*env)->DeleteLocalRef(env, c);
@@ -36,7 +37,7 @@ static void* find_from_attached(void* arg) {
 
 JNIEXPORT jstring JNICALL PROBE_FN(findClass)(JNIEnv* env, jclass cls) {
     (void)cls;
-    jclass c = (*env)->FindClass(env, "dev/dravee/androidprobe/NativeLib");
+    jclass c = (*env)->FindClass(env, "org/scarletnx/edenprobe/NativeLib");
     const char* here = c ? "found" : "not found";
     if (!c) (*env)->ExceptionClear(env);
     char there[256] = "";

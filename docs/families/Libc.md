@@ -5,7 +5,7 @@ The C library and what it asks of the system under it, the same cases on every f
 library chose where the standard lets it choose (strerror's words, the sign a NaN prints with, `%a`'s first digit),
 so the console's newlib, Android's bionic and a PC's glibc all pass, and an emulator or a translation layer that
 answers otherwise is wrong. The word `libc` runs it ([The mode file](../ModeFile.md)); on the console only when named,
-and the host build runs it every time.
+on Android in every run that names no family, and the host build runs it every time.
 
 Three suites, by what each needs from the machine; a frontend runs the ones its machine has:
 
@@ -20,3 +20,7 @@ Three suites, by what each needs from the machine; a frontend runs the ones its 
 - **socket**, three cases, the network stack on loopback (`PlatformSocketsOpen` first; a machine without it skips
   them as `unavailable`): a TCP connection that echoes, a UDP datagram there and back, and a connection to a closed
   port refused with `ECONNREFUSED`.
+
+Android adds a fourth to the family, **bionic**, Java cases on native code: what the standard leaves to the library
+as bionic words it (`-nan`, `strerror`), and the system under it (the loader, `mmap`, `/proc/self`, signals,
+properties, the UTF-8 locale) ([On Android](../Android.md)).
