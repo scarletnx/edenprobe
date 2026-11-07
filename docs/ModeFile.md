@@ -27,7 +27,9 @@
 | `video` | the video family: the video image compositor, a job per case, and the decoder on VP9 jobs from libvpx's test vectors, a job per frame; only when named, with no row on the start screen; see [video](families/Video.md) and [nvdec](families/Nvdec.md) |
 | `service` | the service family: commands a game sends to the system's services, each answer held to reden's; only when named, with no row on the start screen; see [service](families/Service.md) |
 | `net` | the net family: nifm, dns, bsd, ssl, acc and friend, against what `sdmc:/edenprobe/net` names |
-| `libc` | the libc family: the C library and what it asks of the system, the same cases on every frontend; on the console only when named; see [libc](families/Libc.md) |
+| `libc` | the libc family: the C library and what it asks of the system, the same cases on every frontend; on the console only when named, on Android in every run that names no family; see [libc](families/Libc.md) |
+| `jni` | Android's jni family: native code and the Java runtime calling each other; see [On Android](Android.md) |
+| `framework` | Android's framework family: the framework's Java API and its resources; see [On Android](Android.md) |
 | `game` | the game family: one scene that draws, plays a silent tone, reads the card, calls services and computes on four threads over three cores, as a game does, and presents and times every frame; only when named, with no row on the start screen; it writes the fs family's files the first time; see [game](families/Game.md) |
 | `frames=<n>` | the game scene's frames, a whole number from 1 to 36000; 600 without it. Anything else is refused in the mode line with the number in effect: `frames=abc is not a whole number from 1 to 36000: it keeps 600`; without `game` the mode line says the family is left out |
 | `label=<name>` | the run's folder gets `_<name>` after the build's hash, to keep apart runs of one build under two emulators; see [the report](Report.md#where-a-run-leaves-its-report) |
@@ -35,12 +37,13 @@
 | `compare=<name>` | once the suites end, this run's times are held to that file's samples: a line for each case held to them, `same`, `slower` or `faster`, and one that sums them up, no verdict changed; see [Baselines](Baseline.md) |
 
 The judge and the cpu suite always run. With no family named, every family runs but audio, pad, kernel, display,
-service, video, game, nvn and libc. A family this build lacks is listed in the mode line and skipped. Any other word is
-quoted and counted in the mode line and has no effect: a typo costs a line, never the run.
+service, video, game, nvn and libc; on Android every family it has ([Frontends](Frontends.md)). A family this
+build lacks is listed in the mode line and skipped. Any other word is quoted and counted in the mode line and has no
+effect: a typo costs a line, never the run.
 
 The start screen chooses the same words for a person; the file is for a script or a choice that should stay. Under
-`make run` it is the `MODE` variable; on Android, `files/sdmc/edenprobe/mode` in the app's data folder
-([Android](Android.md)). For example:
+`make run` it is the `MODE` variable; in Eden's Android build, `files/sdmc/edenprobe/mode` in the app's data folder;
+for edenprobe's own APK, `files/edenprobe/mode` in its external files ([Android](Android.md)). For example:
 
 | the file holds | what runs |
 |---|---|

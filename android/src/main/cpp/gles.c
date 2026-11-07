@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
 /* EGL and GLES on a 16 by 16 pbuffer of the case's own, read back with glReadPixels. A pixel is RGBA as 8 hex digits;
    (0,0) is the bottom left. The display is never terminated: the app's own UI may share it. */
 #include "probe.h"

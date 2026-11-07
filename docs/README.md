@@ -8,7 +8,8 @@ New here? Start with [Build](./Build.md), then [the mode file](./ModeFile.md) an
   - **[Build](./Build.md)** - the NRO, the host build and the commit hook
   - **[Releases](./Releases.md)** - the nightly, the versions and the CI
   - **[Under an emulator](./Emulator.md)** - `make run`
-  - **[On Android](./Android.md)**
+  - **[On Android](./Android.md)** - edenprobe's APK, and the NRO in an emulator's Android build
+  - **[Frontends](./Frontends.md)** - one engine for the console, Android and a PC, and how another fits
   - **[On the console](./Console.md)** - the two modes, the screens and the buttons
   - **[The mode file](./ModeFile.md)** - the words that choose what runs
   - **[The validation layer](./Validation.md)** - `make validate`

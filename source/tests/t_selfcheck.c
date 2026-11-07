@@ -82,9 +82,10 @@ void RunSelfcheck(void) {
                !CheckFloatUlp(nan_value, nan_value, 1000000),
                "a NaN compared equal to itself");
     // Including against a budget of every value there is, which is the one way a comparison
-    // built on a distance and a limit could have let one through.
+    // built on a distance and a limit could have let one through. The cast says the budget is
+    // the float nearest that count, 2^32, as Clang wants it said.
     CHECK_TRUE(SUITE, "no budget is large enough to accept a nan", CHECK_NONE,
-               !CheckFloatUlp(nan_value, 1.0f, UINT32_MAX),
+               !CheckFloatUlp(nan_value, 1.0f, (float)UINT32_MAX),
                "a NaN passed a budget of every representable value");
 
     // The absolute comparison, which is what the sine and the cosine are judged by. Two to the

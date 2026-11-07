@@ -1,46 +1,57 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-# A device for tests/test-run-adb.sh: its state in FAKE_ADB (a folder), its behaviour at each launch in FAKE_SCENARIO:
-# ok (the run ends whole), die-once (launch 1 ends the process mid-run), stall (launch 1 hangs silent), never (every
-# launch ends the process). Each call is appended to FAKE_ADB/calls.
+# A device for test-run-adb.sh: its state in FAKE_ADB (a folder, the device's files under FAKE_ADB/device), its
+# behaviour at each launch in FAKE_SCENARIO: ok (the run ends whole), die-once (launch 1 ends the process mid-run),
+# stall (launch 1 hangs silent), never (every launch ends the process), nostorage-once (launch 1 says the run did not
+# start, and stays up, as an app with no storage yet does). Each call is appended to FAKE_ADB/calls.
 d=$FAKE_ADB
-pkg=dev.dravee.androidprobe
-run=/storage/emulated/0/Android/data/$pkg/files/runs/fixture
+pkg=org.scarletnx.edenprobe
+root=/storage/emulated/0/Android/data/$pkg/files/edenprobe
+run=$root/runs/fixture
 echo "$*" >> "$d/calls"
 [ "$1" = -s ] && shift 2
 cmd=$1
 shift
-logline() { echo "11-07 17:00:00.000  4242  4243 I androidprobe: $1" >> "$d/logcat"; }
+logline() { echo "11-07 17:00:00.000  4242  4243 I edenprobe: $1" >> "$d/logcat"; }
 case $cmd in
 get-state) echo device ;;
 install) touch "$d/installed"; echo Success ;;
 uninstall) rm -f "$d/installed"; echo Success ;;
 logcat) touch "$d/logcat"; exec tail -n +1 -f "$d/logcat" ;;
 pull) cp "$d/device$1" "$2" ;;
-exec-out) exit 1 ;;
 shell)
     case "$*" in
     "pm list packages $pkg") [ -f "$d/installed" ] && echo "package:$pkg" ;;
     getprop*) echo fake ;;
+    "cat $root/last-run") cat "$d/device$root/last-run" 2> /dev/null ;;
     "dumpsys meminfo $pkg") echo "meminfo of $pkg" ;;
     "pidof $pkg") [ -f "$d/running" ] && echo 4242 ;;
     "dumpsys activity exit-info $pkg") echo "exit-info of $pkg" ;;
     "am force-stop $pkg") rm -f "$d/running" ;;
-    "am start -W -n $pkg/.ProbeActivity")
+    "am start -W -n $pkg/.ProbeActivity --es mode '"*"'")
+        # the app writes the extra's words to its mode file
+        mkdir -p "$d/device$root"
+        words=${*#*--es mode \'}
+        echo "${words%\'}" > "$d/device$root/mode"
         n=$(($(cat "$d/launches" 2> /dev/null || echo 0) + 1))
         echo $n > "$d/launches"
         mkdir -p "$d/device$run"
-        logline "run folder: $run"
+        echo "runs/fixture" > "$d/device$root/last-run"
+        printf 'launch\n' >> "$d/device$run/journal"
         if [ "$FAKE_SCENARIO" = never ] || { [ "$FAKE_SCENARIO" = die-once ] && [ $n = 1 ]; }; then
-            head -n 3 "$FAKE_REPORT" > "$d/device$run/report.jsonl"
-            logline "$(sed -n 3p "$FAKE_REPORT")"
+            head -n 4 "$FAKE_REPORT" > "$d/device$run/report.jsonl"
+            logline "$(sed -n 4p "$FAKE_REPORT")"
         elif [ "$FAKE_SCENARIO" = stall ] && [ $n = 1 ]; then
             touch "$d/running"
+        elif [ "$FAKE_SCENARIO" = nostorage-once ] && [ $n = 1 ]; then
+            touch "$d/running"
+            echo "11-07 17:00:00.000  4242  4242 E edenprobe: the run did not start: getExternalFilesDir(null) is null, no external storage" >> "$d/logcat"
         else
             cp "$FAKE_REPORT" "$d/device$run/report.jsonl"
-            printf 'launch\n' > "$d/device$run/journal"
             touch "$d/running"
-            logline "done: $run/report.jsonl"
+            logline "$(tail -n 1 "$FAKE_REPORT")"
+            logline "EDENPROBE DONE passed=1 failed=1 skipped=1 crashed=0"
         fi
         echo "Status: ok"
         ;;

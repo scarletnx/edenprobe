@@ -16,6 +16,8 @@ a [release](https://github.com/scarletnx/edenprobe/releases).
 
 - On a console: put it in the SD card's `switch/` folder and open it from the homebrew menu.
 - In an emulator: open the NRO.
+- On Android, or ScarletNX's Android layer: the APK, `android/` ([On Android](docs/Android.md)), the same engine
+  with Android's own cases beside the ones every machine runs.
 
 Without a mode file the start screen asks what to run; `sdmc:/edenprobe/mode` chooses instead
 ([Mode file](docs/ModeFile.md)). The report goes to `sdmc:/edenprobe/runs/<build>/report.jsonl`
@@ -29,11 +31,12 @@ With devkitPro in `/opt/devkitpro`:
 export DEVKITPRO=/opt/devkitpro
 make                                  # edenprobe.nro
 make -f host.mk host-run              # the judge and the tools' tests, on this machine
+gradle -p android assembleDebug       # the APK, with ANDROID_HOME and a JDK 17 or newer
 make run EMULATOR=/path/to/emulator   # a quick run, started again after a crash
 ```
 
-See [Build](docs/Build.md), [Running it under an emulator](docs/Emulator.md) and
-[Running it on Android](docs/Android.md). Every document: [docs](docs/README.md).
+See [Build](docs/Build.md), [Running it under an emulator](docs/Emulator.md),
+[Running it on Android](docs/Android.md) and [Frontends](docs/Frontends.md). Every document: [docs](docs/README.md).
 
 ## Credits
 

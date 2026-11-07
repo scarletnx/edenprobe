@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
 /* The library's own: JNI_OnLoad, which records what it was given and registers one native, and the helpers. */
 #include "probe.h"
 
@@ -59,22 +60,11 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
     JNIEnv* env = NULL;
     g_probe.onload_getenv = (*vm)->GetEnv(vm, (void**)&env, JNI_VERSION_1_6);
     if (g_probe.onload_getenv != JNI_OK) return JNI_ERR;
-    jclass cls = (*env)->FindClass(env, "dev/dravee/androidprobe/NativeLib");
+    jclass cls = (*env)->FindClass(env, "org/scarletnx/edenprobe/NativeLib");
     if (!cls) return JNI_ERR;
     JNINativeMethod methods[] = {{"registered", "()Ljava/lang/String;", (void*)registered}};
     if ((*env)->RegisterNatives(env, cls, methods, 1) != JNI_OK) return JNI_ERR;
     return JNI_VERSION_1_6;
-}
-
-JNIEXPORT jstring JNICALL PROBE_FN(abi)(JNIEnv* env, jclass cls) {
-    (void)cls;
-#if defined(__aarch64__)
-    return (*env)->NewStringUTF(env, "arm64-v8a");
-#elif defined(__x86_64__)
-    return (*env)->NewStringUTF(env, "x86_64");
-#else
-    return (*env)->NewStringUTF(env, "unknown");
-#endif
 }
 
 JNIEXPORT jstring JNICALL PROBE_FN(onLoad)(JNIEnv* env, jclass cls) {

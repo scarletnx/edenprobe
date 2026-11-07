@@ -1,5 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
-package dev.dravee.androidprobe;
+package org.scarletnx.edenprobe;
 
 import android.app.Activity;
 import android.os.Handler;

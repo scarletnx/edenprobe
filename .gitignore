@@ -8,3 +8,8 @@
 /.github/scripts/__pycache__/
 /tools/vklayer/libVkLayer_edenprobe_masquerade.so
 /tools/vklayer/check_masquerade
+# what a Gradle build of android/ run there by hand leaves; -Pedenprobe.out=DIR puts it elsewhere
+/android/build/
+/android/.gradle/
+/android/.cxx/
+/android/local.properties

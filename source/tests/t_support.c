@@ -719,6 +719,7 @@ static void CheckReportLine(void) {
 static void CheckLabel(void);
 static void CheckFrames(void);
 static void CheckWidestMode(void);
+static void CheckFrontendFamilies(void);
 static void CheckRunnerRoot(void);
 
 static void CheckLaunchAndMode(void) {
@@ -1007,6 +1008,7 @@ static void CheckLaunchAndMode(void) {
     CheckLabel();
     CheckFrames();
     CheckWidestMode();
+    CheckFrontendFamilies();
     CheckRunnerRoot();
 }
 
@@ -1324,6 +1326,39 @@ static uint32_t CountRed(const UiFrame *frame) {
         }
     }
     return seen;
+}
+
+/// The families a frontend has, and which of them run when the mode file names none: the console's
+/// libc only when named, so its runs that name no family report what they did before it; Android's
+/// every one.
+static void CheckFrontendFamilies(void) {
+    const uint32_t android = MODE_FAMILY_LIBC | MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET |
+                             MODE_FAMILY_JNI | MODE_FAMILY_FRAMEWORK;
+    const RunMode words = ModeFromText("quick libc jni framework");
+    char key[MODE_KEY_MAX];
+    ModeKey(key, sizeof(key), &words);
+    const RunMode none = ModeFromText("quick");
+    char console_said[REPORT_NOTE_MAX + 1];
+    ModeDescribe(console_said, sizeof(console_said), &words, MODE_FAMILIES_PRESENT);
+    char android_said[REPORT_NOTE_MAX + 1];
+    ModeDescribeOf(android_said, sizeof(android_said), &none, android, 0u);
+    const bool words_right =
+        words.families_named == (MODE_FAMILY_LIBC | MODE_FAMILY_JNI | MODE_FAMILY_FRAMEWORK) &&
+        words.unknown_count == 0u && strcmp(key, "framework jni libc") == 0;
+    const bool console_right =
+        (ModeFamiliesToRun(&none, MODE_FAMILIES_PRESENT) & MODE_FAMILY_LIBC) == 0u &&
+        ModeFamiliesToRun(&words, MODE_FAMILIES_PRESENT) == MODE_FAMILY_LIBC &&
+        strstr(console_said, "families libc; not in this build: jni framework") != NULL;
+    const bool android_right =
+        ModeFamiliesToRunOf(&none, android, 0u) == android &&
+        ModeFamiliesToRunOf(&words, android, 0u) ==
+            (MODE_FAMILY_LIBC | MODE_FAMILY_JNI | MODE_FAMILY_FRAMEWORK) &&
+        strstr(android_said, "families graphics net libc jni framework") != NULL;
+    CHECK_TRUE(SUITE, "libc, jni and framework are words, and each frontend runs its own families",
+               CHECK_NONE, words_right && console_right && android_right,
+               "words %s (key \"%s\"); console %s (\"%.120s\"); android %s (\"%.120s\")",
+               words_right ? "right" : "wrong", key, console_right ? "right" : "wrong",
+               console_said, android_right ? "right" : "wrong", android_said);
 }
 
 /// The runner's paths under a frontend's root, and a root too long for them refused.

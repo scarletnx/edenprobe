@@ -1,5 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
-package dev.dravee.androidprobe;
+package org.scarletnx.edenprobe;
 
 import android.content.Context;
 import android.content.res.AssetManager;
@@ -116,7 +117,7 @@ final class ResourceCases {
                 LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) weighted.getLayoutParams();
                 return b.append(lp.width).append(' ').append(lp.weight).append(' ').append(weighted.getVisibility()).toString();
             });
-            return Outcome.check("LinearLayout[TextView,View] orientation 1|androidprobe|10 2.0 4", got);
+            return Outcome.check("LinearLayout[TextView,View] orientation 1|edenprobe|10 2.0 4", got);
         }
     }
 

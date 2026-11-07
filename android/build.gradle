@@ -1,52 +1,55 @@
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
-// androidprobe: one APK of cases whose report has edenprobe's format (README.md). tools/build.sh runs this with
-// -Pandroidprobe.out=DIR, where everything the build writes goes.
+// edenprobe's Android frontend (docs/Android.md): one APK, the engine and the shared cases in its native library, as
+// the NRO has them, with Android's own cases. -Pedenprobe.out=DIR puts everything the build writes under DIR
+// (build/ here without it).
 plugins {
     id 'com.android.application' version '9.4.0'
 }
 
-def out = file(providers.gradleProperty('androidprobe.out').orElse(layout.projectDirectory.dir('build').asFile.path).get())
+def out = file(providers.gradleProperty('edenprobe.out').orElse(layout.projectDirectory.dir('build').asFile.path).get())
 layout.buildDirectory = new File(out, 'gradle')
 
-// The report's run folder and its first note name the source the APK was built from
-def revision = providers.exec {
-    commandLine 'git', 'describe', '--always', '--dirty', '--abbrev=9'
-    workingDir = projectDir
-}.standardOutput.asText.get().trim()
+// The build's names, as the Makefile gives the NRO them (docs/Versions.md): VERSION, the build described from the
+// version tags, and the commit alone, which names the run's folder. A tree git cannot describe stops the build.
+def describe(String... args) {
+    providers.exec {
+        commandLine(['git', 'describe'] + args.toList())
+        workingDir = rootDir
+    }.standardOutput.asText.get().trim()
+}
+def version = file('../VERSION').text.trim()
+def build = describe('--tags', '--match', 'v[0-9]*', '--always', '--dirty')
+def hash = describe('--always', '--dirty', '--abbrev=7', '--exclude=*')
 
 android {
-    namespace = 'dev.dravee.androidprobe'
+    namespace = 'org.scarletnx.edenprobe'
     compileSdk = 36
     ndkVersion = '28.2.13676358'
     defaultConfig {
-        applicationId = 'dev.dravee.androidprobe'
+        applicationId = 'org.scarletnx.edenprobe'
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = '0.1.0'
-        buildConfigField 'String', 'REVISION', "\"${revision}\""
+        versionName = version
         // arm64-v8a for phones and ScarletNX's layer, x86_64 for the emulator's own bionic
         ndk { abiFilters += ['arm64-v8a', 'x86_64'] }
+        externalNativeBuild.cmake.arguments += ["-DEDENPROBE_VERSION=${version}", "-DEDENPROBE_BUILD=${build}",
+                                                "-DEDENPROBE_HASH=${hash}"]
     }
-    buildFeatures.buildConfig = true
     externalNativeBuild.cmake {
         path = file('src/main/cpp/CMakeLists.txt')
         version = '3.31.6'
         buildStagingDirectory = new File(out, 'cxx')
     }
-    // the libraries extracted at install, as the layer always does: /proc/self/maps then names libandroidprobe.so
+    // the libraries extracted at install, as the layer always does: /proc/self/maps then names libedenprobe.so
     packaging.jniLibs.useLegacyPackaging = true
-    // the debug build is the probe: debuggable, so run-as reads its files, signed with the machine's debug key
+    // debuggable, so run-as reads its files; signed with the machine's debug key
     buildTypes.debug.debuggable = true
 }
 
-dependencies {
-    testImplementation 'junit:junit:4.13.2'
-}
-
-tasks.withType(Test).configureEach {
-    testLogging {
-        events 'passed', 'skipped', 'failed'
-        exceptionFormat = 'full'
-    }
+// AGP 9 adds Kotlin's standard library to every app; this one is Java only, and the layer would translate it for
+// nothing
+configurations.configureEach {
+    exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib'
 }

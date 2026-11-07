@@ -1,21 +1,26 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-# A scarletnx-android for tests/test-run-scarletnx.sh: FAKE_SCENARIO picks what each launch does (ok, die-once,
-# stall); FAKE_STATE (a folder) keeps the launch count and what the launch saw (its arguments and environment).
-pkg=dev.dravee.androidprobe
+# A scarletnx-android for test-run-scarletnx.sh: FAKE_SCENARIO picks what each launch does (ok, die-once, stall);
+# FAKE_STATE (a folder) keeps the launch count and what the launch saw (its arguments, its environment, the mode file).
+pkg=org.scarletnx.edenprobe
 n=$(($(cat "$FAKE_STATE/launches" 2> /dev/null || echo 0) + 1))
 echo $n > "$FAKE_STATE/launches"
+root=$XDG_DATA_HOME/scarletnx/android/data/$pkg/external/files/edenprobe
 {
     echo "args $*"
     echo "DISPLAY=${DISPLAY-unset} WAYLAND_DISPLAY=${WAYLAND_DISPLAY-unset}"
     echo "XDG_DATA_HOME=$XDG_DATA_HOME"
+    echo "mode $(cat "$root/mode" 2> /dev/null)"
 } > "$FAKE_STATE/seen-$n"
-run=$XDG_DATA_HOME/scarletnx/android/data/$pkg/external/files/runs/fixture
+run=$root/runs/fixture
 mkdir -p "$run"
-echo "I/androidprobe: run folder: $run" >&2
+echo "runs/fixture" > "$root/last-run"
+printf 'launch\n' >> "$run/journal"
 if [ "$FAKE_SCENARIO" = die-once ] && [ $n = 1 ]; then
-    head -n 3 "$FAKE_REPORT" > "$run/report.jsonl"
+    head -n 4 "$FAKE_REPORT" > "$run/report.jsonl"
     echo "what a JVM leaves in its working folder when it crashes" > "hs_err_pid$$.log"
+    echo "I/edenprobe: $(sed -n 4p "$FAKE_REPORT")" >&2
     echo "E/AndroidRuntime: FATAL EXCEPTION: main" >&2
     exit 1
 fi
@@ -24,6 +29,6 @@ if [ "$FAKE_SCENARIO" = stall ] && [ $n = 1 ]; then
     exit 0
 fi
 cp "$FAKE_REPORT" "$run/report.jsonl"
-printf 'launch\n' > "$run/journal"
-echo "I/androidprobe: done: $run/report.jsonl" >&2
+echo "I/edenprobe: $(tail -n 1 "$FAKE_REPORT")" >&2
+echo "I/edenprobe: EDENPROBE DONE passed=1 failed=1 skipped=1 crashed=0" >&2
 exit 0

@@ -1,5 +1,6 @@
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
-package dev.dravee.androidprobe;
+package org.scarletnx.edenprobe;
 
 import java.nio.ByteBuffer;
 import java.util.Locale;
@@ -10,7 +11,6 @@ final class JniCases {
 
     static final class Version implements Case {
         @Override public Outcome run(Env env) {
-            NativeLib.require();
             return Outcome.check("0x00010006", String.format(Locale.ROOT, "0x%08x", NativeLib.version()));
         }
     }
@@ -18,7 +18,6 @@ final class JniCases {
     /** JNI_OnLoad ran once with a JavaVM whose GetEnv gives JNI 1.6, and both ways of binding a native method work. */
     static final class OnLoadAndBinding implements Case {
         @Override public Outcome run(Env env) {
-            NativeLib.require();
             return Outcome.check("onload 1, GetEnv 0|registered|by name", NativeLib.onLoad() + "|" + NativeLib.registered() + "|" + NativeLib.byName());
         }
     }
@@ -29,7 +28,6 @@ final class JniCases {
      */
     static final class FindClassThreads implements Case {
         @Override public Outcome run(Env env) {
-            NativeLib.require();
             return Outcome.check("java thread found|attached thread java.lang.ClassNotFoundException", NativeLib.findClass());
         }
     }
@@ -40,7 +38,6 @@ final class JniCases {
      */
     static final class StringUtf implements Case {
         @Override public Outcome run(Env env) {
-            NativeLib.require();
             return Outcome.check("61c3a7f09f9880c08062 utf-length 10 length 6", NativeLib.utf("aç😀\u0000b"));
         }
     }
@@ -48,7 +45,6 @@ final class JniCases {
     /** A Java exception seen from C (ExceptionCheck, its class and message), and ThrowNew seen from Java. */
     static final class Exceptions implements Case {
         @Override public Outcome run(Env env) {
-            NativeLib.require();
             String fromC = NativeLib.catchJava();
             String fromJava;
             try {
@@ -64,7 +60,6 @@ final class JniCases {
     /** Array elements copied back on release, a critical region, and direct buffers both ways. */
     static final class ArraysAndBuffers implements Case {
         @Override public Outcome run(Env env) {
-            NativeLib.require();
             int[] ints = {1, 2, 3, 4};
             byte[] bytes = new byte[4];
             ByteBuffer direct = ByteBuffer.allocateDirect(16);
@@ -79,7 +74,6 @@ final class JniCases {
     /** Call*Method with mixed arguments (variadic floats are doubles), its A form, and a float return. */
     static final class Calls implements Case {
         @Override public Outcome run(Env env) {
-            NativeLib.require();
             String s = "1 -2 3.5 4.25 five true x -6 7 8.125 9.5";
             return Outcome.check(s + "|" + s + "|1.25", NativeLib.calls());
         }

@@ -1,10 +1,11 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
 #ifndef ANDROIDPROBE_PROBE_H
 #define ANDROIDPROBE_PROBE_H
 #include <jni.h>
 #include <stddef.h>
 
-#define PROBE_FN(name) Java_dev_dravee_androidprobe_NativeLib_##name
+#define PROBE_FN(name) Java_org_scarletnx_edenprobe_NativeLib_##name
 
 /* the JavaVM that JNI_OnLoad got */
 JavaVM* probe_vm(void);

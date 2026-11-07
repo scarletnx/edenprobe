@@ -23,6 +23,10 @@ extern "C" {
 /// word, `EDENPROBE DONE ...`.
 void PlatformLog(const char *line, size_t length);
 
+/// Whether PlatformLog writes to standard output, where a case can read its own line back: the
+/// host build's alone.
+bool PlatformLogIsStandardOutput(void);
+
 /// Why the last call below that answered false did: a sentence for the case's detail.
 const char *PlatformError(void);
 

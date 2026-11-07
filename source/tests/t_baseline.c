@@ -112,9 +112,10 @@ static void CheckLines(void) {
         "{\"sample\":4,\"suite\":\"s\",\"name\":\"X\",\"us\":1",
         "{\"sample\":4,\"suite\":\"s\",\"name\":\"X\",\"us\":1\n",
         "{\"type\":\"sample\",\"sample\":7,\"build\":\"b\",\"label\":\"\",\"cases\":4",
-        // A cut line the next sample's opening line was written onto.
-        "{\"sample\":6,\"suite\":\"s\",\"name\":\"X\",\"us\":10{\"type\":\"sample\",\"sample\":7,"
-        "\"build\":\"b\",\"label\":\"\",\"cases\":1}\n",
+        // A cut line the next sample's opening line was written onto: one string over two lines,
+        // in parentheses so Clang does not take it for a missing comma.
+        ("{\"sample\":6,\"suite\":\"s\",\"name\":\"X\",\"us\":10{\"type\":\"sample\",\"sample\":7,"
+         "\"build\":\"b\",\"label\":\"\",\"cases\":1}\n"),
         "{\"sample\":6,\"suite\":\"s\",\"name\":\"X\",\"us\":10} trailing",
         "{\"type\":\"samplezzz\",\"sample\":9}",
         "not json at all",
