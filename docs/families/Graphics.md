@@ -892,6 +892,16 @@ whether the machine does.
 - **Q9, fixed.** With the clamp off, is a quad at z -0.5 or 1.5 clipped, and with the clamp on is it
   drawn at depth 0 and 1? And do the face cases hold: is the face decided after the viewport's scale
   and swizzle, as the cases expect?
+- **Q10, stencil.** Which of the two quads, wound opposite ways, takes the front face's state
+  under the window origin the library sets up? The case passes either way and its note says which;
+  ScarletNX gives it to the one wound counter-clockwise in clip space.
+- **Q11, coverage.** What alpha to coverage covers at one eighth to seven eighths, with the dither
+  off and on: the fourteen notes, one per alpha and dither, hold the masks the 256 pixels took.
+- **Q12, coverage.** Do the cases the specifications decide (NV_fragment_coverage_to_color,
+  NV_framebuffer_mixed_samples, NV_sample_locations) come out as written: the raster coverage in
+  a one sample integer target, the split each position pattern gives, the grid's odd columns, the
+  modulation and its table, and 0xa after the depth test? Expected yes; no emulator passes most of
+  them yet, so a console run is the first that says the cases are right.
 
 The blit2d suite asks two questions of its own, which texel each origin samples when the copy
 scales and how a fraction in the scale is stepped; they are on [its page](Blit2d.md), as its Q1
