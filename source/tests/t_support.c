@@ -969,7 +969,8 @@ static void CheckLaunchAndMode(void) {
         MODE_FAMILIES_PRESENT ==
             (MODE_FAMILY_CPU | MODE_FAMILY_PAD | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS |
              MODE_FAMILY_KERNEL | MODE_FAMILY_DISPLAY | MODE_FAMILY_VIDEO | MODE_FAMILY_AUDIO |
-             MODE_FAMILY_SERVICE | MODE_FAMILY_NET | MODE_FAMILY_GAME | MODE_FAMILY_NVN) &&
+             MODE_FAMILY_SERVICE | MODE_FAMILY_NET | MODE_FAMILY_GAME | MODE_FAMILY_NVN |
+             MODE_FAMILY_LIBC) &&
         strcmp(net_said,
                "mode: quick, from the mode file; pictures of failures only; families net") == 0;
     const RunMode flood = ModeFromText(

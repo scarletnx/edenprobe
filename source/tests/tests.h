@@ -69,6 +69,13 @@ void RunReferenceEtc2(void);
 /// The bcn suite's array layout held to offsets worked out by hand from deko3d's layout rules,
 /// and its solid BC4 block: part of the reference suite.
 void RunReferenceBcn(void);
+
+/// The C library, the same cases on every frontend (t_libc.c, docs/families/Libc.md): libc needs
+/// nothing but the library, system threads and a clock, socket the network stack on loopback
+/// (PlatformSocketsOpen). A frontend's steps run those its machine has.
+void RunLibc(void);
+void RunSystem(void);
+void RunSocket(void);
 #ifdef __SWITCH__
 /// The processor's own instructions, compared bit for bit with the reference. Console only,
 /// because its cases are AArch64 instructions; no device, so it runs in every mode.

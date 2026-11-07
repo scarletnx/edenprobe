@@ -58,6 +58,10 @@ extern "C" {
 ///             reden's. It runs only when named until a console has shown what it answers.
 ///   net       another: the online services, nifm to friend, against the backend the file
 ///             sdmc:/edenprobe/net names (see netref.h).
+///   libc      another: the C library and what it asks of the system, the same cases on every
+///             frontend: formatting, parsing, strings, libm, jumps, dates, then threads and the
+///             clock, then sockets on loopback. On the console it runs only when named, so a run
+///             that names none reports what it always did.
 ///   game      another: a scene that runs everything at once, as a game does, on every core the
 ///             program has, and times its frames. It runs only when named until a console has
 ///             run it.
@@ -94,6 +98,7 @@ enum {
     MODE_FAMILY_SERVICE = 1u << 9,
     MODE_FAMILY_GAME = 1u << 10,
     MODE_FAMILY_NVN = 1u << 11,
+    MODE_FAMILY_LIBC = 1u << 12,
 };
 
 /// The families the console's build carries. A family named in the file and missing here is
@@ -101,13 +106,14 @@ enum {
 #define MODE_FAMILIES_PRESENT                                                                     \
     ((uint32_t)(MODE_FAMILY_CPU | MODE_FAMILY_PAD | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS |      \
                 MODE_FAMILY_KERNEL | MODE_FAMILY_DISPLAY | MODE_FAMILY_VIDEO |                     \
-                MODE_FAMILY_AUDIO | MODE_FAMILY_SERVICE | MODE_FAMILY_NET | MODE_FAMILY_GAME | \
-                MODE_FAMILY_NVN))
+                MODE_FAMILY_AUDIO | MODE_FAMILY_SERVICE | MODE_FAMILY_NET | MODE_FAMILY_GAME |     \
+                MODE_FAMILY_NVN | MODE_FAMILY_LIBC))
 
 /// The console's families that run only when a word asks for them.
 #define MODE_FAMILIES_ASKED                                                                       \
     ((uint32_t)(MODE_FAMILY_AUDIO | MODE_FAMILY_DISPLAY | MODE_FAMILY_KERNEL | MODE_FAMILY_VIDEO | \
-                MODE_FAMILY_PAD | MODE_FAMILY_SERVICE | MODE_FAMILY_GAME | MODE_FAMILY_NVN))
+                MODE_FAMILY_PAD | MODE_FAMILY_SERVICE | MODE_FAMILY_GAME | MODE_FAMILY_NVN |       \
+                MODE_FAMILY_LIBC))
 
 /// What runs when the file names no family.
 #define MODE_FAMILIES_DEFAULT ((uint32_t)(MODE_FAMILIES_PRESENT & ~MODE_FAMILIES_ASKED))

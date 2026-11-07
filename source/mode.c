@@ -26,6 +26,7 @@ static const struct {
     { "net", MODE_FAMILY_NET },
     { "game", MODE_FAMILY_GAME },
     { "nvn", MODE_FAMILY_NVN },
+    { "libc", MODE_FAMILY_LIBC },
 };
 
 static bool IsLetter(char c) {
@@ -576,6 +577,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { mode->hang, "hang" },
         { mode->every_case, "images" },
         { (mode->families_named & MODE_FAMILY_KERNEL) != 0u, "kernel" },
+        { (mode->families_named & MODE_FAMILY_LIBC) != 0u, "libc" },
         { mode->listen, "listen" },
         { (mode->families_named & MODE_FAMILY_NET) != 0u, "net" },
         { mode->no_timing, "notime" },

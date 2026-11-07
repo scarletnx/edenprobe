@@ -30,6 +30,7 @@ HOSTSRC  := source/platform_host.c source/runner.c \
             source/tests/t_schedref.c source/tests/t_binderref.c source/tests/t_blit2dref.c \
             source/tests/t_serviceref.c source/tests/t_baseline.c source/tests/t_gameref.c \
             source/tests/t_tex8kref.c source/tests/t_fixedref.c \
+            source/tests/t_libc.c \
             source/host_main.c
 
 # One object per source, so the -MMD below has somewhere to put its dependency files. Without
@@ -47,7 +48,7 @@ build-host/%.o: source/%.c
 	$(HOSTCC) $(HOSTFLAGS) -c $< -o $@
 
 $(HOSTOUT): $(HOSTOBJ)
-	$(HOSTCC) $(HOSTFLAGS) $(HOSTOBJ) -lm -o $@
+	$(HOSTCC) $(HOSTFLAGS) $(HOSTOBJ) -lm -pthread -o $@
 
 # Twice, the second from somewhere else on purpose: a path built relative to the working
 # directory works from here and nowhere else, and the suite has to be able to notice that. Then

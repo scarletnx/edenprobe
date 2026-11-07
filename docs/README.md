@@ -30,4 +30,5 @@ New here? Start with [Build](./Build.md), then [the mode file](./ModeFile.md) an
   - **[Video](./families/Video.md)** - the VIC, and **[nvdec](./families/Nvdec.md)**, VP9 through the decode engine
   - **[Audio](./families/Audio.md)**, **[service](./families/Service.md)** and **[net](./families/Net.md)**
   - **[Game](./families/Game.md)** - one scene that runs everything at once, as a game does
+  - **[libc](./families/Libc.md)** - the C library under every frontend
 - **[Credits](./Credits.md)**

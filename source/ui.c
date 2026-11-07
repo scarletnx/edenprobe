@@ -600,6 +600,8 @@ static const struct {
     { "dns", UI_FAMILY_NET },         { "bsd", UI_FAMILY_NET },
     { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },
     { "friend", UI_FAMILY_NET },
+    { "libc", UI_FAMILY_LIBC },       { "system", UI_FAMILY_LIBC },
+    { "socket", UI_FAMILY_LIBC },
     { "game", UI_FAMILY_GAME },
     { "nvn", UI_FAMILY_NVN },
 };
@@ -641,6 +643,8 @@ const char *UiFamilyName(UiFamily family) {
         return "net";
     case UI_FAMILY_GAME:
         return "game";
+    case UI_FAMILY_LIBC:
+        return "libc";
     case UI_FAMILY_OTHER:
     case UI_FAMILY_COUNT:
         break;
