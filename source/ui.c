@@ -601,6 +601,7 @@ static const struct {
     { "ssl", UI_FAMILY_NET },         { "acc", UI_FAMILY_NET },
     { "friend", UI_FAMILY_NET },
     { "game", UI_FAMILY_GAME },
+    { "nvn", UI_FAMILY_NVN },
 };
 
 UiFamily UiFamilyOf(const char *suite) {
@@ -622,6 +623,8 @@ const char *UiFamilyName(UiFamily family) {
         return "pad";
     case UI_FAMILY_GRAPHICS:
         return "graphics";
+    case UI_FAMILY_NVN:
+        return "nvn";
     case UI_FAMILY_FS:
         return "fs";
     case UI_FAMILY_KERNEL:

@@ -124,6 +124,9 @@ static const Step STEPS[] = {
     // take the launch down with it. Untimed by the passes: one pass makes the uploads a game
     // makes once, and each case times its own work.
     { "tex8k", RunTex8k, MODE_FAMILY_GRAPHICS, false, true },
+    // The graphics questions asked through NVN, its own family since it runs only when named.
+    // Untimed: what it compares is a machine's NVN, not how fast it runs.
+    { "nvn", RunNvn, MODE_FAMILY_NVN, false, true },
     { "fs", RunFs, MODE_FAMILY_FS, true, true },
     // Untimed: what a case judges is the order its threads ran in, and each waits on purpose.
     { "sched", RunSched, MODE_FAMILY_KERNEL, false, true },

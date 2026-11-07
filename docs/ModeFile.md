@@ -17,6 +17,7 @@
 | `noprogress` | no running screen while the suites run; for a machine whose window misbehaves while the suites draw |
 | `cpu` | the processor family. It runs in every mode, so naming it alone leaves the graphics, fs and net families out: a few seconds, nothing drawn |
 | `graphics` | the graphics family: the thirty one drawing suites, clear to blit2d, and tex8k; selfcheck, support, reference and cpu always run, whatever family is named |
+| `nvn` | the nvn family: the clear suite's question asked through the program's NVN, a layer on deko3d that a runtime running a game's NVN itself (ScarletNX) takes as a game's driver; only when named, with no row on the start screen; its window case wants `noprogress`; see [nvn](families/Nvn.md) |
 | `fs` | the fs family: reads from the memory card, timed and checked; it writes a 64 MiB file and 256 small ones under `sdmc:/edenprobe/fs` the first time |
 | `audio` | the audio family: the renderer's resampler, circular buffer sink and limiter, recorded through its own effect and sink; only when named, since it makes sound (most at a gain of nought) |
 | `listen` | the listening sequence before the audio family's cases, and the audio family with it: about 40 seconds of sound meant to be heard; see [The audio family](families/Audio.md) |
@@ -33,7 +34,7 @@
 | `compare=<name>` | once the suites end, this run's times are held to that file's samples: a line for each case held to them, `same`, `slower` or `faster`, and one that sums them up, no verdict changed; see [Baselines](Baseline.md) |
 
 The judge and the cpu suite always run. With no family named, every family runs but audio, pad, kernel, display,
-service, video and game. A family this build lacks is listed in the mode line and skipped. Any other word is quoted
+service, video, game and nvn. A family this build lacks is listed in the mode line and skipped. Any other word is quoted
 and counted in the mode line and has no effect: a typo costs a line, never the run.
 
 The start screen chooses the same words for a person; the file is for a script or a choice that should stay. Under
@@ -49,6 +50,7 @@ The start screen chooses the same words for a person; the file is for a script o
 | `quick fs` | the judge, cpu and the fs suite, then exit |
 | `quick video` | the judge, cpu, the vic suite and the nvdec suite, then exit: what a console run of the video family wants |
 | `quick pad` | the judge, cpu and the pad suite with a person in front of it, then exit |
+| `quick nvn noprogress` | the judge, cpu and the nvn suite, its window case too, then exit |
 | `quick kernel display` | the judge, cpu, the sched suite and the binder suite, then exit |
 | `quick service` | the judge, cpu and the service family's suites, then exit |
 | `quick baseline=console` | the judge, cpu and the families a file naming none runs, then the run's times added as a sample to the console's baseline: on a console, a few times |

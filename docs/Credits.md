@@ -20,6 +20,12 @@
   the 2D class's methods with the numbers of `source/maxwell/engine_2d.def`, on the subchannel
   `source/maxwell/helpers.h` names for it, in the order `source/maxwell/gpu_transfer.cpp`
   (`Blit2DEngine`) writes the library's own blits.
+- **h1k421's NVN types**, as ScarletNX (https://github.com/scarletnx/ScarletNX, GPL-3.0-or-later)
+  carries them in `src/nx/gpu/nvn/nvn.h` from nxnative's `dm/gfx/nvn/include/nvn.h`: MIT licence,
+  copyright 2020 h1k421, the notice in `source/nvn/nvn.h` itself. The format numbers are written out
+  from ScarletNX's `src/nx/gpu/nvn/nvn_tic_format.inc` and the prototypes of `source/nvnlayer.h`
+  follow its `gpu/nvn/nvn.hook`; `nvnDeviceGetInteger`'s switch takes the shape its
+  `nvn_driver.c` reads.
 - **NVIDIA's open-gpu-doc**, https://github.com/NVIDIA/open-gpu-doc (MIT, copyright 2003-2004
   NVIDIA Corporation, in the header itself): `tools/blit2d-expect.py` takes the 2D class's method
   offsets from `classes/twod/cl902d.h` (9fdf5c4), to check the C's words against a second source.
