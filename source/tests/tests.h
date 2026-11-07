@@ -211,6 +211,12 @@ void RunTex8k(void);
 /// Whether the tex8k cases carry their times: off for a run with the mode word `notime`.
 void Tex8kSetTiming(bool on);
 
+/// The nvn family: the program's NVN (nvnlayer.c, on deko3d) looked up by name as a game looks up
+/// its driver's, a device and a queue brought up through it, a 64x64 target cleared and read back
+/// pixel by pixel, and a window that acquires and presents both its textures. Under ScarletNX the
+/// same calls reach ScarletNX's NVN instead of the layer.
+void RunNvn(void);
+
 /// Reads from the memory card through FsFile, in the patterns a game reads its files: sequential
 /// in five block sizes, random, backwards, the same place again, many small files, and the edges.
 /// Every byte is checked; the times are the point.

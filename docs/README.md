@@ -25,6 +25,7 @@ New here? Start with [Build](./Build.md), then [the mode file](./ModeFile.md) an
   - **[Processor](./families/Cpu.md)**, **[pad](./families/Pad.md)** and **[touch](./families/Touch.md)**
   - **[Graphics](./families/Graphics.md)** - the drawing suites, clear to tex8k, and
     **[blit2d](./families/Blit2d.md)**
+  - **[nvn](./families/Nvn.md)** - the clear suite's question through the program's NVN, a layer on deko3d
   - **[fs](./families/Fs.md)**, **[kernel](./families/Kernel.md)** and **[display](./families/Display.md)**
   - **[Video](./families/Video.md)** - the VIC, and **[nvdec](./families/Nvdec.md)**, VP9 through the decode engine
   - **[Audio](./families/Audio.md)**, **[service](./families/Service.md)** and **[net](./families/Net.md)**

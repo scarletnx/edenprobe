@@ -548,6 +548,7 @@ static void CheckFamilies(void) {
         { "ssl", UI_FAMILY_NET },           { "acc", UI_FAMILY_NET },
         { "friend", UI_FAMILY_NET },
         { "game", UI_FAMILY_GAME },
+        { "nvn", UI_FAMILY_NVN },
     };
     const size_t count = sizeof(SUITES) / sizeof(SUITES[0]);
     uint32_t wrong = 0;
@@ -559,7 +560,7 @@ static void CheckFamilies(void) {
     }
     // A run with every family has a group for each suite, so the index holds them all.
     CHECK_TRUE(SUITE, "every suite a run reports is shown under its own family", CHECK_NONE,
-               wrong == 0u && count == 88u && count <= UI_MAX_GROUPS &&
+               wrong == 0u && count == 89u && count <= UI_MAX_GROUPS &&
                    UiFamilyOf("weird") == UI_FAMILY_OTHER && UiFamilyOf(NULL) == UI_FAMILY_OTHER,
                "%u of %u suites under the wrong family, the first %s; the index holds %u groups",
                (unsigned)wrong, (unsigned)count, first, (unsigned)UI_MAX_GROUPS);

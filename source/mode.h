@@ -93,6 +93,7 @@ enum {
     MODE_FAMILY_DISPLAY = 1u << 8,
     MODE_FAMILY_SERVICE = 1u << 9,
     MODE_FAMILY_GAME = 1u << 10,
+    MODE_FAMILY_NVN = 1u << 11,
 };
 
 /// The families this build carries. A family named in the file and missing here is reported,
@@ -100,12 +101,13 @@ enum {
 #define MODE_FAMILIES_PRESENT                                                                     \
     ((uint32_t)(MODE_FAMILY_CPU | MODE_FAMILY_PAD | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS |      \
                 MODE_FAMILY_KERNEL | MODE_FAMILY_DISPLAY | MODE_FAMILY_VIDEO |                     \
-                MODE_FAMILY_AUDIO | MODE_FAMILY_SERVICE | MODE_FAMILY_NET | MODE_FAMILY_GAME))
+                MODE_FAMILY_AUDIO | MODE_FAMILY_SERVICE | MODE_FAMILY_NET | MODE_FAMILY_GAME | \
+                MODE_FAMILY_NVN))
 
 /// The families that run only when a word asks for them.
 #define MODE_FAMILIES_ASKED                                                                       \
     ((uint32_t)(MODE_FAMILY_AUDIO | MODE_FAMILY_DISPLAY | MODE_FAMILY_KERNEL | MODE_FAMILY_VIDEO | \
-                MODE_FAMILY_PAD | MODE_FAMILY_SERVICE | MODE_FAMILY_GAME))
+                MODE_FAMILY_PAD | MODE_FAMILY_SERVICE | MODE_FAMILY_GAME | MODE_FAMILY_NVN))
 
 /// What runs when the file names no family.
 #define MODE_FAMILIES_DEFAULT ((uint32_t)(MODE_FAMILIES_PRESENT & ~MODE_FAMILIES_ASKED))

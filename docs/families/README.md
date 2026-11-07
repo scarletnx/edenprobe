@@ -1,6 +1,7 @@
 # What it checks
 
-The families run in this order: the judge, the processor, pad (when a word names it), graphics, fs, then kernel,
+The families run in this order: the judge, the processor, pad (when a word names it), graphics, nvn (when its word
+names it), fs, then kernel,
 display, video, audio and service (each when a word names it), net, and game (when its word names it). The
 [mode file](../ModeFile.md) says which words name what, and [the roadmap](../Roadmap.md) what a failure in each suite
 points at. A case that ends the program costs that case, not the rest of the run
@@ -10,6 +11,7 @@ points at. A case that ends the program costs that case, not the rest of the run
 - **[The processor](./Cpu.md)** - cpu
 - **[Pad](./Pad.md)** - a controller in a person's hands, and the touch screen ([touch](./Touch.md))
 - **[Graphics](./Graphics.md)** - the thirty one drawing suites, clear to blit2d ([blit2d](./Blit2d.md)), and tex8k
+- **[nvn](./Nvn.md)** - the clear suite's question through the program's NVN, which ScarletNX takes as a game's
 - **[fs](./Fs.md)** - reads through the file system service
 - **[Kernel](./Kernel.md)** - the scheduler: priority inheritance, preemption and migration
 - **[Display](./Display.md)** - the buffer producer's history, on a layer of its own

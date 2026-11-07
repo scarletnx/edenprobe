@@ -45,9 +45,11 @@ CFLAGS   := $(ARCH) -g -O2 -ffunction-sections -fdata-sections -MMD -MP \
             -D__SWITCH__ -I$(LIBNX)/include -Isource -I$(BUILD) -I$(BUILD)/shaders
 # --wrap on the abort is what lets GpuOpen report a failed bring-up instead of dying: the
 # graphics library answers a failed constructor by calling the runtime's abort, which never comes
-# back. gpu.c arms the wrapper only while the device is being brought up.
+# back. gpu.c arms the wrapper only while the device is being brought up. nvnBootstrapLoader is
+# the one exported function: it is how a runtime that runs a game's NVN calls itself (ScarletNX)
+# finds the program's NVN, as it finds a game's driver (nvnlayer.h).
 LDFLAGS  := $(ARCH) -specs=$(LIBNX)/switch.specs -Wl,--gc-sections -g \
-            -Wl,--wrap=diagAbortWithResult
+            -Wl,--wrap=diagAbortWithResult -Wl,--export-dynamic-symbol=nvnBootstrapLoader
 # Order matters: the graphics library leans on the C runtime and on the maths library after it.
 # The maths one is not decoration, since building a sampler descriptor calls powf.
 LIBS     := -L$(LIBNX)/lib -ldeko3d -lnx -lm

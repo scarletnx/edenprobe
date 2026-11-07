@@ -25,6 +25,7 @@ static const struct {
     { "service", MODE_FAMILY_SERVICE },
     { "net", MODE_FAMILY_NET },
     { "game", MODE_FAMILY_GAME },
+    { "nvn", MODE_FAMILY_NVN },
 };
 
 static bool IsLetter(char c) {
@@ -568,6 +569,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { mode->listen, "listen" },
         { (mode->families_named & MODE_FAMILY_NET) != 0u, "net" },
         { mode->no_timing, "notime" },
+        { (mode->families_named & MODE_FAMILY_NVN) != 0u, "nvn" },
         { (mode->families_named & MODE_FAMILY_PAD) != 0u, "pad" },
         { mode->retry, "retry" },
         { (mode->families_named & MODE_FAMILY_SERVICE) != 0u, "service" },
