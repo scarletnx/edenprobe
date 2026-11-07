@@ -24,6 +24,14 @@
 // the same flat pipeline, or in D with the uniform one (colour from a uniform buffer). The copy's
 // rows are the same whichever way round the rows are counted, so the window origin decides
 // nothing here.
+//
+// The cases after them ask what the copy is made of. NV_draw_texture, the same call on the
+// desktop, says its fragments go through every per-fragment operation and take their texels
+// through the sampler it names, which a copy done as a blit would not: a 16 by 16 texture of
+// columns (S, column x red 16 x, green 255 - 16 x, blue 0x55, alpha 0x80) goes onto a target
+// cleared to BASE with blending adding the two, with a write mask open to red and alpha, under
+// the alpha test, and from two texels left of the texture through a clamping and a repeating
+// sampler.
 
 static const char *const SUITE = "drawtex";
 
@@ -38,6 +46,7 @@ static const uint8_t COLOUR_B[4] = { 0xC0, 0x20, 0x40, 0xFF };
 static const uint8_t COLOUR_C[4] = { 0x10, 0xE0, 0x70, 0xFF };
 static const uint8_t COLOUR_D[4] = { 0xF0, 0xB0, 0x08, 0xFF };
 static const uint8_t CLEARED[4] = { 0, 0, 0, 0 };
+static const uint8_t BASE[4] = { 0x30, 0x40, 0x50, 0x60 };
 
 typedef struct {
     GpuContext gpu;
@@ -48,6 +57,14 @@ typedef struct {
     DkGpuAddr sampler_set;
     DkGpuAddr colour_d;
 } DrawtexContext;
+
+/// Texel x of the column texture S, whatever its row.
+static void Column(uint32_t x, uint8_t out[4]) {
+    out[0] = (uint8_t)(16u * x);
+    out[1] = (uint8_t)(255u - 16u * x);
+    out[2] = 0x55;
+    out[3] = 0x80;
+}
 
 /// Two triangles over pixels [x0, x1) by [y0, y1), rows counted from the top as the other
 /// suites count them, in one flat colour.
@@ -186,12 +203,150 @@ static void ListCase(DrawtexContext *c, bool uniform_after, const char *rect_nam
     }
 }
 
+/// The texture descriptors: 0 is B, 1 is S. The samplers: 0 repeats, 1 clamps to the edge.
+enum { TEXTURE_B = 0, TEXTURE_S = 1, SAMPLER_REPEAT = 0, SAMPLER_CLAMP = 1 };
+
+/// What one pixel of S's rectangle at x 24..40, y 24..40 should hold, @p column the texel the
+/// pixel reads.
+typedef void (*Expect)(uint32_t column, uint8_t out[4]);
+
+static void Added(uint32_t column, uint8_t out[4]) {
+    uint8_t s[4];
+    Column(column, s);
+    for (uint32_t i = 0; i < 4u; ++i) {
+        const uint32_t sum = (uint32_t)s[i] + BASE[i];
+        out[i] = (uint8_t)(sum > 255u ? 255u : sum);
+    }
+}
+
+static void RedAlpha(uint32_t column, uint8_t out[4]) {
+    Column(column, out);
+    out[1] = BASE[1];
+    out[2] = BASE[2];
+}
+
+static void Plain(uint32_t column, uint8_t out[4]) {
+    Column(column, out);
+}
+
+/// One list over a target cleared to BASE: the draw texture of S onto x 24..40, y 24..40 (and,
+/// for the alpha test, a second onto x 8..24 after the compare is flipped), under whatever
+/// @p setup records first. The pixels of the rectangle are judged against @p expect with the
+/// column (x - 24 + @p shift) wrapped or clamped by @p wrap; everything else must hold BASE.
+static void StateCase(DrawtexContext *c, const char *name, void (*setup)(DrawtexContext *c),
+                      Expect expect, int32_t shift, uint32_t sampler, bool second) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    GpuClear(&c->gpu, BASE[0] / 255.0f, BASE[1] / 255.0f, BASE[2] / 255.0f, BASE[3] / 255.0f);
+    GpuBeginPass(&c->gpu);
+    dkCmdBufBindImageDescriptorSet(c->gpu.cmdbuf, c->image_set, 2);
+    dkCmdBufBindSamplerDescriptorSet(c->gpu.cmdbuf, c->sampler_set, 2);
+    if (setup != NULL) {
+        setup(c);
+    }
+    uint32_t words[13];
+    const size_t count = RawDrawTexture(words, TEXTURE_S, sampler, 24, 24, TEXTURE_SIZE,
+                                        TEXTURE_SIZE, shift, 0);
+    bool ok = GpuRawMethods(&c->gpu, words, (uint32_t)count);
+    if (second) {
+        // The alpha test flipped to LESS: the same texels pass it.
+        DkColorState colour_state;
+        dkColorStateDefaults(&colour_state);
+        colour_state.alphaCompareOp = DkCompareOp_Less;
+        dkCmdBufBindColorState(c->gpu.cmdbuf, &colour_state);
+        RawDrawTexture(words, TEXTURE_S, sampler, 8, 24, TEXTURE_SIZE, TEXTURE_SIZE, shift, 0);
+        ok = ok && GpuRawMethods(&c->gpu, words, (uint32_t)count);
+    }
+    GpuSubmit(&c->gpu);
+    const uint8_t *const pixels = ok && c->gpu.ready ? GpuReadBack(&c->gpu) : NULL;
+    if (pixels == NULL) {
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   c->gpu.failure[0] != '\0' ? c->gpu.failure
+                                              : "the list or the readback did not happen");
+        return;
+    }
+    Picture *const picture = PictureBegin(TARGET_SIZE, TARGET_SIZE, PICTURE_COLOUR, pixels);
+    uint32_t wrong = 0;
+    uint32_t first_x = 0;
+    uint32_t first_y = 0;
+    uint8_t want_first[4] = { 0, 0, 0, 0 };
+    for (uint32_t y = 0; y < TARGET_SIZE; ++y) {
+        for (uint32_t x = 0; x < TARGET_SIZE; ++x) {
+            uint8_t want[4];
+            memcpy(want, BASE, 4);
+            const bool in_rows = y >= 24u && y < 24u + TEXTURE_SIZE;
+            const bool first = in_rows && x >= 24u && x < 24u + TEXTURE_SIZE;
+            const bool other = second && in_rows && x >= 8u && x < 8u + TEXTURE_SIZE;
+            if (first || other) {
+                const int32_t at = (int32_t)(x - (first ? 24u : 8u)) + shift;
+                const int32_t column = sampler == SAMPLER_CLAMP
+                                           ? (at < 0 ? 0 : at > 15 ? 15 : at)
+                                           : (at % 16 + 16) % 16;
+                if (first) {
+                    expect((uint32_t)column, want);
+                } else {
+                    Plain((uint32_t)column, want);
+                }
+            }
+            const uint8_t *const pixel = GpuPixel(pixels, TARGET_SIZE, x, y);
+            const bool right = memcmp(pixel, want, 4) == 0;
+            PictureSet(picture, x, y, want, right ? PICTURE_MATCHED : PICTURE_WRONG);
+            if (!right && wrong++ == 0u) {
+                first_x = x;
+                first_y = y;
+                memcpy(want_first, want, 4);
+            }
+        }
+    }
+    const uint8_t *const seen = GpuPixel(pixels, TARGET_SIZE, first_x, first_y);
+    CHECK_TRUE(SUITE, name, CHECK_EXACT, wrong == 0u,
+               "%u of %u pixels wrong; (%u, %u) holds %02x%02x%02x%02x, wanted %02x%02x%02x%02x",
+               (unsigned)wrong, (unsigned)(TARGET_SIZE * TARGET_SIZE), (unsigned)first_x,
+               (unsigned)first_y, seen[0], seen[1], seen[2], seen[3], want_first[0],
+               want_first[1], want_first[2], want_first[3]);
+}
+
+static void AddingBlend(DrawtexContext *c) {
+    DkColorState colour_state;
+    dkColorStateDefaults(&colour_state);
+    dkColorStateSetBlendEnable(&colour_state, 0, true);
+    dkCmdBufBindColorState(c->gpu.cmdbuf, &colour_state);
+    DkBlendState blend;
+    dkBlendStateDefaults(&blend);
+    dkBlendStateSetOps(&blend, DkBlendOp_Add, DkBlendOp_Add);
+    dkBlendStateSetFactors(&blend, DkBlendFactor_One, DkBlendFactor_One, DkBlendFactor_One,
+                           DkBlendFactor_One);
+    dkCmdBufBindBlendState(c->gpu.cmdbuf, 0, &blend);
+}
+
+static void RedAlphaMask(DrawtexContext *c) {
+    DkColorWriteState writes;
+    dkColorWriteStateDefaults(&writes);
+    dkColorWriteStateSetMask(&writes, 0, DkColorMask_R | DkColorMask_A);
+    dkCmdBufBindColorWriteState(c->gpu.cmdbuf, &writes);
+}
+
+static void AlphaGreater(DrawtexContext *c) {
+    DkColorState colour_state;
+    dkColorStateDefaults(&colour_state);
+    colour_state.alphaCompareOp = DkCompareOp_Greater;
+    dkCmdBufBindColorState(c->gpu.cmdbuf, &colour_state);
+    dkCmdBufSetAlphaRef(c->gpu.cmdbuf, 0.75f);
+}
+
+/// The alpha test case's first rectangle: rejected, so it keeps BASE.
+static void Kept(uint32_t column, uint8_t out[4]) {
+    (void)column;
+    memcpy(out, BASE, 4);
+}
+
 void RunDrawtex(void) {
     GpuSpec spec;
     GpuSpecDefaults(&spec, TARGET_SIZE, TARGET_SIZE);
     spec.code_size = 32u * 1024u;
     spec.data_size = 64u * 1024u;
-    spec.image_size = 64u * 1024u;
+    spec.image_size = 256u * 1024u;
 
     if (!ReportStart(SUITE, "graphics device opens with room for a texture")) {
         return;
@@ -229,10 +384,17 @@ void RunDrawtex(void) {
     for (uint32_t i = 0; i < TEXTURE_SIZE * TEXTURE_SIZE; ++i) {
         memcpy(texels[i], COLOUR_B, 4);
     }
+    DkImage columns;
+    DkImageLayout columns_layout;
+    uint8_t column_texels[TEXTURE_SIZE * TEXTURE_SIZE][4];
+    for (uint32_t i = 0; i < TEXTURE_SIZE * TEXTURE_SIZE; ++i) {
+        Column(i % TEXTURE_SIZE, column_texels[i]);
+    }
     DkImageDescriptor *const images = (DkImageDescriptor *)GpuAllocData(
-        &c.gpu, (uint32_t)sizeof(DkImageDescriptor), DK_IMAGE_DESCRIPTOR_ALIGNMENT, &c.image_set);
+        &c.gpu, (uint32_t)(2u * sizeof(DkImageDescriptor)), DK_IMAGE_DESCRIPTOR_ALIGNMENT,
+        &c.image_set);
     DkSamplerDescriptor *const samplers =
-        (DkSamplerDescriptor *)GpuAllocData(&c.gpu, (uint32_t)sizeof(DkSamplerDescriptor),
+        (DkSamplerDescriptor *)GpuAllocData(&c.gpu, (uint32_t)(2u * sizeof(DkSamplerDescriptor)),
                                             DK_SAMPLER_DESCRIPTOR_ALIGNMENT, &c.sampler_set);
     float *const colour_d = (float *)GpuAllocData(&c.gpu, DK_UNIFORM_BUF_ALIGNMENT,
                                                   DK_UNIFORM_BUF_ALIGNMENT, &c.colour_d);
@@ -240,17 +402,27 @@ void RunDrawtex(void) {
                  GpuCreateTexture(&c.gpu, &texture, &layout, DkImageFormat_RGBA8_Unorm,
                                   TEXTURE_SIZE, TEXTURE_SIZE) &&
                  GpuUploadTexture(&c.gpu, &texture, DkImageFormat_RGBA8_Unorm, TEXTURE_SIZE,
-                                  TEXTURE_SIZE, texels);
+                                  TEXTURE_SIZE, texels) &&
+                 GpuCreateTexture(&c.gpu, &columns, &columns_layout, DkImageFormat_RGBA8_Unorm,
+                                  TEXTURE_SIZE, TEXTURE_SIZE) &&
+                 GpuUploadTexture(&c.gpu, &columns, DkImageFormat_RGBA8_Unorm, TEXTURE_SIZE,
+                                  TEXTURE_SIZE, column_texels);
     if (ready) {
         DkImageView view;
         dkImageViewDefaults(&view, &texture);
-        dkImageDescriptorInitialize(&images[0], &view, false, false);
+        dkImageDescriptorInitialize(&images[TEXTURE_B], &view, false, false);
+        dkImageViewDefaults(&view, &columns);
+        dkImageDescriptorInitialize(&images[TEXTURE_S], &view, false, false);
         DkSampler sampler;
         dkSamplerDefaults(&sampler);
         sampler.minFilter = DkFilter_Nearest;
         sampler.magFilter = DkFilter_Nearest;
         sampler.mipFilter = DkMipFilter_None;
-        dkSamplerDescriptorInitialize(&samplers[0], &sampler);
+        dkSamplerDescriptorInitialize(&samplers[SAMPLER_REPEAT], &sampler);
+        sampler.wrapMode[0] = DkWrapMode_ClampToEdge;
+        sampler.wrapMode[1] = DkWrapMode_ClampToEdge;
+        sampler.wrapMode[2] = DkWrapMode_ClampToEdge;
+        dkSamplerDescriptorInitialize(&samplers[SAMPLER_CLAMP], &sampler);
         memset(colour_d, 0, DK_UNIFORM_BUF_ALIGNMENT);
         for (uint32_t i = 0; i < 4u; ++i) {
             colour_d[i] = COLOUR_D[i] / 255.0f;
@@ -268,5 +440,15 @@ void RunDrawtex(void) {
              "a draw after a draw texture binds the pipeline the draw before it bound");
     ListCase(&c, true, NULL,
              "a draw with another pipeline after a draw texture sets its own viewport");
+    StateCase(&c, "a draw texture blends with the blend state bound", AddingBlend, Added, 0,
+              SAMPLER_REPEAT, false);
+    StateCase(&c, "a draw texture writes only the channels the write mask opens", RedAlphaMask,
+              RedAlpha, 0, SAMPLER_REPEAT, false);
+    StateCase(&c, "the alpha test rejects a draw texture's texels, and passes them flipped",
+              AlphaGreater, Kept, 0, SAMPLER_REPEAT, true);
+    StateCase(&c, "a draw texture from left of its texture clamps through a clamping sampler",
+              NULL, Plain, -2, SAMPLER_CLAMP, false);
+    StateCase(&c, "a draw texture from left of its texture wraps through a repeating sampler",
+              NULL, Plain, -2, SAMPLER_REPEAT, false);
     GpuClose(&c.gpu);
 }

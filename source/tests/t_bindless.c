@@ -18,6 +18,12 @@
 //
 // Each texture is one texel, written by the processor straight into image memory, with four bytes
 // derived from its own index, so column i of the target must hold texture i's texel.
+//
+// The last case does the same with four sample textures: two R32_Uint images whose sample s holds
+// 0x100 + s and 0x200 + s, each sample written by a draw under the sample mask 1 << s, reached
+// through four handles at a dynamic index that alternate between them, each fetch naming its
+// sample. A translator that keeps the handle's image and drops its being multisampled, or the
+// sample, reads another word.
 
 static const char *const SUITE = "bindless";
 
@@ -76,12 +82,126 @@ static void Judge(GpuContext *gpu, const uint8_t *pixels, const char *name, uint
     (void)gpu;
 }
 
+#define MS_SIZE 4u
+
+static const char *const MULTISAMPLE =
+    "a handle at a dynamic index to a four sample texture fetches the sample it names";
+
+/// The four sample case, on the bindless suite's own device: its two images and their descriptor
+/// set, the per-sample writes, then one draw of the bindless fetch into a 4 by 4 R32_Uint target,
+/// pixel (x, y) through handle x and sample y.
+static void MultisampleCase(GpuContext *gpu, const DkShader *vertex, const GpuVertex quad[6]) {
+    if (!ReportStart(SUITE, MULTISAMPLE)) {
+        return;
+    }
+    DkShader writer;
+    DkShader fetch;
+    DkImage images[2];
+    DkImageLayout layouts[3];
+    DkImage target;
+    DkGpuAddr image_set = 0;
+    DkGpuAddr sampler_set = 0;
+    DkGpuAddr handles_address = 0;
+    DkImageDescriptor *const descriptors = (DkImageDescriptor *)GpuAllocData(
+        gpu, 2u * (uint32_t)sizeof(DkImageDescriptor), DK_IMAGE_DESCRIPTOR_ALIGNMENT, &image_set);
+    DkSamplerDescriptor *const sampler = (DkSamplerDescriptor *)GpuAllocData(
+        gpu, (uint32_t)sizeof(DkSamplerDescriptor), DK_SAMPLER_DESCRIPTOR_ALIGNMENT, &sampler_set);
+    uint32_t *const handles = (uint32_t *)GpuAllocData(gpu, DK_UNIFORM_BUF_ALIGNMENT,
+                                                       DK_UNIFORM_BUF_ALIGNMENT, &handles_address);
+    bool ok = descriptors != NULL && sampler != NULL && handles != NULL &&
+              GpuLoadShader(gpu, &writer, ShaderData(SHADER_COVMASK_FRAG),
+                            ShaderSize(SHADER_COVMASK_FRAG)) &&
+              GpuLoadShader(gpu, &fetch, ShaderData(SHADER_BINDLESS_MS_FRAG),
+                            ShaderSize(SHADER_BINDLESS_MS_FRAG)) &&
+              GpuCreateRenderImage(gpu, &images[0], &layouts[0], DkImageFormat_R32_Uint, MS_SIZE,
+                                   MS_SIZE, DkMsMode_4x) &&
+              GpuCreateRenderImage(gpu, &images[1], &layouts[1], DkImageFormat_R32_Uint, MS_SIZE,
+                                   MS_SIZE, DkMsMode_4x) &&
+              GpuCreateRenderImage(gpu, &target, &layouts[2], DkImageFormat_R32_Uint, MS_SIZE,
+                                   MS_SIZE, DkMsMode_1x);
+    if (ok) {
+        memset(handles, 0, DK_UNIFORM_BUF_ALIGNMENT);
+        for (uint32_t i = 0; i < 2u; ++i) {
+            DkImageView view;
+            dkImageViewDefaults(&view, &images[i]);
+            dkImageDescriptorInitialize(&descriptors[i], &view, false, false);
+        }
+        for (uint32_t x = 0; x < MS_SIZE; ++x) {
+            handles[x * 4u] = dkMakeTextureHandle(x % 2u, 0);
+        }
+        DkSampler plain;
+        dkSamplerDefaults(&plain);
+        dkSamplerDescriptorInitialize(sampler, &plain);
+        GpuBeginPass(gpu);
+        for (uint32_t i = 0; i < 2u && ok; ++i) {
+            GpuSetTarget(gpu, &images[i], MS_SIZE, MS_SIZE);
+            DkMultisampleState ms;
+            dkMultisampleStateDefaults(&ms);
+            ms.mode = DkMsMode_4x;
+            dkMultisampleStateSetLocations(&ms, NULL, 0);
+            dkCmdBufBindMultisampleState(gpu->cmdbuf, &ms);
+            for (uint32_t sample = 0; sample < 4u && ok; ++sample) {
+                DkGpuAddr params = 0;
+                uint32_t *const words =
+                    (uint32_t *)GpuAllocData(gpu, DK_UNIFORM_BUF_ALIGNMENT,
+                                             DK_UNIFORM_BUF_ALIGNMENT, &params);
+                ok = words != NULL;
+                if (!ok) {
+                    break;
+                }
+                memset(words, 0, DK_UNIFORM_BUF_ALIGNMENT);
+                words[8] = 0x100u * (i + 1u) + sample; // the sentinel, after two vec4
+                dkCmdBufBindUniformBuffer(gpu->cmdbuf, DkStage_Fragment, 0, params,
+                                          DK_UNIFORM_BUF_ALIGNMENT);
+                dkCmdBufSetSampleMask(gpu->cmdbuf, 1u << sample);
+                ok = GpuDrawTriangles(gpu, vertex, &writer, quad, 6);
+            }
+        }
+        dkCmdBufBarrier(gpu->cmdbuf, DkBarrier_Fragments, DkInvalidateFlags_Image);
+        GpuSetTarget(gpu, &target, MS_SIZE, MS_SIZE);
+        DkMultisampleState single;
+        dkMultisampleStateDefaults(&single);
+        dkCmdBufBindMultisampleState(gpu->cmdbuf, &single);
+        dkCmdBufSetSampleMask(gpu->cmdbuf, ~0u);
+        dkCmdBufBindImageDescriptorSet(gpu->cmdbuf, image_set, 2);
+        dkCmdBufBindSamplerDescriptorSet(gpu->cmdbuf, sampler_set, 1);
+        dkCmdBufBindUniformBuffer(gpu->cmdbuf, DkStage_Fragment, 0, handles_address,
+                                  DK_UNIFORM_BUF_ALIGNMENT);
+        ok = ok && GpuDrawTriangles(gpu, vertex, &fetch, quad, 6);
+        GpuSubmit(gpu);
+    }
+    const uint32_t *const got =
+        ok && gpu->ready
+            ? (const uint32_t *)GpuReadBackImageBytes(gpu, &target, MS_SIZE, MS_SIZE, 4)
+            : NULL;
+    if (got == NULL) {
+        ReportCase(SUITE, MULTISAMPLE, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure : "the lists did not run");
+        return;
+    }
+    uint32_t wrong = 0;
+    uint32_t first = 0;
+    for (uint32_t i = 0; i < MS_SIZE * MS_SIZE; ++i) {
+        const uint32_t want = 0x100u * ((i % MS_SIZE) % 2u + 1u) + i / MS_SIZE;
+        if (got[i] != want && wrong++ == 0u) {
+            first = i;
+        }
+    }
+    CHECK_TRUE(SUITE, MULTISAMPLE, CHECK_EXACT, wrong == 0u,
+               "%u of %u fetches wrong; handle %u, sample %u read 0x%x, wanted 0x%x "
+               "(0x1nn is the first image, 0x2nn the second, nn the sample)",
+               (unsigned)wrong, (unsigned)(MS_SIZE * MS_SIZE), (unsigned)(first % MS_SIZE),
+               (unsigned)(first / MS_SIZE), (unsigned)got[first],
+               (unsigned)(0x100u * ((first % MS_SIZE) % 2u + 1u) + first / MS_SIZE));
+}
+
 void RunBindless(void) {
     GpuSpec spec;
     GpuSpecDefaults(&spec, TARGET_WIDTH, TARGET_HEIGHT);
     spec.code_size = 32u * 1024u;
     spec.data_size = 64u * 1024u;
     spec.cpu_image_size = TEXTURES * 4096u;
+    spec.image_size = 256u * 1024u;
 
     if (!ReportStart(SUITE, "graphics device opens with room for 256 textures")) {
         return;
@@ -200,5 +320,6 @@ void RunBindless(void) {
     if (ReportStart(SUITE, ABOVE)) {
         Judge(&gpu, pixels, ABOVE, 128, 255);
     }
+    MultisampleCase(&gpu, &vertex_shader, quad);
     GpuClose(&gpu);
 }

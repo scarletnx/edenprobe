@@ -40,7 +40,7 @@ family reports can be believed without them.
   its cases skipped as asked, the next step run, and a name no case came up for said; and the same
   run with a runner's `timeout` after the first launch: the case skipped as timeout with the
   runner's two numbers, off the crash list, and started again by the next run.
-- **reference**, four hundred and sixteen cases, no hardware involved either: the other half
+- **reference**, four hundred and seventeen cases, no hardware involved either: the other half
   of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -74,8 +74,9 @@ family reports can be believed without them.
     the two roundings, the saturating shifts, the conversions with 64 fraction bits, the SM4
     inputs from the standard's key and constants, and the rounding shifts, doubling multiplies and
     rounding narrows of the NEON gap cases, from the Arm ARM's pseudocode;
-  - ten on the raw 3D method words the index, instance, drawtex, query, fixed and coverage suites
-    send, against words worked out by hand from deko3d's command header layout;
+  - eleven on the raw 3D method words the index, instance, drawtex, query, fixed and coverage
+    suites send, against words worked out by hand from deko3d's command header layout, a draw
+    texture's signed source among them;
   - eight on the fixed suite's rules, `source/fixedref.c`, on a 64 by 64 target: the squares its
     four points cover and that no pixel centre sits on their edges, where a rectangle lands
     through each viewport it sets, the face a counter clockwise triangle shows under each of them

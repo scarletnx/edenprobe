@@ -479,7 +479,7 @@ one region along, so the target says which instances ran. In an emulator a failu
 
 ## geometry
 
-Eight cases. The two optional stages every other suite leaves out. A geometry shader
+Seventeen cases. The two optional stages every other suite leaves out. A geometry shader
 turns each of four points into an 8 by 8 square in the point's colour, or into nothing when the
 point's alpha is nought; a tessellation control and evaluation pair spreads a four point patch
 over its corners' rectangle at level 4 and at level 7, the level taken from the patch and handed
@@ -496,18 +496,37 @@ two points hidden; `quad_color.tese` takes the alpha from the first corner's col
 `quad.tesc` passes on, instead of reading the level back, at level 4. A translator that lacks PRET
 fails the first two and passes the geometry twin; one that cannot read the levels in the
 evaluation stage fails the patches at 4 and 7 and passes the tessellation twin; one without the
-stages fails all six that draw. The twins end no program.
+stages fails every case that draws. The twins end no program.
+
+The next four draw the patch with no control stage, which the console allows and a Vulkan host
+does not: the levels come from the list (level 5 here, so an emulator's own default shows), and the
+evaluation stage reads the vertex stage's outputs straight. quad_color.tese has to cover the
+rectangle and quad.tese has to say 5. Then `clip.vert.glsl` writes all eight clip distances, the
+eighth minus one and the rest one, and `clip_last.tese` passes the eighth on as its own first, which
+clips the whole patch, while `clip_first.tese` passes the first and the patch is drawn: a control
+stage an emulator makes up has to pass every clip distance on.
+
+The last four (after one that sets the image up) put a storage image in the stages before the
+fragment one. `store.tese` writes 0xa0 to 0xa2 into texels 0 to 2 of a four texel R32_Uint image
+while the fragment stage samples texel 3 of the same image, which nothing writes: the patch must
+show 0x44, the texel's starting word, and the image must hold the three stores; a draw after a
+barrier must fetch them; and `store.vert` writes 0xb0 plus the vertex index into texel index mod 4.
+A host that binds images per stage for the fragment stage only, or keeps an image in a layout the
+other use cannot see, fails these.
 
 ## bindless
 
-Five cases. A fragment shader picks one of 256 one-texel textures through a handle
+Six cases. A fragment shader picks one of 256 one-texel textures through a handle
 read from a uniform array at a dynamic index (ARB_bindless_texture, which uam compiles to the
 console's bindless fetch), so column i of the target must show texture i. Split at 128 so a
 host array cut short at 128 descriptors says so on its own line. The same shader with a
 constant index is how the setup was checked: the handles and the index reach the shader. In an
 emulator a failure points at the dynamic descriptor arrays the shader translator builds
 (`shader_recompiler/ir_opt/texture_pass.cpp`, `DESCRIPTOR_MAX_COUNT`,
-`DynamicDescriptorCount`).
+`DynamicDescriptorCount`). The sixth reaches four sample textures the same way: two R32_Uint
+images whose sample s holds 0x100 + s and 0x200 + s, each written by a draw under the sample mask
+1 << s, through four handles alternating between them, each fetch naming its sample; a translator
+that keeps the image and drops its being multisampled, or the sample, reads another word.
 
 ## astc
 
@@ -681,7 +700,7 @@ which the masquerade layer gives on any driver.
 
 ## drawtex
 
-Six cases. DRAW_TEXTURE, the call the console's graphics API names DrawTexture:
+Eleven cases. DRAW_TEXTURE, the call the console's graphics API names DrawTexture:
 a texture's rectangle copied onto the target by one method, between two draws. The library
 has no call for it, so it goes in as raw words (`rawref.h`, `RawDrawTexture`), in the layout
 the emulators that implement it read (the public class header leaves the range out). A list
@@ -691,6 +710,15 @@ draw after it with the pipeline of the draw before, and the draw after it with a
 pipeline are each a case. An emulator that blits with a pipeline, a viewport and a scissor of
 its own behind its cache of what is bound draws the next quad with the blit's pipeline, or
 into the blit's rectangle. The layout is the emulators' and has not been checked on a console.
+
+The last five ask what the copy is made of. NV_draw_texture, the same call on the desktop, sends
+its fragments through every per-fragment operation and takes its texels through the sampler it
+names, which a copy done as a blit does not: a texture of columns (column x red 16 x, green
+255 - 16 x, blue 0x55, alpha 0x80) goes onto a target holding 0x30405060 with blending adding the
+two (saturating where a channel passes 255), with only red and alpha open to writes, under the alpha
+test at GREATER than 0.75 (rejected) and then LESS (kept), and from two texels left of the texture,
+where a clamping sampler repeats column nought and a repeating one starts at column 14. The source
+origin is signed, as the emulators read it (`maxwell_3d.h`, `DrawTexture`).
 
 ## query
 

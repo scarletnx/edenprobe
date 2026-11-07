@@ -80,10 +80,11 @@ uint32_t RawInstanceArrayWord(uint32_t topology, uint32_t first, uint32_t count)
 /// starts at texel (@p src_x, @p src_y) onto the @p width by @p height pixels at (@p dst_x,
 /// @p dst_y) of the render target, one texel per pixel. Writes the thirteen words of one
 /// increasing write, header first: the destination and the source origin in 1/4096 of a pixel,
-/// and the texels per pixel as a 32.32 fixed point number, low word first. Returns 13.
+/// the source signed (a rectangle may start outside its texture, where the sampler's wrap mode
+/// decides), and the texels per pixel as a 32.32 fixed point number, low word first. Returns 13.
 size_t RawDrawTexture(uint32_t out[13], uint32_t texture, uint32_t sampler, uint32_t dst_x,
-                      uint32_t dst_y, uint32_t width, uint32_t height, uint32_t src_x,
-                      uint32_t src_y);
+                      uint32_t dst_y, uint32_t width, uint32_t height, int32_t src_x,
+                      int32_t src_y);
 
 /// The last byte of an index array of @p count indices of @p bytes each, starting @p first
 /// indices into a buffer at @p start: the limit a driver that bounds its draws exactly would

@@ -63,6 +63,13 @@ static const ShaderBlob BLOBS[SHADER_COUNT] = {
     [SHADER_COVALPHA_FRAG] = { covalpha_frag_dksh, (uint32_t)covalpha_frag_dksh_size },
     [SHADER_MODULATE_FRAG] = { modulate_frag_dksh, (uint32_t)modulate_frag_dksh_size },
     [SHADER_MSFETCH_FRAG] = { msfetch_frag_dksh, (uint32_t)msfetch_frag_dksh_size },
+    [SHADER_BINDLESS_MS_FRAG] = { bindless_ms_frag_dksh, (uint32_t)bindless_ms_frag_dksh_size },
+    [SHADER_CLIP_VERT] = { clip_vert_dksh, (uint32_t)clip_vert_dksh_size },
+    [SHADER_CLIP_FIRST_TESE] = { clip_first_tese_dksh, (uint32_t)clip_first_tese_dksh_size },
+    [SHADER_CLIP_LAST_TESE] = { clip_last_tese_dksh, (uint32_t)clip_last_tese_dksh_size },
+    [SHADER_STORE_TESE] = { store_tese_dksh, (uint32_t)store_tese_dksh_size },
+    [SHADER_STORE_VERT] = { store_vert_dksh, (uint32_t)store_vert_dksh_size },
+    [SHADER_FETCH_TEXEL_FRAG] = { fetch_texel_frag_dksh, (uint32_t)fetch_texel_frag_dksh_size },
 };
 
 const void *ShaderData(ShaderId id) {
