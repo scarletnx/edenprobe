@@ -5,8 +5,8 @@
 # Runs the probe on ScarletNX's Android layer: PROGRAM is its scarletnx-android, run --headless with nothing on the
 # display (DISPLAY and WAYLAND_DISPLAY unset) and an empty home of the run's own (XDG_DATA_HOME, XDG_CONFIG_HOME,
 # XDG_STATE_HOME and XDG_CACHE_HOME in DIR/home), so the user's ScarletNX data is never read or written. --java-home and
-# --framework go to the driver as its options. DIR gets each launch's log (launch-N.log) and the run's report.jsonl
-# and journal. A launch that ends before the report's summary, prints no androidprobe line for --stall seconds (120),
+# --framework go to the driver as its options. The driver runs in DIR, so what a crash leaves (the JVM's hs_err_pid
+# files) lands there with each launch's log (launch-N.log) and the run's report.jsonl and journal. A launch that ends before the report's summary, prints no androidprobe line for --stall seconds (120),
 # or runs past --timeout seconds (900), is stopped and launched again: the probe reports that case crashed and goes
 # on, up to --launches (5). Exit 0 with a whole report, 1 a run that did not end whole, 2 refused (usage).
 set -u
@@ -39,6 +39,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 log() { echo "run-scarletnx: $(date +%H:%M:%S) $*"; }
 mkdir -p "$out/home" || exit 1
 out=$(cd "$out" && pwd)
+# absolute, without resolving a link: the driver is a link whose name picks the program
+driver=$(cd "$(dirname "$driver")" && pwd)/$(basename "$driver")
+apk=$(cd "$(dirname "$apk")" && pwd)/$(basename "$apk")
 args=(--headless)
 [ -n "$java_home" ] && args+=("--java-home=$java_home")
 [ -n "$framework" ] && args+=("--framework=$framework")
@@ -60,8 +63,8 @@ trap 'exit 1' INT TERM
 for launch in $(seq 1 "$launches"); do
     l="$out/launch-$launch.log"
     log "launch $launch: $driver ${args[*]}"
-    env -u DISPLAY -u WAYLAND_DISPLAY XDG_DATA_HOME="$out/home/data" XDG_CONFIG_HOME="$out/home/config" \
-        XDG_STATE_HOME="$out/home/state" XDG_CACHE_HOME="$out/home/cache" "$driver" "${args[@]}" > "$l" 2>&1 &
+    (cd "$out" && exec env -u DISPLAY -u WAYLAND_DISPLAY XDG_DATA_HOME="$out/home/data" XDG_CONFIG_HOME="$out/home/config" \
+        XDG_STATE_HOME="$out/home/state" XDG_CACHE_HOME="$out/home/cache" "$driver" "${args[@]}") > "$l" 2>&1 &
     pid=$!
     start=$(date +%s) last_lines=0 last_move=$start
     while :; do

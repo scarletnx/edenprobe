@@ -15,6 +15,7 @@ mkdir -p "$run"
 echo "I/androidprobe: run folder: $run" >&2
 if [ "$FAKE_SCENARIO" = die-once ] && [ $n = 1 ]; then
     head -n 3 "$FAKE_REPORT" > "$run/report.jsonl"
+    echo "what a JVM leaves in its working folder when it crashes" > "hs_err_pid$$.log"
     echo "E/AndroidRuntime: FATAL EXCEPTION: main" >&2
     exit 1
 fi
