@@ -84,6 +84,52 @@ jobs:
           archive: false
           if-no-files-found: error
 
+  # The APK (docs/Android.md) with the runner's Gradle, JDK 21 and SDK, and the NDK and CMake it names, which the
+  # runner's image may not carry (sdkmanager's download sometimes ends early: tried 3 times, 5 s apart). Named, as the
+  # NRO, after the commit it was built from
+  apk:
+    name: APK (Android)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    env:
+      SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Name the commit
+        id: commit
+        run: echo "short=${SHA::7}" >> "$GITHUB_OUTPUT"
+      # The commit itself and its whole history, for the version tags the build describes itself from, as the NRO's
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
+      - name: Install the NDK and CMake
+        run: |
+          for try in 1 2 3; do
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358" "cmake;3.31.6" > /dev/null && break
+            [ "$try" = 3 ] && exit 1
+            sleep 5
+          done
+      - name: Build the APK
+        run: JAVA_HOME=$JAVA_HOME_21_X64 gradle -p android assembleDebug -Pedenprobe.out="$RUNNER_TEMP/apk"
+      # The library names this commit, clean, as the NRO's version.h does: what a report from it opens with
+      - name: Check the APK names its commit
+        run: |
+          set -euo pipefail
+          apk=$RUNNER_TEMP/apk/gradle/outputs/apk/debug/edenprobe-debug.apk
+          unzip -l "$apk" | grep -E 'lib/(arm64-v8a|x86_64)/libedenprobe.so' | tee "$RUNNER_TEMP/libs.txt"
+          [ "$(wc -l < "$RUNNER_TEMP/libs.txt")" = 2 ] || { echo "::error::the APK lacks an ABI's libedenprobe.so"; exit 1; }
+          hash=$(git describe --always --dirty --abbrev=7 --exclude='*')
+          case $hash in ''|*-dirty) echo "::error::the build names its commit \"$hash\""; exit 1 ;; esac
+          unzip -p "$apk" lib/arm64-v8a/libedenprobe.so | grep -aq "$hash" ||
+            { echo "::error::libedenprobe.so does not name $hash"; exit 1; }
+          cp "$apk" "edenprobe-${{ steps.commit.outputs.short }}.apk"
+      # Not zipped: the artifact is the APK itself, named after it
+      - uses: actions/upload-artifact@v7
+        with:
+          path: edenprobe-${{ steps.commit.outputs.short }}.apk
+          archive: false
+          if-no-files-found: error
+
   # The judge, the screens and the tools' tests on the machine itself (docs/Build.md), and the tests of
   # .github/scripts: a nightly is published only when they pass
   host:
@@ -97,14 +143,14 @@ jobs:
       - name: Run them
         run: make -f host.mk -j"$(nproc)" host-run
 
-  # A pull request's NRO, linked from a comment on it that each run rewrites, as soon as it is built
+  # A pull request's NRO and APK, linked from a comment on it that each run rewrites, as soon as they are built
   # (.github/scripts/pr-builds.sh). A pull request from a fork gets a token that may not write, so it gets none
   links:
     name: Links to the builds
     if: >-
       !cancelled() && github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    needs: nro
+    needs: [nro, apk]
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:

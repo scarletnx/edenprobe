@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 name: Publish builds
 
-# The NRO as a release (.github/scripts/publish-builds.py, docs/Releases.md): a push to main whose Build run passed
-# becomes the prerelease nightly-<date>-<commit>, the newest 30 kept, and the prerelease "nightly" takes its files, so
-# .../releases/download/nightly/edenprobe.nro is always the newest; a version tag (v...) whose run passed becomes that
+# The NRO and the APK as a release (.github/scripts/publish-builds.py, docs/Releases.md): a push to main whose Build
+# run passed becomes the prerelease nightly-<date>-<commit>, the newest 30 kept, and the prerelease "nightly" takes its
+# files, so .../releases/download/nightly/edenprobe.nro (and edenprobe.apk) is always the newest; a version tag (v...) whose run passed becomes that
 # version's release, the latest. A pull request's NRO is not published: it stays its run's artifact. Nothing of a pull
 # request runs here: the checkout is main's. The secret DISCORD_WEBHOOK_RELEASES is the releases channel's webhook
 # (without it, nothing is posted there and the run says so)
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   publish:
-    name: Publish the NRO
+    name: Publish the NRO and the APK
     # a pull request's run has nothing for it
     if: github.event.workflow_run.event == 'push'
     # One at a time for main's nightlies and each version: the nightlies are counted. A group holds one waiting job,
@@ -48,6 +48,14 @@ jobs:
         with:
           name: edenprobe-${{ steps.plan.outputs.short }}.nro
           path: artifacts/edenprobe-${{ steps.plan.outputs.short }}.nro
+          run-id: ${{ steps.plan.outputs.run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download the APK
+        if: steps.plan.outputs.run
+        uses: actions/download-artifact@v8
+        with:
+          name: edenprobe-${{ steps.plan.outputs.short }}.apk
+          path: artifacts/edenprobe-${{ steps.plan.outputs.short }}.apk
           run-id: ${{ steps.plan.outputs.run }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish it

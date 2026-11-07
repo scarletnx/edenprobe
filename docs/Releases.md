@@ -1,7 +1,8 @@
 # Releases
 
-Every push to `main` that builds becomes a nightly, and every version tag a release, each with `edenprobe.nro` and
-`edenprobe.nro.sha256`. Only the CI uploads them.
+Every push to `main` that builds becomes a nightly, and every version tag a release, each with `edenprobe.nro`,
+`edenprobe.apk` ([On Android](Android.md)) and a `.sha256` beside each. Only the CI uploads them. The tables and
+commands below name the NRO; the APK is the same with `.apk`.
 
 | What | Where |
 |---|---|
@@ -16,15 +17,17 @@ curl -fL -O "$base/edenprobe.nro" -O "$base/edenprobe.nro.sha256"
 sha256sum -c edenprobe.nro.sha256
 ```
 
-`nightly`'s two files are replaced one after the other, so a check that fails while a nightly lands passes when both
-are fetched again; a dated nightly and a version never change. A pull request's NRO is its Build run's artifact,
-`edenprobe-<commit>.nro`, linked from a comment on the pull request (a fork's on the run's page).
+`nightly`'s files are replaced one after the other, so a check that fails while a nightly lands passes when they are
+fetched again; a dated nightly and a version never change. A pull request's NRO and APK are its Build run's artifacts,
+`edenprobe-<commit>.nro` and `edenprobe-<commit>.apk`, linked from a comment on the pull request (a fork's on the
+run's page).
 
 ## The CI
 
 - **`build.yml`**, on each push to `main`, each `v*` tag and each pull request: the NRO in devkitPro's container,
-  pinned by tag and digest, checked to name its own commit, clean, and uploaded as the run's artifact; then
-  `make -f host.mk host-run`. A tag must be `v` and `VERSION`, or the build stops. A newer push to a pull request
+  pinned by tag and digest, checked to name its own commit, clean, and uploaded as the run's artifact; the APK with the
+  runner's Gradle, JDK 21 and Android SDK, its native library checked to name the same commit, and uploaded the same
+  way; then `make -f host.mk host-run`. A tag must be `v` and `VERSION`, or the build stops. A newer push to a pull request
   cancels its older build.
 - **`publish.yml`**, after a Build run of a push passes: for `main`, the prerelease `nightly-<date>-<commit>` (never
   the latest) and the prerelease `nightly`, whose tag and files follow the newest; for a tag, its release, the

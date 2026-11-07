@@ -18,7 +18,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "publish-builds.py")
 REPO = "owner/repo"
 NRO = b"\0" * 16 + b"NRO0" + b"\0" * 12 + b"the program"
-FILES = ["edenprobe.nro", "edenprobe.nro.sha256"]
+APK = b"PK\x03\x04" + b"\0" * 26 + b"the app"
+FILES = ["edenprobe.apk", "edenprobe.apk.sha256", "edenprobe.nro", "edenprobe.nro.sha256"]
 server = HOOK = None
 
 
@@ -101,17 +102,19 @@ class Publish(unittest.TestCase):
     def find(self, tag):
         return next((r for r in self.world.state()["releases"] if r["tag_name"] == tag), None)
 
-    def artifacts(self, name, commit, data=NRO, as_file=False):
-        """the folder the workflow downloads into: the NRO in a folder named after the artifact, or at its path"""
-        path = self.world.root / name / f"edenprobe-{commit[:7]}.nro"
-        if as_file:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(data)
-        elif data is not None:
-            path.mkdir(parents=True, exist_ok=True)
-            (path / f"edenprobe-{commit[:7]}.nro").write_bytes(data)
-        else:
-            path.parent.mkdir(parents=True, exist_ok=True)
+    def artifacts(self, name, commit, data=NRO, as_file=False, apk=APK):
+        """the folder the workflow downloads into: the NRO and the APK each in a folder named after its artifact, or
+        at its path"""
+        for file, content in ((f"edenprobe-{commit[:7]}.nro", data), (f"edenprobe-{commit[:7]}.apk", apk)):
+            path = self.world.root / name / file
+            if as_file:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+            elif content is not None:
+                path.mkdir(parents=True, exist_ok=True)
+                (path / file).write_bytes(content)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
         return str(self.world.root / name)
 
     def run_script(self, step, *extra, event=None, name="workflow_run", hooks=True):
@@ -125,8 +128,8 @@ class Publish(unittest.TestCase):
         planned = dict(line.split("=", 1) for line in output.read_text().splitlines())
         return done, planned
 
-    def publish(self, kind, commit, *extra, run="41", data=NRO, as_file=False, hooks=True):
-        folder = self.artifacts(f"artifacts-{run}", commit, data, as_file)
+    def publish(self, kind, commit, *extra, run="41", data=NRO, as_file=False, hooks=True, apk=APK):
+        folder = self.artifacts(f"artifacts-{run}", commit, data, as_file, apk)
         args = [
             "--kind",
             kind,
@@ -191,9 +194,13 @@ class Publish(unittest.TestCase):
         self.assertEqual(data["edenprobe.nro"].encode("latin-1"), NRO)
         digest = hashlib.sha256(NRO).hexdigest()
         self.assertEqual(data["edenprobe.nro.sha256"], f"{digest}  edenprobe.nro\n")
+        self.assertEqual(data["edenprobe.apk"].encode("latin-1"), APK)
+        apk_digest = hashlib.sha256(APK).hexdigest()
+        self.assertEqual(data["edenprobe.apk.sha256"], f"{apk_digest}  edenprobe.apk\n")
         where = f"https://github.com/{REPO}/releases/download/{self.tag}"
         body = made["body"]
         self.assertIn(f"| [edenprobe.nro]({where}/edenprobe.nro) | 0.0 MB | `{digest}` |", body)
+        self.assertIn(f"| [edenprobe.apk]({where}/edenprobe.apk) | 0.0 MB | `{apk_digest}` |", body)
         self.assertIn(f"- \\[ci\\] its title ([#5](https://github.com/{REPO}/pull/5))", body)
         self.assertIn(f"[`{self.previous[:7]}...{self.sha[:7]}`]", body)
         self.assertIn("The newest 2 nightlies are kept", body)
@@ -245,6 +252,18 @@ class Publish(unittest.TestCase):
         done = self.publish("nightly", self.sha, data=b"<html>Not Found</html>")
         self.assertNotEqual(done.returncode, 0)
         self.assertIn("is no NRO: no NRO0 at byte 16", done.stderr)
+        self.assertIsNone(self.find(self.tag))
+
+    def test_a_missing_apk_stops(self):
+        done = self.publish("nightly", self.sha, apk=None)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn(f"run 41 built, yet has no edenprobe-{self.sha[:7]}.apk", done.stderr)
+        self.assertIsNone(self.find(self.tag))
+
+    def test_a_file_that_is_no_apk_stops(self):
+        done = self.publish("nightly", self.sha, apk=b"<html>Not Found</html>")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("is no APK: no PK\\x03\\x04 at byte 0", done.stderr)
         self.assertIsNone(self.find(self.tag))
 
     def test_dry_run_writes_nothing(self):
@@ -307,8 +326,9 @@ class Publish(unittest.TestCase):
         self.assertEqual(len(posts), 1)
         message = posts[0]["body"]["embeds"][0]
         self.assertEqual(message["title"], "edenprobe v0.2.0")
-        self.assertEqual([f["name"] for f in message["fields"]], ["NRO", "Source", "Since"])
-        self.assertIn("/compare/v0.1.0...v0.2.0", message["fields"][2]["value"])
+        self.assertEqual([f["name"] for f in message["fields"]], ["NRO", "APK", "Source", "Since"])
+        self.assertIn("/releases/download/v0.2.0/edenprobe.apk", message["fields"][1]["value"])
+        self.assertIn("/compare/v0.1.0...v0.2.0", message["fields"][3]["value"])
         self.assertIn(hashlib.sha256(NRO).hexdigest(), message["description"])
         self.assertEqual(posts[0]["body"]["allowed_mentions"], {"parse": []})
         # its build again: the files replaced, nothing said twice

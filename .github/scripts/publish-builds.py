@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Publish a Build run's NRO as a release, and say so on Discord.
+"""Publish a Build run's NRO and APK as a release, and say so on Discord.
 
     .github/scripts/publish-builds.py plan --repo OWNER/REPO
     .github/scripts/publish-builds.py publish --repo OWNER/REPO --kind nightly|release --run ID --sha SHA [--tag TAG]
@@ -15,8 +15,9 @@ the run whose NRO publish takes (kind, run, sha, short, tag), when there is one 
   nightlies staying; the prerelease "nightly" takes its files and notes, its tag moved to that commit, so
   .../releases/download/nightly/edenprobe.nro is always the newest nightly's NRO.
 A pull request's run is not published: its NRO is the run's artifact, which build.yml links from the pull request.
-Nothing is built: the NRO is the run's artifact edenprobe-<commit>.nro, which the workflow downloads into DIR between
-the two, and every release holds it as edenprobe.nro with edenprobe.nro.sha256 beside it, which sha256sum -c reads.
+Nothing is built: the NRO and the APK are the run's artifacts edenprobe-<commit>.nro and edenprobe-<commit>.apk, which
+the workflow downloads into DIR between the two, and every release holds them as edenprobe.nro and edenprobe.apk, each
+with its .sha256 beside it, which sha256sum -c reads.
 
 Discord: a version's release gets a message on DISCORD_WEBHOOK_RELEASES's channel, the NRO linked with its size, and
 the changes since the version before; without the webhook nothing is posted, and the run says so. gh reads and writes
@@ -46,8 +47,9 @@ notes = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(notes)
 
 SERVER = notes.SERVER
-# a run's NRO, as build.yml uploads it: named after the commit's first 7 digits
+# a run's NRO and APK, as build.yml uploads them: named after the commit's first 7 digits
 ARTIFACT = "edenprobe-{short}.nro"
+APK_ARTIFACT = "edenprobe-{short}.apk"
 # a version's colour (the cover's sunset), and the cover beside its message, as the loader shows it
 SUNSET = 0xFF2E88
 COVER = "https://raw.githubusercontent.com/{repo}/main/icon.jpg"
@@ -55,8 +57,9 @@ COVER = "https://raw.githubusercontent.com/{repo}/main/icon.jpg"
 MOST_LINES, DESCRIPTION, EMBED = 10, 4096, 6000
 VERSION = re.compile(r"v\d[0-9A-Za-z.+-]*")
 ROLLING = "nightly"
-# Where every NRO says what it is: the header's magic, after the first 16 bytes
+# Where every NRO says what it is: the header's magic, after the first 16 bytes; and an APK, a zip, at its start
 MAGIC, AT = b"NRO0", 16
+ZIP = b"PK\x03\x04"
 
 
 def published(release):
@@ -197,27 +200,36 @@ class Publisher(Hub):
                 raise
             print(f"{release['tag_name']} had no tag left")
 
-    # ---- a run's NRO
-    def nro(self, run, sha):
-        """the run's NRO as a release holds it, and its checksum file: each name to its path, and the NRO's SHA-256.
-        actions/download-artifact puts a file it does not unpack at the artifact's path, or in a folder of that name"""
-        name = ARTIFACT.format(short=sha[:7])
+    # ---- a run's NRO and APK
+    def built(self, run, sha, artifact, kind, magic, at, release_name, sum_name):
+        """one of the run's files as a release holds it, and its checksum file: each name to its path, its size and
+        SHA-256. actions/download-artifact puts a file it does not unpack at the artifact's path, or in a folder of
+        that name"""
+        name = artifact.format(short=sha[:7])
         found = self.artifacts / name
         if found.is_dir():
             inside = sorted(path for path in found.rglob("*") if path.is_file())
             if len(inside) != 1:
-                raise RuntimeError(f"{name} holds {len(inside)} files, not the one NRO")
+                raise RuntimeError(f"{name} holds {len(inside)} files, not the one {kind}")
             found = inside[0]
         if not found.is_file():
             raise RuntimeError(f"run {run} built, yet has no {name}")
         data = found.read_bytes()
-        if data[AT : AT + len(MAGIC)] != MAGIC:
-            raise RuntimeError(f"{name} of run {run} is no NRO: no {MAGIC.decode()} at byte {AT}")
-        path, check = self.work / notes.NRO, self.work / notes.SUM
+        if data[at : at + len(magic)] != magic:
+            said = magic.decode("latin-1").encode("unicode_escape").decode()
+            raise RuntimeError(f"{name} of run {run} is no {kind}: no {said} at byte {at}")
+        path, check = self.work / release_name, self.work / sum_name
         path.write_bytes(data)
         digest = hashlib.sha256(data).hexdigest()
-        check.write_text(f"{digest}  {notes.NRO}\n")
-        return {notes.NRO: path, notes.SUM: check}, digest
+        check.write_text(f"{digest}  {release_name}\n")
+        return {release_name: path, sum_name: check}, len(data), digest
+
+    def nro(self, run, sha):
+        """the run's NRO and APK as a release holds them: each name to its path, the NRO's SHA-256, and the APK's
+        size and SHA-256"""
+        files, _, digest = self.built(run, sha, ARTIFACT, "NRO", MAGIC, AT, notes.NRO, notes.SUM)
+        apk_files, apk_size, apk_digest = self.built(run, sha, APK_ARTIFACT, "APK", ZIP, 0, notes.APK, notes.APK_SUM)
+        return {**files, **apk_files}, digest, (apk_size, apk_digest)
 
     def older(self, sha, previous):
         """sha is an ancestor of previous, a newer commit already published"""
@@ -228,7 +240,7 @@ class Publisher(Hub):
 
     # ---- what each run publishes
     def nightly(self, run, sha):
-        files, digest = self.nro(run, sha)
+        files, digest, apk = self.nro(run, sha)
         date = notes.git(self.checkout, "log", "-1", "--format=%cs", sha).strip()
         tag = f"nightly-{date}-{sha[:7]}"
         older = sorted(
@@ -244,7 +256,7 @@ class Publisher(Hub):
         newest = f"{SERVER}/{self.repo}/releases/tag/{ROLLING}"
         kept = f"The newest {self.keep} nightlies are kept; [{ROLLING}]({newest}) always holds the newest one's files."
         where = f"{SERVER}/{self.repo}/releases/download/{tag}"
-        body = notes.notes(self.checkout, sha, previous, self.repo, where, size, digest, kept)
+        body = notes.notes(self.checkout, sha, previous, self.repo, where, size, digest, kept, apk=apk)
         title = notes.title(self.checkout, sha)
         made, new = self.put_release(tag, title, body, True, files)
         for old in older[self.keep - 1 :]:
@@ -252,9 +264,9 @@ class Publisher(Hub):
             print(f"deleted {old['tag_name']}: past the newest {self.keep}")
         print(f"{'published' if new else 'replaced the files of'} {tag}")
         url = made.get("html_url", f"{SERVER}/{self.repo}/releases/tag/{tag}")
-        self.point_rolling(title, url, sha, previous, files, size, digest)
+        self.point_rolling(title, url, sha, previous, files, size, digest, apk)
 
-    def point_rolling(self, title, url, sha, previous, files, size, digest):
+    def point_rolling(self, title, url, sha, previous, files, size, digest, apk):
         """the prerelease ROLLING: the newest nightly's files and notes, its tag on that commit"""
         if self.release(ROLLING):
             self.write("PATCH", f"repos/{self.repo}/git/refs/tags/{ROLLING}", {"sha": sha, "force": True})
@@ -263,12 +275,12 @@ class Publisher(Hub):
             f"The newest nightly, [{title}]({url}), whose files this release holds under a name that stays; the "
             f"newest {self.keep} are kept as releases of their own. Built from main at"
         )
-        body = notes.notes(self.checkout, sha, previous, self.repo, where, size, digest, "", lead=lead)
+        body = notes.notes(self.checkout, sha, previous, self.repo, where, size, digest, "", lead=lead, apk=apk)
         self.put_release(ROLLING, f"{title}, the newest", body, True, files, sha)
         print(f'"{ROLLING}" holds {title}')
 
     def version(self, run, sha, tag):
-        files, digest = self.nro(run, sha)
+        files, digest, apk = self.nro(run, sha)
         earlier = sorted(
             (
                 r
@@ -284,7 +296,7 @@ class Publisher(Hub):
         size = files[notes.NRO].stat().st_size
         title = f"edenprobe {tag}"
         body = notes.notes(
-            self.checkout, sha, previous, self.repo, where, size, digest, "", since, f"{title}, built from"
+            self.checkout, sha, previous, self.repo, where, size, digest, "", since, f"{title}, built from", apk=apk
         )
         made, new = self.put_release(tag, title, body, "-" in tag, files, sha)
         print(f"{'published' if new else 'replaced the files of'} {tag}")
@@ -294,6 +306,7 @@ class Publisher(Hub):
         commit = f"{SERVER}/{self.repo}/commit/{sha}"
         fields = [
             {"name": "NRO", "value": f"[{notes.NRO}]({where}/{notes.NRO})\n{notes.size(size)}", "inline": True},
+            {"name": "APK", "value": f"[{notes.APK}]({where}/{notes.APK})\n{notes.size(apk[0])}", "inline": True},
             {"name": "Source", "value": f"[`{sha[:7]}`]({commit})", "inline": True},
         ]
         compare = url
@@ -312,7 +325,7 @@ class Publisher(Hub):
 
     # ---- what a run that ended asks for
     def take(self, kind, run, tag=""):
-        """the run publish takes the NRO of, for the workflow to download it"""
+        """the run publish takes the NRO and the APK of, for the workflow to download them"""
         self.output = {
             "kind": kind,
             "run": str(run["id"]),
