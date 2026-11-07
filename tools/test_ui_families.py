@@ -37,7 +37,7 @@ UNDER_SUITES = {"net", "service"}
 
 class Families(unittest.TestCase):
     def setUp(self):
-        steps = table(read("source/main.c"), "static const Step STEPS[]")
+        steps = table(read("source/main.c"), "static const RunnerStep STEPS[]")
         rows = re.findall(r'\{\s*"([a-z0-9-]+)",\s*Run\w+,\s*(?:MODE_FAMILY_([A-Z]+)|0),', steps)
         self.steps = {name: family or ALWAYS.get(name) for name, family in rows}
         self.ui = dict(ROW.findall(table(read("source/ui.c"), "FAMILIES[]")))

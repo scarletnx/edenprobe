@@ -95,29 +95,6 @@ static UiTouchEvent ReadTouch(UiTouch *touch, uint32_t frame_index, UiTap *tap) 
                        read ? state.touches[0].y : 0u, frame_index, tap);
 }
 
-RunMode ViewerModeFromFile(const char *mode_path) {
-    // One byte past the limit, which is how a longer file is told apart from one exactly as
-    // long, and which says whether the last word read runs on. Static, because it is four
-    // kilobytes and read once.
-    static char text[MODE_FILE_MAX + 2u];
-    ModeSource source = MODE_SOURCE_NONE;
-    size_t read = 0;
-    struct stat about;
-    if (stat(mode_path, &about) == 0 && S_ISDIR(about.st_mode)) {
-        source = MODE_SOURCE_DIRECTORY;
-    } else {
-        FILE *file = fopen(mode_path, "r");
-        if (file != NULL) {
-            source = MODE_SOURCE_FILE;
-            read = fread(text, 1, MODE_FILE_MAX + 1u, file);
-            fclose(file);
-        }
-    }
-    text[read] = '\0';
-    const bool longer = read > MODE_FILE_MAX;
-    return ModeFromFile(source, text, longer ? MODE_FILE_MAX : read, longer);
-}
-
 RunMode ViewerModeWithPad(RunMode from_file) {
     if (!ModeAsksPad(&from_file)) {
         // Already detailed, and the button could only have asked for that again.

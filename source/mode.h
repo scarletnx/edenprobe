@@ -96,15 +96,15 @@ enum {
     MODE_FAMILY_NVN = 1u << 11,
 };
 
-/// The families this build carries. A family named in the file and missing here is reported,
-/// not run.
+/// The families the console's build carries. A family named in the file and missing here is
+/// reported, not run. Another frontend names its own (runner.h, RunnerFrontend).
 #define MODE_FAMILIES_PRESENT                                                                     \
     ((uint32_t)(MODE_FAMILY_CPU | MODE_FAMILY_PAD | MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS |      \
                 MODE_FAMILY_KERNEL | MODE_FAMILY_DISPLAY | MODE_FAMILY_VIDEO |                     \
                 MODE_FAMILY_AUDIO | MODE_FAMILY_SERVICE | MODE_FAMILY_NET | MODE_FAMILY_GAME | \
                 MODE_FAMILY_NVN))
 
-/// The families that run only when a word asks for them.
+/// The console's families that run only when a word asks for them.
 #define MODE_FAMILIES_ASKED                                                                       \
     ((uint32_t)(MODE_FAMILY_AUDIO | MODE_FAMILY_DISPLAY | MODE_FAMILY_KERNEL | MODE_FAMILY_VIDEO | \
                 MODE_FAMILY_PAD | MODE_FAMILY_SERVICE | MODE_FAMILY_GAME | MODE_FAMILY_NVN))
@@ -242,12 +242,20 @@ RunMode ModeAtLaunch(const char *text, bool detailed_button_held);
 /// a quick run, since the button can do nothing but add the detailed mode.
 bool ModeAsksPad(const RunMode *mode);
 
-/// Which of the @p present families to run.
+/// Which of the @p present families to run: the console's, whose MODE_FAMILIES_ASKED run only
+/// when named.
 uint32_t ModeFamiliesToRun(const RunMode *mode, uint32_t present);
+
+/// The same for a frontend whose families that run only when named are @p asked.
+uint32_t ModeFamiliesToRunOf(const RunMode *mode, uint32_t present, uint32_t asked);
 
 /// The one line the report carries about the mode, without the braces around it. Returns the
 /// length written; the text is always terminated.
 size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t present);
+
+/// The same for a frontend whose families that run only when named are @p asked.
+size_t ModeDescribeOf(char *out, size_t out_size, const RunMode *mode, uint32_t present,
+                      uint32_t asked);
 
 /// The words that decide what a run reports, in one order, for the journal: a launch goes on
 /// with a run only when the mode file still says the same. Quick and detailed are left out,

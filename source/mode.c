@@ -357,15 +357,19 @@ bool ModeAsksPad(const RunMode *mode) {
     return mode != NULL && !mode->detailed;
 }
 
-uint32_t ModeFamiliesToRun(const RunMode *mode, uint32_t present) {
+uint32_t ModeFamiliesToRunOf(const RunMode *mode, uint32_t present, uint32_t asked) {
     if (mode == NULL) {
-        return present & ~MODE_FAMILIES_ASKED;
+        return present & ~asked;
     }
     const uint32_t listened = mode->listen ? MODE_FAMILY_AUDIO : 0u;
     if (mode->families_named == 0u) {
-        return (present & ~MODE_FAMILIES_ASKED) | (listened & present);
+        return (present & ~asked) | (listened & present);
     }
     return (mode->families_named | listened) & present;
+}
+
+uint32_t ModeFamiliesToRun(const RunMode *mode, uint32_t present) {
+    return ModeFamiliesToRunOf(mode, present, MODE_FAMILIES_ASKED);
 }
 
 /// Appends the names of the families in @p set, space separated, or "none".
@@ -403,7 +407,8 @@ static void DescribeName(char *out, size_t out_size, const char *word, const Mod
 }
 
 /// ModeDescribe's line, whole when @p out_size is large enough.
-static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t present) {
+static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t present,
+                     uint32_t asked) {
     const char *why;
     if (mode->chosen_on_screen) {
         why = mode->detailed ? "detailed, chosen on the start screen"
@@ -423,7 +428,7 @@ static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t p
     }
     snprintf(out, out_size, "mode: %s; pictures of %s; families ", why,
              mode->every_case ? "every drawing case" : "failures only");
-    AppendFamilies(out, out_size, ModeFamiliesToRun(mode, present));
+    AppendFamilies(out, out_size, ModeFamiliesToRunOf(mode, present, asked));
     // Only when asked for, so a run that times its cases describes its mode as it always did.
     if (mode->no_timing) {
         const size_t used = strlen(out);
@@ -473,7 +478,7 @@ static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t p
     }
     if (mode->frames_named) {
         const size_t used = strlen(out);
-        const bool game = (ModeFamiliesToRun(mode, present) & MODE_FAMILY_GAME) != 0u;
+        const bool game = (ModeFamiliesToRunOf(mode, present, asked) & MODE_FAMILY_GAME) != 0u;
         snprintf(out + used, out_size - used, "; frames %u%s", (unsigned)mode->frames,
                  game ? "" : ", for the game family, which this run leaves out");
     }
@@ -510,6 +515,11 @@ static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t p
 }
 
 size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t present) {
+    return ModeDescribeOf(out, out_size, mode, present, MODE_FAMILIES_ASKED);
+}
+
+size_t ModeDescribeOf(char *out, size_t out_size, const RunMode *mode, uint32_t present,
+                      uint32_t asked) {
     if (out == NULL || out_size == 0u) {
         return 0;
     }
@@ -521,7 +531,7 @@ size_t ModeDescribe(char *out, size_t out_size, const RunMode *mode, uint32_t pr
     // hundred bytes each) says where it was cut and how long it was instead of ending mid-quote.
     char whole[2048];
     whole[0] = '\0';
-    Describe(whole, sizeof(whole), mode, present);
+    Describe(whole, sizeof(whole), mode, present, asked);
     const size_t length = strlen(whole);
     if (length < out_size) {
         memcpy(out, whole, length + 1u);

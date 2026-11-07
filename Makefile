@@ -63,8 +63,9 @@ SHADER_HDR  := $(BUILD)/shaders/edenprobe_shaders.h
 SHADER_OBJ  := $(BUILD)/shaders/blobs.o
 
 # host_main.c is the other build's entry point, and both define main, so sweeping the directory
-# would pick up two of them and fail the link.
-HOSTONLY := source/host_main.c
+# would pick up two of them and fail the link; platform_host.c is the host's side of platform.h,
+# which platform_switch.c is here.
+HOSTONLY := source/host_main.c source/platform_host.c
 CFILES   := $(filter-out $(HOSTONLY),$(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c)))
 OFILES   := $(patsubst %.c,$(BUILD)/%.o,$(CFILES)) $(SHADER_OBJ)
 # Only the C objects get a .d: the shader blobs are assembled, not compiled, and an assembly
