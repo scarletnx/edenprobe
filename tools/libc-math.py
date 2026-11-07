@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""math-expected.py: prints src/main/cpp/math_expected.h, the correctly rounded results the bionic math case
-compares libm with. Each value is computed in decimal at 100 digits from the input's exact binary value, then
-rounded to the nearest double (Python's float() of a decimal string is correctly rounded) or float.
+"""libc-math.py: prints source/libcmath.h, the correctly rounded results the libc suite's libm case
+compares the C library with (source/tests/t_libc.c). Each value is computed in decimal at 100
+digits from the input's exact binary value, then rounded to the nearest double (Python's float()
+of a decimal string is correctly rounded) or float.
 
-    tools/math-expected.py > src/main/cpp/math_expected.h
+    tools/libc-math.py > source/libcmath.h
 
-A second run prints the same bytes; tests/test-math-expected.sh checks the header against it."""
+A second run prints the same bytes; test_libc_math.py beside it checks the header against it.
+"""
 
 import decimal
 import struct
@@ -94,10 +97,15 @@ def main():
         ("expf", "expf(VF(1.0f))", exp(one)),
         ("logf", "logf(VF(10.0f))", ln(ten)),
     ]
-    out = ["/* SPDX-License-Identifier: GPL-3.0-or-later */",
-           "/* Made by tools/math-expected.py: the correctly rounded results of bionic.c's math case. Do not edit.",
-           "   X(name, the call, the result's bits); VD and VF read their argument through a volatile, so the compiler",
-           "   cannot fold the call into a constant of its own. */",
+    out = ["// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors",
+           "// SPDX-License-Identifier: GPL-3.0-or-later",
+           "",
+           "// Made by tools/libc-math.py: the correctly rounded results of the libc suite's libm case. Do not",
+           "// edit. X(name, the call, the result's bits); VD and VF read their argument through a volatile, so",
+           "// the compiler cannot fold the call into a constant of its own.",
+           "",
+           "#pragma once",
+           "",
            "#define MATH_DOUBLES(X) \\"]
     for name, call, value in doubles:
         out.append(f"    X({name}, {call}, 0x{dbits(value):016x}ULL) /* {float(value)!r} */ \\")

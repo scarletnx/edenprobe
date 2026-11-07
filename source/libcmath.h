@@ -1,7 +1,12 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Made by tools/math-expected.py: the correctly rounded results of bionic.c's math case. Do not edit.
-   X(name, the call, the result's bits); VD and VF read their argument through a volatile, so the compiler
-   cannot fold the call into a constant of its own. */
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// Made by tools/libc-math.py: the correctly rounded results of the libc suite's libm case. Do not
+// edit. X(name, the call, the result's bits); VD and VF read their argument through a volatile, so
+// the compiler cannot fold the call into a constant of its own.
+
+#pragma once
+
 #define MATH_DOUBLES(X) \
     X(exp, exp(VD(1.0)), 0x4005bf0a8b145769ULL) /* 2.718281828459045 */ \
     X(log, log(VD(10.0)), 0x40026bb1bbb55516ULL) /* 2.302585092994046 */ \

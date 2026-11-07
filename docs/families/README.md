@@ -2,7 +2,8 @@
 
 The families run in this order: the judge, the processor, pad (when a word names it), graphics, nvn (when its word
 names it), fs, then kernel,
-display, video, audio and service (each when a word names it), net, and game (when its word names it). The
+display, video, audio and service (each when a word names it), net, and game (when its word names it); libc, on the
+console, when a word names it. The
 [mode file](../ModeFile.md) says which words name what, and [the roadmap](../Roadmap.md) what a failure in each suite
 points at. A case that ends the program costs that case, not the rest of the run
 ([When the program ends in the middle](../Crashes.md)).
@@ -20,6 +21,7 @@ points at. A case that ends the program costs that case, not the rest of the run
 - **[Service](./Service.md)** - commands a game sends to the system's services, held to reden's answers
 - **[Net](./Net.md)** - nifm, dns, bsd, ssl, acc and friend, the net file and the fixture
 - **[Game](./Game.md)** - one scene that runs everything at once, as a game does
+- **[libc](./Libc.md)** - the C library and what it asks of the system, the same cases on every frontend
 
 Every drawing suite draws offscreen and reads its target back, so no case depends on the compositor, the swapchain
 or vertical sync. The game scene is the one exception: it presents every frame and judges the offscreen copy it

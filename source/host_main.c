@@ -21,6 +21,11 @@ int main(void) {
     RunSupportPerf();
     RunSupportSettle();
     RunReference();
+    // The C library's cases, as every frontend runs them: glibc here, so a case that holds a
+    // library to more than the standard says fails on the machine every pull request builds on.
+    RunLibc();
+    RunSystem();
+    RunSocket();
 
     ReportSummary();
     ReportClose();

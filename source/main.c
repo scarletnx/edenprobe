@@ -37,6 +37,11 @@ static const RunnerStep STEPS[] = {
     { "support", RunSupportSteps, 0, false, false },
     { "reference", RunReference, 0, false, false },
     { "cpu", RunCpu, 0, false, true },
+    // The C library over the processor, the same cases every frontend runs (docs/families/Libc.md):
+    // only when named here, so a run that names no family reports what it did before them.
+    { "libc", RunLibc, MODE_FAMILY_LIBC, false, true },
+    { "system", RunSystem, MODE_FAMILY_LIBC, false, true },
+    { "socket", RunSocket, MODE_FAMILY_LIBC, false, true },
     // Right after the processor, which takes seconds: a person sits in front of this one, and
     // should not wait for the families that need nobody. Untimed: a person's press is the point.
     { "pad", RunPad, MODE_FAMILY_PAD, false, true },
