@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""A release's title and notes: the NRO with its size and SHA-256, where to read how to run it, what changed since the
+"""A release's title and notes: the NRO and the APK with their sizes and SHA-256, where to read how to run them, what
+changed since the
 previous release, and where the source is, which the GPL asks for beside the binary. publish-builds.py beside it takes
 them for each nightly and each version.
 
@@ -14,8 +15,9 @@ import re
 import subprocess
 
 SERVER = "https://github.com"
-# What a release holds: the NRO, and its checksum in the form sha256sum -c reads
+# What a release holds: the NRO and the APK, each with its checksum in the form sha256sum -c reads
 NRO, SUM = "edenprobe.nro", "edenprobe.nro.sha256"
+APK, APK_SUM = "edenprobe.apk", "edenprobe.apk.sha256"
 MERGE = re.compile(r"Merge pull request #(\d+) from \S+")
 # what text from a commit could make of the markdown around it: a link, a tag, a table cell
 MARKDOWN = re.compile(r"([\\`*_\[\]<>|~])")
@@ -76,29 +78,41 @@ def size(count):
     return f"{count / 1e6:.1f} MB"
 
 
-def download(url, sha, where, count, digest):
-    """the NRO, linked from the release it is in, with its size and SHA-256; its checksum file; the documents"""
+def download(url, sha, where, count, digest, apk):
+    """the NRO and the APK (apk: its bytes and SHA-256, or None for a release without one), linked from the release
+    they are in, with their sizes and SHA-256; their checksum files; the documents"""
+    rows = [f"| [{NRO}]({where}/{NRO}) | {size(count)} | `{digest}` |"]
+    if apk:
+        rows.append(f"| [{APK}]({where}/{APK}) | {size(apk[0])} | `{apk[1]}` |")
+    if apk:
+        said = (
+            "The same NRO runs on the console and under an emulator, the APK on Android and on ScarletNX's Android "
+            f"layer. [{SUM}]({where}/{SUM}) and [{APK_SUM}]({where}/{APK_SUM}) hold their checksums: "
+            f"`sha256sum -c {SUM} {APK_SUM}` beside them checks both."
+        )
+    else:
+        said = (
+            f"The same file runs on the console and under an emulator. [{SUM}]({where}/{SUM}) holds its checksum: "
+            f"`sha256sum -c {SUM}` beside the NRO checks it."
+        )
     return [
         "## Download",
         "",
         "| File | Size | SHA-256 |",
         "|---|---|---|",
-        f"| [{NRO}]({where}/{NRO}) | {size(count)} | `{digest}` |",
+        *rows,
+        "",
+        said,
         "",
         (
-            f"The same file runs on the console and under an emulator. [{SUM}]({where}/{SUM}) holds its checksum: "
-            f"`sha256sum -c {SUM}` beside the NRO checks it."
-        ),
-        "",
-        (
-            f"How to run it: [Emulator.md]({url}/blob/{sha}/docs/Emulator.md) and "
-            f"[Console.md]({url}/blob/{sha}/docs/Console.md); how the releases are made: "
-            f"[Releases.md]({url}/blob/{sha}/docs/Releases.md)."
+            f"How to run it: [Emulator.md]({url}/blob/{sha}/docs/Emulator.md), "
+            f"[Console.md]({url}/blob/{sha}/docs/Console.md) and [Android.md]({url}/blob/{sha}/docs/Android.md); "
+            f"how the releases are made: [Releases.md]({url}/blob/{sha}/docs/Releases.md)."
         ),
     ]
 
 
-def source(tree):
+def source(tree, apk):
     """Where a build's source is, which the GPL asks for beside the binary, and what it links, folded"""
     return [
         "<details>",
@@ -107,8 +121,16 @@ def source(tree):
         f"The source of this build is at {tree}.",
         "",
         (
-            "- It was built in the devkitPro container .github/workflows/build.yml names, with devkitA64, "
+            "- The NRO was built in the devkitPro container .github/workflows/build.yml names, with devkitA64, "
             "and links libnx (ISC) and deko3d (zlib) from it."
+        ),
+        *(
+            [
+                "- The APK was built with the Android SDK and NDK .github/workflows/build.yml names, and links only "
+                "the libraries every Android device has."
+            ]
+            if apk
+            else []
         ),
         "- What else comes from elsewhere, and under which licence, is in docs/Credits.md.",
         "",
@@ -127,13 +149,14 @@ def notes(
     kept,
     since="the previous nightly",
     lead="Built from main at",
+    apk=None,
 ):
     """where: the release the files are in; count and digest: the NRO's bytes and SHA-256; kept: what becomes of the
-    release; since: what previous was; lead: what the first line calls the build"""
+    release; since: what previous was; lead: what the first line calls the build; apk: the APK's bytes and SHA-256"""
     url = f"{SERVER}/{repo}"
     date = git(checkout, "log", "-1", "--format=%cs", sha).strip()
     lines = [f"{lead} [`{sha[:7]}`]({url}/commit/{sha}), committed {date}." + (f" {kept}" if kept else ""), ""]
-    lines += download(url, sha, where, count, digest)
+    lines += download(url, sha, where, count, digest, apk)
     items = changes(checkout, previous, sha)
     if items is not None:
         compare = f"{url}/compare/{previous}...{sha}"
@@ -144,5 +167,5 @@ def notes(
         ]
         if len(items) > MOST_CHANGES:
             lines.append(f"- and [{len(items) - MOST_CHANGES} more]({compare})")
-    lines += ["", *source(f"{url}/tree/{sha}")]
+    lines += ["", *source(f"{url}/tree/{sha}", apk)]
     return "\n".join(lines) + "\n"
