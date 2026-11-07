@@ -54,6 +54,7 @@ static const ShaderBlob BLOBS[SHADER_COUNT] = {
     [SHADER_QUAD_COLOR_TESE] = { quad_color_tese_dksh, (uint32_t)quad_color_tese_dksh_size },
     [SHADER_FETCH_STEP_FRAG] = { fetch_step_frag_dksh, (uint32_t)fetch_step_frag_dksh_size },
     [SHADER_FETCH_LOD_FRAG] = { fetch_lod_frag_dksh, (uint32_t)fetch_lod_frag_dksh_size },
+    [SHADER_POINT_COORD_FRAG] = { point_coord_frag_dksh, (uint32_t)point_coord_frag_dksh_size },
 };
 
 const void *ShaderData(ShaderId id) {

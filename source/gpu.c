@@ -255,6 +255,7 @@ static const char *MakeBlock(GpuContext *gpu, DkMemBlock *out, uint32_t size, ui
 static const char *BringUp(GpuContext *gpu) {
     DkDeviceMaker device_maker;
     dkDeviceMakerDefaults(&device_maker);
+    device_maker.flags |= gpu->spec.device_flags;
     gpu->device = dkDeviceCreate(&device_maker);
     if (gpu->device == NULL) {
         return "dkDeviceCreate produced no device";

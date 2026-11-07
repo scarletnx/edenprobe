@@ -47,6 +47,9 @@ typedef struct {
     /// Bytes of command memory. Zero keeps the default, which fits every drawing suite; a suite
     /// recording thousands of draws in one list asks for more.
     uint32_t command_size;
+    /// DkDeviceFlags added to the library's defaults (depth from nought to one, the upper left
+    /// origin): a suite that asks about the other depth mode or origin makes a device of its own.
+    uint32_t device_flags;
 } GpuSpec;
 
 /// Everything a test needs to draw into an offscreen target and read the result back.

@@ -31,6 +31,9 @@ extern "C" {
 #define RAW_3D_DRAW_TEXTURE 0x420u
 /// SET_RENDER_ENABLE_A, B and C: the address high word, the low word, and the mode.
 #define RAW_3D_RENDER_ENABLE 0x554u
+/// VIEWPORT_TRANSFORM's y scale of viewport 0: its x scale is 0x280, and the y and z scales and
+/// the three offsets follow (deko3d source/maxwell/engine_3d.def).
+#define RAW_3D_VIEWPORT_SCALE_Y 0x281u
 
 /// The modes of SET_RENDER_ENABLE_C. IF_EQUAL and IF_NOT_EQUAL compare the 64-bit words at the
 /// address and 16 bytes past it; CONDITIONAL looks at the address alone.
@@ -57,6 +60,10 @@ size_t RawIndexLimit(uint32_t out[3], uint64_t limit);
 /// Writes the four words that point the render enable at @p address with @p mode, the address
 /// high word first. Returns 4.
 size_t RawRenderEnable(uint32_t out[4], uint64_t address, uint32_t mode);
+
+/// Writes the two words that set viewport 0's y scale to @p scale, which the library writes as
+/// half the viewport's height, negated for its upper left origin. Returns 2.
+size_t RawViewportScaleY(uint32_t out[2], float scale);
 
 /// The argument of VERTEX_ARRAY_INSTANCE_FIRST and _SUBSEQUENT: the first vertex in bits 0-15,
 /// the vertex count in bits 16-27 and the topology in bits 28-31, the layout of the 3D class's

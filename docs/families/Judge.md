@@ -29,7 +29,7 @@ family reports can be believed without them.
   case that times itself, with the one that reads its line back off standard output, the debug
   channel only there, to see the time it was given last, the case counted, and a rehearsal of it
   write nothing.
-- **reference**, three hundred and seventy nine cases, no hardware involved either: the other half
+- **reference**, three hundred and eighty eight cases, no hardware involved either: the other half
   of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -62,8 +62,14 @@ family reports can be believed without them.
     the two roundings, the saturating shifts, the conversions with 64 fraction bits, the SM4
     inputs from the standard's key and constants, and the rounding shifts, doubling multiplies and
     rounding narrows of the NEON gap cases, from the Arm ARM's pseudocode;
-  - eight on the raw 3D method words the index, instance, drawtex and query suites send, against
-    words worked out by hand from deko3d's command header layout;
+  - nine on the raw 3D method words the index, instance, drawtex, query and fixed suites send,
+    against words worked out by hand from deko3d's command header layout;
+  - eight on the fixed suite's rules, `source/fixedref.c`, on a 64 by 64 target: the squares its
+    four points cover and that no pixel centre sits on their edges, where a rectangle lands
+    through each viewport it sets, the face a counter clockwise triangle shows under each of them
+    and on a lower left device, the window depth of each z from minus one, the depth bounds with
+    both ends included, and the eight alpha tests told apart by an alpha of 0.5 at three
+    references, against answers worked out by hand;
   - twenty two on the astc suite's answers: the ASTC reference decoder, `source/astcref.c`, held
     block by block to hashes of what ARM's decoder (astcenc) makes of the same sixteen blocks, its
     weight table to values worked out by hand from the bit replication rule, and one value whose
