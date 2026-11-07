@@ -25,6 +25,19 @@
 // translator can lack either and still have the stages. So each gets a twin that does neither,
 // square_branch.geom and quad_color.tese, and the twins' cases tell "no such stage" apart from
 // those two.
+//
+// The last four draw the patch with no control stage, which the console allows: the levels come
+// from the list (dkCmdBufSetTessOuterLevels), and the evaluation stage reads the vertex stage's
+// outputs straight. A host that needs a control stage has to make one up that passes everything
+// on, the clip distances too: clip.vert.glsl writes all eight, the eighth minus one, and
+// clip_last.tese passes the eighth on as its own first, which clips the whole patch, where
+// clip_first.tese passes the first, one, and the patch is drawn.
+//
+// Then storage images in the stages before the fragment one: store.tese writes 0xa0 to 0xa2 into
+// texels 0 to 2 of an R32_Uint image while the fragment stage samples texel 3 of the same image,
+// which nothing writes; a draw after a barrier must fetch the three stored words; and store.vert
+// writes 0xb0 plus the vertex index into texel index mod 4. A host that binds images per stage
+// only for the fragment stage, or holds the image in a layout the second use cannot see, fails.
 
 static const char *const SUITE = "geometry";
 
@@ -41,6 +54,16 @@ typedef struct {
     DkShader tcs;
     DkShader tes;
     DkShader tes_color;
+    DkShader vs_clip;
+    DkShader tes_clip_first;
+    DkShader tes_clip_last;
+    DkShader tes_store;
+    DkShader vs_store;
+    DkShader fs_texel;
+    DkImage stage_image;
+    DkImageLayout stage_layout;
+    DkGpuAddr image_set;
+    DkGpuAddr sampler_set;
 } GeometryContext;
 
 typedef struct {
@@ -158,9 +181,11 @@ static void SquaresCase(GeometryContext *g, const char *name, const DkShader *gs
     Judge(g, name, ok, rects, count);
 }
 
-/// A patch over the rectangle from (8,8) to (56,56), tessellated at @p level.
-static void PatchCase(GeometryContext *g, const char *name, const DkShader *tes_shader,
-                      uint32_t level) {
+/// A patch over the rectangle from (8,8) to (56,56), tessellated at @p level: by @p tcs, or
+/// with no control stage (NULL) at the level the list sets. @p drawn false wants nothing drawn.
+static void PatchCase(GeometryContext *g, const char *name, const DkShader *vs,
+                      const DkShader *tcs, const DkShader *tes_shader, uint32_t level,
+                      bool drawn) {
     if (!ReportStart(SUITE, name)) {
         return;
     }
@@ -172,17 +197,130 @@ static void PatchCase(GeometryContext *g, const char *name, const DkShader *tes_
     const Rect rect = { 8, 8, 56, 56, { colour[0], colour[1], colour[2], (uint8_t)level } };
     GpuClear(&g->gpu, 0.0f, 0.0f, 0.0f, 0.0f);
     GpuBeginPass(&g->gpu);
-    bool ok = GpuBindTriangleState(&g->gpu, &g->vs, &g->fs, corners, 4);
+    bool ok = GpuBindTriangleState(&g->gpu, vs, &g->fs, corners, 4);
     if (ok) {
-        const DkShader *const stages[] = { &g->tcs, tes_shader };
+        const DkShader *const stages[] = { tcs != NULL ? tcs : tes_shader, tes_shader };
+        dkCmdBufBindShaders(g->gpu.cmdbuf, DkStageFlag_TessCtrl | DkStageFlag_TessEval, stages,
+                            tcs != NULL ? 2 : 1);
+        if (tcs == NULL) {
+            const float l = (float)level;
+            dkCmdBufSetTessOuterLevels(g->gpu.cmdbuf, l, l, l, l);
+            dkCmdBufSetTessInnerLevels(g->gpu.cmdbuf, l, l);
+        }
+        dkCmdBufSetPatchSize(g->gpu.cmdbuf, 4);
+        dkCmdBufDraw(g->gpu.cmdbuf, DkPrimitive_Patches, 4, 1, 0, 0);
+        Unbind(g);
+    }
+    GpuSubmit(&g->gpu);
+    Judge(g, name, ok, &rect, drawn ? 1u : 0u);
+}
+
+/// The stage image's four texels before each list: 0x11, 0x22, 0x33 and 0x44.
+static bool ResetStageImage(GeometryContext *g) {
+    static const uint32_t start[4] = { 0x11, 0x22, 0x33, 0x44 };
+    return GpuUploadTexture(&g->gpu, &g->stage_image, DkImageFormat_R32_Uint, 4, 1, start);
+}
+
+/// Binds the stage image's descriptors: texture 0 for the fragment stage, the image for @p stage.
+static void BindStageImage(GeometryContext *g, DkStage stage) {
+    dkCmdBufBindImageDescriptorSet(g->gpu.cmdbuf, g->image_set, 2);
+    dkCmdBufBindSamplerDescriptorSet(g->gpu.cmdbuf, g->sampler_set, 1);
+    dkCmdBufBindTexture(g->gpu.cmdbuf, DkStage_Fragment, 0, dkMakeTextureHandle(0, 0));
+    dkCmdBufBindImage(g->gpu.cmdbuf, stage, 0, dkMakeImageHandle(1));
+}
+
+/// Judges the stage image's four texels against @p want.
+static void JudgeStageImage(GeometryContext *g, const char *name, bool recorded,
+                            const uint32_t want[4]) {
+    const uint32_t *const got =
+        recorded && g->gpu.ready
+            ? (const uint32_t *)GpuReadBackImageBytes(&g->gpu, &g->stage_image, 4, 1, 4)
+            : NULL;
+    if (got == NULL) {
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   g->gpu.failure[0] != '\0' ? g->gpu.failure
+                                              : "the list or readback did not happen");
+        return;
+    }
+    CHECK_TRUE(SUITE, name, CHECK_EXACT, memcmp(got, want, 16) == 0,
+               "the texels hold %x %x %x %x, wanted %x %x %x %x", (unsigned)got[0],
+               (unsigned)got[1], (unsigned)got[2], (unsigned)got[3], (unsigned)want[0],
+               (unsigned)want[1], (unsigned)want[2], (unsigned)want[3]);
+}
+
+/// The patch from PatchCase at level 4 with store.tese, reading texel 3 in the fragment stage;
+/// with @p after, then a barrier and three 8 by 6 quads along the bottom reading texels 0 to 2.
+static bool StorePatch(GeometryContext *g, bool after) {
+    const uint8_t colour[4] = { 3, 0, 0, 4 };
+    const GpuVertex corners[4] = { At(8, 56, colour), At(56, 56, colour), At(56, 8, colour),
+                                   At(8, 8, colour) };
+    GpuClear(&g->gpu, 0.0f, 0.0f, 0.0f, 0.0f);
+    GpuBeginPass(&g->gpu);
+    BindStageImage(g, DkStage_TessEval);
+    bool ok = GpuBindTriangleState(&g->gpu, &g->vs, &g->fs_texel, corners, 4);
+    if (ok) {
+        const DkShader *const stages[] = { &g->tcs, &g->tes_store };
         dkCmdBufBindShaders(g->gpu.cmdbuf, DkStageFlag_TessCtrl | DkStageFlag_TessEval, stages,
                             2);
         dkCmdBufSetPatchSize(g->gpu.cmdbuf, 4);
         dkCmdBufDraw(g->gpu.cmdbuf, DkPrimitive_Patches, 4, 1, 0, 0);
         Unbind(g);
     }
+    if (ok && after) {
+        dkCmdBufBarrier(g->gpu.cmdbuf, DkBarrier_Primitives, DkInvalidateFlags_Image);
+        for (uint32_t i = 0; i < 3u && ok; ++i) {
+            const uint8_t index[4] = { (uint8_t)i, 0, 0, 0xFF };
+            const GpuVertex quad[6] = { At(8 * i, 64, index),     At(8 * i + 8, 64, index),
+                                        At(8 * i + 8, 58, index), At(8 * i, 64, index),
+                                        At(8 * i + 8, 58, index), At(8 * i, 58, index) };
+            ok = GpuDrawTriangles(&g->gpu, &g->vs, &g->fs_texel, quad, 6);
+        }
+    }
     GpuSubmit(&g->gpu);
-    Judge(g, name, ok, &rect, 1);
+    return ok;
+}
+
+static void StageImageCases(GeometryContext *g) {
+    static const char *const SAMPLED = "the fragment stage samples the texel an evaluation stage "
+                                       "storing into its image left alone";
+    static const char *const STORED = "an evaluation stage's stores land in its image";
+    if (!ReportStart(SUITE, SAMPLED)) {
+        ReportSkip(SUITE, STORED, REPORT_REASON_DEPENDS,
+                   "judged from the list of the case before it, which did not run");
+    } else {
+        const bool ok = ResetStageImage(g) && StorePatch(g, false);
+        const Rect rect = { 8, 8, 56, 56, { 0x44, 0, 0, 0xFF } };
+        Judge(g, SAMPLED, ok, &rect, 1);
+        if (ReportStart(SUITE, STORED)) {
+            static const uint32_t want[4] = { 0xA0, 0xA1, 0xA2, 0x44 };
+            JudgeStageImage(g, STORED, ok, want);
+        }
+    }
+    static const char *const AFTER =
+        "a draw after a barrier fetches what the evaluation stage stored";
+    if (ReportStart(SUITE, AFTER)) {
+        const bool ok = ResetStageImage(g) && StorePatch(g, true);
+        const Rect rects[4] = { { 8, 8, 56, 56, { 0x44, 0, 0, 0xFF } },
+                                { 0, 58, 8, 64, { 0xA0, 0, 0, 0xFF } },
+                                { 8, 58, 16, 64, { 0xA1, 0, 0, 0xFF } },
+                                { 16, 58, 24, 64, { 0xA2, 0, 0, 0xFF } } };
+        Judge(g, AFTER, ok, rects, 4);
+    }
+    static const char *const VERTEX = "the vertex stage's stores land in its image";
+    if (ReportStart(SUITE, VERTEX)) {
+        bool ok = ResetStageImage(g);
+        if (ok) {
+            static const uint8_t colour[4] = { 0x40, 0x40, 0x40, 0xFF };
+            const GpuVertex quad[6] = { At(0, 4, colour), At(4, 4, colour), At(4, 0, colour),
+                                        At(0, 4, colour), At(4, 0, colour), At(0, 0, colour) };
+            GpuBeginPass(&g->gpu);
+            BindStageImage(g, DkStage_Vertex);
+            ok = GpuDrawTriangles(&g->gpu, &g->vs_store, &g->fs, quad, 6);
+            GpuSubmit(&g->gpu);
+        }
+        static const uint32_t want[4] = { 0xB0, 0xB1, 0xB2, 0xB3 };
+        JudgeStageImage(g, VERTEX, ok, want);
+    }
 }
 
 void RunGeometry(void) {
@@ -190,6 +328,7 @@ void RunGeometry(void) {
     GpuSpecDefaults(&spec, TARGET_WIDTH, TARGET_HEIGHT);
     spec.code_size = 64u * 1024u;
     spec.data_size = 64u * 1024u;
+    spec.image_size = 256u * 1024u;
 
     if (!ReportStart(SUITE, "graphics device opens")) {
         return;
@@ -215,7 +354,19 @@ void RunGeometry(void) {
         GpuLoadShader(&g.gpu, &g.gs_branch, ShaderData(SHADER_SQUARE_BRANCH_GEOM),
                       ShaderSize(SHADER_SQUARE_BRANCH_GEOM)) &&
         GpuLoadShader(&g.gpu, &g.tes_color, ShaderData(SHADER_QUAD_COLOR_TESE),
-                      ShaderSize(SHADER_QUAD_COLOR_TESE));
+                      ShaderSize(SHADER_QUAD_COLOR_TESE)) &&
+        GpuLoadShader(&g.gpu, &g.vs_clip, ShaderData(SHADER_CLIP_VERT),
+                      ShaderSize(SHADER_CLIP_VERT)) &&
+        GpuLoadShader(&g.gpu, &g.tes_clip_first, ShaderData(SHADER_CLIP_FIRST_TESE),
+                      ShaderSize(SHADER_CLIP_FIRST_TESE)) &&
+        GpuLoadShader(&g.gpu, &g.tes_clip_last, ShaderData(SHADER_CLIP_LAST_TESE),
+                      ShaderSize(SHADER_CLIP_LAST_TESE)) &&
+        GpuLoadShader(&g.gpu, &g.tes_store, ShaderData(SHADER_STORE_TESE),
+                      ShaderSize(SHADER_STORE_TESE)) &&
+        GpuLoadShader(&g.gpu, &g.vs_store, ShaderData(SHADER_STORE_VERT),
+                      ShaderSize(SHADER_STORE_VERT)) &&
+        GpuLoadShader(&g.gpu, &g.fs_texel, ShaderData(SHADER_FETCH_TEXEL_FRAG),
+                      ShaderSize(SHADER_FETCH_TEXEL_FRAG));
     CHECK_TRUE(SUITE, "the geometry and tessellation shaders load", CHECK_NONE, loaded, "%s",
                g.gpu.failure);
     if (!loaded) {
@@ -228,11 +379,51 @@ void RunGeometry(void) {
     SquaresCase(&g, "a geometry shader turns each of four points into its 8 by 8 square", &g.gs,
                 all);
     SquaresCase(&g, "a point the geometry shader emits nothing for draws nothing", &g.gs, some);
-    PatchCase(&g, "a patch tessellated at level 4 covers its rectangle, and says 4", &g.tes, 4u);
-    PatchCase(&g, "the same patch at level 7 covers the same rectangle, and says 7", &g.tes, 7u);
+    PatchCase(&g, "a patch tessellated at level 4 covers its rectangle, and says 4", &g.vs, &g.tcs,
+              &g.tes, 4u, true);
+    PatchCase(&g, "the same patch at level 7 covers the same rectangle, and says 7", &g.vs, &g.tcs,
+              &g.tes, 7u, true);
     SquaresCase(&g, "a geometry shader with no early return squares the shown points only",
                 &g.gs_branch, some);
     PatchCase(&g, "a patch whose evaluation stage reads no level covers its rectangle at 4",
-              &g.tes_color, 4u);
+              &g.vs, &g.tcs, &g.tes_color, 4u, true);
+    PatchCase(&g, "a patch with no control stage covers its rectangle at the list's level 5",
+              &g.vs, NULL, &g.tes_color, 5u, true);
+    PatchCase(&g, "an evaluation stage with no control stage reads the list's level 5", &g.vs,
+              NULL, &g.tes, 5u, true);
+    PatchCase(&g, "a positive first clip distance passed on by the evaluation stage clips nothing",
+              &g.vs_clip, NULL, &g.tes_clip_first, 4u, true);
+    PatchCase(&g, "a negative eighth clip distance passed on by the evaluation stage clips the "
+                  "patch",
+              &g.vs_clip, NULL, &g.tes_clip_last, 4u, false);
+
+    if (!ReportStart(SUITE, "the stage image and its descriptors are in place")) {
+        GpuClose(&g.gpu);
+        return;
+    }
+    DkImageDescriptor *const images = (DkImageDescriptor *)GpuAllocData(
+        &g.gpu, 2u * (uint32_t)sizeof(DkImageDescriptor), DK_IMAGE_DESCRIPTOR_ALIGNMENT,
+        &g.image_set);
+    DkSamplerDescriptor *const samplers = (DkSamplerDescriptor *)GpuAllocData(
+        &g.gpu, (uint32_t)sizeof(DkSamplerDescriptor), DK_SAMPLER_DESCRIPTOR_ALIGNMENT,
+        &g.sampler_set);
+    const bool made = images != NULL && samplers != NULL &&
+                      GpuCreateImage(&g.gpu, &g.stage_image, &g.stage_layout,
+                                     DkImageFormat_R32_Uint, 4, 1, DkImageFlags_UsageLoadStore, 0,
+                                     NULL);
+    if (made) {
+        DkImageView view;
+        dkImageViewDefaults(&view, &g.stage_image);
+        dkImageDescriptorInitialize(&images[0], &view, false, false);
+        dkImageDescriptorInitialize(&images[1], &view, true, false);
+        DkSampler sampler;
+        dkSamplerDefaults(&sampler);
+        dkSamplerDescriptorInitialize(&samplers[0], &sampler);
+    }
+    CHECK_TRUE(SUITE, "the stage image and its descriptors are in place", CHECK_NONE, made, "%s",
+               g.gpu.failure[0] != '\0' ? g.gpu.failure : "the scratch block had no room");
+    if (made) {
+        StageImageCases(&g);
+    }
     GpuClose(&g.gpu);
 }

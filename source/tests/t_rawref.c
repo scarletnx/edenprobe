@@ -74,6 +74,14 @@ void RunReferenceRaw(void) {
                    first < 13 ? (unsigned)draw[first] : 0u,
                    first < 13 ? (unsigned)want[first] : 0u);
     }
+    // A source two texels left of its texture: -2 * 4096 in two's complement.
+    {
+        uint32_t draw[13];
+        RawDrawTexture(draw, 1, 0, 0, 0, 16, 16, -2, 0);
+        CHECK_TRUE(SUITE, "a draw texture from texel -2 carries 0xffffe000 as its source x",
+                   CHECK_NONE, draw[11] == 0xFFFFE000u && draw[12] == 0u, "got 0x%08x 0x%08x",
+                   (unsigned)draw[11], (unsigned)draw[12]);
+    }
     // 0x54F | 0x11 << 16 | 4 << 29: alpha to coverage and alpha to one, inline.
     {
         const uint32_t word =
