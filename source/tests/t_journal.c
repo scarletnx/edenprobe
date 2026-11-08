@@ -12,12 +12,23 @@
 #include <string.h>
 #include <sys/types.h>
 
+#ifdef EDENPROBE_HOST
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
 #include "../check.h"
 #include "../cpuref.h"
 #include "../hang.h"
 #include "../journal.h"
 #include "../mode.h"
 #include "../report.h"
+#ifdef EDENPROBE_HOST
+#include "../runner.h"
+#endif
 #include "tests.h"
 
 // The journal, the crash list and what a launch decides from them, checked without a crash: the
@@ -1208,6 +1219,176 @@ static void CheckModeWords(void) {
                "key \"%s\"; said \"%.240s\"", hang_key, hang_said);
 }
 
+#ifdef EDENPROBE_HOST
+// A run of two steps, launched as main launches one, in a process of its own each time: the first
+// step has a case that ends the program between two that do not, the second step comes after.
+static const char *const RELAUNCH_ENDS = "a case that ends the program";
+
+static void RelaunchCase(const char *suite, const char *name) {
+    if (ReportStart(suite, name)) {
+        ReportCase(suite, name, CHECK_NONE, true, NULL);
+    }
+}
+
+static void RelaunchFirstStep(void) {
+    RelaunchCase("ending", "the case before it");
+    if (ReportStart("ending", RELAUNCH_ENDS)) {
+        // The process ends with the case's start on the card, as a translator's ends on an
+        // instruction it cannot run. SIGKILL, which leaves no core behind on the build machine.
+        raise(SIGKILL);
+    }
+    RelaunchCase("ending", "the case after it");
+}
+
+static void RelaunchSecondStep(void) {
+    RelaunchCase("after", "the next step's case");
+}
+
+static const RunnerStep RELAUNCH_STEPS[] = {
+    { "ending", RelaunchFirstStep, 0, false, true },
+    { "after", RelaunchSecondStep, 0, false, true },
+};
+
+/// One launch of that run under @p root: the status waitpid gives, or -1 when there was none.
+static int RelaunchOnce(const char *root) {
+    static RunnerFrontend frontend;
+    frontend.root = root;
+    frontend.version = "0.0.0";
+    frontend.build = "relaunch-check";
+    frontend.hash = "relaunch";
+    frontend.steps = RELAUNCH_STEPS;
+    frontend.step_count = sizeof(RELAUNCH_STEPS) / sizeof(RELAUNCH_STEPS[0]);
+    // Nothing of this run's own may be left in a buffer for the launch to write a second time.
+    fflush(NULL);
+    const pid_t pid = fork();
+    if (pid < 0) {
+        return -1;
+    }
+    if (pid == 0) {
+        // The host run's report is this process's too until it lets go: no line of the launch's
+        // may land in it. The launch's lines also go to the log, which here is the host run's
+        // standard output, so they go nowhere instead.
+        ReportClose();
+        const int quiet = open("/dev/null", O_WRONLY);
+        if (quiet >= 0) {
+            dup2(quiet, STDOUT_FILENO);
+            dup2(quiet, STDERR_FILENO);
+        }
+        static Runner runner;
+        if (!RunnerInit(&runner, &frontend)) {
+            _exit(2);
+        }
+        const RunMode from_file = RunnerModeFromFile(runner.mode_path);
+        RunnerPlan(&runner, &from_file);
+        RunMode mode = RunnerModeAtStart(&runner, &from_file);
+        RunnerOpen(&runner, &mode);
+        if (runner.plan.start == JOURNAL_FRESH) {
+            RunnerBeginJournal(&runner, &from_file, &mode);
+        }
+        RunnerApplyMode(&runner, &mode);
+        RunnerSteps(&runner, RunnerFamilies(&runner, &mode), false, NULL);
+        RunnerFinish(&runner, &mode, false);
+        _exit(0);
+    }
+    int status = 0;
+    return waitpid(pid, &status, 0) == pid ? status : -1;
+}
+
+/// How many times @p needle is in @p text.
+static uint32_t Occurrences(const char *text, const char *needle) {
+    uint32_t count = 0;
+    for (const char *at = strstr(text, needle); at != NULL; at = strstr(at + 1, needle)) {
+        ++count;
+    }
+    return count;
+}
+
+/// A case that ends the program, with no word asking for it: the launch it ends leaves its start
+/// in the journal, and the next launch skips it as crashed, puts it on the crash list and runs
+/// the case after it and the next step; a new run skips it from the list. The word fatal is read,
+/// changes none of it, and the report says so once. Every file the launches wrote goes again.
+static void CheckRelaunch(const char *scratch) {
+    char root[256];
+    char path[320];
+    snprintf(root, sizeof(root), "%.200s/relaunch", scratch);
+    mkdir(root, 0777);
+    snprintf(path, sizeof(path), "%s/mode", root);
+    const bool moded = JournalWriteFile(path, "quick fatal\n");
+
+    static char report[16384];
+    static char again[16384];
+    char listed[512] = "";
+    char report_path[320];
+    snprintf(report_path, sizeof(report_path), "%s/runs/relaunch/report.jsonl", root);
+    const int first = RelaunchOnce(root);
+    const int second = RelaunchOnce(root);
+    const bool read = JournalReadFile(report_path, report, sizeof(report), NULL) > 0;
+    snprintf(path, sizeof(path), "%s/crashes", root);
+    (void)JournalReadFile(path, listed, sizeof(listed), NULL);
+    const int third = RelaunchOnce(root);
+    const bool reread = JournalReadFile(report_path, again, sizeof(again), NULL) > 0;
+
+    const bool ended = first != -1 && WIFSIGNALED(first) && WTERMSIG(first) == SIGKILL;
+    const bool finished = second != -1 && WIFEXITED(second) && WEXITSTATUS(second) == 0 &&
+                          third != -1 && WIFEXITED(third) && WEXITSTATUS(third) == 0;
+    static const char CRASHED[] = "{\"type\":\"case\",\"suite\":\"ending\",\"name\":\"a case that "
+                                  "ends the program\",\"tier\":\"none\",\"result\":\"skip\","
+                                  "\"reason\":\"crashed\",\"detail\":\"the program ended inside "
+                                  "it earlier in this run";
+    static const char LISTED[] = "{\"type\":\"case\",\"suite\":\"ending\",\"name\":\"a case that "
+                                 "ends the program\",\"tier\":\"none\",\"result\":\"skip\","
+                                 "\"reason\":\"crashed\",\"detail\":\"on the crash list";
+    static const char AFTER[] = "\"suite\":\"ending\",\"name\":\"the case after it\",\"tier\":"
+                                "\"none\",\"result\":\"pass\"";
+    static const char NEXT[] = "\"suite\":\"after\",\"name\":\"the next step's case\",\"tier\":"
+                               "\"none\",\"result\":\"pass\"";
+    static const char BEFORE[] = "\"name\":\"the case before it\"";
+    static const char SUMMARY[] =
+        "{\"type\":\"summary\",\"passed\":3,\"failed\":0,\"skipped\":0,\"crashed\":1}";
+    const bool resumed =
+        read && Occurrences(report, CRASHED) == 1u && Occurrences(report, AFTER) == 1u &&
+        Occurrences(report, NEXT) == 1u && Occurrences(report, BEFORE) == 1u &&
+        strstr(report, "journal: launch 2 resumes the run") != NULL &&
+        strstr(report, SUMMARY) != NULL &&
+        strstr(listed, "ending a case that ends the program\n") != NULL;
+    const bool new_run = reread && Occurrences(again, LISTED) == 1u &&
+                         Occurrences(again, AFTER) == 1u && Occurrences(again, NEXT) == 1u &&
+                         strstr(again, SUMMARY) != NULL;
+    const uint32_t said = read ? Occurrences(report, MODE_FATAL_SAID) : 0u;
+    const uint32_t said_again = reread ? Occurrences(again, MODE_FATAL_SAID) : 0u;
+
+    // Every file the three launches wrote, by name, then their folders: anything else left in
+    // them keeps a folder there, which says so.
+    static const char *const FILES[] = { "runs/relaunch/report.jsonl", "runs/relaunch/journal",
+                                         "crashes", "last-run", "mode" };
+    bool gone = true;
+    for (size_t i = 0; i < sizeof(FILES) / sizeof(FILES[0]); ++i) {
+        snprintf(path, sizeof(path), "%s/%s", root, FILES[i]);
+        gone = remove(path) == 0 && gone;
+    }
+    static const char *const FOLDERS[] = { "runs/relaunch", "runs", "" };
+    for (size_t i = 0; i < sizeof(FOLDERS) / sizeof(FOLDERS[0]); ++i) {
+        snprintf(path, sizeof(path), "%s/%s", root, FOLDERS[i]);
+        gone = rmdir(path) == 0 && gone;
+    }
+
+    CHECK_TRUE(SUITE, "a case that ends the program costs it alone: the next launch skips it and "
+                      "runs on",
+               CHECK_NONE, moded && ended && finished && resumed && new_run && gone,
+               "mode file %d; launch 1 %s (status %d), launches 2 and 3 %s; resumed %d, the new "
+               "run %d, files gone %d; crash list \"%.80s\"; report ends \"...%.200s\"",
+               (int)moded, ended ? "ended inside the case" : "did not end inside the case",
+               first, finished ? "finished" : "did not finish", (int)resumed, (int)new_run,
+               (int)gone, listed, read && strlen(report) > 200u ? report + strlen(report) - 200u
+                                                                 : report);
+    CHECK_TRUE(SUITE, "the word fatal changes nothing, said once a run over its launches",
+               CHECK_NONE, said == 1u && said_again == 1u && resumed && new_run,
+               "said %u times in the run of two launches and %u in the next run; the runs %s",
+               (unsigned)said, (unsigned)said_again,
+               resumed && new_run ? "went on past the case" : "did not go on past the case");
+}
+#endif
+
 void RunSupportJournal(const char *scratch) {
     CheckRecords();
     CheckReading();
@@ -1229,4 +1410,7 @@ void RunSupportJournal(const char *scratch) {
     CheckHang();
     CheckCrashesHandedBack(crashes_before);
     CheckModeWords();
+#ifdef EDENPROBE_HOST
+    CheckRelaunch(scratch);
+#endif
 }
