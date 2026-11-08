@@ -171,6 +171,10 @@ MODE ?= quick
 RELAUNCHES ?= 16
 TIMEOUT ?= 60
 
+# The machine the mode file names for the ban list (docs/Crashes.md), <name>[@<version>]: empty,
+# run.py takes it from the emulator's name, and an eden's version from its --version.
+MACHINE ?=
+
 # tools/run.py does the running: everything the previous run left is removed first (the journal
 # stays, for the program to read), the mode file written, the emulator started with the XDG
 # override and started again after a crash, the crash list kept per emulator binary under
@@ -178,7 +182,7 @@ TIMEOUT ?= 60
 # launch and exits non-zero when the report never got one.
 run: $(TARGET).nro
 	@python3 tools/run.py --who "make run" --emulator "$(EMULATOR)" \
-	  --nro "$(CURDIR)/$(TARGET).nro" --xdg "$(XDG)" --mode "$(MODE)" \
+	  --nro "$(CURDIR)/$(TARGET).nro" --xdg "$(XDG)" --mode "$(MODE)" --machine "$(MACHINE)" \
 	  --relaunches $(RELAUNCHES) --timeout $(TIMEOUT)
 
 # The graphics family once under the Khronos validation layer with synchronisation validation,

@@ -30,7 +30,8 @@ scenario whole ok --mode "quick libc"
 cmp -s "$tmp/whole/out/report.jsonl" "$here/fixtures/report.jsonl" && ok "whole: the report pulled as it is" || bad "whole: the report differs"
 [ "$(calls whole 'install -t')" = 1 ] && [ "$(calls whole "uninstall org.scarletnx.edenprobe")" = 1 ] && [ ! -e "$tmp/whole/dev/installed" ] &&
     ok "whole: installed once, uninstalled at the end" || bad "whole: install and uninstall: $(cat "$tmp/whole/dev/calls")"
-[ "$(cat "$tmp/whole/dev/device$root/mode" 2> /dev/null)" = "quick libc" ] && ok "whole: the mode file holds --mode's words" ||
+[ "$(cat "$tmp/whole/dev/device$root/mode" 2> /dev/null)" = "quick libc machine=android@fake" ] &&
+    ok "whole: the mode file holds --mode's words and the machine, with its Android release" ||
     bad "whole: mode file \"$(cat "$tmp/whole/dev/device$root/mode" 2> /dev/null)\""
 grep -q "EDENPROBE DONE passed=1 failed=1" "$tmp/whole/log" && ok "whole: says the engine's counts" || bad "whole: $(cat "$tmp/whole/log")"
 grep -q "meminfo of" "$tmp/whole/out/meminfo.txt" && ok "whole: meminfo saved" || bad "whole: no meminfo"
@@ -38,7 +39,8 @@ grep -q "meminfo of" "$tmp/whole/out/meminfo.txt" && ok "whole: meminfo saved" |
 scenario dies die-once
 [ $rc = 0 ] && [ "$(cat "$tmp/dies/dev/launches")" = 2 ] && ok "dies: launched again, exit 0" || bad "dies: exit $rc, launches $(cat "$tmp/dies/dev/launches")"
 [ -s "$tmp/dies/out/exit-info-1.txt" ] && ok "dies: exit-info of launch 1 saved" || bad "dies: no exit-info-1.txt"
-[ "$(cat "$tmp/dies/dev/device$root/mode" 2> /dev/null)" = quick ] && ok "dies: the mode file says quick without --mode" || bad "dies: no quick mode file"
+[ "$(cat "$tmp/dies/dev/device$root/mode" 2> /dev/null)" = "quick machine=android@fake" ] &&
+    ok "dies: the mode file says quick without --mode, and the machine" || bad "dies: no quick mode file"
 [ ! -e "$tmp/dies/dev/installed" ] && ok "dies: uninstalled" || bad "dies: still installed"
 
 scenario hangs stall --stall 3
@@ -62,6 +64,9 @@ scenario taken installed
 [ "$(calls taken 'install -t')" = 0 ] && [ "$(calls taken 'uninstall')" = 0 ] && [ -e "$tmp/taken/dev/installed" ] &&
     ok "taken: the installed package left alone" || bad "taken: $(cat "$tmp/taken/dev/calls")"
 
+scenario named ok --mode "quick machine=console"
+[ "$(cat "$tmp/named/dev/device$root/mode" 2> /dev/null)" = "quick machine=console" ] &&
+    ok "named: words that name a machine keep it" || bad "named: mode file \"$(cat "$tmp/named/dev/device$root/mode" 2> /dev/null)\""
 scenario quoted ok --mode "it's"
 [ $rc = 2 ] && [ ! -e "$tmp/quoted/dev/calls" ] && ok "quoted: a mode with a quote refused before adb" || bad "quoted: exit $rc"
 
