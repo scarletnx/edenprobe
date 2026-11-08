@@ -65,6 +65,17 @@ changes nothing; the mode line says so once a run.
 they are skipped as `hangs` unless `hang` asks, and `retry` never runs them, since a hang does not end the program and
 the journal cannot mark it. A case on the crash list stays `crashed` whatever `hang` says, until `retry`.
 
+## Who launches again
+
+| how the probe runs | after the program ends inside a case |
+|---|---|
+| an emulator through `make run` ([Under an emulator](Emulator.md)) | `tools/run.py` launches it again, up to `RELAUNCHES` (16) times more |
+| the APK on a device, `android/tools/run-adb.sh` ([On Android](Android.md)) | it launches the app again, up to `--launches` (5) in all |
+| the APK on ScarletNX's Android layer, `android/tools/run-scarletnx.sh` | it launches the driver again, up to `--launches` (5) in all |
+| ScarletNX, through its `scripts/edenprobe.py run` | it launches the program again, up to `--launches` (16) in all |
+| the console from the homebrew menu, Ryujinx, or any emulator opened by hand | by hand: open `edenprobe.nro` again, until the report ends on its summary |
+| the host build, `make -f host.mk host-run` | nothing goes on: it keeps no journal and runs the judge and the libc family whole every time |
+
 ## What a crash costs
 
 Every case of the cpu, graphics, fs, kernel, display, video, audio and net families says it starts before any of its
@@ -80,6 +91,5 @@ the journal is on.
 
 ## Ryujinx and the console
 
-Started by hand: when the program ends, open `edenprobe.nro` again, until the report ends on its summary. Ryujinx's
-card is `~/.config/Ryujinx/sdcard/edenprobe/` on Linux (`$XDG_CONFIG_HOME/Ryujinx/...`, or `portable/sdcard/` beside a
-portable build).
+Started by hand, as the table says. Ryujinx's card is `~/.config/Ryujinx/sdcard/edenprobe/` on Linux
+(`$XDG_CONFIG_HOME/Ryujinx/...`, or `portable/sdcard/` beside a portable build).
