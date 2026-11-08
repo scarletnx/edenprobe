@@ -1,0 +1,131 @@
+// SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Written by tools/bans.py from source/bans.txt; edit that file and run it again rather than this one.
+
+#include <stddef.h>
+
+#include "bans.h"
+
+const char *const BAN_MACHINES[] = {
+    "console",
+    "eden",
+    "ryujinx",
+    "scarletnx",
+    "scarletnx-android",
+    "android",
+};
+const size_t BAN_MACHINE_COUNT = 6;
+
+const BanLine BAN_LINES[] = {
+    {
+        "cpu",
+        "sm4ekey and sm4e give the SM4 standard's worked example",
+        "eden",
+        "*",
+        "ends the program with SIGABRT: dynarmic throws Xbyak::Error compiling SM4EKEY and SM4E",
+        "make run MODE=\"quick cpu graphics notime\" on 2026-11-07, Eden 6a9235c22d, edenprobe #29",
+        "quick cpu unban",
+        "2026-11-07 ends on 6a9235c22d",
+        29,
+    },
+    {
+        "cpu",
+        "mrs cntvct_el0 reads a virtual count that moves with the physical one",
+        "eden",
+        "*",
+        "ends the program with SIGABRT: dynarmic's MRS reaches UNREACHABLE on CNTVCT_EL0",
+        "make run MODE=\"quick cpu graphics notime\" on 2026-11-07, Eden 6a9235c22d, edenprobe #29",
+        "quick cpu unban",
+        "2026-11-07 ends on 6a9235c22d",
+        30,
+    },
+    {
+        "cpu",
+        "mrs daif reads nothing outside the four interrupt mask bits",
+        "eden",
+        "*",
+        "ends the program with SIGABRT: dynarmic's MRS reaches UNREACHABLE on DAIF",
+        "make run MODE=\"quick cpu graphics notime\" on 2026-11-07, Eden 6a9235c22d, edenprobe #29",
+        "quick cpu unban",
+        "2026-11-07 ends on 6a9235c22d",
+        31,
+    },
+    {
+        "geometry",
+        "a geometry shader turns each of four points into its 8 by 8 square",
+        "eden",
+        "*",
+        "ends the program with SIGABRT: the shader recompiler throws Shader::NotImplementedException on square.geom's PRET",
+        "make run MODE=\"quick cpu graphics notime\" on 2026-11-07, Eden 6a9235c22d, edenprobe #29",
+        "quick graphics notime unban",
+        "2026-11-07 ends on 6a9235c22d",
+        32,
+    },
+    {
+        "geometry",
+        "a point the geometry shader emits nothing for draws nothing",
+        "eden",
+        "*",
+        "ends the program with SIGABRT: the shader recompiler throws Shader::NotImplementedException on square.geom's PRET",
+        "make run MODE=\"quick cpu graphics notime\" on 2026-11-07, Eden 6a9235c22d, edenprobe #29",
+        "quick graphics notime unban",
+        "2026-11-07 ends on 6a9235c22d",
+        33,
+    },
+    {
+        "bcn",
+        "every layer of a six-layer BC4 array keeps its own 2x2 and 1x1 levels",
+        "eden",
+        "*",
+        "ends the program with SIGABRT: the shader recompiler throws Shader::NotImplementedException on fetch_array.frag's PRET",
+        "make run MODE=\"quick cpu graphics notime\" on 2026-11-07, Eden 6a9235c22d, edenprobe #29",
+        "quick graphics notime unban",
+        "2026-11-07 ends on 6a9235c22d",
+        34,
+    },
+    {
+        "bcn",
+        "both layers of a BC4 array six texels tall keep their own blocks",
+        "eden",
+        "*",
+        "ends the program with SIGABRT: the shader recompiler throws Shader::NotImplementedException on fetch_array.frag's PRET",
+        "make run MODE=\"quick cpu graphics notime\" on 2026-11-07, Eden 6a9235c22d, edenprobe #29",
+        "quick graphics notime unban",
+        "2026-11-07 ends on 6a9235c22d",
+        35,
+    },
+    {
+        "bcn",
+        "the 2x8 second level of a 4x16 BC4 texture reads both of its blocks",
+        "eden",
+        "*",
+        "ends the program with SIGABRT: the shader recompiler throws Shader::NotImplementedException on fetch_array.frag's PRET",
+        "make run MODE=\"quick cpu graphics notime\" on 2026-11-07, Eden 6a9235c22d, edenprobe #29",
+        "quick graphics notime unban",
+        "2026-11-07 ends on 6a9235c22d",
+        36,
+    },
+    {
+        "cpu",
+        "sm4ekey and sm4e give the SM4 standard's worked example",
+        "scarletnx",
+        "*",
+        "ends the program with exit 1: the recompiler cannot run SM4EKEY (ce62c820)",
+        "quick cpu on 2026-11-07, ScarletNX 10ed344, edenprobe #29",
+        "quick cpu unban",
+        "2026-11-07 ends on 10ed344",
+        39,
+    },
+    {
+        "cpu",
+        "mrs daif reads nothing outside the four interrupt mask bits",
+        "scarletnx",
+        "*",
+        "ends the program with exit 1: the recompiler cannot run MRS DAIF (d53b4223), which raises UNDEF as on the console",
+        "quick cpu on 2026-11-07, ScarletNX 10ed344, edenprobe #29",
+        "quick cpu unban",
+        "2026-11-07 ends on 10ed344",
+        40,
+    },
+};
+const size_t BAN_LINE_COUNT = 10;

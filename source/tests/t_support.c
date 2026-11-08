@@ -718,6 +718,7 @@ static void CheckReportLine(void) {
 // what is left here is what happens before and after them: the launch and the mode file.
 static void CheckLabel(void);
 static void CheckFrames(void);
+static void CheckMachine(void);
 static void CheckWidestMode(void);
 static void CheckFrontendFamilies(void);
 static void CheckRunnerRoot(void);
@@ -1018,6 +1019,7 @@ static void CheckLaunchAndMode(void) {
 
     CheckLabel();
     CheckFrames();
+    CheckMachine();
     CheckWidestMode();
     CheckFrontendFamilies();
     CheckRunnerRoot();
@@ -1257,6 +1259,94 @@ static void CheckFrames(void) {
                first);
 }
 
+/// machine=<name>[@<version>] and the word unban: what each reads, what a refusal says with the
+/// machine in effect, and both in the words a launch compares and the start screen saves.
+static void CheckMachine(void) {
+    char said[REPORT_NOTE_MAX + 1];
+    char key[JOURNAL_MODE_MAX];
+    char saved[MODE_FILE_MAX];
+    uint32_t wrong = 0;
+    const char *first = "none";
+#define MACHINE_EXPECT(condition, what)                                                            \
+    do {                                                                                           \
+        if (!(condition) && wrong++ == 0u) {                                                       \
+            first = (what);                                                                        \
+        }                                                                                          \
+    } while (0)
+
+    const RunMode plain = ModeFromText("quick cpu");
+    ModeDescribe(said, sizeof(said), &plain, MODE_FAMILIES_PRESENT);
+    MACHINE_EXPECT(plain.machine[0] == '\0' && !plain.unban && strstr(said, "machine") == NULL,
+                   "no word: no machine, and the line says none");
+    const RunMode eden = ModeFromText("quick cpu machine=eden@6a9235c22d");
+    ModeDescribe(said, sizeof(said), &eden, MODE_FAMILIES_PRESENT);
+    ModeKey(key, sizeof(key), &eden);
+    ModeFormat(saved, sizeof(saved), &eden);
+    MACHINE_EXPECT(strcmp(eden.machine, "eden") == 0 &&
+                       strcmp(eden.machine_version, "6a9235c22d") == 0 &&
+                       !eden.machine_was_refused && eden.unknown_count == 0u &&
+                       strcmp(said, "mode: quick, from the mode file; pictures of failures only; "
+                                    "families cpu; machine eden, version 6a9235c22d") == 0 &&
+                       strcmp(key, "cpu machine=eden@6a9235c22d") == 0 &&
+                       strcmp(saved, "quick cpu machine=eden@6a9235c22d") == 0,
+                   "machine=eden@6a9235c22d");
+    const RunMode bare = ModeFromText("quick machine=scarletnx-android");
+    ModeDescribe(said, sizeof(said), &bare, MODE_FAMILIES_PRESENT);
+    MACHINE_EXPECT(strcmp(bare.machine, "scarletnx-android") == 0 && bare.machine_version[0] == '\0' &&
+                       strstr(said, "; machine scarletnx-android, no version given") != NULL,
+                   "a machine with no version");
+    const RunMode unknown = ModeFromText("quick machine=yuzu@1.0");
+    ModeDescribe(said, sizeof(said), &unknown, MODE_FAMILIES_PRESENT);
+    ModeKey(key, sizeof(key), &unknown);
+    MACHINE_EXPECT(unknown.machine[0] == '\0' && unknown.machine_was_refused && key[0] == '\0' &&
+                       strstr(said, "; machine=yuzu@1.0 names no machine the ban list knows "
+                                    "(console eden ryujinx scarletnx scarletnx-android android): "
+                                    "the run has no machine, and no ban holds") != NULL,
+                   "an unknown machine is refused with its name and the list");
+    const RunMode kept = ModeFromText("machine=eden@1.2 machine=eden@a/b");
+    ModeDescribe(said, sizeof(said), &kept, MODE_FAMILIES_PRESENT);
+    MACHINE_EXPECT(strcmp(kept.machine, "eden") == 0 && strcmp(kept.machine_version, "1.2") == 0 &&
+                       strstr(said, "; machine=eden@a/b has a version that is not 1 to 32 letters, "
+                                    "digits, dots, dashes and underscores: the run keeps machine "
+                                    "eden@1.2") != NULL,
+                   "a bad version keeps the machine before it, and says which");
+    const RunMode empty = ModeFromText("machine=eden@");
+    const RunMode nameless = ModeFromText("machine=@1.2");
+    const RunMode fixed = ModeFromText("machine=nope machine=ryujinx@1.3.351");
+    MACHINE_EXPECT(empty.machine[0] == '\0' && empty.machine_was_refused &&
+                       empty.machine_refused_version && nameless.machine_was_refused &&
+                       !nameless.machine_refused_version && strcmp(fixed.machine, "ryujinx") == 0 &&
+                       !fixed.machine_was_refused,
+                   "an empty version or name is refused, and a good word after a bad one holds");
+    static const char LONG[] = "quick machine=eden@1234567890123456789012345678901234567890 x";
+    const RunMode too_long = ModeFromText(LONG);
+    ModeDescribe(said, sizeof(said), &too_long, MODE_FAMILIES_PRESENT);
+    MACHINE_EXPECT(too_long.machine[0] == '\0' && too_long.machine_refused_version &&
+                       strstr(said, "machine=eden@1234567890123456789012345678901234567890 has") !=
+                           NULL,
+                   "a version too long is refused, quoted whole");
+    const RunMode unban = ModeFromText("quick UNBAN machine=eden");
+    ModeDescribe(said, sizeof(said), &unban, MODE_FAMILIES_PRESENT);
+    ModeKey(key, sizeof(key), &unban);
+    MACHINE_EXPECT(unban.unban && unban.unknown_count == 0u &&
+                       strstr(said, "; machine eden, no version given; the cases banned on the "
+                                    "machine run too") != NULL &&
+                       strcmp(key, "machine=eden unban") == 0 && !ModeFromText("unbanned").unban &&
+                       ModeFromText("unbanned").unknown_count == 1u,
+                   "the word unban");
+    // A launch after a crash goes on only with the same machine: another machine is another run.
+    char other[JOURNAL_MODE_MAX];
+    const RunMode scarletnx = ModeFromText("quick cpu machine=scarletnx@10ed344");
+    ModeKey(key, sizeof(key), &eden);
+    ModeKey(other, sizeof(other), &scarletnx);
+    MACHINE_EXPECT(strcmp(key, other) != 0, "two machines are two keys");
+#undef MACHINE_EXPECT
+    CHECK_TRUE(SUITE, "machine= names the run's machine and its version, and a bad one says the "
+                      "machine in effect",
+               CHECK_NONE, wrong == 0u, "%u readings wrong, the first: %.80s; said \"%.200s\"",
+               (unsigned)wrong, first, said);
+}
+
 _Static_assert(JOURNAL_MODE_MAX >= MODE_KEY_MAX + sizeof("screen  quick") - 1u,
                "a chosen record holds the widest key with the words around it");
 _Static_assert(JOURNAL_LINE_MAX >= sizeof("run   \t\n") + JOURNAL_SUITE_MAX + JOURNAL_NAME_MAX +
@@ -1268,9 +1358,13 @@ _Static_assert(JOURNAL_LINE_MAX >= sizeof("run   \t\n") + JOURNAL_SUITE_MAX + JO
 /// the run in that mode rather than starting over with an empty key.
 static void CheckWidestMode(void) {
     static const char WIDEST[] = "quick audio cpu display fatal frames=36000 fs game graphics hang "
-                                 "images kernel listen net notime pad retry service stress video";
+                                 "images kernel listen "
+                                 "machine=scarletnx-android@12345678901234567890123456789012 net "
+                                 "notime pad retry service stress unban video";
     static const char KEY[] = "audio cpu display fatal frames=36000 fs game graphics hang images "
-                              "kernel listen net notime pad retry service stress video";
+                              "kernel listen "
+                              "machine=scarletnx-android@12345678901234567890123456789012 net "
+                              "notime pad retry service stress unban video";
     const RunMode file = ModeFromText(WIDEST);
     char key[MODE_KEY_MAX];
     const size_t key_length = ModeKey(key, sizeof(key), &file);
@@ -1367,7 +1461,7 @@ static void CheckFrontendFamilies(void) {
         strstr(android_said, "families graphics net libc jni framework") != NULL;
     CHECK_TRUE(SUITE, "libc, jni and framework are words, and each frontend runs its own families",
                CHECK_NONE, words_right && console_right && android_right,
-               "words %s (key \"%s\"); console %s (\"%.120s\"); android %s (\"%.120s\")",
+               "words %s (key \"%.60s\"); console %s (\"%.120s\"); android %s (\"%.120s\")",
                words_right ? "right" : "wrong", key, console_right ? "right" : "wrong",
                console_said, android_right ? "right" : "wrong", android_said);
 }

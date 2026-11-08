@@ -20,6 +20,7 @@
 #include <unistd.h>
 #endif
 
+#include "../bans.h"
 #include "../check.h"
 #include "../cpuref.h"
 #include "../hang.h"
@@ -934,6 +935,7 @@ static void CheckDecisions(void) {
                        strcmp(ReportReasonWord(REPORT_REASON_DEPENDS), "depends") == 0 &&
                        strcmp(ReportReasonWord(REPORT_REASON_HANG), "hangs") == 0 &&
                        strcmp(ReportReasonWord(REPORT_REASON_UNANSWERED), "unanswered") == 0 &&
+                       strcmp(ReportReasonWord(REPORT_REASON_BANNED), "banned") == 0 &&
                        strcmp(ReportReasonWord(REPORT_REASON_COUNT), "unavailable") == 0;
     CHECK_TRUE(SUITE, "a case that ended this run is skipped even under retry", CHECK_NONE,
                !crashed_runs && handed_back,
@@ -1030,6 +1032,13 @@ static void CheckPrecedence(void) {
     char saved_path[64];
     snprintf(saved_path, sizeof(saved_path), "%s", ReportCrashListPath());
     const bool saved_retry = ReportRetrying();
+    // No machine for the check: a run on one whose lines ban SM4 (ScarletNX, Eden) would skip it
+    // as banned, which is CheckBans's to judge.
+    char saved_machine[BAN_MACHINE_MAX + 1u];
+    char saved_version[BAN_VERSION_MAX + 1u];
+    snprintf(saved_machine, sizeof(saved_machine), "%s", ReportMachine());
+    snprintf(saved_version, sizeof(saved_version), "%s", ReportMachineVersion());
+    ReportSetMachine(NULL, NULL);
     static CrashList listed;
     CrashListInit(&listed);
     CrashListAdd(&listed, "cpu", CPU_SM4_CASE);
@@ -1052,9 +1061,11 @@ static void CheckPrecedence(void) {
     runs[5] = ReportWouldRun("cpu", NEXT, &reason[5], NULL, 0);
     ReportCrashedRewind(crashes);
     ReportSetCrashList(&saved, saved_path, saved_retry);
+    ReportSetMachine(saved_machine, saved_version);
     const bool handed_back = ReportRetrying() == saved_retry &&
                              strcmp(ReportCrashListPath(), saved_path) == 0 &&
-                             ReportCrashedMark() == crashes;
+                             ReportCrashedMark() == crashes &&
+                             strcmp(ReportMachine(), saved_machine) == 0;
     const bool listed_says = strstr(listed_detail, "on the crash list") != NULL &&
                              strstr(listed_detail, "the mode word retry runs it") != NULL;
     CHECK_TRUE(SUITE, "a case that ends the program runs with no word, and only a crash skips it",
@@ -1082,6 +1093,11 @@ static void CheckHang(void) {
     snprintf(saved_path, sizeof(saved_path), "%s", ReportCrashListPath());
     const bool saved_retry = ReportRetrying();
     const bool saved_hang = ReportHangAsked();
+    char saved_machine[BAN_MACHINE_MAX + 1u];
+    char saved_version[BAN_VERSION_MAX + 1u];
+    snprintf(saved_machine, sizeof(saved_machine), "%s", ReportMachine());
+    snprintf(saved_version, sizeof(saved_version), "%s", ReportMachineVersion());
+    ReportSetMachine(NULL, NULL);
     ReportSetCrashList(NULL, NULL, false);
     ReportSetHang(false);
 
@@ -1121,8 +1137,10 @@ static void CheckHang(void) {
     ReportCrashedRewind(crashes);
     ReportSetCrashList(&saved, saved_path, saved_retry);
     ReportSetHang(saved_hang);
+    ReportSetMachine(saved_machine, saved_version);
     const bool handed_back = ReportRetrying() == saved_retry && ReportHangAsked() == saved_hang &&
-                             strcmp(ReportCrashListPath(), saved_path) == 0;
+                             strcmp(ReportCrashListPath(), saved_path) == 0 &&
+                             strcmp(ReportMachine(), saved_machine) == 0;
     CHECK_TRUE(SUITE, "a case known to hang is skipped until hang asks, and retry does not run it",
                CHECK_NONE,
                skipped && says && retry_skips && asked_runs && sm4_runs && crash_wins &&
@@ -1216,7 +1234,233 @@ static void CheckModeWords(void) {
                           "again") == 0 &&
                    ModeFromText("hang").hang && !ModeFromText("hang").retry &&
                    !ModeFromText("hang").fatal,
-               "key \"%s\"; said \"%.240s\"", hang_key, hang_said);
+               "key \"%.60s\"; said \"%.240s\"", hang_key, hang_said);
+}
+
+// The judge's own ban lines: one on eden for every version, one at two versions, one inside bounds,
+// and the first case again on scarletnx.
+static const BanLine TEST_BANS[] = {
+    { "support", "a banned case", "eden", "*", "ends the program with SIGABRT", "a run", "quick unban",
+      "2026-11-07 ends on 1.2", 7 },
+    { "support", "a case banned at two versions", "eden", "1.2, 6a9235c22d", "hangs", "a run",
+      "quick unban", "2026-11-07 hangs on 1.2", 8 },
+    { "support", "a case banned between two versions", "eden", ">= 1.2 < 1.4", "ends the program",
+      "a run", "quick unban", "2026-11-07 ends on 1.3", 9 },
+    { "support", "a banned case", "scarletnx", "*", "ends the program with exit 1", "a run",
+      "quick unban", "2026-11-07 ends on 10ed344", 10 },
+};
+
+/// Whether ReportWouldRun lets @p name run, and when not why, under the machine set now.
+static bool Runs(const char *name, ReportReason *reason, char *detail, size_t detail_size) {
+    *reason = REPORT_REASON_COUNT;
+    return ReportWouldRun(SUITE, name, reason, detail, detail_size);
+}
+
+static void CheckBans(void) {
+    // A ban holds on its machine, at the versions its line names, and only there; the skip says
+    // the line and what breaks; unban runs the case; a crash in this run and the hang table come
+    // first, the crash list after. The run's own settings and crashes are handed back afterwards.
+    const uint32_t crashes = ReportCrashedMark();
+    static CrashList saved;
+    saved = *ReportCrashList();
+    char saved_path[64];
+    snprintf(saved_path, sizeof(saved_path), "%s", ReportCrashListPath());
+    const bool saved_retry = ReportRetrying();
+    const bool saved_unban = ReportUnbanAsked();
+    char saved_machine[BAN_MACHINE_MAX + 1u];
+    char saved_version[BAN_VERSION_MAX + 1u];
+    snprintf(saved_machine, sizeof(saved_machine), "%s", ReportMachine());
+    snprintf(saved_version, sizeof(saved_version), "%s", ReportMachineVersion());
+    BanUseTable(TEST_BANS, sizeof(TEST_BANS) / sizeof(TEST_BANS[0]));
+    ReportSetCrashList(NULL, NULL, false);
+    ReportSetUnban(false);
+
+    ReportReason why;
+    char detail[REPORT_KEPT_DETAIL];
+    ReportSetMachine(NULL, NULL);
+    const bool no_machine = Runs("a banned case", &why, NULL, 0);
+    ReportSetMachine("eden", "");
+    const bool banned = !Runs("a banned case", &why, detail, sizeof(detail)) &&
+                        why == REPORT_REASON_BANNED;
+    const bool says = strcmp(detail, "banned on eden, no version given, by source/bans.txt line 7 "
+                                     "(versions *): ends the program with SIGABRT; checked "
+                                     "2026-11-07 ends on 1.2; the mode word unban runs it") == 0;
+    const bool listed_needs_version = Runs("a case banned at two versions", &why, NULL, 0) &&
+                                      Runs("a case banned between two versions", &why, NULL, 0);
+    ReportSetMachine("eden", "6a9235c22d");
+    char at_detail[REPORT_KEPT_DETAIL];
+    const bool at_listed =
+        !Runs("a case banned at two versions", &why, at_detail, sizeof(at_detail)) &&
+        why == REPORT_REASON_BANNED &&
+        strncmp(at_detail, "banned on eden at 6a9235c22d by source/bans.txt line 8 (versions 1.2, "
+                           "6a9235c22d): hangs;",
+                89u) == 0 &&
+        Runs("a case banned between two versions", &why, NULL, 0);
+    ReportSetMachine("eden", "1.3");
+    const bool inside = !Runs("a case banned between two versions", &why, NULL, 0) &&
+                        Runs("a case banned at two versions", &why, NULL, 0);
+    ReportSetMachine("eden", "1.4");
+    const bool above = Runs("a case banned between two versions", &why, NULL, 0);
+    ReportSetMachine("eden", "v1.2");
+    const bool at_bound = !Runs("a case banned between two versions", &why, NULL, 0);
+    ReportSetMachine("scarletnx", "10ed344");
+    const bool other_machine = !Runs("a banned case", &why, detail, sizeof(detail)) &&
+                               strstr(detail, "line 10 ") != NULL &&
+                               Runs("a case banned at two versions", &why, NULL, 0);
+    ReportSetMachine("console", "");
+    const bool no_lines = Runs("a banned case", &why, NULL, 0);
+    ReportSetMachine("eden", "");
+    ReportSetUnban(true);
+    const bool unbanned = Runs("a banned case", &why, NULL, 0);
+    // The crash list after the ban: listed and banned is banned; listed and unbanned is crashed
+    // until retry; a crash in this run wins over both.
+    static CrashList listed;
+    CrashListInit(&listed);
+    CrashListAdd(&listed, SUITE, "a banned case");
+    ReportSetCrashList(&listed, NULL, false);
+    ReportSetUnban(false);
+    const bool listed_banned = !Runs("a banned case", &why, NULL, 0) && why == REPORT_REASON_BANNED;
+    ReportSetUnban(true);
+    const bool listed_unbanned = !Runs("a banned case", &why, NULL, 0) &&
+                                 why == REPORT_REASON_CRASHED;
+    ReportSetCrashList(&listed, NULL, true);
+    const bool both_words = Runs("a banned case", &why, NULL, 0);
+    ReportSetUnban(false);
+    JournalRecord crash = Record(JOURNAL_CRASH, SUITE, "a banned case", 0);
+    ReportAddCrashed(&crash);
+    const bool crash_first = !Runs("a banned case", &why, NULL, 0) && why == REPORT_REASON_CRASHED;
+
+    ReportCrashedRewind(crashes);
+    BanUseTable(NULL, 0);
+    ReportSetCrashList(&saved, saved_path, saved_retry);
+    ReportSetUnban(saved_unban);
+    ReportSetMachine(saved_machine, saved_version);
+    const bool handed_back = ReportRetrying() == saved_retry && ReportUnbanAsked() == saved_unban &&
+                             strcmp(ReportMachine(), saved_machine) == 0 &&
+                             strcmp(ReportCrashListPath(), saved_path) == 0 &&
+                             ReportCrashedMark() == crashes && BanCount() == BAN_LINE_COUNT;
+    CHECK_TRUE(SUITE, "a case banned on this machine is skipped as banned, its line said, until unban",
+               CHECK_NONE,
+               no_machine && banned && says && listed_needs_version && at_listed && inside && above &&
+                   at_bound && other_machine && no_lines && unbanned && handed_back,
+               "no machine runs it %d; eden banned %d, said %d (\"%.150s\"); a list or bounds "
+               "need a version %d; at a listed version %d (\"%.90s\"); inside the bounds %d, above "
+               "%d, at the lower one %d; another machine's line %d; a machine with no lines %d; "
+               "unban %d; settings %s",
+               (int)no_machine, (int)banned, (int)says, detail, (int)listed_needs_version,
+               (int)at_listed, at_detail, (int)inside, (int)above, (int)at_bound,
+               (int)other_machine, (int)no_lines, (int)unbanned,
+               handed_back ? "handed back" : "lost");
+    CHECK_TRUE(SUITE, "a ban comes after a crash in this run and before the crash list", CHECK_NONE,
+               listed_banned && listed_unbanned && both_words && crash_first,
+               "listed and banned %d, listed and unbanned %d, unban and retry %d, a crash in this "
+               "run first %d",
+               (int)listed_banned, (int)listed_unbanned, (int)both_words, (int)crash_first);
+}
+
+static void CheckBanVersions(void) {
+    // What a versions field may be, and where each holds.
+    static const char *const GOOD[] = { "*", "1.2", "1.2, 6a9235c22d", "6a9235c22d,10ed344",
+                                        "< 2", "<= 1.2.3", ">= v1.2", "> 0", ">= 1.2 < 1.4",
+                                        "> 1 <= 2" };
+    static const char *const BAD[] = { "", "a b", "1.2,,3", "1.2,", "< x", "<", ">= 1 >= 2",
+                                       "< 2 > 1", ">= 1 < 2 < 3", "<= 1.", "has/slash",
+                                       "123456789012345678901234567890123" };
+    uint32_t wrong = 0;
+    const char *first = "";
+    for (size_t i = 0; i < sizeof(GOOD) / sizeof(GOOD[0]); ++i) {
+        if (!BanVersionsValid(GOOD[i])) {
+            first = wrong++ == 0u ? GOOD[i] : first;
+        }
+    }
+    for (size_t i = 0; i < sizeof(BAD) / sizeof(BAD[0]); ++i) {
+        if (BanVersionsValid(BAD[i]) || BanVersionsHold(BAD[i], "1")) {
+            first = wrong++ == 0u ? BAD[i] : first;
+        }
+    }
+    const bool holds = BanVersionsHold("*", "") && BanVersionsHold("*", "x") &&
+                       !BanVersionsHold("1.2", "") && BanVersionsHold("1.2, 6a9235c22d", "6a9235c22d") &&
+                       !BanVersionsHold("1.2, 6a9235c22d", "6a9235c") && BanVersionsHold("< 2", "1.9.9") &&
+                       !BanVersionsHold("< 2", "2.0") && BanVersionsHold("<= 1.2.3", "1.2.3") &&
+                       BanVersionsHold(">= v1.2", "1.2") && !BanVersionsHold("> 0", "0") &&
+                       BanVersionsHold(">= 1.2 < 1.4", "1.3.7") && !BanVersionsHold(">= 1.2 < 1.4", "1.4") &&
+                       !BanVersionsHold("< 2", "6a9235c22d") && !BanVersionsHold("< 2", NULL);
+    const bool versions = BanVersionValid("6a9235c22d") && BanVersionValid("10ed344-dirty") &&
+                          !BanVersionValid("") && !BanVersionValid("a b") && !BanVersionValid("a@b") &&
+                          !BanVersionValid("123456789012345678901234567890123");
+    CHECK_TRUE(SUITE, "a ban's versions are every one, a list, or bounds on dotted numbers",
+               CHECK_NONE, wrong == 0u && holds && versions,
+               "%u fields read wrong, the first \"%s\"; holds %d; a machine's version %d",
+               (unsigned)wrong, first, (int)holds, (int)versions);
+}
+
+static void CheckBanTable(void) {
+    // Every line of source/bans.txt names a machine the list knows, versions the program reads, a
+    // case it can match and what was seen; and the lines the two runs proved are there.
+    uint32_t malformed = 0;
+    uint32_t first = 0;
+    for (size_t i = 0; i < BAN_LINE_COUNT; ++i) {
+        const BanLine *const b = &BAN_LINES[i];
+        const bool shaped = b->suite[0] != '\0' && strchr(b->suite, ' ') == NULL &&
+                            strlen(b->suite) < JOURNAL_SUITE_MAX && b->name[0] != '\0' &&
+                            strlen(b->name) < JOURNAL_NAME_MAX && BanMachineKnown(b->machine) &&
+                            BanVersionsValid(b->versions) && b->breaks[0] != '\0' &&
+                            b->source[0] != '\0' && b->retest[0] != '\0' &&
+                            strlen(b->checked) > 11u && b->checked[4] == '-' && b->line > 0u;
+        if (!shaped) {
+            first = malformed++ == 0u ? b->line : first;
+        }
+    }
+    size_t eden = 0;
+    size_t scarletnx = 0;
+    size_t console = 0;
+    const size_t eden_lines = BanCountFor("eden", "6a9235c22d", &eden);
+    (void)BanCountFor("scarletnx", "10ed344", &scarletnx);
+    (void)BanCountFor("console", "", &console);
+    const bool proven =
+        eden == 8u && eden_lines == 8u && scarletnx == 2u && console == 0u &&
+        BanFind("cpu", CPU_SM4_CASE, "eden", "6a9235c22d") != NULL &&
+        BanFind("cpu", CPU_SM4_CASE, "scarletnx", "10ed344") != NULL &&
+        BanFind("cpu", "mrs daif reads nothing outside the four interrupt mask bits", "scarletnx",
+                "10ed344") != NULL &&
+        BanFind("cpu", "mrs cntvct_el0 reads a virtual count that moves with the physical one",
+                "scarletnx", "10ed344") == NULL &&
+        BanFind("geometry", "a geometry shader turns each of four points into its 8 by 8 square",
+                "eden", "") != NULL &&
+        BanFind("cpu", CPU_SM4_CASE, "", "") == NULL && !BanMachineKnown("yuzu") &&
+        BanMachineKnown("scarletnx-android") &&
+        strcmp(BanMachineList(), "console eden ryujinx scarletnx scarletnx-android android") == 0;
+    CHECK_TRUE(SUITE, "source/bans.txt's lines are whole, and the two runs' lines are there",
+               CHECK_NONE, malformed == 0u && BAN_LINE_COUNT > 0u && proven,
+               "%u of %u lines malformed, the first line %u; eden %u of %u lines hold, scarletnx "
+               "%u, console %u; the machines \"%s\"",
+               (unsigned)malformed, (unsigned)BAN_LINE_COUNT, (unsigned)first, (unsigned)eden,
+               (unsigned)eden_lines, (unsigned)scarletnx, (unsigned)console, BanMachineList());
+
+    // The note a new run carries: how many lines hold, at what version, and what unban does.
+    char said[4][REPORT_NOTE_MAX];
+    BanUseTable(TEST_BANS, sizeof(TEST_BANS) / sizeof(TEST_BANS[0]));
+    BanDescribe(said[0], sizeof(said[0]), "eden", "6a9235c22d", false);
+    BanDescribe(said[1], sizeof(said[1]), "eden", "", true);
+    BanDescribe(said[2], sizeof(said[2]), "console", "", false);
+    BanDescribe(said[3], sizeof(said[3]), "", "", true);
+    char none[8] = "x";
+    const size_t quiet = BanDescribe(none, sizeof(none), NULL, NULL, false);
+    BanUseTable(NULL, 0);
+    const bool notes =
+        strcmp(said[0], "2 of the 4 lines of source/bans.txt hold for eden at 6a9235c22d: their "
+                        "cases are skipped as banned, and the mode word unban runs them; 1 more "
+                        "name eden and hold only at other versions") == 0 &&
+        strcmp(said[1], "1 of the 4 lines of source/bans.txt hold for eden, no version given, and "
+                        "the word unban runs their cases; 2 more name eden and hold only at other "
+                        "versions") == 0 &&
+        strcmp(said[2], "no line of source/bans.txt names console, so every case runs") == 0 &&
+        strcmp(said[3], "the word unban, with no machine= word: no line of source/bans.txt holds, "
+                        "so it runs nothing more") == 0 &&
+        quiet == 0u && none[0] == '\0';
+    CHECK_TRUE(SUITE, "a new run says how many ban lines hold for its machine, with the version",
+               CHECK_NONE, notes, "\"%.150s\"; \"%.150s\"; \"%.80s\"; \"%.80s\"; quiet %u",
+               said[0], said[1], said[2], said[3], (unsigned)quiet);
 }
 
 #ifdef EDENPROBE_HOST
@@ -1303,6 +1547,25 @@ static uint32_t Occurrences(const char *text, const char *needle) {
     return count;
 }
 
+/// The files a run of RELAUNCH_STEPS leaves under @p root, by name, then their folders: anything
+/// else left in them keeps a folder there, and so says false.
+static bool RelaunchSweep(const char *root) {
+    char path[320];
+    static const char *const FILES[] = { "runs/relaunch/report.jsonl", "runs/relaunch/journal",
+                                         "crashes", "last-run", "mode" };
+    bool gone = true;
+    for (size_t i = 0; i < sizeof(FILES) / sizeof(FILES[0]); ++i) {
+        snprintf(path, sizeof(path), "%s/%s", root, FILES[i]);
+        gone = remove(path) == 0 && gone;
+    }
+    static const char *const FOLDERS[] = { "runs/relaunch", "runs", "" };
+    for (size_t i = 0; i < sizeof(FOLDERS) / sizeof(FOLDERS[0]); ++i) {
+        snprintf(path, sizeof(path), "%s/%s", root, FOLDERS[i]);
+        gone = rmdir(path) == 0 && gone;
+    }
+    return gone;
+}
+
 /// A case that ends the program, with no word asking for it: the launch it ends leaves its start
 /// in the journal, and the next launch skips it as crashed, puts it on the crash list and runs
 /// the case after it and the next step; a new run skips it from the list. The word fatal is read,
@@ -1357,20 +1620,7 @@ static void CheckRelaunch(const char *scratch) {
     const uint32_t said = read ? Occurrences(report, MODE_FATAL_SAID) : 0u;
     const uint32_t said_again = reread ? Occurrences(again, MODE_FATAL_SAID) : 0u;
 
-    // Every file the three launches wrote, by name, then their folders: anything else left in
-    // them keeps a folder there, which says so.
-    static const char *const FILES[] = { "runs/relaunch/report.jsonl", "runs/relaunch/journal",
-                                         "crashes", "last-run", "mode" };
-    bool gone = true;
-    for (size_t i = 0; i < sizeof(FILES) / sizeof(FILES[0]); ++i) {
-        snprintf(path, sizeof(path), "%s/%s", root, FILES[i]);
-        gone = remove(path) == 0 && gone;
-    }
-    static const char *const FOLDERS[] = { "runs/relaunch", "runs", "" };
-    for (size_t i = 0; i < sizeof(FOLDERS) / sizeof(FOLDERS[0]); ++i) {
-        snprintf(path, sizeof(path), "%s/%s", root, FOLDERS[i]);
-        gone = rmdir(path) == 0 && gone;
-    }
+    const bool gone = RelaunchSweep(root);
 
     CHECK_TRUE(SUITE, "a case that ends the program costs it alone: the next launch skips it and "
                       "runs on",
@@ -1386,6 +1636,90 @@ static void CheckRelaunch(const char *scratch) {
                "said %u times in the run of two launches and %u in the next run; the runs %s",
                (unsigned)said, (unsigned)said_again,
                resumed && new_run ? "went on past the case" : "did not go on past the case");
+}
+
+/// The same run with its ending case banned on eden, and a line for a case the build lacks.
+static const BanLine RELAUNCH_BANS[] = {
+    { "ending", "a case that ends the program", "eden", "*", "ends the program with SIGKILL",
+      "the judge's own", "quick unban", "2026-11-08 ends on t1", 99 },
+    { "ending", "a case this build lacks", "eden", "*", "ends the program", "the judge's own",
+      "quick unban", "2026-11-08 ends on t1", 98 },
+};
+
+/// The run with its ending case banned on the machine its mode file names: one launch, the case
+/// skipped as banned with its line, and the line for a case it lacks said; with unban the case
+/// runs, ends the launch and goes on the crash list; on a machine no line names, nothing changes.
+static void CheckRelaunchBanned(const char *scratch) {
+    char root[256];
+    char path[320];
+    char report_path[320];
+    snprintf(root, sizeof(root), "%.200s/relaunch", scratch);
+    snprintf(path, sizeof(path), "%s/mode", root);
+    snprintf(report_path, sizeof(report_path), "%s/runs/relaunch/report.jsonl", root);
+    mkdir(root, 0777);
+    BanUseTable(RELAUNCH_BANS, sizeof(RELAUNCH_BANS) / sizeof(RELAUNCH_BANS[0]));
+    static char banned[16384];
+    static char unbanned[16384];
+    static char console[16384];
+
+    bool moded = JournalWriteFile(path, "quick machine=eden@t1\n");
+    const int alone = RelaunchOnce(root);
+    const bool read = JournalReadFile(report_path, banned, sizeof(banned), NULL) > 0;
+    moded = JournalWriteFile(path, "quick machine=eden@t1 unban\n") && moded;
+    const int ended = RelaunchOnce(root);
+    const int after = RelaunchOnce(root);
+    const bool reread = JournalReadFile(report_path, unbanned, sizeof(unbanned), NULL) > 0;
+    moded = JournalWriteFile(path, "quick machine=console\n") && moded;
+    const int plain = RelaunchOnce(root);
+    const bool read_console = JournalReadFile(report_path, console, sizeof(console), NULL) > 0;
+    BanUseTable(NULL, 0);
+    const bool gone = RelaunchSweep(root);
+
+    static const char BANNED[] = "\"suite\":\"ending\",\"name\":\"a case that ends the program\","
+                                 "\"tier\":\"none\",\"result\":\"skip\",\"reason\":\"banned\","
+                                 "\"detail\":\"banned on eden at t1 by source/bans.txt line 99 "
+                                 "(versions *): ends the program with SIGKILL; checked 2026-11-08 "
+                                 "ends on t1; the mode word unban runs it\"";
+    static const char HOLD[] = "bans: 2 of the 2 lines of source/bans.txt hold for eden at t1: "
+                               "their cases are skipped as banned, and the mode word unban runs "
+                               "them";
+    static const char LACKS[] = "bans: source/bans.txt bans line 98, ending \\\"a case this build "
+                                "lacks\\\" on eden, which the suites that ran never reached";
+    static const char AFTER[] = "\"name\":\"the case after it\",\"tier\":\"none\",\"result\":\"pass\"";
+    const bool one_launch =
+        moded && alone != -1 && WIFEXITED(alone) && WEXITSTATUS(alone) == 0 && read &&
+        Occurrences(banned, BANNED) == 1u && Occurrences(banned, HOLD) == 1u &&
+        Occurrences(banned, LACKS) == 1u && Occurrences(banned, AFTER) == 1u &&
+        strstr(banned, "{\"type\":\"summary\",\"passed\":3,\"failed\":0,\"skipped\":1,\"crashed\":0}") !=
+            NULL &&
+        strstr(banned, "journal: launch 2") == NULL;
+    const bool ran_it =
+        ended != -1 && WIFSIGNALED(ended) && WTERMSIG(ended) == SIGKILL && after != -1 &&
+        WIFEXITED(after) && WEXITSTATUS(after) == 0 && reread &&
+        strstr(unbanned, "bans: 2 of the 2 lines of source/bans.txt hold for eden at t1, and the "
+                         "word unban runs their cases") != NULL &&
+        strstr(unbanned, "\"reason\":\"banned\"") == NULL &&
+        strstr(unbanned, "{\"type\":\"summary\",\"passed\":3,\"failed\":0,\"skipped\":0,\"crashed\":1}") !=
+            NULL;
+    const bool unchanged =
+        plain != -1 && WIFEXITED(plain) && WEXITSTATUS(plain) == 0 && read_console &&
+        strstr(console, "bans: no line of source/bans.txt names console, so every case runs") !=
+            NULL &&
+        strstr(console, "\"reason\":\"banned\"") == NULL &&
+        strstr(console, "\"reason\":\"crashed\",\"detail\":\"on the crash list") != NULL;
+    CHECK_TRUE(SUITE, "a case banned on the run's machine costs no launch: skipped as banned, its "
+                      "line said",
+               CHECK_NONE, one_launch && gone,
+               "mode files %d; one launch exit %d, report %d; banned line %u, bans note %u, the "
+               "lacking line's note %u; files gone %d; report ends \"...%.160s\"",
+               (int)moded, alone, (int)read, (unsigned)Occurrences(banned, BANNED),
+               (unsigned)Occurrences(banned, HOLD), (unsigned)Occurrences(banned, LACKS),
+               (int)gone, read && strlen(banned) > 160u ? banned + strlen(banned) - 160u : banned);
+    CHECK_TRUE(SUITE, "unban runs a banned case, and a machine no line names changes nothing",
+               CHECK_NONE, ran_it && unchanged,
+               "with unban: launch 1 status %d, launch 2 status %d, report %d, ran %d; on console: "
+               "status %d, unchanged %d",
+               ended, after, (int)reread, (int)ran_it, plain, (int)unchanged);
 }
 #endif
 
@@ -1403,14 +1737,30 @@ void RunSupportJournal(const char *scratch) {
     CheckDroppingCookie();
 #endif
     const uint32_t crashes_before = ReportCrashedMark();
+#ifdef EDENPROBE_HOST
+    // As a run on ScarletNX has it: a machine whose lines ban SM4. A check that leans on SM4
+    // running, or on no machine, then fails here too, and not only on the machine.
+    char host_machine[BAN_MACHINE_MAX + 1u];
+    char host_version[BAN_VERSION_MAX + 1u];
+    snprintf(host_machine, sizeof(host_machine), "%s", ReportMachine());
+    snprintf(host_version, sizeof(host_version), "%s", ReportMachineVersion());
+    ReportSetMachine("scarletnx", "10ed344");
+#endif
     CheckDecisions();
     CheckBookkeeping();
     CheckWatcher();
     CheckPrecedence();
     CheckHang();
+    CheckBans();
+    CheckBanVersions();
+    CheckBanTable();
     CheckCrashesHandedBack(crashes_before);
+#ifdef EDENPROBE_HOST
+    ReportSetMachine(host_machine, host_version);
+#endif
     CheckModeWords();
 #ifdef EDENPROBE_HOST
     CheckRelaunch(scratch);
+    CheckRelaunchBanned(scratch);
 #endif
 }

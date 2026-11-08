@@ -10,6 +10,8 @@ source/report.c
 source/baseline.c
 source/journal.c
 source/hang.c
+source/bans.c
+source/banlist.c
 source/check.c
 source/mode.c
 source/picture.c

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "bans.h"
 #include "baseline.h"
 #include "journal.h"
 #include "perf.h"
@@ -227,11 +228,18 @@ void RunnerBeginJournal(Runner *runner, const RunMode *from_file, const RunMode 
 void RunnerApplyMode(Runner *runner, const RunMode *mode) {
     ReportSetRetry(mode->retry);
     ReportSetHang(mode->hang);
+    ReportSetMachine(mode->machine, mode->machine_version);
+    ReportSetUnban(mode->unban);
     if (runner->plan.start == JOURNAL_FRESH) {
         char described[REPORT_NOTE_MAX + 1];
         ModeDescribeOf(described, sizeof(described), mode, runner->frontend->present,
                        runner->frontend->asked);
         ReportNote("%s", described);
+        char bans[REPORT_NOTE_MAX - 8];
+        if (BanDescribe(bans, sizeof(bans), mode->machine, mode->machine_version, mode->unban) >
+            0u) {
+            ReportNote("bans: %s", bans);
+        }
     }
 }
 
@@ -317,6 +325,16 @@ void RunnerSteps(Runner *runner, uint32_t families, bool timing, RunnerProgress 
 
 void RunnerFinish(Runner *runner, const RunMode *mode, bool timing) {
     const JournalPlan *const plan = &runner->plan;
+    {
+        // A line that holds here and that a suite which ran never reached names a case this build
+        // lacks: it bans nothing, and says so.
+        char unreached[REPORT_NOTE_MAX - 96];
+        if (ReportBansUnreached(unreached, sizeof(unreached)) > 0u) {
+            ReportNote("bans: source/bans.txt bans %s on %s, which the suites that ran never "
+                       "reached",
+                       unreached, ReportMachine());
+        }
+    }
     // Only when some close had to wait: a machine that delivers its copies before the queue is
     // idle, as the console does, gets the same report it always did.
     char settled[REPORT_NOTE_MAX + 1];

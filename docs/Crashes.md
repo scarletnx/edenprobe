@@ -1,5 +1,16 @@
 # When the program ends in the middle
 
+## Index
+
+* [The journal](#the-journal)
+* [The crash list](#the-crash-list)
+* [Every case runs](#every-case-runs)
+* [The hang table](#the-hang-table)
+* [The ban list](#the-ban-list)
+* [Who launches again](#who-launches-again)
+* [What a crash costs](#what-a-crash-costs)
+* [Ryujinx and the console](#ryujinx-and-the-console)
+
 A case can end the program: a shader an emulator cannot translate, an instruction its processor lacks, a service it
 has not written. That costs the case, not the run: the run goes on over as many launches as it takes, in one report.
 
@@ -56,14 +67,34 @@ suites, in their places among the others: SM4 and the CNTVCT_EL0 and DAIF reads 
 processor](families/Cpu.md)), the geometry and bcn cases whose shaders compile to a PRET, under Eden
 ([Graphics](families/Graphics.md)). On a machine that ends inside one, the launch leaves that case's start as the
 journal's last line, the next launch skips it as `crashed`, puts it on the crash list and goes on with the case after
-it, and later runs skip it from the list until `retry`. The word `fatal`, which once asked for them, is still read and
-changes nothing; the mode line says so once a run.
+it, and later runs skip it from the list until `retry`. On a machine that ends inside one every time, the ban list
+skips it before it runs (below). The word `fatal`, which once asked for them, is still read and changes nothing; the
+mode line says so once a run.
 
 ## The hang table
 
 `source/hang.c` names the cases that never return on a machine that gets them wrong (the bsd receive with a timeout);
 they are skipped as `hangs` unless `hang` asks, and `retry` never runs them, since a hang does not end the program and
 the journal cannot mark it. A case on the crash list stays `crashed` whatever `hang` says, until `retry`.
+
+## The ban list
+
+`source/bans.txt` names the cases that end or hang the program every time on one machine, a line each: the suite and
+the case, the machine, its versions, what breaks, the run that showed it, the mode words that run it again and when it
+was last seen. On the machine the mode file's `machine=<name>[@<version>]` names, which the runners write, the case is
+skipped as `banned`, so it costs no launch, and the skip names its line and what breaks:
+
+```json
+{"type":"case","suite":"geometry","name":"a geometry shader turns each of four points into its 8 by 8 square","tier":"none","result":"skip","reason":"banned","detail":"banned on eden at 6a9235c22d by source/bans.txt line 32 (versions *): ends the program with SIGABRT: the shader recompiler throws Shader::NotImplementedException on square.geom's PRET; checked 2026-11-07 ends on 6a9235c22d; the mode word unban runs it"}
+```
+
+A new run's report says how many lines hold for its machine (`bans: 8 of the 10 lines of source/bans.txt hold for
+eden at 6a9235c22d: ...`), and before the summary names a line whose suite ran but which no case reached: a case the
+list names and the build does not have. A run with no machine holds no line, and a machine no line names runs every
+case. The word `unban` runs the banned cases anyway, to see whether they still end it; a banned case that is on the
+crash list too needs `retry` beside it. Only what a run showed goes on the list, with that run as its source; a line
+with versions `*` holds for every version until a run with `unban` shows otherwise. `tools/bans.py` checks every line
+and writes `source/banlist.c`, the table the program holds.
 
 ## Who launches again
 

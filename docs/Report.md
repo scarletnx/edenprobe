@@ -28,6 +28,7 @@ A case that could not ask its question is a `skip`, tier `none`, with a one-word
 | `unavailable` | a service or a resource the program cannot have here |
 | `depends` | a case before it did not leave what it needs |
 | `unanswered` | it asked a person, and nothing was pressed in time |
+| `banned` | the ban list bans it on the machine `machine=` names, and `unban` did not ask for it; the detail names the line of `source/bans.txt` and what breaks |
 
 The summary's four counts add up to the case lines; `skipped` leaves out the `crashed` ones, which have their own
 count. The debug channel's `EDENPROBE DONE` line carries the same four. With `compare=<name>`, `baseline` lines and a
