@@ -226,7 +226,6 @@ void RunnerBeginJournal(Runner *runner, const RunMode *from_file, const RunMode 
 
 void RunnerApplyMode(Runner *runner, const RunMode *mode) {
     ReportSetRetry(mode->retry);
-    ReportSetMayCrash(mode->fatal);
     ReportSetHang(mode->hang);
     if (runner->plan.start == JOURNAL_FRESH) {
         char described[REPORT_NOTE_MAX + 1];
@@ -318,15 +317,6 @@ void RunnerSteps(Runner *runner, uint32_t families, bool timing, RunnerProgress 
 
 void RunnerFinish(Runner *runner, const RunMode *mode, bool timing) {
     const JournalPlan *const plan = &runner->plan;
-    {
-        // A table entry this launch's suites never reached names a case this build lacks, and
-        // would protect nothing.
-        char unreached[REPORT_NOTE_MAX - 96];
-        if (ReportMayCrashUnreached(unreached, sizeof(unreached)) > 0u) {
-            ReportNote("may crash: the table names %s, which the suites that ran never reached",
-                       unreached);
-        }
-    }
     // Only when some close had to wait: a machine that delivers its copies before the queue is
     // idle, as the console does, gets the same report it always did.
     char settled[REPORT_NOTE_MAX + 1];

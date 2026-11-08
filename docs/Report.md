@@ -23,7 +23,6 @@ A case that could not ask its question is a `skip`, tier `none`, with a one-word
 | reason | why the case did not ask |
 |---|---|
 | `crashed` | the program ended inside it on this machine, in this run (the journal) or an earlier one (the crash list) |
-| `may crash` | it is in the may-crash table, and neither `fatal` nor the start screen asked for it |
 | `hangs` | it is in the hang table, and `hang` did not ask for it |
 | `not configured` | the net file does not name what it needs: a session, a server, a rewrite, an account, a certificate |
 | `unavailable` | a service or a resource the program cannot have here |

@@ -347,11 +347,11 @@ void UiCompose(const UiFrame *frame, const UiRun *run, UiState state,
 
 /// The start screen: what a fresh detailed run shows before it begins, and the menu that chooses
 /// what runs. A cursor walks its rows: begin the run, where it starts; the families the screen
-/// offers (graphics, fs, audio, net) and the listening sequence; quick and notime; the may-crash
-/// table's cases (the word `fatal`) and the crash list's cases again (the word `retry`); and
-/// whether to write the choice into the mode file. Every row starts as the mode file leaves it.
-/// A choice that can end the program shows a warning of what that costs while it is on. The judge
-/// and the cpu suite run whatever is chosen.
+/// offers (graphics, fs, audio, net) and the listening sequence; quick and notime; the crash
+/// list's cases again (the word `retry`); and whether to write the choice into the mode file.
+/// Every row starts as the mode file leaves it. The crash list's choice can end the program, and
+/// shows a warning of what that costs while it is on. The judge and the cpu suite run whatever
+/// is chosen.
 
 /// The most cases each list names; the rest are counted.
 #define UI_START_LIST_MAX 24u
@@ -366,12 +366,6 @@ typedef struct {
     const char *heading;
     /// The families this build has; a row for one it lacks cannot be turned on.
     uint32_t families_present;
-    /// The may-crash table's cases, each with its family: the screen counts and lists those in
-    /// the families chosen, and those of the cpu suite, which always runs.
-    uint32_t may_crash_count;
-    const char *may_crash_suite[UI_START_LIST_MAX];
-    const char *may_crash_name[UI_START_LIST_MAX];
-    uint32_t may_crash_family[UI_START_LIST_MAX];
     /// The crash list's cases.
     uint32_t listed_count;
     const char *listed_suite[UI_START_LIST_MAX];
@@ -389,14 +383,12 @@ typedef enum {
     UI_START_ROW_PAD,
     UI_START_ROW_QUICK,
     UI_START_ROW_NOTIME,
-    UI_START_ROW_MAY_CRASH,
     UI_START_ROW_RETRY,
     UI_START_ROW_SAVE,
     UI_START_ROWS,
 } UiStartRow;
 
 typedef struct {
-    bool may_crash;
     bool retry;
     /// Begun, by a press or by the countdown.
     bool begun;
@@ -414,15 +406,11 @@ typedef struct {
     bool save;
 } UiStartState;
 
-/// Whether there is anything to choose: a family, a case that may crash, or one on the crash
-/// list.
+/// Whether there is anything to choose: a family, or a case on the crash list.
 bool UiStartShown(const UiStartInfo *info);
 
 /// The screen as the mode file leaves it, the cursor on begin the run.
 UiStartState UiStartOpen(const RunMode *from_file, uint32_t present);
-
-/// How many of the may-crash table's cases the run as chosen would reach.
-uint32_t UiStartMayCrashCount(const UiStartInfo *info, const UiStartState *state);
 
 /// The mode the run begins with: @p from_file with what the screen chose. A family set the
 /// screen did not change keeps the file's words for it; a changed one is named whole, cpu
@@ -434,8 +422,9 @@ RunMode UiStartMode(const UiStartState *state, RunMode from_file, uint32_t prese
 enum {
     /// Plus or minus: begins the run from any row.
     UI_START_BEGIN = 1u << 0,
-    /// Y and X: the may-crash and crash list choices from any row.
-    UI_START_TOGGLE_MAY_CRASH = 1u << 1,
+    /// Y, which chooses nothing: with X in the same edge it is a pad's whole mask (below).
+    UI_START_Y = 1u << 1,
+    /// X: the crash list's choice from any row.
     UI_START_TOGGLE_RETRY = 1u << 2,
     /// A: the row under the cursor, which on begin the run begins it.
     UI_START_SELECT = 1u << 3,
@@ -444,10 +433,10 @@ enum {
 };
 
 /// One frame's presses. Beginning wins over everything else in the same frame; a toggle for a
-/// list with nothing in it does nothing; and nothing counts while the pad is still settling. Y
-/// and X in the same edge change neither choice, and A in an edge that also moves the cursor
-/// changes nothing: a pad that connects late reports every button it is already holding as one
-/// edge. Turning listen on turns audio on, and turning audio off turns listen off.
+/// list with nothing in it does nothing; and nothing counts while the pad is still settling. X
+/// in the same edge as Y changes nothing, and neither does A in an edge that also moves the
+/// cursor: a pad that connects late reports every button it is already holding as one edge.
+/// Turning listen on turns audio on, and turning audio off turns listen off.
 UiStartState UiStartStep(UiStartState state, uint32_t pressed, uint32_t frame_index,
                          const UiStartInfo *info);
 

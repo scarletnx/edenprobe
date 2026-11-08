@@ -9,7 +9,6 @@ source/runner.c
 source/report.c
 source/baseline.c
 source/journal.c
-source/maycrash.c
 source/hang.c
 source/check.c
 source/mode.c

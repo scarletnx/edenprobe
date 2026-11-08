@@ -32,8 +32,8 @@ taken back after the last; a binary of another size or time starts its own. To t
 there.
 
 `make run` writes `quick` into the mode file. `MODE` sets it: `MODE="quick images"` keeps every picture,
-`MODE="quick fatal"` runs the cases that may crash, and `MODE=` writes no file, so the start and result screens come
-up, each counting down ten seconds.
+`MODE="quick retry"` runs the crash list's cases again, and `MODE=` writes no file, so the start and result screens
+come up, each counting down ten seconds.
 
 **On a private display.** A closed window stops the emulator, which reads like a crash inside the case under way.
 A run nobody watches can use Xvfb. There Vulkan finds no queue that can present, so use OpenGL on the software

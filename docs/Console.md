@@ -67,17 +67,16 @@ starts as the mode file has it:
 | listen | the listening sequence before the audio suite ([The audio family](families/Audio.md)); on turns audio on, audio off turns it off |
 | quick | leave when the report closes, with no results screens |
 | notime | each drawing suite once, with no timing passes |
-| may crash | the cases the may-crash table names in the families chosen (the word `fatal`); Y from any row |
 | crash list | the crash list's cases again (the word `retry`); X from any row |
 | save | write the choice into `sdmc:/edenprobe/mode` for the next launch |
 
-Under the rows, the cases that may crash in the families chosen and those on the crash list, by name; while either
-choice is on with a case to run, a warning says the program may end and, started again, goes on after that case.
-Nothing pressed for ten seconds begins the run as the file had it. What was chosen goes in the mode line (`detailed,
-chosen on the start screen`, `the cases that may crash, chosen on the start screen`, `saved to the mode file by the
-start screen`) and in the journal, so a launch that resumes after a crash keeps it whether or not it was saved. Saving
-writes the words chosen, keeps the file's label and drops words nobody understood; saved with quick on, the next
-launch leaves without the screen, and X held at launch brings it back.
+Under the rows, the cases on the crash list, by name; while that choice is on with a case to run, a warning says the
+program may end and, started again, goes on after that case. Nothing pressed for ten seconds begins the run as the
+file had it. What was chosen goes in the mode line (`detailed, chosen on the start screen`, `the crash list's cases
+again, chosen on the start screen`, `saved to the mode file by the start screen`) and in the journal, so a launch that
+resumes after a crash keeps it whether or not it was saved. Saving writes the words chosen, keeps the file's label and
+drops words nobody understood; saved with quick on, the next launch leaves without the screen, and X held at launch
+brings it back.
 
 **Holding X** at launch is the other way into the detailed mode, for a card that says `quick`. The pad is asked once it
 turns up, twelve frames at most. The report is opened first, so a machine that cannot read the file or reach the pad
@@ -108,7 +107,7 @@ shows above the keys, and any button stops it for the rest of the run.
 | plus or minus | quit | quit | quit |
 
 - **Start screen:** up and down move the cursor, A turns the row or begins the run, plus or minus begins from any row,
-  Y turns the may-crash cases and X the crash list's, from any row.
+  X turns the crash list's cases from any row.
 - **Resume screen** ([When the program ends in the middle](Crashes.md)): up and down choose, A confirms.
 - **Listening screen:** Y repeats the take that is playing, X skips to the next part; nothing else does anything, so
   nothing quits the sequence.
@@ -120,8 +119,9 @@ Rules every screen shares:
 
 - The first eight frames are neither a press nor a tap: a controller arriving with the window reports its whole mask as
   newly pressed.
-- An edge that holds both Y and X changes neither choice; in an edge that also moves the cursor, A turns nothing (on
-  begin the run it still begins). An edge with A and a direction does nothing on the resume screen.
+- An edge that holds both Y and X turns nothing on the start screen, where Y alone does nothing either; in an edge
+  that also moves the cursor, A turns nothing (on begin the run it still begins). An edge with A and a direction does
+  nothing on the resume screen.
 - Every list comes round at either end. A held direction repeats after twenty frames, then every four:
   the reference suite's three hundred and eighty eight cases do not take a press each.
 - Going back lands on the group or case that was open; the picture view chosen with X stays from one case to the next.

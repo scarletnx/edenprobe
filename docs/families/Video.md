@@ -186,8 +186,8 @@ because of G1.
 - **G5, the source rect without its fraction.** libdrm writes the source rect in 16.16; `Blend`
   (461-464) takes the raw 30 bits. From column 8 the left edge is past 500000: with the matrix on
   nothing is drawn, without it `source_right - source_left` wraps (685) and the copy (689) reads
-  about 4 MiB past the slot's buffer. vic_source_crop would end Eden once G1 is mended, so it goes
-  into the may-crash table at that point, until G5 is mended too.
+  about 4 MiB past the slot's buffer. vic_source_crop would end Eden once G1 is mended, and the
+  launch after goes on past it, until G5 is mended too.
 - **G6, no scaling and no blending.** A destination rect larger than its source is copied or cut,
   a slot with an alpha below the top does not blend (496), and the alpha fill mode (`vic.h:233`,
   0 Opaque at `vic.h:140`) is ignored: the alpha out is always the slot's planar alpha.

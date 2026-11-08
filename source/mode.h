@@ -25,9 +25,9 @@ extern "C" {
 ///   stress    the heavy variants too: cases that ask a machine for far more than a game in
 ///             one list, off by default because an emulator can die of one and take the rest
 ///             of the run with it.
-///   fatal     the cases in the may-crash table (maycrash.h), known to end the program on a
-///             machine that gets them wrong: off by default, and never on the console, whose
-///             processor lacks SM4.
+///   fatal     changes nothing: every case runs, and one that ends the program is skipped on
+///             the next launch (journal.h). Still read, so a mode file that has it keeps working,
+///             and the mode line says what it does now.
 ///   retry     the cases on the crash list, which a machine's program ended inside before, run
 ///             again; one that runs to its end leaves the list. A case in the hang table stays
 ///             skipped until `hang` asks too.
@@ -86,6 +86,11 @@ extern "C" {
 /// so does cpu, which needs no device. Any other word is reported and ignored, never fatal: a
 /// file with a typo in it still gets a run, and a line in the report saying what was not
 /// understood.
+
+/// What the mode line says for the word `fatal`, which a new run's report and log carry once.
+#define MODE_FATAL_SAID                                                                            \
+    "the mode word fatal changes nothing now: every case runs, and one that ends the program is " \
+    "skipped on the next launch"
 
 /// The suite families, one bit each.
 enum {
@@ -186,17 +191,16 @@ typedef struct {
     bool no_timing;
     /// The word `stress`: the heavy variants of the cases that have one.
     bool stress;
-    /// The word `fatal`: the may-crash table's cases run.
+    /// The word `fatal`, which changes nothing a run does; the mode line says so.
     bool fatal;
     /// The word `retry`: the crash list's cases run again.
     bool retry;
     /// The word `hang`: the hang table's cases run.
     bool hang;
     /// Asked for on the start screen rather than in the file, which the mode line says.
-    bool fatal_by_screen;
     bool retry_by_screen;
-    /// The start screen changed what runs beyond those two: the families, the listening
-    /// sequence, quick or notime. The mode line then says the mode was chosen there.
+    /// The start screen changed what runs beyond retry: the families, the listening sequence,
+    /// quick or notime. The mode line then says the mode was chosen there.
     bool chosen_on_screen;
     /// The start screen wrote these words into the mode file, for the launches after this one.
     bool saved_by_screen;

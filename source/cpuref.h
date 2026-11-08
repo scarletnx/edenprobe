@@ -126,12 +126,7 @@ extern const CpuGapForm CPU_GAP_RNARROW[CPU_GAP_RNARROW_FORMS];
 void CpuRefGapExpected(const CpuGapForm *form, const uint64_t v0[2], const uint64_t v1[2],
                        const uint64_t v2[2], uint64_t out[2], bool *qc);
 
-/// The two cases that read system registers a game may reach from EL0 and that dynarmic does not
-/// model: the may-crash table names them too.
-#define CPU_CNTVCT_CASE "mrs cntvct_el0 reads a virtual count that moves with the physical one"
-#define CPU_DAIF_CASE "mrs daif reads nothing outside the four interrupt mask bits"
-
-/// The SM4 case's name, which the may-crash table names too.
+/// The SM4 case's name, which the journal's checks use as a case that ends the program.
 #define CPU_SM4_CASE "sm4ekey and sm4e give the SM4 standard's worked example"
 
 /// The worked example of the SM4 standard (GB/T 32907-2016, appendix A): the key

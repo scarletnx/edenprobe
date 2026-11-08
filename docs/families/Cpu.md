@@ -47,13 +47,15 @@
   so their machine code can be run on Unicorn against the same references before a console sees
   them.
 
-  The conversions run last of the cases every run has, because a translator that
-  cannot compile them without SSE4.1 calls a null pointer there and nothing after it reports.
-  Three are in the may-crash table and run only with the mode word `fatal` or when the start
-  screen asks, skipped as `may crash` otherwise: reading CNTVCT_EL0, the virtual count, which has
-  to move forward with the physical one; reading DAIF, which holds nothing outside its four mask
-  bits; and SM4. dynarmic has no translation for the two system registers and reaches UNREACHABLE,
-  which ends the program, and the console's kernel may refuse EL0 either of them, which a console
-  run settles. The console's processor has no SM4, and a translator that cannot compile it ends
-  the program. Console build only, since its cases are
-  AArch64 instructions.
+  The last two read system registers a game may reach from EL0: CNTVCT_EL0, the virtual count,
+  which has to move forward with the physical one, and DAIF, which holds nothing outside its four
+  mask bits. dynarmic has no translation for either and reaches UNREACHABLE, which ends the
+  program, and the console's kernel may refuse EL0 either of them, which a console run settles.
+
+  The cases run in this page's order, and every one runs in every mode. Some end the program on a
+  machine that gets them wrong: the two registers under dynarmic, SM4 on the console, whose
+  processor lacks it, and on a translator that cannot compile it, and the conversions on a
+  translator that cannot compile them without SSE4.1, which calls a null pointer there. Each says
+  it started before its instruction, so such a machine loses that case alone: the next launch
+  skips it as crashed and goes on with the one after ([When the program ends in the
+  middle](../Crashes.md)). Console build only, since its cases are AArch64 instructions.

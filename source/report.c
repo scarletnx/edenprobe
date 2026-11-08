@@ -13,7 +13,6 @@
 
 #include "baseline.h"
 #include "hang.h"
-#include "maycrash.h"
 #include "platform.h"
 #include "report.h"
 
@@ -45,16 +44,8 @@ static bool journal_broken;
 static CrashList crash_list;
 static char crash_list_path[256];
 static bool retry_listed;
-// Whether the may-crash table's cases run, and which of them this launch reached, with the
-// suites that started a case: an entry whose suite ran and which was never reached names a case
-// this build does not have.
-static bool may_crash_asked;
+// Whether the hang table's cases run.
 static bool hang_asked;
-#define MAY_CRASH_TRACKED 64u
-static bool may_crash_reached[MAY_CRASH_TRACKED];
-#define SUITES_TRACKED 64u
-static char suites_started[SUITES_TRACKED][JOURNAL_SUITE_MAX];
-static uint32_t suites_started_count;
 #define CRASHED_THIS_RUN_MAX JOURNAL_CRASHES_MAX
 static JournalRecord crashed_this_run[CRASHED_THIS_RUN_MAX];
 static uint32_t crashed_this_run_count;
@@ -508,24 +499,6 @@ static void WriteCrashList(void) {
     }
 }
 
-/// Remembers that @p suite started a case in this launch, and which table entry @p key is.
-static const MayCrash *Reached(const char *suite, const char *key) {
-    bool known = false;
-    for (uint32_t i = 0; i < suites_started_count && !known; ++i) {
-        known = strcmp(suites_started[i], suite) == 0;
-    }
-    if (!known && suites_started_count < SUITES_TRACKED) {
-        KeyOf(suites_started[suites_started_count++], JOURNAL_SUITE_MAX, suite);
-    }
-    const MayCrash *const entry = MayCrashFind(suite, key);
-    for (size_t i = 0; entry != NULL && i < MayCrashCount() && i < MAY_CRASH_TRACKED; ++i) {
-        if (MayCrashAt(i) == entry) {
-            may_crash_reached[i] = true;
-        }
-    }
-    return entry;
-}
-
 bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, char *detail,
                     size_t detail_size) {
     char key[JOURNAL_NAME_MAX];
@@ -538,12 +511,12 @@ bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, c
     detail[0] = '\0';
     ReportReason why = REPORT_REASON_CRASHED;
     uint32_t pass = 0;
-    const MayCrash *const may_crash = MayCrashFind(suite, key);
     const Hang *const hang = HangFind(suite, key);
     bool runs = true;
     // A crash in this run first, whatever retry or hang says. Then a known hang: retry would
     // run it again and it would not return, so the launch would never mark it. Then the crash
-    // list, which is this machine's own evidence; then the may-crash table.
+    // list, which is this machine's own evidence. Every other case runs: one that ends the
+    // program is the next launch's to skip.
     if (CrashedThisRun(suite, key, &pass)) {
         snprintf(detail, detail_size,
                  "the program ended inside it earlier in this run%s; it is on the crash list%s%s%s, "
@@ -563,13 +536,6 @@ bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, c
                  crash_list_path[0] != '\0' ? " (" : "", crash_list_path,
                  crash_list_path[0] != '\0' ? ")" : "");
         runs = false;
-    } else if (may_crash != NULL && !may_crash_asked) {
-        why = REPORT_REASON_MAY_CRASH;
-        snprintf(detail, detail_size,
-                 "known to end the program: %s; the mode word fatal, or the start screen, runs "
-                 "it",
-                 may_crash->why);
-        runs = false;
     }
     if (reason != NULL) {
         *reason = why;
@@ -584,7 +550,6 @@ bool ReportStart(const char *suite, const char *name) {
         Bookkeeping("started while", suite, key, pending_name);
         pending = false;
     }
-    (void)Reached(suite, key);
     ReportReason reason = REPORT_REASON_CRASHED;
     char detail[REPORT_KEPT_DETAIL];
     if (!ReportWouldRun(suite, name, &reason, detail, sizeof(detail))) {
@@ -693,7 +658,7 @@ static void EndCase(const char *suite, const char *name, CheckTier tier, bool pa
 }
 
 static const char *const REASON_WORDS[REPORT_REASON_COUNT] = {
-    "crashed", "may crash", "not configured", "unavailable", "depends", "hangs", "unanswered",
+    "crashed", "not configured", "unavailable", "depends", "hangs", "unanswered",
 };
 
 const char *ReportReasonWord(ReportReason reason) {
@@ -873,45 +838,12 @@ void ReportSetRetry(bool on) {
     retry_listed = on;
 }
 
-void ReportSetMayCrash(bool asked) {
-    may_crash_asked = asked;
-}
-
 void ReportSetHang(bool asked) {
     hang_asked = asked;
 }
 
 bool ReportHangAsked(void) {
     return hang_asked;
-}
-
-bool ReportMayCrashAsked(void) {
-    return may_crash_asked;
-}
-
-size_t ReportMayCrashUnreached(char *out, size_t out_size) {
-    if (out == NULL || out_size == 0u) {
-        return 0;
-    }
-    out[0] = '\0';
-    size_t used = 0;
-    for (size_t i = 0; i < MayCrashCount() && i < MAY_CRASH_TRACKED; ++i) {
-        const MayCrash *const entry = MayCrashAt(i);
-        bool ran = false;
-        for (uint32_t s = 0; s < suites_started_count && !ran; ++s) {
-            ran = strcmp(suites_started[s], entry->suite) == 0;
-        }
-        if (!ran || may_crash_reached[i]) {
-            continue;
-        }
-        const int wrote = snprintf(out + used, out_size - used, "%s%s \"%s\"",
-                                   used > 0u ? ", " : "", entry->suite, entry->name);
-        if (wrote < 0 || (size_t)wrote >= out_size - used) {
-            break;
-        }
-        used += (size_t)wrote;
-    }
-    return used;
 }
 
 bool ReportStartsRequired(void) {

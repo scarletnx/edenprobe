@@ -169,14 +169,16 @@ static const char *const DIV = "sdiv and udiv by zero give zero, 32 and 64 bits"
 static const char *const FRINTX = "frintx rounds to nearest even and raises inexact";
 static const char *const FRINTA = "frinta rounds halfway cases away from zero";
 static const char *const SQSHLU = "sqshlu saturates 8, 16 and 64-bit lanes and sets QC";
+static const char *const FCVTZ = "fcvtzs and fcvtzu with 64 fraction bits scale by 2^64";
+static const char *const SM4_CASE = CPU_SM4_CASE;
 static const char *const COMPILE = "48 new straight-line blocks with 33 live registers leave the "
                                    "state worked out apart";
 static const char *const GAP_RSHL = "sqrshl and uqrshl round, shift and saturate lanes of every width";
 static const char *const GAP_DMUL = "sqdmlal, sqdmlsl and sqdmull double, accumulate and saturate";
 static const char *const GAP_RNARROW = "sqrshrn, uqrshrn and sqrshrun round and narrow scalars";
-static const char *const FCVTZ = "fcvtzs and fcvtzu with 64 fraction bits scale by 2^64";
-// Last, and in the may-crash table: a translator that cannot compile SM4 ends the program.
-static const char *const SM4_CASE = CPU_SM4_CASE;
+static const char *const CNTVCT =
+    "mrs cntvct_el0 reads a virtual count that moves with the physical one";
+static const char *const DAIF = "mrs daif reads nothing outside the four interrupt mask bits";
 
 /// Calls each block twice from JIT_INITIAL: the first call is the one a translator compiles on,
 /// the second only runs. The state after each call is checked against JIT_EXPECTED; the time
@@ -391,6 +393,42 @@ void RunCpu(void) {
                    saturated[3]);
     }
 
+    // A translator whose table of fraction bits stops at 63 calls a null pointer here.
+    if (ReportStart(SUITE, FCVTZ)) {
+        static const int FCVTZ_SOURCE[8] = {0, 1, 2, 3, 4, 5, 4, 5};
+        static const bool FCVTZ_UNSIGNED[8] = {false, false, true, true, false, false, true, true};
+        uint64_t converted[8];
+        Fcvtz(CPU_FCVTZ_INPUT, converted);
+        wrong = 0;
+        for (int i = 0; i < 8; ++i) {
+            wrong += converted[i] !=
+                     CpuRefFcvtzFixed64(CPU_FCVTZ_INPUT[FCVTZ_SOURCE[i]], FCVTZ_UNSIGNED[i]);
+        }
+        CHECK_TRUE(SUITE, FCVTZ, CHECK_EXACT, wrong == 0,
+                   "%d of 8 lanes wrong, got %016llx %016llx, %016llx %016llx, %016llx %016llx, "
+                   "%016llx %016llx",
+                   wrong, (unsigned long long)converted[0], (unsigned long long)converted[1],
+                   (unsigned long long)converted[2], (unsigned long long)converted[3],
+                   (unsigned long long)converted[4], (unsigned long long)converted[5],
+                   (unsigned long long)converted[6], (unsigned long long)converted[7]);
+    }
+
+    // The console's processor has no SM4: there, and on a translator that cannot compile it,
+    // the program ends here and the launch after goes on with the next case.
+    if (ReportStart(SUITE, SM4_CASE)) {
+        uint32_t rk[4];
+        uint32_t x[4];
+        Sm4(CPU_SM4_KEY, CPU_SM4_CK, CPU_SM4_PLAIN, rk, x);
+        wrong = 0;
+        for (int i = 0; i < 4; ++i) {
+            wrong += (rk[i] != CPU_SM4_RK[i]) + (x[i] != CPU_SM4_X[i]);
+        }
+        CHECK_TRUE(SUITE, SM4_CASE, CHECK_EXACT, wrong == 0,
+                   "%d of 8 words wrong, rk %08x %08x %08x %08x, x %08x %08x %08x %08x", wrong,
+                   (unsigned)rk[0], (unsigned)rk[1], (unsigned)rk[2], (unsigned)rk[3],
+                   (unsigned)x[0], (unsigned)x[1], (unsigned)x[2], (unsigned)x[3]);
+    }
+
     // Code the translator has never seen, with more live registers than an x86-64 host has, so
     // its register allocator spills. The state is the verdict; the time of the first calls less
     // the second is what compiling cost, a note for comparing two builds of one emulator.
@@ -440,57 +478,21 @@ void RunCpu(void) {
                    gap_wrong, CPU_GAP_RNARROW_FORMS, gap_detail);
     }
 
-    // Last of the cases every run has: a translator whose table of fraction bits stops at 63
-    // calls a null pointer here, and nothing after it reports.
-    if (ReportStart(SUITE, FCVTZ)) {
-        static const int FCVTZ_SOURCE[8] = {0, 1, 2, 3, 4, 5, 4, 5};
-        static const bool FCVTZ_UNSIGNED[8] = {false, false, true, true, false, false, true, true};
-        uint64_t converted[8];
-        Fcvtz(CPU_FCVTZ_INPUT, converted);
-        wrong = 0;
-        for (int i = 0; i < 8; ++i) {
-            wrong += converted[i] !=
-                     CpuRefFcvtzFixed64(CPU_FCVTZ_INPUT[FCVTZ_SOURCE[i]], FCVTZ_UNSIGNED[i]);
-        }
-        CHECK_TRUE(SUITE, FCVTZ, CHECK_EXACT, wrong == 0,
-                   "%d of 8 lanes wrong, got %016llx %016llx, %016llx %016llx, %016llx %016llx, "
-                   "%016llx %016llx",
-                   wrong, (unsigned long long)converted[0], (unsigned long long)converted[1],
-                   (unsigned long long)converted[2], (unsigned long long)converted[3],
-                   (unsigned long long)converted[4], (unsigned long long)converted[5],
-                   (unsigned long long)converted[6], (unsigned long long)converted[7]);
-    }
-
     // System registers a game may reach from EL0 that dynarmic does not model: its translator
-    // hits UNREACHABLE and the emulator ends. Both are in the may-crash table; on the console
-    // they say whether Horizon lets EL0 read them at all.
-    if (ReportStart(SUITE, CPU_CNTVCT_CASE)) {
+    // hits UNREACHABLE and the emulator ends. On the console they say whether Horizon lets EL0
+    // read them at all.
+    if (ReportStart(SUITE, CNTVCT)) {
         uint64_t counts[4];
         ReadCounts(counts);
-        CHECK_TRUE(SUITE, CPU_CNTVCT_CASE, CHECK_EXACT,
+        CHECK_TRUE(SUITE, CNTVCT, CHECK_EXACT,
                    counts[1] <= counts[2] && counts[2] - counts[1] <= counts[3] - counts[0],
                    "physical %llu, virtual %llu then %llu, physical %llu",
                    (unsigned long long)counts[0], (unsigned long long)counts[1],
                    (unsigned long long)counts[2], (unsigned long long)counts[3]);
     }
-    if (ReportStart(SUITE, CPU_DAIF_CASE)) {
+    if (ReportStart(SUITE, DAIF)) {
         const uint64_t daif = ReadDaif();
-        CHECK_TRUE(SUITE, CPU_DAIF_CASE, CHECK_EXACT, (daif & ~0x3c0ull) == 0, "daif %016llx",
+        CHECK_TRUE(SUITE, DAIF, CHECK_EXACT, (daif & ~0x3c0ull) == 0, "daif %016llx",
                    (unsigned long long)daif);
     }
-
-    if (!ReportStart(SUITE, SM4_CASE)) {
-        return;
-    }
-    uint32_t rk[4];
-    uint32_t x[4];
-    Sm4(CPU_SM4_KEY, CPU_SM4_CK, CPU_SM4_PLAIN, rk, x);
-    wrong = 0;
-    for (int i = 0; i < 4; ++i) {
-        wrong += (rk[i] != CPU_SM4_RK[i]) + (x[i] != CPU_SM4_X[i]);
-    }
-    CHECK_TRUE(SUITE, SM4_CASE, CHECK_EXACT, wrong == 0,
-               "%d of 8 words wrong, rk %08x %08x %08x %08x, x %08x %08x %08x %08x", wrong,
-               (unsigned)rk[0], (unsigned)rk[1], (unsigned)rk[2], (unsigned)rk[3],
-               (unsigned)x[0], (unsigned)x[1], (unsigned)x[2], (unsigned)x[3]);
 }

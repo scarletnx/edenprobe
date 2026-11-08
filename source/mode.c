@@ -443,8 +443,7 @@ static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t p
     }
     if (mode->fatal) {
         const size_t used = strlen(out);
-        snprintf(out + used, out_size - used, "; the cases that may crash%s",
-                 mode->fatal_by_screen ? ", chosen on the start screen" : "");
+        snprintf(out + used, out_size - used, "; %s", MODE_FATAL_SAID);
     }
     if (mode->hang) {
         const size_t used = strlen(out);
@@ -571,6 +570,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { (mode->families_named & MODE_FAMILY_AUDIO) != 0u, "audio" },
         { (mode->families_named & MODE_FAMILY_CPU) != 0u, "cpu" },
         { (mode->families_named & MODE_FAMILY_DISPLAY) != 0u, "display" },
+        // It changes no case, but the mode line says what it does now: a run that has it says so.
         { mode->fatal, "fatal" },
         { mode->frames != MODE_FRAMES_DEFAULT, frames },
         { (mode->families_named & MODE_FAMILY_FRAMEWORK) != 0u, "framework" },
@@ -705,7 +705,6 @@ RunMode ModeWithChosen(RunMode from_file, const char *chosen) {
         // Not a choice this build wrote: read as words added to the file's, which is what a
         // chosen record said before the start screen chose more than fatal and retry.
         const RunMode added = ModeFromText(chosen);
-        mode.fatal_by_screen = added.fatal && !from_file.fatal;
         mode.retry_by_screen = added.retry && !from_file.retry;
         mode.fatal = from_file.fatal || added.fatal;
         mode.retry = from_file.retry || added.retry;
@@ -720,15 +719,14 @@ RunMode ModeWithChosen(RunMode from_file, const char *chosen) {
     mode.hang = screen.hang;
     mode.fatal = screen.fatal;
     mode.retry = screen.retry;
-    mode.fatal_by_screen = screen.fatal && !from_file.fatal;
     mode.retry_by_screen = screen.retry && !from_file.retry;
     mode.quick = screen.quick;
     mode.detailed = !screen.quick;
     mode.detailed_by_button = false;
-    // Beyond fatal and retry, which the mode line already says were chosen there.
+    // Beyond retry, which the mode line already says was chosen there.
     RunMode file_rest = from_file;
     RunMode chosen_rest = mode;
-    file_rest.fatal = file_rest.retry = chosen_rest.fatal = chosen_rest.retry = false;
+    file_rest.retry = chosen_rest.retry = false;
     char before[MODE_KEY_MAX];
     char after[MODE_KEY_MAX];
     ModeKey(before, sizeof(before), &file_rest);
