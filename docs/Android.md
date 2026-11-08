@@ -39,11 +39,11 @@ android/tools/run-adb.sh --serial SERIAL --apk edenprobe-debug.apk --out DIR [--
 ```
 
 The package must not be on the device yet: the script installs it, launches it with the words for its mode file
-(`quick` when `--mode` is not given), watches logcat, pulls the report and the journal and uninstalls it, also when
-it fails. It
-sends no input. A launch that ends before `EDENPROBE DONE`, goes silent, or says the run did not start (a launch
-right after a boot can, before the app has its storage) is launched again, and the engine goes on after the case it
-ended inside, as on the console ([When the program ends in the middle](Crashes.md)).
+(`quick` when `--mode` is not given) and `machine=android@<its Android release>` for the [ban
+list](Crashes.md#the-ban-list), unless the words name a machine, watches logcat, pulls the report and the journal and
+uninstalls it, also when it fails. It sends no input. A launch that ends before `EDENPROBE DONE`, goes silent, or says
+the run did not start (a launch right after a boot can, before the app has its storage) is launched again, and the
+engine goes on after the case it ended inside, as on the console ([When the program ends in the middle](Crashes.md)).
 
 By hand: `adb shell am start -n org.scarletnx.edenprobe/.ProbeActivity --es mode "quick libc"` launches it with
 those words, which the app writes to its mode file first (adb's shell cannot write the app's folder before the app
@@ -58,9 +58,9 @@ has run); without the extra it reads the file as it is. The root is the app's ex
 android/tools/run-scarletnx.sh --driver BUILD/scarletnx-android --apk edenprobe-debug.apk --out DIR [--mode WORDS]
 ```
 
-It runs the driver headless with an empty home of the run's own in `DIR/home`, the mode file in the app's place
-there, launches it again after a crash as `run-adb.sh` does, and copies the report out. `--java-home` and
-`--framework` go to the driver.
+It runs the driver headless with an empty home of the run's own in `DIR/home`, the mode file in the app's place there,
+with `machine=scarletnx-android` beside the words unless they name a machine, launches it again after a crash as
+`run-adb.sh` does, and copies the report out. `--java-home` and `--framework` go to the driver.
 
 ### What it runs
 

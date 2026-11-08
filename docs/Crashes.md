@@ -88,13 +88,17 @@ skipped as `banned`, so it costs no launch, and the skip names its line and what
 {"type":"case","suite":"geometry","name":"a geometry shader turns each of four points into its 8 by 8 square","tier":"none","result":"skip","reason":"banned","detail":"banned on eden at 6a9235c22d by source/bans.txt line 32 (versions *): ends the program with SIGABRT: the shader recompiler throws Shader::NotImplementedException on square.geom's PRET; checked 2026-11-07 ends on 6a9235c22d; the mode word unban runs it"}
 ```
 
-A new run's report says how many lines hold for its machine (`bans: 8 of the 10 lines of source/bans.txt hold for
-eden at 6a9235c22d: ...`), and before the summary names a line whose suite ran but which no case reached: a case the
-list names and the build does not have. A run with no machine holds no line, and a machine no line names runs every
-case. The word `unban` runs the banned cases anyway, to see whether they still end it; a banned case that is on the
-crash list too needs `retry` beside it. Only what a run showed goes on the list, with that run as its source; a line
-with versions `*` holds for every version until a run with `unban` shows otherwise. `tools/bans.py` checks every line
-and writes `source/banlist.c`, the table the program holds.
+A new run's report says how many lines hold for its machine (`bans: 8 of the 10 lines of source/bans.txt hold for eden
+at 6a9235c22d: ...`), and before the summary names a line whose suite ran but which no case reached: a case the list
+names and the build does not have. The runners write the machine: `make run` puts `machine=eden@<commit>` beside
+`MODE`, the commit from `eden-cli --version` (`MACHINE=<name>[@<version>]` names another), `android/tools/run-adb.sh`
+`machine=android@<the device's Android release>`, and `android/tools/run-scarletnx.sh` `machine=scarletnx-android`;
+words that name a machine keep theirs. On the console and in an emulator opened by hand, the word goes in the mode
+file by hand. A run with no machine holds no line, and a machine no line names runs every case. The word `unban` runs
+the banned cases anyway, to see whether they still end it; a banned case that is on the crash list too needs `retry`
+beside it. Only what a run showed goes on the list, with that run as its source; a line with versions `*` holds for
+every version until a run with `unban` shows otherwise. `tools/bans.py` checks every line and writes
+`source/banlist.c`, the table the program holds.
 
 ## Who launches again
 

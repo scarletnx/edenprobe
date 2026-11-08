@@ -31,9 +31,11 @@ Stopping it by hand writes `stopped` into the journal, so the case under way is 
 taken back after the last; a binary of another size or time starts its own. To try a case again, delete its line
 there.
 
-`make run` writes `quick` into the mode file. `MODE` sets it: `MODE="quick images"` keeps every picture,
-`MODE="quick retry"` runs the crash list's cases again, and `MODE=` writes no file, so the start and result screens
-come up, each counting down ten seconds.
+`make run` writes `quick` into the mode file. `MODE` sets it: `MODE="quick images"` keeps every picture, `MODE="quick
+retry"` runs the crash list's cases again, and `MODE=` writes no file, so the start and result screens come up, each
+counting down ten seconds. Beside `MODE` it writes the machine for the [ban list](Crashes.md#the-ban-list),
+`machine=eden@<commit>` from `eden-cli --version` when the emulator's name starts with eden, `machine=ryujinx` for
+Ryujinx; `MACHINE=<name>[@<version>]` names another, and an emulator of another name gets none, which `make run` says.
 
 **On a private display.** A closed window stops the emulator, which reads like a crash inside the case under way.
 A run nobody watches can use Xvfb. There Vulkan finds no queue that can present, so use OpenGL on the software

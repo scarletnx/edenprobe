@@ -6,12 +6,12 @@
 # Runs edenprobe's APK on ScarletNX's Android layer: PROGRAM is its scarletnx-android, run --headless with nothing on
 # the display (DISPLAY and WAYLAND_DISPLAY unset) and an empty home of the run's own (XDG_DATA_HOME, XDG_CONFIG_HOME,
 # XDG_STATE_HOME and XDG_CACHE_HOME in DIR/home), so the user's ScarletNX data is never read or written; the app's
-# mode file there holds WORDS ("quick" when not given). --java-home and --framework go to the driver as its options.
-# The driver runs in DIR, so what a crash leaves (the JVM's hs_err_pid files) lands there with each launch's log
-# (launch-N.log) and the run's report.jsonl and journal. A launch that ends before EDENPROBE DONE, prints no edenprobe
-# line for --stall seconds (120), or runs past --timeout seconds (900), is stopped and launched again: the engine
-# reports the case it ended inside as crashed and goes on, up to --launches (5). Exit 0 with a whole report, 1 a run
-# that did not end whole, 2 refused (usage).
+# mode file there holds WORDS ("quick" when not given) and machine=scarletnx-android, unless WORDS name a machine.
+# --java-home and --framework go to the driver as its options. The driver runs in DIR, so what a crash leaves (the
+# JVM's hs_err_pid files) lands there with each launch's log (launch-N.log) and the run's report.jsonl and journal. A
+# launch that ends before EDENPROBE DONE, prints no edenprobe line for --stall seconds (120), or runs past --timeout
+# seconds (900), is stopped and launched again: the engine reports the case it ended inside as crashed and goes on, up
+# to --launches (5). Exit 0 with a whole report, 1 a run that did not end whole, 2 refused (usage).
 set -u
 driver= apk= out= mode=quick java_home= framework= timeout=900 stall=120 launches=5
 usage() { sed -n '4,17s/^# \{0,1\}//p' "$0"; }
@@ -44,6 +44,12 @@ mkdir -p "$out/home" || exit 1
 out=$(cd "$out" && pwd)
 # where the layer keeps the app's external files, getExternalFilesDir's: the engine's root under it
 root=$out/home/data/scarletnx/android/data/org.scarletnx.edenprobe/external/files/edenprobe
+# the machine for the ban list (docs/Crashes.md), unless the words name one: the driver says its build only once it runs,
+# so no version
+case " $mode " in
+*" machine="*) ;;
+*) mode="$mode machine=scarletnx-android" ;;
+esac
 mkdir -p "$root" && printf '%s\n' "$mode" > "$root/mode" || exit 1
 # absolute, without resolving a link: the driver is a link whose name picks the program
 driver=$(cd "$(dirname "$driver")" && pwd)/$(basename "$driver")

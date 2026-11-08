@@ -26,6 +26,11 @@ SPEC.loader.exec_module(run)
 # after, having touched no journal.
 FAKE = r'''#!/usr/bin/env python3
 import os, sys, time
+if "--version" in sys.argv:
+    # what eden-cli logs, colours and all, as its version
+    print("\x1b[0;37m[   0.002693] Frontend <Info> core/launch_params.cpp:184:ApplyLaunchParams: "
+          "Eden HEAD 0123abcdef-HEAD\x1b[0m", file=sys.stderr)
+    sys.exit(0)
 def write(path, text):
     with open(path, "w") as f:
         f.write(text)
@@ -247,6 +252,72 @@ class Relaunch(unittest.TestCase):
         self.assertEqual(read(os.path.join(f.card, "mode")), "quick fatal\n")
         run.prepare(f.xdg, "")
         self.assertFalse(os.path.exists(os.path.join(f.card, "mode")))
+
+
+class Machine(unittest.TestCase):
+    """The machine= word make run puts beside the mode's words, for the ban list."""
+
+    def setUp(self):
+        self.f = Fixture(["finish"])
+
+    def tearDown(self):
+        self.f.close()
+
+    def mode_after(self, **kwargs):
+        code, said = self.f.run(**kwargs)
+        self.assertEqual(code, 0, said)
+        return read(os.path.join(self.f.card, "mode")).strip(), said
+
+    def test_an_eden_is_asked_its_version(self):
+        mode, said = self.mode_after()
+        self.assertEqual(mode, "quick machine=eden@0123abcdef")
+        self.assertIn("machine=eden@0123abcdef, from %s --version" % self.f.emulator, said)
+        self.assertEqual(self.f.launches(), 1)
+
+    def test_machine_given_wins(self):
+        mode, said = self.mode_after(machine="scarletnx@10ed344")
+        self.assertEqual(mode, "quick machine=scarletnx@10ed344")
+        self.assertIn("machine=scarletnx@10ed344, from --machine", said)
+
+    def test_a_mode_that_names_one_keeps_it(self):
+        mode, said = self.mode_after(mode="quick cpu machine=console", machine="eden")
+        self.assertEqual(mode, "quick cpu machine=console")
+        self.assertIn("the mode names its machine", said)
+
+    def test_another_emulator_gets_none_and_it_is_said(self):
+        self.f.emulator = self.f.make_emulator("someemu")
+        mode, said = self.mode_after()
+        self.assertEqual(mode, "quick")
+        self.assertIn("no machine= word: %s is no emulator known by its name (eden, ryujinx)" %
+                      self.f.emulator, said)
+        self.assertIn("MACHINE=<name>[@<version>] names it", said)
+
+    def test_ryujinx_by_its_name_with_no_version(self):
+        self.f.emulator = self.f.make_emulator("Ryujinx")
+        mode, _ = self.mode_after()
+        self.assertEqual(mode, "quick machine=ryujinx")
+
+    def test_an_eden_that_says_no_version(self):
+        self.f.emulator = self.f.make_emulator("eden-quiet", "")
+        with open(self.f.emulator) as f:
+            text = f.read().replace("Eden HEAD 0123abcdef-HEAD", "Eden")
+        with open(self.f.emulator, "w") as f:
+            f.write(text)
+        mode, said = self.mode_after()
+        self.assertEqual(mode, "quick machine=eden")
+        self.assertIn("machine=eden, with no version", said)
+
+    def test_a_release_number(self):
+        path = os.path.join(self.f.dir, "eden-release")
+        write(path, "#!/bin/sh\necho '[ 0.1] Frontend <Info> launch_params.cpp:184:ApplyLaunchParams: "
+                    "Eden v0.1.0 (stable)'\n")
+        os.chmod(path, 0o755)
+        self.assertEqual(run.eden_version(path, self.f.xdg), "v0.1.0")
+
+    def test_no_mode_file_no_word(self):
+        code, said = self.f.run(mode="")
+        self.assertIn("no mode file, so no machine= word", said)
+        self.assertFalse(os.path.exists(os.path.join(self.f.card, "mode")))
 
 
 class CrashLists(unittest.TestCase):

@@ -3,14 +3,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Runs edenprobe under an emulator until its report is whole.
 
-    tools/run.py --emulator EMULATOR --nro NRO --xdg DIR [--mode WORDS] [--relaunches N]
-                 [--timeout SECONDS] [--log FILE] [--who NAME]
+    tools/run.py --emulator EMULATOR --nro NRO --xdg DIR [--mode WORDS] [--machine NAME[@VERSION]]
+                 [--relaunches N] [--timeout SECONDS] [--log FILE] [--who NAME]
 
 The emulator's settings, memory card and caches go under DIR, as XDG_CONFIG_HOME, XDG_DATA_HOME and
 XDG_CACHE_HOME, so nothing of the person's own setup is read or written. The run starts clean: the
 reports and pictures in every run folder (sdmc:/edenprobe/runs/*), the support suite's scratch
 directory, last-run and the mode file are removed, and WORDS (default `quick`; empty for no file,
-which is the detailed screen) written into a new mode file. The program names the folder it
+which is the detailed screen) written into a new mode file, with machine=NAME[@VERSION] after them
+for the ban list (docs/Crashes.md): --machine's, or the one the emulator's name says, eden asked for
+its version with --version, ryujinx with none; WORDS that name a machine already keep theirs, and
+an emulator of another name gets no machine word, which is said. The program names the folder it
 reports in, its build's hash and the mode file's label, in sdmc:/edenprobe/last-run; the report
 and the journal are read from there.
 
@@ -206,6 +209,63 @@ def prepare(xdg, mode):
             f.write(mode + "\n")
 
 
+def emulator_env(xdg):
+    """The emulator's environment: its settings, card and caches under xdg, never the person's."""
+    env = dict(os.environ)
+    env.update({
+        "XDG_DATA_HOME": os.path.join(xdg, "data"),
+        "XDG_CONFIG_HOME": os.path.join(xdg, "config"),
+        "XDG_CACHE_HOME": os.path.join(xdg, "cache"),
+    })
+    env["DISPLAY"] = env.get("DISPLAY") or ":0"
+    return env
+
+
+VERSION = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
+
+
+def eden_version(emulator, xdg):
+    """The version Eden says with --version, its commit or its release number, or None: it logs
+    "Eden <branch> <commit>-<branch>" or "Eden v0.1.0"."""
+    try:
+        done = subprocess.run([emulator, "--version"], env=emulator_env(xdg), capture_output=True,
+                              timeout=30)
+        said = (done.stdout + done.stderr).decode("utf-8", "replace")
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for line in ANSI.sub(b"", said.encode()).decode().splitlines():
+        at = line.find(" Eden ")
+        if at < 0 and not line.startswith("Eden "):
+            continue
+        rest = line[at + 6:] if at >= 0 else line[5:]
+        found = re.search(r"(?<![0-9A-Za-z])([0-9a-f]{7,40})(?![0-9A-Za-z])", rest) or \
+            re.search(r"(?<![0-9A-Za-z.])(v?[0-9]+(?:\.[0-9]+)+)(?![0-9A-Za-z])", rest)
+        if found and VERSION.match(found.group(1)):
+            return found.group(1)
+    return None
+
+
+def machine_word(emulator, xdg, mode, machine):
+    """The machine= word to add to the mode file and a line saying where it came from, or None and
+    why there is none."""
+    if not mode:
+        return None, "no mode file, so no machine= word: the ban list holds for none"
+    if re.search(r"(?:^|\s)machine=", mode, re.I):
+        return None, "the mode names its machine"
+    if machine:
+        return "machine=" + machine, "machine=%s, from --machine" % machine
+    name = os.path.basename(emulator).lower()
+    if name.startswith("eden"):
+        version = eden_version(emulator, xdg)
+        if version is None:
+            return "machine=eden", "machine=eden, with no version: %s --version said none" % emulator
+        return "machine=eden@" + version, "machine=eden@%s, from %s --version" % (version, emulator)
+    if name.startswith("ryujinx"):
+        return "machine=ryujinx", "machine=ryujinx, with no version: make run asks Ryujinx for none"
+    return None, ("no machine= word: %s is no emulator known by its name (eden, ryujinx), so the "
+                  "ban list holds for none; MACHINE=<name>[@<version>] names it" % emulator)
+
+
 def describe(status, stopped_after):
     if stopped_after is not None:
         return "was stopped after %d s" % stopped_after
@@ -220,14 +280,7 @@ def describe(status, stopped_after):
 
 def launch(emulator, nro, xdg, timeout, log, echo):
     """One launch. Hands back (status, seconds it was stopped after or None)."""
-    env = dict(os.environ)
-    env.update({
-        "XDG_DATA_HOME": os.path.join(xdg, "data"),
-        "XDG_CONFIG_HOME": os.path.join(xdg, "config"),
-        "XDG_CACHE_HOME": os.path.join(xdg, "cache"),
-    })
-    env["DISPLAY"] = env.get("DISPLAY") or ":0"
-    process = subprocess.Popen([emulator, "-g", nro], env=env, stdout=subprocess.PIPE,
+    process = subprocess.Popen([emulator, "-g", nro], env=emulator_env(xdg), stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT)
 
     def pump():
@@ -287,11 +340,17 @@ def mark_stopped(journal_path):
 
 
 def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=None,
-        who="run.py", echo=True):
+        who="run.py", echo=True, machine=None):
     say = lambda text: print("%s: %s" % (who, text), flush=True)
     if not (os.path.isfile(emulator) and os.access(emulator, os.X_OK)):
         print("%s: no executable emulator at %s" % (who, emulator), file=sys.stderr)
         return 1
+    for d in ("data", "config", "cache"):
+        os.makedirs(os.path.join(xdg, d), exist_ok=True)
+    word, why = machine_word(emulator, xdg, mode, machine)
+    say(why)
+    if word:
+        mode = mode + " " + word
     prepare(xdg, mode)
     say("mode file: %s" % mode if mode else "mode file: none, so the detailed screen")
     sd = card(xdg)
@@ -393,6 +452,7 @@ def main(argv):
     parser.add_argument("--nro", required=True)
     parser.add_argument("--xdg", required=True)
     parser.add_argument("--mode", default="quick")
+    parser.add_argument("--machine", default="")
     parser.add_argument("--relaunches", type=int, default=16)
     parser.add_argument("--timeout", type=int, default=60)
     parser.add_argument("--log")
@@ -402,7 +462,7 @@ def main(argv):
         parser.error("relaunches must be nought or more and the timeout more than nought")
     return run(os.path.abspath(args.emulator), os.path.abspath(args.nro),
                os.path.abspath(args.xdg), args.mode.strip(), args.relaunches, args.timeout,
-               args.log, args.who)
+               args.log, args.who, machine=args.machine.strip() or None)
 
 
 if __name__ == "__main__":

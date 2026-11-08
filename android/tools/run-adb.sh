@@ -4,14 +4,15 @@
 # android/tools/run-adb.sh --serial SERIAL --apk APK --out DIR [--mode WORDS] [--timeout SECONDS] [--stall SECONDS]
 #                          [--launches N]
 # Runs edenprobe's APK on a device or emulator over adb and leaves it as it was: the package must not be installed (it
-# is refused, never replaced), the APK is installed, the app launched with WORDS ("quick" when not given) for its mode
-# file and watched, its report pulled, and the package uninstalled on every way out. No tap is sent. DIR gets:
-# device.txt, logcat.txt (from the install on), meminfo.txt, for each launch that died its exit-info-N.txt, and the
-# run's report.jsonl and journal. A launch that ends before EDENPROBE DONE, says the run did not start (as one right
-# after a boot can, before the app has its storage), logs no edenprobe line for --stall seconds (60), or runs past
-# --timeout seconds (600), is stopped and launched again: the engine reports the case it
-# ended inside as crashed and goes on, up to --launches (5). ADB names adb (adb on PATH when not set). Exit 0 with a
-# whole report, 1 a run that did not end whole, 2 refused (usage), 3 the package is already on the device.
+# is refused, never replaced), the APK is installed, the app launched with WORDS ("quick" when not given) and
+# machine=android@<the device's Android release> (unless WORDS name a machine) for its mode file and watched, its
+# report pulled, and the package uninstalled on every way out. No tap is sent. DIR gets: device.txt, logcat.txt (from
+# the install on), meminfo.txt, for each launch that died its exit-info-N.txt, and the run's report.jsonl and journal.
+# A launch that ends before EDENPROBE DONE, says the run did not start (as one right after a boot can, before the app
+# has its storage), logs no edenprobe line for --stall seconds (60), or runs past --timeout seconds (600), is stopped
+# and launched again: the engine reports the case it ended inside as crashed and goes on, up to --launches (5). ADB
+# names adb (adb on PATH when not set). Exit 0 with a whole report, 1 a run that did not end whole, 2 refused (usage),
+# 3 the package is already on the device.
 set -u
 pkg=org.scarletnx.edenprobe
 root=/storage/emulated/0/Android/data/$pkg/files/edenprobe
@@ -48,12 +49,26 @@ if adb shell pm list packages "$pkg" | tr -d '\r' | grep -qx "package:$pkg"; the
     exit 3
 fi
 mkdir -p "$out" || exit 1
+release=$(adb shell getprop ro.build.version.release | tr -d '\r')
 {
     echo "serial $serial"
     echo "model $(adb shell getprop ro.product.model | tr -d '\r')"
-    echo "android $(adb shell getprop ro.build.version.release | tr -d '\r') api $(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+    echo "android $release api $(adb shell getprop ro.build.version.sdk | tr -d '\r')"
     echo "abis $(adb shell getprop ro.product.cpu.abilist | tr -d '\r')"
 } > "$out/device.txt"
+# the machine for the ban list (docs/Crashes.md), with the device's Android release as its version, unless the words
+# name one
+case " $mode " in
+*" machine="*) log "machine: the mode names it" ;;
+*)
+    if [[ $release =~ ^[A-Za-z0-9._-]{1,32}$ ]]; then
+        mode="$mode machine=android@$release"
+    else
+        mode="$mode machine=android"
+        log "machine: android, with no version: ro.build.version.release is \"$release\", no version a machine can have"
+    fi
+    ;;
+esac
 
 installed=0 logcat_pid=
 cleanup() {
