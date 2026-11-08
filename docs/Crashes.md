@@ -49,13 +49,21 @@ as `crashed` in every later run until the word `retry` runs them again; one that
 list. A case that ended the program in this very run is skipped even under `retry`. Delete a line to try one case
 again; the program rewrites the file whole, so a comment typed into it does not stay.
 
-## The may-crash and hang tables
+## Every case runs
 
-`source/maycrash.c` names the cases that end the program on a machine that gets them wrong; they are skipped as `may
-crash` unless `fatal` or the start screen asks for them. `source/hang.c` names the cases that never return on such a
-machine (the bsd receive with a timeout); they are skipped as `hangs` unless `hang` asks, and `retry` never runs
-them, since a hang does not end the program. A case on the crash list stays `crashed` whatever `fatal` or `hang`
-say, until `retry`. A note before the summary names an entry whose case this build never reached.
+No case is left out because some machine ends inside it. The ones known to end one run in their own families and
+suites, in their places among the others: SM4 and the CNTVCT_EL0 and DAIF reads in the cpu suite ([The
+processor](families/Cpu.md)), the geometry and bcn cases whose shaders compile to a PRET, under Eden
+([Graphics](families/Graphics.md)). On a machine that ends inside one, the launch leaves that case's start as the
+journal's last line, the next launch skips it as `crashed`, puts it on the crash list and goes on with the case after
+it, and later runs skip it from the list until `retry`. The word `fatal`, which once asked for them, is still read and
+changes nothing; the mode line says so once a run.
+
+## The hang table
+
+`source/hang.c` names the cases that never return on a machine that gets them wrong (the bsd receive with a timeout);
+they are skipped as `hangs` unless `hang` asks, and `retry` never runs them, since a hang does not end the program and
+the journal cannot mark it. A case on the crash list stays `crashed` whatever `hang` says, until `retry`.
 
 ## What a crash costs
 

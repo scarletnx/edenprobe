@@ -16,7 +16,6 @@
 #include "../cpuref.h"
 #include "../hang.h"
 #include "../journal.h"
-#include "../maycrash.h"
 #include "../mode.h"
 #include "../report.h"
 #include "tests.h"
@@ -918,7 +917,6 @@ static void CheckDecisions(void) {
     ReportBuildResultLine(line, sizeof(line), "bcn", "a case", "none", "skip",
                           ReportReasonWord(REPORT_REASON_CRASHED), "it ended the program", NULL);
     bool words_right = strcmp(ReportReasonWord(REPORT_REASON_CRASHED), "crashed") == 0 &&
-                       strcmp(ReportReasonWord(REPORT_REASON_MAY_CRASH), "may crash") == 0 &&
                        strcmp(ReportReasonWord(REPORT_REASON_NOT_CONFIGURED),
                               "not configured") == 0 &&
                        strcmp(ReportReasonWord(REPORT_REASON_UNAVAILABLE), "unavailable") == 0 &&
@@ -1007,47 +1005,20 @@ static void CheckWatcher(void) {
                (unsigned)watched_starts, (unsigned)watched_ends, watched_last);
 }
 
-static void CheckMayCrashTable(void) {
-    // Every entry names one case of one suite, once, with the family its suite is in and a
-    // reason; and SM4's is the name the cpu suite gives it.
-    uint32_t malformed = 0;
-    const char *first = "";
-    for (size_t i = 0; i < MayCrashCount(); ++i) {
-        const MayCrash *const e = MayCrashAt(i);
-        const bool shaped = e->suite[0] != '\0' && strchr(e->suite, ' ') == NULL &&
-                            strlen(e->suite) < JOURNAL_SUITE_MAX && e->name[0] != '\0' &&
-                            strlen(e->name) < JOURNAL_NAME_MAX && e->why[0] != '\0' &&
-                            (e->family == MODE_FAMILY_CPU || e->family == MODE_FAMILY_GRAPHICS ||
-                             e->family == MODE_FAMILY_NET) &&
-                            MayCrashFind(e->suite, e->name) == e;
-        if (!shaped) {
-            if (malformed == 0u) {
-                first = e->name;
-            }
-            ++malformed;
-        }
-    }
-    const MayCrash *const sm4 = MayCrashFind("cpu", CPU_SM4_CASE);
-    CHECK_TRUE(SUITE, "the may-crash table names each case once, with its family and why",
-               CHECK_NONE,
-               malformed == 0u && MayCrashCount() > 0u && sm4 != NULL &&
-                   sm4->family == MODE_FAMILY_CPU && MayCrashFind("cpu", "no such case") == NULL &&
-                   MayCrashAt(MayCrashCount()) == NULL,
-               "%u of %u entries malformed, the first \"%.80s\"; SM4 %s",
-               (unsigned)malformed, (unsigned)MayCrashCount(), first,
-               sm4 != NULL ? "found" : "missing");
-}
-
 static void CheckPrecedence(void) {
-    // The three reasons a case does not run, in their order: a crash in this run, whatever
-    // retry says; the crash list, unless retry; the table, unless fatal. The run's own settings
-    // are handed back afterwards.
+    // No word stands between a case and its run but the hang table's: SM4, which ends the
+    // program on the console and on a translator that cannot compile it, runs with no word at
+    // all. Only this machine's evidence skips it: a crash in this run, whatever retry says, then
+    // the crash list unless retry; the case after it runs either way. The run's own settings
+    // and its set of crashes are handed back afterwards.
+    static const char *const NEXT = "mrs cntvct_el0 reads a virtual count that moves with the "
+                                    "physical one";
+    const uint32_t crashes = ReportCrashedMark();
     static CrashList saved;
     saved = *ReportCrashList();
     char saved_path[64];
     snprintf(saved_path, sizeof(saved_path), "%s", ReportCrashListPath());
     const bool saved_retry = ReportRetrying();
-    const bool saved_asked = ReportMayCrashAsked();
     static CrashList listed;
     CrashListInit(&listed);
     CrashListAdd(&listed, "cpu", CPU_SM4_CASE);
@@ -1055,36 +1026,37 @@ static void CheckPrecedence(void) {
     ReportReason reason[6];
     bool runs[6];
     char detail[REPORT_KEPT_DETAIL];
+    char listed_detail[REPORT_KEPT_DETAIL];
     ReportSetCrashList(NULL, NULL, false);
-    ReportSetMayCrash(false);
     runs[0] = ReportWouldRun("cpu", CPU_SM4_CASE, &reason[0], detail, sizeof(detail));
-    const bool says_why = strstr(detail, "the mode word fatal") != NULL &&
-                          strstr(detail, "SM4") != NULL;
-    ReportSetMayCrash(true);
-    runs[1] = ReportWouldRun("cpu", CPU_SM4_CASE, &reason[1], NULL, 0);
     ReportSetCrashList(&listed, NULL, false);
-    runs[2] = ReportWouldRun("cpu", CPU_SM4_CASE, &reason[2], NULL, 0);
-    ReportSetMayCrash(false);
+    runs[1] = ReportWouldRun("cpu", CPU_SM4_CASE, &reason[1], listed_detail,
+                             sizeof(listed_detail));
+    runs[2] = ReportWouldRun("cpu", NEXT, &reason[2], NULL, 0);
     ReportSetRetry(true);
     runs[3] = ReportWouldRun("cpu", CPU_SM4_CASE, &reason[3], NULL, 0);
-    ReportSetMayCrash(true);
+    JournalRecord crash = Record(JOURNAL_CRASH, "cpu", CPU_SM4_CASE, 0);
+    ReportAddCrashed(&crash);
     runs[4] = ReportWouldRun("cpu", CPU_SM4_CASE, &reason[4], NULL, 0);
-    runs[5] = ReportWouldRun("cpu", "clz counts each of sixteen 8-bit lanes", &reason[5], NULL, 0);
+    runs[5] = ReportWouldRun("cpu", NEXT, &reason[5], NULL, 0);
+    ReportCrashedRewind(crashes);
     ReportSetCrashList(&saved, saved_path, saved_retry);
-    ReportSetMayCrash(saved_asked);
     const bool handed_back = ReportRetrying() == saved_retry &&
-                             ReportMayCrashAsked() == saved_asked &&
-                             strcmp(ReportCrashListPath(), saved_path) == 0;
-    CHECK_TRUE(SUITE, "a case the table names is skipped as may crash until fatal asks for it",
+                             strcmp(ReportCrashListPath(), saved_path) == 0 &&
+                             ReportCrashedMark() == crashes;
+    const bool listed_says = strstr(listed_detail, "on the crash list") != NULL &&
+                             strstr(listed_detail, "the mode word retry runs it") != NULL;
+    CHECK_TRUE(SUITE, "a case that ends the program runs with no word, and only a crash skips it",
                CHECK_NONE,
-               !runs[0] && reason[0] == REPORT_REASON_MAY_CRASH && says_why && runs[1] &&
-                   !runs[2] && reason[2] == REPORT_REASON_CRASHED && !runs[3] &&
-                   reason[3] == REPORT_REASON_MAY_CRASH && runs[4] && runs[5] && handed_back,
-               "unasked %d (%s), fatal %d, listed with fatal %d (%s), listed with retry %d (%s), "
-               "both %d, a case in neither %d; settings %s",
-               (int)runs[0], ReportReasonWord(reason[0]), (int)runs[1], (int)runs[2],
-               ReportReasonWord(reason[2]), (int)runs[3], ReportReasonWord(reason[3]),
-               (int)runs[4], (int)runs[5], handed_back ? "handed back" : "lost");
+               runs[0] && detail[0] == '\0' && !runs[1] && reason[1] == REPORT_REASON_CRASHED &&
+                   listed_says && runs[2] && runs[3] && !runs[4] &&
+                   reason[4] == REPORT_REASON_CRASHED && runs[5] && handed_back,
+               "unlisted %d (\"%.60s\"), listed %d (%s, \"%.120s\"), the next case %d, listed "
+               "with retry %d, crashed this run with retry %d (%s), the next case %d; settings "
+               "%s",
+               (int)runs[0], detail, (int)runs[1], ReportReasonWord(reason[1]), listed_detail,
+               (int)runs[2], (int)runs[3], (int)runs[4], ReportReasonWord(reason[4]),
+               (int)runs[5], handed_back ? "handed back" : "lost");
 }
 
 static void CheckHang(void) {
@@ -1099,9 +1071,7 @@ static void CheckHang(void) {
     snprintf(saved_path, sizeof(saved_path), "%s", ReportCrashListPath());
     const bool saved_retry = ReportRetrying();
     const bool saved_hang = ReportHangAsked();
-    const bool saved_asked = ReportMayCrashAsked();
     ReportSetCrashList(NULL, NULL, false);
-    ReportSetMayCrash(false);
     ReportSetHang(false);
 
     ReportReason reason = REPORT_REASON_CRASHED;
@@ -1121,13 +1091,10 @@ static void CheckHang(void) {
     ReportSetHang(true);
     const bool asked_runs = ReportWouldRun("bsd", HANG_BSD_TIMEOUT, &reason, NULL, 0);
 
+    // The hang table is the only table: a case that ends the program runs beside it.
     ReportSetCrashList(NULL, NULL, false);
-    ReportSetHang(true);
-    ReportSetMayCrash(false);
-    ReportReason sm4_reason = REPORT_REASON_CRASHED;
-    const bool sm4_still =
-        !ReportWouldRun("cpu", CPU_SM4_CASE, &sm4_reason, NULL, 0) &&
-        sm4_reason == REPORT_REASON_MAY_CRASH;
+    ReportSetHang(false);
+    const bool sm4_runs = ReportWouldRun("cpu", CPU_SM4_CASE, NULL, NULL, 0);
 
     // Last, and taken back below: kept, it skipped the real bsd case as crashed for the rest of
     // the run.
@@ -1143,18 +1110,16 @@ static void CheckHang(void) {
     ReportCrashedRewind(crashes);
     ReportSetCrashList(&saved, saved_path, saved_retry);
     ReportSetHang(saved_hang);
-    ReportSetMayCrash(saved_asked);
     const bool handed_back = ReportRetrying() == saved_retry && ReportHangAsked() == saved_hang &&
-                             ReportMayCrashAsked() == saved_asked &&
                              strcmp(ReportCrashListPath(), saved_path) == 0;
     CHECK_TRUE(SUITE, "a case known to hang is skipped until hang asks, and retry does not run it",
                CHECK_NONE,
-               skipped && says && retry_skips && asked_runs && sm4_still && crash_wins &&
+               skipped && says && retry_skips && asked_runs && sm4_runs && crash_wins &&
                    handed_back,
-               "skipped %d (%s), retry %d (%s), hang and retry %d, SM4 still may-crash %d, "
+               "skipped %d (%s), retry %d (%s), hang and retry %d, SM4 with no word runs %d, "
                "a crash this run %d (%s); settings %s",
                (int)skipped, ReportReasonWord(reason), (int)retry_skips,
-               ReportReasonWord(retry_reason), (int)asked_runs, (int)sm4_still, (int)crash_wins,
+               ReportReasonWord(retry_reason), (int)asked_runs, (int)sm4_runs, (int)crash_wins,
                ReportReasonWord(crash_reason), handed_back ? "handed back" : "lost");
 }
 
@@ -1260,7 +1225,6 @@ void RunSupportJournal(const char *scratch) {
     CheckDecisions();
     CheckBookkeeping();
     CheckWatcher();
-    CheckMayCrashTable();
     CheckPrecedence();
     CheckHang();
     CheckCrashesHandedBack(crashes_before);

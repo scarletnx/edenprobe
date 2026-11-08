@@ -1788,8 +1788,8 @@ void UiComposeCountdown(const UiFrame *frame, uint32_t seconds_left) {
 }
 
 bool UiStartShown(const UiStartInfo *info) {
-    return info != NULL && ((info->families_present & UI_START_FAMILIES) != 0u ||
-                            info->may_crash_count > 0u || info->listed_count > 0u);
+    return info != NULL &&
+           ((info->families_present & UI_START_FAMILIES) != 0u || info->listed_count > 0u);
 }
 
 UiStartState UiStartOpen(const RunMode *from_file, uint32_t present) {
@@ -1798,7 +1798,6 @@ UiStartState UiStartOpen(const RunMode *from_file, uint32_t present) {
     state.cursor = UI_START_ROW_BEGIN;
     state.changed = true;
     if (from_file != NULL) {
-        state.may_crash = from_file->fatal;
         state.retry = from_file->retry;
         state.families = ModeFamiliesToRun(from_file, present) & UI_START_FAMILIES;
         state.listen = from_file->listen;
@@ -1806,25 +1805,6 @@ UiStartState UiStartOpen(const RunMode *from_file, uint32_t present) {
         state.no_timing = from_file->no_timing;
     }
     return state;
-}
-
-/// Whether a may-crash entry of @p family is reached by a run of @p families: the cpu suite's
-/// always, since it runs in every mode.
-static bool MayCrashReached(uint32_t family, uint32_t families) {
-    return family == 0u || family == MODE_FAMILY_CPU || (family & families) != 0u;
-}
-
-uint32_t UiStartMayCrashCount(const UiStartInfo *info, const UiStartState *state) {
-    if (info == NULL || state == NULL) {
-        return 0u;
-    }
-    uint32_t count = 0;
-    const uint32_t held =
-        info->may_crash_count < UI_START_LIST_MAX ? info->may_crash_count : UI_START_LIST_MAX;
-    for (uint32_t i = 0; i < held; ++i) {
-        count += MayCrashReached(info->may_crash_family[i], state->families) ? 1u : 0u;
-    }
-    return count;
 }
 
 /// The family a row turns on and off, or nought for a row that is not a family.
@@ -1847,13 +1827,10 @@ static uint32_t RowFamily(uint32_t row) {
 }
 
 /// Whether a row can be turned on: a family this build has, a list with something in it.
-static bool RowAvailable(const UiStartInfo *info, const UiStartState *state, uint32_t row) {
+static bool RowAvailable(const UiStartInfo *info, uint32_t row) {
     const uint32_t family = RowFamily(row);
     if (family != 0u) {
         return (info->families_present & family) != 0u;
-    }
-    if (row == UI_START_ROW_MAY_CRASH) {
-        return UiStartMayCrashCount(info, state) > 0u;
     }
     if (row == UI_START_ROW_RETRY) {
         return info->listed_count > 0u;
@@ -1875,8 +1852,6 @@ static bool RowOn(const UiStartState *state, uint32_t row) {
         return state->quick;
     case UI_START_ROW_NOTIME:
         return state->no_timing;
-    case UI_START_ROW_MAY_CRASH:
-        return state->may_crash;
     case UI_START_ROW_RETRY:
         return state->retry;
     case UI_START_ROW_SAVE:
@@ -1887,7 +1862,7 @@ static bool RowOn(const UiStartState *state, uint32_t row) {
 }
 
 static void Toggle(UiStartState *state, const UiStartInfo *info, uint32_t row) {
-    if (!RowAvailable(info, state, row)) {
+    if (!RowAvailable(info, row)) {
         return;
     }
     switch (row) {
@@ -1912,9 +1887,6 @@ static void Toggle(UiStartState *state, const UiStartInfo *info, uint32_t row) {
     case UI_START_ROW_NOTIME:
         state->no_timing = !state->no_timing;
         break;
-    case UI_START_ROW_MAY_CRASH:
-        state->may_crash = !state->may_crash;
-        break;
     case UI_START_ROW_RETRY:
         state->retry = !state->retry;
         break;
@@ -1932,13 +1904,12 @@ UiStartState UiStartStep(UiStartState state, uint32_t pressed, uint32_t frame_in
     if (frame_index < UI_SETTLING_FRAMES || info == NULL || state.begun) {
         return state;
     }
-    // Y and X in one edge are not a choice. The first frames are ignored because a pad that
+    // X with Y in one edge is not a choice. The first frames are ignored because a pad that
     // arrives with the window reports its whole mask as newly pressed; one that connects
-    // after those frames does the same in a single later edge. That edge wrote
-    // "chosen fatal retry" with no mode file, and the next launch ran the may-crash table
-    // and the crash list. A still begins, and the two choices stay as they were.
-    if ((pressed & UI_START_TOGGLE_MAY_CRASH) != 0u && (pressed & UI_START_TOGGLE_RETRY) != 0u) {
-        pressed &= ~(UI_START_TOGGLE_MAY_CRASH | UI_START_TOGGLE_RETRY);
+    // after those frames does the same in a single later edge, which would turn the crash list
+    // on with no mode file asking. A still begins, and the choice stays as it was.
+    if ((pressed & UI_START_Y) != 0u && (pressed & UI_START_TOGGLE_RETRY) != 0u) {
+        pressed &= ~UI_START_TOGGLE_RETRY;
     }
     const bool select = (pressed & UI_START_SELECT) != 0u;
     if ((pressed & UI_START_BEGIN) != 0u || (select && state.cursor == UI_START_ROW_BEGIN)) {
@@ -1955,9 +1926,6 @@ UiStartState UiStartStep(UiStartState state, uint32_t pressed, uint32_t frame_in
         state.cursor = Around(state.cursor, moves == UI_START_UP ? -1 : 1, UI_START_ROWS);
         state.changed = true;
     }
-    if ((pressed & UI_START_TOGGLE_MAY_CRASH) != 0u) {
-        Toggle(&state, info, UI_START_ROW_MAY_CRASH);
-    }
     if ((pressed & UI_START_TOGGLE_RETRY) != 0u) {
         Toggle(&state, info, UI_START_ROW_RETRY);
     }
@@ -1969,9 +1937,7 @@ RunMode UiStartMode(const UiStartState *state, RunMode from_file, uint32_t prese
     if (state == NULL) {
         return mode;
     }
-    mode.fatal = state->may_crash;
     mode.retry = state->retry;
-    mode.fatal_by_screen = mode.fatal && !from_file.fatal;
     mode.retry_by_screen = mode.retry && !from_file.retry;
     const uint32_t file_families = ModeFamiliesToRun(&from_file, present) & UI_START_FAMILIES;
     const uint32_t families = state->families & UI_START_FAMILIES & present;
@@ -2017,8 +1983,8 @@ uint32_t UiStartRowTop(uint32_t row) {
     return UI_LIST_TOP + row * UI_ROW_HEIGHT;
 }
 
-// What each row is called and what it does, in the order of UiStartRow; the two lists' rows say
-// how many cases they hold, so theirs are written where they are drawn.
+// What each row is called and what it does, in the order of UiStartRow; the crash list's row says
+// how many cases it holds, so its words are written where it is drawn.
 static const struct {
     const char *name;
     const char *what;
@@ -2032,15 +1998,14 @@ static const struct {
     { "pad", "the controller, then the touch screen: needs a person" },
     { "quick", "leave when the report closes, with no results screens" },
     { "notime", "each drawing suite once, with no timing passes" },
-    { "may crash", NULL },
     { "crash list", NULL },
     { "save", "write these choices into sdmc:/edenprobe/mode" },
 };
 
 // Each row's icon, in the order of UiStartRow.
 static const Icon START_ICONS[UI_START_ROWS] = {
-    ICON_PLAY,  ICON_IMAGE, ICON_FOLDER, ICON_ACTIVITY, ICON_HEADPHONES, ICON_WIFI,
-    ICON_GAMEPAD, ICON_LOG_OUT, ICON_GAUGE, ICON_BUG, ICON_ROTATE_CCW, ICON_SAVE,
+    ICON_PLAY,    ICON_IMAGE,   ICON_FOLDER, ICON_ACTIVITY,    ICON_HEADPHONES, ICON_WIFI,
+    ICON_GAMEPAD, ICON_LOG_OUT, ICON_GAUGE,  ICON_ROTATE_CCW, ICON_SAVE,
 };
 
 // Across the row, in cells from the margin: the launcher's marker, the icon, the box, the name,
@@ -2059,7 +2024,7 @@ static void DrawStartRow(const UiFrame *frame, uint32_t row, const char *what, b
     const uint8_t *const words = available || selected ? ink : DIM;
     DrawGlyph(frame, MARGIN, y + 2u, 1u, words, (unsigned char)FONTVGA_MARKER);
     DrawIcon(frame, MARGIN + START_ICON_COLUMN * GLYPH, y + 2u, START_ICONS[row], words);
-    const bool risky = row == UI_START_ROW_MAY_CRASH || row == UI_START_ROW_RETRY;
+    const bool risky = row == UI_START_ROW_RETRY;
     if (row == UI_START_ROW_BEGIN) {
         Say(frame, MARGIN + START_BOX_COLUMN * GLYPH, y + 2u, ink, START_ROWS[row].name);
     } else {
@@ -2122,51 +2087,29 @@ void UiComposeStart(const UiFrame *frame, const UiStartInfo *info, UiStartState 
     SayFitted(frame, MARGIN, SECOND_Y, DIM,
               "before the run: choose what runs, or let the countdown begin it");
 
-    // The may-crash cases the run as chosen reaches, which is what its row counts and lists.
-    const char *suites[UI_START_LIST_MAX];
-    const char *names[UI_START_LIST_MAX];
-    uint32_t reached = 0;
-    const uint32_t held =
-        info->may_crash_count < UI_START_LIST_MAX ? info->may_crash_count : UI_START_LIST_MAX;
-    for (uint32_t i = 0; i < held; ++i) {
-        if (MayCrashReached(info->may_crash_family[i], state.families)) {
-            suites[reached] = info->may_crash_suite[i];
-            names[reached] = info->may_crash_name[i];
-            ++reached;
-        }
-    }
     for (uint32_t row = 0; row < UI_START_ROWS; ++row) {
         char what[96];
-        if (row == UI_START_ROW_MAY_CRASH) {
-            snprintf(what, sizeof(what), "the %u case%s that may crash; Y from any row",
-                     (unsigned)reached, reached == 1u ? "" : "s");
-        } else if (row == UI_START_ROW_RETRY) {
+        if (row == UI_START_ROW_RETRY) {
             snprintf(what, sizeof(what), "the crash list's %u case%s again; X from any row",
                      (unsigned)info->listed_count, info->listed_count == 1u ? "" : "s");
         } else {
             snprintf(what, sizeof(what), "%s", START_ROWS[row].what);
         }
-        DrawStartRow(frame, row, what, state.cursor == row, RowAvailable(info, &state, row),
+        DrawStartRow(frame, row, what, state.cursor == row, RowAvailable(info, row),
                      RowOn(&state, row));
     }
     const uint32_t note = UiStartRowTop(UI_START_ROWS) + 4u;
     SayFitted(frame, MARGIN, note, DIM, "the judge and the cpu suite run whatever is chosen");
 
-    // The two lists in what is left above the warning's place, which is kept free whether or
-    // not the warning shows, so turning a choice on moves nothing else.
+    // The crash list in what is left above the warning's place, which is kept free whether or
+    // not the warning shows, so turning the choice on moves nothing else.
     const uint32_t warning_top = UiStartWarningTop(frame->height);
     const uint32_t y = note + 2u * LINE;
     const uint32_t rows = warning_top > y + 8u ? (warning_top - y - 8u) / LINE : 0u;
-    const uint32_t first_room = info->listed_count > 0u ? rows / 2u : rows;
-    const uint32_t after = DrawStartList(frame, y, first_room,
-                                         "may crash (the mode word fatal runs them):", reached,
-                                         suites, names);
-    const uint32_t used = (after - y) / LINE;
-    DrawStartList(frame, after, rows > used ? rows - used : 0u,
-                  "on the crash list (the mode word retry runs them):", info->listed_count,
-                  info->listed_suite, info->listed_name);
+    DrawStartList(frame, y, rows, "on the crash list (the mode word retry runs them):",
+                  info->listed_count, info->listed_suite, info->listed_name);
 
-    if ((state.may_crash && reached > 0u) || (state.retry && info->listed_count > 0u)) {
+    if (state.retry && info->listed_count > 0u) {
         static const char *const WARNING[UI_START_WARNING_LINES] = {
             "these cases ended an emulator's program; this one may end too",
             "if it does, start edenprobe again: the run goes on after the case",
@@ -2192,7 +2135,7 @@ void UiComposeStart(const UiFrame *frame, const UiStartInfo *info, UiStartState 
     DrawCountdown(frame, seconds_left > 0u ? line : NULL);
     static const Key KEYS[] = {
         { "up/down", "move" }, { "A", "choose, begin on its row" }, { "plus", "begin" },
-        { "Y", "may crash" },  { "X", "crash list" },                { "tap", "a row twice" },
+        { "X", "crash list" }, { "tap", "a row twice" },
     };
     DrawKeys(frame, KEYS, sizeof(KEYS) / sizeof(KEYS[0]), KeysRight(frame, 1u));
     static const char *const BEGIN[1] = { "begin" };

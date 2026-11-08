@@ -1315,44 +1315,59 @@ static UiStartState StartFrom(const char *words) {
     return UiStartOpen(&mode, MODE_FAMILIES_PRESENT);
 }
 
-/// The start screen: shown only with something to choose, its buttons for the two lists, its
-/// ten seconds, and the warning exactly while a choice that can end the program is on.
+/// Whether two start screens would draw and choose the same: every row, the cursor, begun.
+static bool SameStart(UiStartState a, UiStartState b) {
+    return a.retry == b.retry && a.begun == b.begun && a.cursor == b.cursor &&
+           a.families == b.families && a.listen == b.listen && a.quick == b.quick &&
+           a.no_timing == b.no_timing && a.save == b.save;
+}
+
+/// The start screen: shown only with something to choose, X for the crash list and Y for
+/// nothing, its ten seconds, and the warning exactly while the crash list's choice is on.
 static void CheckStartScreen(Fixture *f) {
     UiStartInfo info;
     memset(&info, 0, sizeof(info));
     info.heading = "edenprobe 0.2.0 (test)";
     const bool nothing = !UiStartShown(&info) && !UiStartShown(NULL);
-    info.may_crash_count = 1u;
-    info.may_crash_suite[0] = "cpu";
-    info.may_crash_name[0] = "sm4ekey and sm4e give the SM4 standard's worked example";
-    info.may_crash_family[0] = MODE_FAMILY_CPU;
+    info.listed_count = 1u;
+    info.listed_suite[0] = "cpu";
+    info.listed_name[0] = "sm4ekey and sm4e give the SM4 standard's worked example";
     const bool something = UiStartShown(&info);
 
-    // Only the may-crash list has cases: X, for the crash list, does nothing; Y turns the choice
-    // on and off; plus or A beside Y in one frame begins with the choice as it was; nothing
-    // counts while the pad settles.
+    // Only the crash list has cases: X turns its choice on and off, Y does nothing, plus or A
+    // beside X in one frame begins with the choice as it was, and nothing counts while the pad
+    // settles. With nothing on the list, X does nothing either.
     UiStartState state = StartFrom(NULL);
-    state = UiStartStep(state, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES - 1u, &info);
-    const bool settling = !state.may_crash;
+    state = UiStartStep(state, UI_START_TOGGLE_RETRY, UI_SETTLING_FRAMES - 1u, &info);
+    const bool settling = !state.retry;
+    UiStartInfo unlisted = info;
+    unlisted.listed_count = 0u;
+    unlisted.families_present = MODE_FAMILY_GRAPHICS;
+    const bool empty_list =
+        !UiStartStep(state, UI_START_TOGGLE_RETRY, UI_SETTLING_FRAMES, &unlisted).retry;
+    const bool y_nothing =
+        SameStart(UiStartStep(state, UI_START_Y, UI_SETTLING_FRAMES, &info), state);
     state = UiStartStep(state, UI_START_TOGGLE_RETRY, UI_SETTLING_FRAMES, &info);
-    const bool empty_list = !state.retry;
-    state = UiStartStep(state, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES, &info);
-    const bool on = state.may_crash && !state.begun;
-    state = UiStartStep(state, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES + 1u, &info);
-    const bool off = !state.may_crash;
-    UiStartState with_a = UiStartStep(state, UI_START_SELECT | UI_START_TOGGLE_MAY_CRASH,
+    const bool on = state.retry && !state.begun;
+    state = UiStartStep(state, UI_START_TOGGLE_RETRY, UI_SETTLING_FRAMES + 1u, &info);
+    const bool off = !state.retry;
+    UiStartState with_a = UiStartStep(state, UI_START_SELECT | UI_START_TOGGLE_RETRY,
                                       UI_SETTLING_FRAMES + 2u, &info);
-    state = UiStartStep(state, UI_START_BEGIN | UI_START_TOGGLE_MAY_CRASH,
-                        UI_SETTLING_FRAMES + 2u, &info);
-    const bool begun = state.begun && !state.may_crash && with_a.begun && !with_a.may_crash;
-    const bool from_file = StartFrom("fatal retry").may_crash && StartFrom("fatal retry").retry;
-    CHECK_TRUE(SUITE, "the start screen asks only with something to choose, a button a choice",
+    state = UiStartStep(state, UI_START_BEGIN | UI_START_TOGGLE_RETRY, UI_SETTLING_FRAMES + 2u,
+                        &info);
+    const bool begun = state.begun && !state.retry && with_a.begun && !with_a.retry;
+    // The file's retry turns the choice on; its fatal, which changes nothing, turns no row.
+    const bool from_file =
+        StartFrom("retry").retry && SameStart(StartFrom("fatal"), StartFrom(NULL));
+    CHECK_TRUE(SUITE, "the start screen asks only with something to choose, X for the crash list",
                CHECK_NONE,
-               nothing && something && settling && empty_list && on && off && begun && from_file,
+               nothing && something && settling && empty_list && y_nothing && on && off &&
+                   begun && from_file,
                "shown with nothing %d, with a case %d; settling kept it off %d, the empty list "
-               "stayed off %d, Y on %d and off %d, A began as it was %d, the file's words %d",
-               (int)!nothing, (int)something, (int)settling, (int)empty_list, (int)on, (int)off,
-               (int)begun, (int)from_file);
+               "stayed off %d, Y changed nothing %d, X on %d and off %d, A began as it was %d, "
+               "the file's words %d",
+               (int)!nothing, (int)something, (int)settling, (int)empty_list, (int)y_nothing,
+               (int)on, (int)off, (int)begun, (int)from_file);
 
     const uint64_t second = 1000000000ull;
     CHECK_TRUE(SUITE, "the start screen waits ten seconds for a person, and a press keeps it",
@@ -1369,37 +1384,34 @@ static void CheckStartScreen(Fixture *f) {
                (int)UiStartTimesOut(10u * second - 1u, false),
                (unsigned)UiStartSecondsLeft(0, false));
 
-    // The warning's band holds the warning's red while a choice is on and nothing of it while
-    // both are off; the rest of the screen is the same either way.
+    // The warning's band holds the warning's red while the choice is on and nothing of it while
+    // it is off; the rest of the screen is the same either way.
     const UiFrame frame = { f->pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
     const uint32_t top = UiStartWarningTop(FRAME_HEIGHT);
     const uint32_t bottom = top + UI_START_WARNING_LINES * UI_ROW_HEIGHT + 16u;
-    info.listed_count = 1u;
     info.listed_suite[0] = "bcn";
     info.listed_name[0] = "every layer of a six-layer BC4 array keeps its own 2x2 and 1x1 levels";
 
-    // Y and X in one edge are a pad that connected after the settling frames, not two choices.
-    // A in that edge still begins. One button, then the other, still chooses both.
+    // Y and X in one edge are a pad that connected after the settling frames, not a choice. A in
+    // that edge still begins. Y, then X, still chooses the crash list.
     UiStartState both = StartFrom(NULL);
-    both = UiStartStep(both, UI_START_TOGGLE_MAY_CRASH | UI_START_TOGGLE_RETRY,
-                       UI_SETTLING_FRAMES, &info);
-    const bool neither = !both.may_crash && !both.retry && !both.begun;
-    UiStartState y_only = StartFrom(NULL);
-    y_only = UiStartStep(y_only, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES, &info);
-    const bool y_toggles = y_only.may_crash && !y_only.retry && !y_only.begun;
+    both = UiStartStep(both, UI_START_Y | UI_START_TOGGLE_RETRY, UI_SETTLING_FRAMES, &info);
+    const bool neither = !both.retry && !both.begun;
+    UiStartState x_only = StartFrom(NULL);
+    x_only = UiStartStep(x_only, UI_START_TOGGLE_RETRY, UI_SETTLING_FRAMES, &info);
+    const bool x_toggles = x_only.retry && !x_only.begun;
     UiStartState began = StartFrom(NULL);
-    began = UiStartStep(began,
-                        UI_START_BEGIN | UI_START_TOGGLE_MAY_CRASH | UI_START_TOGGLE_RETRY,
+    began = UiStartStep(began, UI_START_BEGIN | UI_START_Y | UI_START_TOGGLE_RETRY,
                         UI_SETTLING_FRAMES, &info);
-    const bool began_clean = began.begun && !began.may_crash && !began.retry;
+    const bool began_clean = began.begun && !began.retry;
     UiStartState apart = StartFrom(NULL);
-    apart = UiStartStep(apart, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES, &info);
+    apart = UiStartStep(apart, UI_START_Y, UI_SETTLING_FRAMES, &info);
     apart = UiStartStep(apart, UI_START_TOGGLE_RETRY, UI_SETTLING_FRAMES + 1u, &info);
-    const bool two_presses = apart.may_crash && apart.retry && !apart.begun;
-    CHECK_TRUE(SUITE, "Y and X in one edge change neither choice, and A in that edge still begins",
-               CHECK_NONE, neither && y_toggles && began_clean && two_presses,
-               "together off %d, Y alone on %d, A with both began clean %d, two presses %d",
-               (int)neither, (int)y_toggles, (int)began_clean, (int)two_presses);
+    const bool two_presses = apart.retry && !apart.begun;
+    CHECK_TRUE(SUITE, "Y and X in one edge change nothing, and A in that edge still begins",
+               CHECK_NONE, neither && x_toggles && began_clean && two_presses,
+               "together off %d, X alone on %d, A with both began clean %d, two presses %d",
+               (int)neither, (int)x_toggles, (int)began_clean, (int)two_presses);
 
     UiComposeStart(&frame, &info, StartFrom(NULL), 7u);
     const uint32_t quiet = CountColour(&frame, 0, top, FRAME_WIDTH, bottom, FAILED);
@@ -1409,18 +1421,18 @@ static void CheckStartScreen(Fixture *f) {
     const uint32_t buttons =
         CountColour(&frame, 0, BAND_TOP, FRAME_WIDTH, FRAME_HEIGHT, BACKGROUND);
     UiComposeStart(&frame, &info, StartFrom("fatal"), 7u);
-    const uint32_t loud = CountColour(&frame, 0, top, FRAME_WIDTH, bottom, FAILED);
+    const uint32_t fatal_quiet = CountColour(&frame, 0, top, FRAME_WIDTH, bottom, FAILED);
     UiComposeStart(&frame, &info, StartFrom("retry"), 0u);
     const uint32_t retrying = CountColour(&frame, 0, top, FRAME_WIDTH, bottom, FAILED);
     const uint32_t no_count =
         CountColour(&frame, 0, COUNTDOWN_TOP, FRAME_WIDTH, BAND_TOP, FAILED);
-    CHECK_TRUE(SUITE, "the start screen warns exactly while a choice that can end the program is on",
+    CHECK_TRUE(SUITE, "the start screen warns exactly while the crash list's choice is on",
                CHECK_NONE,
-               quiet == 0u && loud > 1000u && retrying > 1000u && above_quiet > 1000u &&
+               quiet == 0u && fatal_quiet == 0u && retrying > 1000u && above_quiet > 1000u &&
                    counting > 0u && no_count == 0u && buttons > 500u && top > UI_LIST_TOP,
-               "warning pixels off %u, may crash on %u, retry on %u; countdown %u then %u; "
-               "button line %u",
-               (unsigned)quiet, (unsigned)loud, (unsigned)retrying, (unsigned)counting,
+               "warning pixels off %u, with fatal in the file %u, retry on %u; countdown %u then "
+               "%u; button line %u",
+               (unsigned)quiet, (unsigned)fatal_quiet, (unsigned)retrying, (unsigned)counting,
                (unsigned)no_count, (unsigned)buttons);
     DumpFrame(&frame, "9-start");
 }
@@ -1436,34 +1448,25 @@ static UiStartState StartChoose(UiStartState state, uint32_t row, const UiStartI
 
 /// The start screen's menu: it opens on begin the run with every row as the mode file leaves
 /// it, A turns the row under the cursor, listen brings audio and audio takes listen, a family
-/// this build lacks stays off, and the may-crash row counts the cases of the families chosen.
+/// this build lacks stays off, and X turns the crash list's choice from any row.
 static void CheckStartMenu(Fixture *f) {
     UiStartInfo info;
     memset(&info, 0, sizeof(info));
     info.heading = "edenprobe 0.3.0 (test)";
     info.families_present = MODE_FAMILIES_PRESENT;
-    static const struct {
-        const char *suite;
-        uint32_t family;
-    } MAY[] = {
-        { "cpu", MODE_FAMILY_CPU },          { "geometry", MODE_FAMILY_GRAPHICS },
-        { "geometry", MODE_FAMILY_GRAPHICS }, { "bcn", MODE_FAMILY_GRAPHICS },
-        { "bcn", MODE_FAMILY_GRAPHICS },      { "bcn", MODE_FAMILY_GRAPHICS },
-    };
-    for (uint32_t i = 0; i < 6u; ++i) {
-        info.may_crash_suite[i] = MAY[i].suite;
-        info.may_crash_name[i] = "a case";
-        info.may_crash_family[i] = MAY[i].family;
-    }
-    info.may_crash_count = 6u;
     const bool shown = UiStartShown(&info);
+    // The same build with a case on the crash list, for the choice that needs one.
+    UiStartInfo listed = info;
+    listed.listed_count = 1u;
+    listed.listed_suite[0] = "cpu";
+    listed.listed_name[0] = "a case";
 
     const UiStartState plain = StartFrom(NULL);
     const UiStartState listening = StartFrom("listen net notime");
     const bool opens =
         plain.cursor == UI_START_ROW_BEGIN && !plain.begun && plain.changed &&
         plain.families == (MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS | MODE_FAMILY_NET) &&
-        !plain.listen && !plain.quick && !plain.no_timing && !plain.save && !plain.may_crash &&
+        !plain.listen && !plain.quick && !plain.no_timing && !plain.save && !plain.retry &&
         listening.families == (MODE_FAMILY_NET | MODE_FAMILY_AUDIO) && listening.listen &&
         listening.no_timing && StartFrom("cpu").families == 0u;
     CHECK_TRUE(SUITE, "the start screen opens on begin the run, every row as the mode file says",
@@ -1485,17 +1488,17 @@ static void CheckStartMenu(Fixture *f) {
     const UiStartState no_net = StartChoose(plain, UI_START_ROW_NET, &info);
     const UiStartState quick = StartChoose(plain, UI_START_ROW_QUICK, &info);
     const UiStartState notime = StartChoose(plain, UI_START_ROW_NOTIME, &info);
-    const UiStartState fatal = StartChoose(plain, UI_START_ROW_MAY_CRASH, &info);
     const UiStartState retry = StartChoose(plain, UI_START_ROW_RETRY, &info);
+    const UiStartState listed_retry = StartChoose(plain, UI_START_ROW_RETRY, &listed);
     const UiStartState save = StartChoose(plain, UI_START_ROW_SAVE, &info);
     UiStartState audio_off = StartChoose(listening, UI_START_ROW_AUDIO, &info);
     UiStartState begun = StartChoose(plain, UI_START_ROW_BEGIN, &info);
     // A beside a direction, away from begin the run, is a whole mask: nothing moves or turns.
     UiStartState at_fs = StartChoose(plain, UI_START_ROW_FS, &info);
     at_fs = UiStartStep(at_fs, UI_START_SELECT | UI_START_DOWN, UI_SETTLING_FRAMES + 9u, &info);
-    // Y works from any row, and plus begins from any row.
-    UiStartState y_far = UiStartStep(no_fs, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES + 9u,
-                                     &info);
+    // X works from any row, and plus begins from any row.
+    UiStartState x_far = UiStartStep(no_fs, UI_START_TOGGLE_RETRY, UI_SETTLING_FRAMES + 9u,
+                                     &listed);
     UiStartState plus_far = UiStartStep(no_fs, UI_START_BEGIN, UI_SETTLING_FRAMES + 9u, &info);
     UiStartInfo no_net_build = info;
     no_net_build.families_present = MODE_FAMILIES_PRESENT & ~(uint32_t)MODE_FAMILY_NET;
@@ -1508,43 +1511,29 @@ static void CheckStartMenu(Fixture *f) {
                            MODE_FAMILY_AUDIO) &&
         !audio.listen && listen.listen && (listen.families & MODE_FAMILY_AUDIO) != 0u &&
         no_net.families == (MODE_FAMILY_GRAPHICS | MODE_FAMILY_FS) && quick.quick &&
-        notime.no_timing && fatal.may_crash && !retry.retry && save.save &&
+        notime.no_timing && !retry.retry && listed_retry.retry && save.save &&
         !audio_off.listen && (audio_off.families & MODE_FAMILY_AUDIO) == 0u && begun.begun &&
         at_fs.cursor == UI_START_ROW_FS && !at_fs.begun &&
-        at_fs.families == (MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET) && y_far.may_crash &&
-        y_far.cursor == UI_START_ROW_FS && plus_far.begun && kept_off.families == 0u &&
+        at_fs.families == (MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET) && x_far.retry &&
+        x_far.cursor == UI_START_ROW_FS && plus_far.begun && kept_off.families == 0u &&
         !no_graphics.begun && !save.begun;
     CHECK_TRUE(SUITE, "the start screen's menu turns the row under the cursor, listen with audio",
                CHECK_NONE, turns,
                "up %u round %u; graphics %x fs %x audio %x/%d listen %d/%x net %x quick %d notime "
-               "%d fatal %d retry %d save %d; audio off %d/%x; A+down %u/%x; Y %d plus %d; no net "
-               "%x",
+               "%d retry %d, with a listed case %d; save %d; audio off %d/%x; A+down %u/%x; X %d "
+               "plus %d; no net %x",
                (unsigned)up.cursor, (unsigned)round.cursor, (unsigned)no_graphics.families,
                (unsigned)no_fs.families, (unsigned)audio.families, (int)audio.listen,
                (int)listen.listen, (unsigned)listen.families, (unsigned)no_net.families,
-               (int)quick.quick, (int)notime.no_timing, (int)fatal.may_crash, (int)retry.retry,
+               (int)quick.quick, (int)notime.no_timing, (int)retry.retry, (int)listed_retry.retry,
                (int)save.save, (int)audio_off.listen, (unsigned)audio_off.families,
-               (unsigned)at_fs.cursor, (unsigned)at_fs.families, (int)y_far.may_crash,
+               (unsigned)at_fs.cursor, (unsigned)at_fs.families, (int)x_far.retry,
                (int)plus_far.begun, (unsigned)kept_off.families);
 
-    // The may-crash row counts what the families chosen reach: all six with graphics, the cpu
-    // suite's one without; with none reached, Y does nothing.
-    UiStartInfo graphics_only = info;
-    graphics_only.may_crash_count = 5u;
-    for (uint32_t i = 0; i < 5u; ++i) {
-        graphics_only.may_crash_suite[i] = MAY[i + 1u].suite;
-        graphics_only.may_crash_family[i] = MAY[i + 1u].family;
-    }
     const UiStartState cpu_only = StartFrom("cpu");
-    const UiStartState y_nothing =
-        UiStartStep(cpu_only, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES, &graphics_only);
-    const bool counted = UiStartMayCrashCount(&info, &plain) == 6u &&
-                         UiStartMayCrashCount(&info, &no_graphics) == 1u &&
-                         UiStartMayCrashCount(&graphics_only, &cpu_only) == 0u &&
-                         !y_nothing.may_crash && UiStartMayCrashCount(NULL, &plain) == 0u;
 
     // The frame: the cursor's band on its row and on no other, a family's box in the colour of a
-    // pass while it is on, and the warning only while a case that may crash is reached.
+    // pass while it is on, and no warning for a crash list with nothing on it.
     const UiFrame frame = { f->pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
     const uint32_t graphics_row = UiStartRowTop(UI_START_ROW_GRAPHICS);
     const uint32_t box_right = 32u + 9u * 8u;
@@ -1577,21 +1566,19 @@ static void CheckStartMenu(Fixture *f) {
                                          graphics_row + UI_ROW_HEIGHT, PASSED);
     const uint32_t top = UiStartWarningTop(FRAME_HEIGHT);
     const uint32_t bottom = top + UI_START_WARNING_LINES * UI_ROW_HEIGHT + 16u;
-    UiStartState unreached = UiStartStep(cpu_only, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES,
-                                         &info);
-    UiComposeStart(&frame, &graphics_only, unreached, 0u);
+    // The file asked for retry and nothing is on the list: nothing to warn about.
+    const UiStartState unlisted = StartFrom("retry cpu");
+    UiComposeStart(&frame, &info, unlisted, 0u);
     const uint32_t warned_for_nothing = CountColour(&frame, 0, top, FRAME_WIDTH, bottom, FAILED);
     const bool drawn = band_begin > CURSOR_INK && band_elsewhere == 0u && box_on > 50u &&
-                       band_moved > CURSOR_INK && box_off == 0u && unreached.may_crash &&
+                       band_moved > CURSOR_INK && box_off == 0u && unlisted.retry &&
                        warned_for_nothing == 0u && iconless == 0u &&
                        UiStartRowTop(UI_START_ROWS) + UI_ROW_HEIGHT < top;
-    CHECK_TRUE(SUITE, "the start screen counts the cases that may crash in the families chosen",
-               CHECK_NONE, counted && drawn,
-               "counts %u %u %u, Y with none %d; cursor band %u elsewhere %u moved %u; box on %u "
-               "off %u; warning with none reached %u; %u rows without their icon",
-               (unsigned)UiStartMayCrashCount(&info, &plain),
-               (unsigned)UiStartMayCrashCount(&info, &no_graphics),
-               (unsigned)UiStartMayCrashCount(&graphics_only, &cpu_only), (int)y_nothing.may_crash,
+    CHECK_TRUE(SUITE, "the start screen draws the cursor's row, each box and icon, and no warning "
+                      "for an empty crash list",
+               CHECK_NONE, drawn,
+               "cursor band %u elsewhere %u moved %u; box on %u off %u; warning with nothing "
+               "listed %u; %u rows without their icon",
                (unsigned)band_begin, (unsigned)band_elsewhere, (unsigned)band_moved,
                (unsigned)box_on, (unsigned)box_off, (unsigned)warned_for_nothing,
                (unsigned)iconless);
@@ -1604,7 +1591,11 @@ static void CheckStartMenu(Fixture *f) {
     const RunMode nothing_but_cpu = UiStartMode(&cpu_only, ModeFromText("net"),
                                                 MODE_FAMILIES_PRESENT);
     const RunMode left = UiStartMode(&quick, none, MODE_FAMILIES_PRESENT);
-    const RunMode risky = UiStartMode(&fatal, none, MODE_FAMILIES_PRESENT);
+    // The file's fatal goes through the screen, which has no row for it, and its mode line says
+    // what it does now.
+    const RunMode fatal_file = ModeFromText("fatal");
+    const UiStartState fatal_state = UiStartOpen(&fatal_file, MODE_FAMILIES_PRESENT);
+    const RunMode risky = UiStartMode(&fatal_state, fatal_file, MODE_FAMILIES_PRESENT);
     const RunMode kept = UiStartMode(&save, none, MODE_FAMILIES_PRESENT);
     const RunMode labelled_file = ModeFromText("label=phone net");
     UiStartState labelled = UiStartOpen(&labelled_file, MODE_FAMILIES_PRESENT);
@@ -1632,24 +1623,22 @@ static void CheckStartMenu(Fixture *f) {
         fewer.chosen_on_screen && strcmp(key_fewer, "cpu fs net") == 0 &&
         ModeFamiliesToRun(&nothing_but_cpu, MODE_FAMILIES_PRESENT) == MODE_FAMILY_CPU &&
         left.quick && !left.detailed && left.chosen_on_screen && risky.fatal &&
-        risky.fatal_by_screen && !risky.chosen_on_screen && kept.saved_by_screen &&
+        !risky.chosen_on_screen && kept.saved_by_screen &&
         !kept.chosen_on_screen && strcmp(heard.label, "phone") == 0 && heard.listen &&
         strcmp(key_heard, "audio cpu listen net") == 0 &&
-        strcmp(said, "mode: detailed, no mode file; pictures of failures only; families cpu "
-                     "graphics fs net; the cases that may crash, chosen on the start screen") ==
-            0 &&
+        strcmp(said, "mode: detailed, the mode file has no quick; pictures of failures only; "
+                     "families cpu graphics fs net; " MODE_FATAL_SAID) == 0 &&
         strncmp(said_fewer, "mode: detailed, chosen on the start screen; ", 44u) == 0 &&
         quiet_audio;
     CHECK_TRUE(SUITE, "what the start screen chooses is the run's mode, the label the file's",
                CHECK_NONE, modes,
-               "same %x/%d; fewer %x \"%.40s\"; cpu only %x; quick %d/%d; fatal %d/%d/%d; "
+               "same %x/%d; fewer %x \"%.40s\"; cpu only %x; quick %d/%d; fatal %d/%d; "
                "saved %d; heard \"%.32s\" \"%.40s\"; listen off alone %d; said \"%.150s\"",
                (unsigned)same.families_named, (int)same.chosen_on_screen,
                (unsigned)fewer.families_named, key_fewer,
                (unsigned)ModeFamiliesToRun(&nothing_but_cpu, MODE_FAMILIES_PRESENT),
-               (int)left.quick, (int)left.detailed, (int)risky.fatal, (int)risky.fatal_by_screen,
-               (int)risky.chosen_on_screen, (int)kept.saved_by_screen, heard.label, key_heard,
-               (int)quiet_audio, said);
+               (int)left.quick, (int)left.detailed, (int)risky.fatal, (int)risky.chosen_on_screen,
+               (int)kept.saved_by_screen, heard.label, key_heard, (int)quiet_audio, said);
 
     // The video, kernel, display and service families have no row: a file that names them keeps
     // them whatever the screen changes.
@@ -1687,14 +1676,21 @@ static void CheckStartMenu(Fixture *f) {
     const RunMode resumed = ModeWithChosen(none, chosen_words);
     char key_resumed[128];
     ModeKey(key_resumed, sizeof(key_resumed), &resumed);
-    // A file that said fatal, the screen turning it off: the choice is the empty set of words,
-    // which the journal still keeps, and which turns fatal off when the run goes on.
-    const RunMode fatal_file = ModeFromText("fatal");
-    UiStartState unfatal = UiStartOpen(&fatal_file, MODE_FAMILIES_PRESENT);
-    unfatal = UiStartStep(unfatal, UI_START_TOGGLE_MAY_CRASH, UI_SETTLING_FRAMES, &info);
-    const RunMode unfatal_mode = UiStartMode(&unfatal, fatal_file, MODE_FAMILIES_PRESENT);
-    ModeChosenWords(empty_words, sizeof(empty_words), &unfatal_mode);
-    const RunMode unfatal_resumed = ModeWithChosen(fatal_file, empty_words);
+    // A file that said retry, the screen turning it off: the choice is the empty set of words,
+    // which the journal still keeps, and which turns retry off when the run goes on.
+    const RunMode retry_file = ModeFromText("retry");
+    UiStartState unretried = UiStartOpen(&retry_file, MODE_FAMILIES_PRESENT);
+    unretried = UiStartStep(unretried, UI_START_TOGGLE_RETRY, UI_SETTLING_FRAMES, &listed);
+    const RunMode unretried_mode = UiStartMode(&unretried, retry_file, MODE_FAMILIES_PRESENT);
+    ModeChosenWords(empty_words, sizeof(empty_words), &unretried_mode);
+    const RunMode unretried_resumed = ModeWithChosen(retry_file, empty_words);
+    // A file that said fatal, the screen choosing quick: the journal keeps fatal with the choice,
+    // and the run goes on with it.
+    char fatal_words[JOURNAL_MODE_MAX];
+    const UiStartState fatal_quick = StartChoose(fatal_state, UI_START_ROW_QUICK, &info);
+    const RunMode fatal_quick_mode = UiStartMode(&fatal_quick, fatal_file, MODE_FAMILIES_PRESENT);
+    ModeChosenWords(fatal_words, sizeof(fatal_words), &fatal_quick_mode);
+    const RunMode fatal_resumed = ModeWithChosen(fatal_file, fatal_words);
     char quick_words[JOURNAL_MODE_MAX];
     ModeChosenWords(quick_words, sizeof(quick_words), &left);
     const RunMode quick_resumed = ModeWithChosen(none, quick_words);
@@ -1708,20 +1704,22 @@ static void CheckStartMenu(Fixture *f) {
         reread.detailed && strcmp(left_words, "quick") == 0 &&
         strcmp(chosen_words, "screen cpu fs net") == 0 && strcmp(key_resumed, key_fewer) == 0 &&
         resumed.chosen_on_screen && resumed.detailed && strcmp(empty_words, "screen") == 0 &&
-        !unfatal_resumed.fatal && strcmp(quick_words, "screen quick") == 0 &&
+        !unretried_resumed.retry && strcmp(fatal_words, "screen fatal quick") == 0 &&
+        fatal_resumed.fatal && fatal_resumed.quick && strcmp(quick_words, "screen quick") == 0 &&
         quick_resumed.quick && !quick_resumed.detailed && legacy.fatal && legacy.retry &&
-        legacy.fatal_by_screen && legacy.families_named == MODE_FAMILY_NET &&
+        legacy.retry_by_screen && legacy.families_named == MODE_FAMILY_NET &&
         not_marker.fatal && not_marker.families_named == MODE_FAMILY_NET &&
         ModeWithChosen(none, NULL).families_named == 0u &&
         ModeWithChosen(none, "").families_named == 0u;
     CHECK_TRUE(SUITE, "the words the start screen saves and the journal keeps read back the same",
                CHECK_NONE, words,
                "saved \"%.50s\" reread \"%.40s\"; quick saved \"%.40s\"; chosen \"%.40s\" "
-               "resumed \"%.40s\"; fatal off \"%.20s\" %d; quick \"%.20s\" %d; legacy %d/%d; "
-               "not the marker %d",
+               "resumed \"%.40s\"; retry off \"%.20s\" %d; fatal kept \"%.30s\" %d; quick "
+               "\"%.20s\" %d; legacy %d/%d; not the marker %d",
                file_words, key_reread, left_words, chosen_words, key_resumed, empty_words,
-               (int)unfatal_resumed.fatal, quick_words, (int)quick_resumed.quick,
-               (int)legacy.fatal, (int)legacy.retry, (int)not_marker.fatal);
+               (int)unretried_resumed.retry, fatal_words, (int)fatal_resumed.fatal, quick_words,
+               (int)quick_resumed.quick, (int)legacy.fatal, (int)legacy.retry,
+               (int)not_marker.fatal);
 }
 
 /// The screen that asks whether to go on: the cursor on going on, up and down coming round, A

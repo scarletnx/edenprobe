@@ -387,15 +387,15 @@ evaluation. Every edge is a pixel edge, so every pixel is exact. A host without 
 tessellation shaders has to emulate them to pass (Ryujinx runs them as compute there); an emulator
 that assumes them leaves it to the driver, which gets a pipeline it cannot run
 (`vulkan_device.cpp` lists `geometryShader` as mandatory and carries on without it). The two
-geometry shader cases are in the may-crash table: the shader compiles to a PRET, which ends Eden,
-and the fork before ECFE-2026-1163, inside the pipeline cache. Two more run twins of the shaders
+geometry shader cases end Eden, and the fork before ECFE-2026-1163, inside the pipeline cache: the
+shader compiles to a PRET; the launch after goes on past the case. Two more run twins of the shaders
 that need neither: `square_branch.geom` emits its square inside the test instead of after an early
 return, which uam 1.1.0 compiles with SSY and SYNC rather than PRET and RET, over the layout with
 two points hidden; `quad_color.tese` takes the alpha from the first corner's colour, which
 `quad.tesc` passes on, instead of reading the level back, at level 4. A translator that lacks PRET
 fails the first two and passes the geometry twin; one that cannot read the levels in the
 evaluation stage fails the patches at 4 and 7 and passes the tessellation twin; one without the
-stages fails all six that draw. The twins are not in the may-crash table.
+stages fails all six that draw. The twins end no program.
 
 ## bindless
 
@@ -488,9 +488,9 @@ is one value unique to its layer, level and position, written by the processor w
 `source/bcnref.c` says the library put it, and every texel of every level and layer is fetched.
 Exact tier. A host with BCn textures samples the blocks as they are and passes; one without
 decodes them on upload, and in an emulator a failure points at that decode's walk over the
-layers of a level (`texture_cache/decode_bc.cpp`, `DecompressBlocks`). The three array cases are
-in the may-crash table: the array fetching shader compiles to a PRET, which ends Eden, and the
-fork before ECFE-2026-1163, inside the pipeline cache.
+layers of a level (`texture_cache/decode_bc.cpp`, `DecompressBlocks`). The three array cases end
+Eden, and the fork before ECFE-2026-1163, inside the pipeline cache: the array fetching shader
+compiles to a PRET; the launch after goes on past each.
 
 ## zeta
 

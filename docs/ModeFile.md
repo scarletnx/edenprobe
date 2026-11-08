@@ -10,7 +10,7 @@
 | `images` | a picture for every drawing case, passing ones too, on either mode |
 | `notime` | no timing passes: each drawing suite runs once, and no line carries a time; see [Time per case](TimePerCase.md) |
 | `stress` | the heavy variants too: the stream suite's 256 MiB list. An emulator that runs out of memory on one loses the rest of the run |
-| `fatal` | the cases the may-crash table names, which end the program on a machine that gets them wrong: SM4EKEY and SM4E, which the console's processor lacks, and the CNTVCT_EL0 and DAIF reads dynarmic does not model. On a console, a relaunch per case its processor lacks |
+| `fatal` | nothing: every case runs, and one that ends the program is skipped on the next launch ([When the program ends in the middle](Crashes.md)). Still read, so a file that has it keeps working, and the mode line says, once a run, `the mode word fatal changes nothing now: every case runs, and one that ends the program is skipped on the next launch` |
 | `hang` | the cases the hang table names, which never return on a machine that gets them wrong: the bsd receive-timeout case. `retry` does not run them, and the start screen has no row for it |
 | `retry` | the cases on the crash list run again; one that runs to its end leaves the list (see [When the program ends in the middle](Crashes.md)). A case the hang table names stays skipped until `hang` asks too |
 | `nojournal` | no journal between cases, so a crash costs the rest of the run; for measuring what the journal costs |

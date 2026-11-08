@@ -141,7 +141,8 @@ static uint32_t ButtonsFrom(uint64_t pressed) {
 }
 
 /// The start screen's buttons: up and down move the cursor, A takes the row under it, plus or
-/// minus begins from any row, Y and X turn the two lists' choices from any row.
+/// minus begins from any row, X turns the crash list's choice from any row. Y chooses nothing,
+/// and is read only so an edge that holds it and X is known for a pad's whole mask.
 static uint32_t StartButtonsFrom(uint64_t pressed) {
     static const struct {
         uint64_t console;
@@ -149,7 +150,7 @@ static uint32_t StartButtonsFrom(uint64_t pressed) {
     } MAP[] = {
         { HidNpadButton_Plus | HidNpadButton_Minus, UI_START_BEGIN },
         { HidNpadButton_A, UI_START_SELECT },
-        { HidNpadButton_Y, UI_START_TOGGLE_MAY_CRASH },
+        { HidNpadButton_Y, UI_START_Y },
         { HidNpadButton_X, UI_START_TOGGLE_RETRY },
         { HidNpadButton_AnyUp, UI_START_UP },
         { HidNpadButton_AnyDown, UI_START_DOWN },

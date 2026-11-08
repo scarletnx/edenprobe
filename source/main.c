@@ -6,7 +6,6 @@
 #include <switch.h>
 
 #include "journal.h"
-#include "maycrash.h"
 #include "mode.h"
 #include "picture.h"
 #include "report.h"
@@ -141,8 +140,8 @@ static void SaveModeFile(RunMode *mode) {
 }
 
 /// The start screen, when a new detailed run begins: the menu that chooses the families, quick,
-/// notime, the may-crash table's cases and the crash list's, and whether to keep the choice in the
-/// mode file. Hands back the mode the run begins with; as it came when there was no screen.
+/// notime, the crash list's cases, and whether to keep the choice in the mode file. Hands back
+/// the mode the run begins with; as it came when there was no screen.
 static RunMode StartScreen(const RunMode *from_file) {
     static UiStartInfo info;
     memset(&info, 0, sizeof(info));
@@ -150,14 +149,6 @@ static RunMode StartScreen(const RunMode *from_file) {
     snprintf(heading, sizeof(heading), "edenprobe %s (%s)", EDENPROBE_VERSION, EDENPROBE_BUILD);
     info.heading = heading;
     info.families_present = MODE_FAMILIES_PRESENT;
-    // Every entry, with its family: the screen counts those of the families chosen.
-    for (size_t i = 0; i < MayCrashCount() && info.may_crash_count < UI_START_LIST_MAX; ++i) {
-        const MayCrash *const entry = MayCrashAt(i);
-        info.may_crash_suite[info.may_crash_count] = entry->suite;
-        info.may_crash_name[info.may_crash_count] = entry->name;
-        info.may_crash_family[info.may_crash_count] = entry->family;
-        ++info.may_crash_count;
-    }
     const CrashList *const listed = ReportCrashList();
     for (uint32_t i = 0; i < listed->count && info.listed_count < UI_START_LIST_MAX; ++i) {
         info.listed_suite[info.listed_count] = listed->entries[i].suite;

@@ -90,10 +90,10 @@
   - `source/fontvga.h` is its `src/common/utilities/font.c`, the 8 by 16 VGA BIOS font of SeaBIOS
     (`vgasrc/vgafonts.c`, `vgafont16`, commit 81ec9ec0bcf45df11fb7f98339ec9036b546fca0), from
     Joseph Gil's `fntcol16.zip`, whose individual fonts are public domain.
-  - `source/icons.h` holds eleven of its menu icons from `src/gui/icons.hex` (play, image, folder,
-    activity, wifi, gamepad, log-out, gauge, bug, rotate-ccw, save): ScarletNX's drawings in the
-    VGA font's stroke, each after the Lucide 1.61.0 icon of its name, https://lucide.dev. The
-    twelfth, headphones, is edenprobe's, drawn the same way after Lucide's. Lucide's licence, which
+  - `source/icons.h` holds ten of its menu icons from `src/gui/icons.hex` (play, image, folder,
+    activity, wifi, gamepad, log-out, gauge, rotate-ccw, save): ScarletNX's drawings in the VGA
+    font's stroke, each after the Lucide 1.61.0 icon of its name, https://lucide.dev. The
+    eleventh, headphones, is edenprobe's, drawn the same way after Lucide's. Lucide's licence, which
     covers what they take from its icons:
 
     ```

@@ -784,33 +784,44 @@ static void CheckLaunchAndMode(void) {
                    (int)heavy.stress, (unsigned)heavy.unknown_count, said);
     }
 
-    // The fatal word turns on the may-crash table's cases, and only it; with the cpu family
-    // alone the line names no other family. Chosen on the start screen, the line says so.
+    // The fatal word is read and changes nothing a run does: every case runs whatever it says.
+    // The mode line says so once, in its words, and an old file that has it is no unknown word.
     {
         const RunMode plain = ModeFromText("quick cpu");
         const RunMode fatal = ModeFromText("quick cpu FATAL");
         char said[REPORT_NOTE_MAX + 1] = "";
         ModeDescribe(said, sizeof(said), &fatal, MODE_FAMILIES_PRESENT);
-        RunMode screen = plain;
-        screen.fatal = true;
-        screen.fatal_by_screen = true;
+        char plain_said[REPORT_NOTE_MAX + 1] = "";
+        ModeDescribe(plain_said, sizeof(plain_said), &plain, MODE_FAMILIES_PRESENT);
+        // A run the start screen chose keeps the file's fatal, which no row of the screen turns.
+        RunMode screen = fatal;
         screen.retry = true;
         screen.retry_by_screen = true;
         char chosen[REPORT_NOTE_MAX + 1] = "";
         ModeDescribe(chosen, sizeof(chosen), &screen, MODE_FAMILIES_PRESENT);
-        CHECK_TRUE(SUITE, "the word fatal, and nothing else, asks for the cases that may crash",
+        char key[JOURNAL_MODE_MAX];
+        ModeKey(key, sizeof(key), &fatal);
+        CHECK_TRUE(SUITE, "the word fatal changes nothing, and the mode line says so once",
                    CHECK_NONE,
                    !plain.fatal && fatal.fatal && fatal.unknown_count == 0u &&
                        !ModeFromText("quick stress").fatal && !ModeFromText("fatal").stress &&
+                       ModeFamiliesToRun(&fatal, MODE_FAMILIES_PRESENT) ==
+                           ModeFamiliesToRun(&plain, MODE_FAMILIES_PRESENT) &&
                        strcmp(said, "mode: quick, from the mode file; pictures of failures "
-                                    "only; families cpu; the cases that may crash") == 0 &&
+                                    "only; families cpu; " MODE_FATAL_SAID) == 0 &&
+                       strstr(said, "the mode word fatal changes nothing now: every case runs, "
+                                    "and one that ends the program is skipped on the next "
+                                    "launch") != NULL &&
+                       strstr(plain_said, "fatal") == NULL &&
                        strcmp(chosen, "mode: quick, from the mode file; pictures of failures "
-                                      "only; families cpu; the cases that may crash, chosen on "
-                                      "the start screen; the crash list's cases again, chosen "
-                                      "on the start screen") == 0,
-                   "plain %d, fatal %d, unknown %u, said \"%.200s\"; chosen \"%.240s\"",
+                                      "only; families cpu; " MODE_FATAL_SAID
+                                      "; the crash list's cases again, chosen on the start "
+                                      "screen") == 0 &&
+                       strcmp(key, "cpu fatal") == 0,
+                   "plain %d, fatal %d, unknown %u, said \"%.160s\"; chosen \"%.200s\"; key "
+                   "\"%.40s\"",
                    (int)plain.fatal, (int)fatal.fatal, (unsigned)fatal.unknown_count, said,
-                   chosen);
+                   chosen, key);
     }
 
     // The listen word asks for the listening sequence and brings the audio family, which no
