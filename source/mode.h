@@ -33,6 +33,8 @@ extern "C" {
 ///             skipped until `hang` asks too.
 ///   hang      the cases in the hang table (hang.h), known to never return on a machine that
 ///             gets them wrong. Off by default. The start screen cannot turn this on.
+///   unban     the cases the ban list (bans.h) bans on this run's machine run anyway, to see
+///             whether they still end it. The start screen cannot turn this on.
 ///   nojournal nothing written between cases: no journal, so a crash costs the rest of the run.
 ///             For measuring what the journal costs, and for a card that must not be written.
 ///   noprogress no running screen while the suites run: the window keeps the screen before it,
@@ -69,9 +71,13 @@ extern "C" {
 ///             program has, and times its frames. It runs only when named until a console has
 ///             run it.
 ///
-/// Four that are not words. `frames=<n>`, the frames the game scene runs, a whole number from 1
+/// Five that are not words. `frames=<n>`, the frames the game scene runs, a whole number from 1
 /// to MODE_FRAMES_MAX, MODE_FRAMES_DEFAULT without one; anything else is refused and said in the
-/// mode line with the number in effect. And three with a name after each: `label=<name>`, the name
+/// mode line with the number in effect. `machine=<name>[@<version>]`, the machine the run is on as
+/// the ban list names machines (BanMachineKnown), and its version when the runner knows it
+/// (BanVersionValid): its lines then hold; a name the list does not know, or a version it cannot
+/// be, is refused and said in the mode line with the machine in effect. And three with a name
+/// after each: `label=<name>`, the name
 /// of the folder the run's report goes in beside this build's hash (ModeRunFolder), so runs of one
 /// build against two emulators keep apart; `baseline=<name>`, the baseline file this run's times go
 /// into as a new sample, and `compare=<name>`, the one they are held to (baseline.h). A name runs
@@ -152,10 +158,11 @@ typedef enum {
 /// The longest folder name ModeRunFolder makes, the separator included.
 #define MODE_FOLDER_MAX (MODE_HASH_MAX + 1u + MODE_LABEL_MAX)
 
-/// Room for every word ModeKey writes with all of them on and `frames=` at its widest, 121
-/// characters, with room to grow: the support suite holds the widest to it, and the journal's
-/// fields are sized from it (journal.h, JOURNAL_MODE_MAX).
-#define MODE_KEY_MAX 192u
+/// Room for every word ModeKey writes with all of them on, `frames=` at its widest and `machine=`
+/// with a name and a version as long as they may be, 193 characters, with room to grow: the
+/// support suite holds the widest to it, and the journal's fields are sized from it (journal.h,
+/// JOURNAL_MODE_MAX).
+#define MODE_KEY_MAX 256u
 
 /// A name a word carries after its sign, `baseline=<name>` or `compare=<name>`: the last good one,
 /// or empty, and the last one refused, as written and cut to fit, for the mode line. A refusal
@@ -166,6 +173,11 @@ typedef struct {
     char refused[MODE_LABEL_MAX + 1u];
     bool refused_cut;
 } ModeName;
+/// The longest machine name and version `machine=` takes (bans.h), and how much of a refused one
+/// the mode line quotes.
+#define MODE_MACHINE_MAX 24u
+#define MODE_MACHINE_VERSION_MAX 32u
+#define MODE_MACHINE_QUOTED 64u
 /// The game scene's frames without `frames=`, 10 seconds at 60 a second, and the most it takes,
 /// ten minutes; and how much of a refused value the mode line quotes.
 #define MODE_FRAMES_DEFAULT 600u
@@ -197,6 +209,19 @@ typedef struct {
     bool retry;
     /// The word `hang`: the hang table's cases run.
     bool hang;
+    /// The word `unban`: the cases the ban list bans on this machine run.
+    bool unban;
+    /// `machine=<name>[@<version>]`: the machine, empty when the file names none, and its version,
+    /// empty when the word gives none. With several, the last good one.
+    char machine[MODE_MACHINE_MAX + 1u];
+    char machine_version[MODE_MACHINE_VERSION_MAX + 1u];
+    /// The last `machine=` refused, as written and cut to fit, for the mode line; a refusal leaves
+    /// an earlier good one alone.
+    bool machine_was_refused;
+    char machine_refused[MODE_MACHINE_QUOTED + 1u];
+    bool machine_refused_cut;
+    /// Why: a name the ban list does not know, or a version a machine cannot have.
+    bool machine_refused_version;
     /// Asked for on the start screen rather than in the file, which the mode line says.
     bool retry_by_screen;
     /// The start screen changed what runs beyond retry: the families, the listening sequence,

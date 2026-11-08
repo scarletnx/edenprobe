@@ -80,6 +80,21 @@ void ReportSetRetry(bool on);
 void ReportSetHang(bool asked);
 bool ReportHangAsked(void);
 
+/// The machine the mode file's machine= word names, and its version, "" for none: which of the
+/// ban list's lines hold (bans.h). With none, none does. Forgets which lines a case reached.
+void ReportSetMachine(const char *machine, const char *version);
+const char *ReportMachine(void);
+const char *ReportMachineVersion(void);
+
+/// Whether the ban list's cases run on this machine all the same: the mode word `unban`.
+void ReportSetUnban(bool asked);
+bool ReportUnbanAsked(void);
+
+/// The ban lines that hold on this machine and that this launch did not reach although their
+/// suite started cases, as `line <n>, suite "case"` separated by semicolons: a case the list
+/// names and this build does not have. Returns the length; the text is always terminated.
+size_t ReportBansUnreached(char *out, size_t out_size);
+
 /// Reopens a closed report to add to its end, with the counts left as they were. For the one
 /// line a run can owe after its summary, which is why the detailed mode stopped by itself.
 void ReportAppend(const char *path);
@@ -151,6 +166,9 @@ typedef enum {
     REPORT_REASON_HANG,
     /// It asked a person, and nobody answered in time.
     REPORT_REASON_UNANSWERED,
+    /// On the ban list for this run's machine, and the mode word `unban` did not ask: the line
+    /// and what breaks are in the detail.
+    REPORT_REASON_BANNED,
     REPORT_REASON_COUNT,
 } ReportReason;
 
@@ -166,7 +184,8 @@ void ReportSkip(const char *suite, const char *name, ReportReason reason, const 
 /// Says the case @p name is about to start, before any of its work, and whether it may.
 ///
 /// False when it must not run: it ended this machine's program in this run or an earlier one,
-/// or it is in the hang table and the word `hang` did not ask for it.
+/// it is in the hang table and the word `hang` did not ask for it, or the ban list bans it on
+/// this machine and the word `unban` did not ask for it.
 /// Its skip line is then already written, and the caller does none of the case's work and
 /// reports nothing more for it. True, and the journal says on the card that the case started,
 /// so a launch after the program ends inside it knows which case to skip. Every case of the
@@ -189,7 +208,7 @@ void ReportRequireStarts(bool on);
 /// What ReportStart decides for a case, without starting it or writing anything: whether it
 /// runs, and when it does not, the reason and the sentence its skip line carries. A crash in this
 /// run comes first, whatever retry or hang says, then the hang table unless the word `hang`,
-/// then the crash list unless retry; every other case runs.
+/// then the ban list unless `unban`, then the crash list unless retry; every other case runs.
 bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, char *detail,
                     size_t detail_size);
 

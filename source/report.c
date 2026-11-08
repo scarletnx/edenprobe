@@ -11,6 +11,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "bans.h"
 #include "baseline.h"
 #include "hang.h"
 #include "platform.h"
@@ -46,6 +47,18 @@ static char crash_list_path[256];
 static bool retry_listed;
 // Whether the hang table's cases run.
 static bool hang_asked;
+// The machine the mode file names, which decides the ban list's lines that hold, and whether the
+// word unban runs their cases; then which of those lines this launch reached, beside the suites
+// that started a case: a line whose suite ran and which was never reached names a case this
+// build does not have, and bans nothing.
+static char ban_machine[BAN_MACHINE_MAX + 1u];
+static char ban_version[BAN_VERSION_MAX + 1u];
+static bool unban_asked;
+#define BANS_TRACKED 128u
+static bool ban_reached[BANS_TRACKED];
+#define SUITES_TRACKED 64u
+static char suites_started[SUITES_TRACKED][JOURNAL_SUITE_MAX];
+static uint32_t suites_started_count;
 #define CRASHED_THIS_RUN_MAX JOURNAL_CRASHES_MAX
 static JournalRecord crashed_this_run[CRASHED_THIS_RUN_MAX];
 static uint32_t crashed_this_run_count;
@@ -499,6 +512,24 @@ static void WriteCrashList(void) {
     }
 }
 
+/// Remembers that @p suite started a case in this launch, and which ban line @p key is on this
+/// machine, if any.
+static void Reached(const char *suite, const char *key) {
+    bool known = false;
+    for (uint32_t i = 0; i < suites_started_count && !known; ++i) {
+        known = strcmp(suites_started[i], suite) == 0;
+    }
+    if (!known && suites_started_count < SUITES_TRACKED) {
+        KeyOf(suites_started[suites_started_count++], JOURNAL_SUITE_MAX, suite);
+    }
+    const BanLine *const ban = BanFind(suite, key, ban_machine, ban_version);
+    for (size_t i = 0; ban != NULL && i < BanCount() && i < BANS_TRACKED; ++i) {
+        if (BanAt(i) == ban) {
+            ban_reached[i] = true;
+        }
+    }
+}
+
 bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, char *detail,
                     size_t detail_size) {
     char key[JOURNAL_NAME_MAX];
@@ -512,11 +543,12 @@ bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, c
     ReportReason why = REPORT_REASON_CRASHED;
     uint32_t pass = 0;
     const Hang *const hang = HangFind(suite, key);
+    const BanLine *const ban = BanFind(suite, key, ban_machine, ban_version);
     bool runs = true;
     // A crash in this run first, whatever retry or hang says. Then a known hang: retry would
-    // run it again and it would not return, so the launch would never mark it. Then the crash
-    // list, which is this machine's own evidence. Every other case runs: one that ends the
-    // program is the next launch's to skip.
+    // run it again and it would not return, so the launch would never mark it. Then a ban on
+    // this machine, unless unban; then the crash list, which is this machine's own evidence.
+    // Every other case runs: one that ends the program is the next launch's to skip.
     if (CrashedThisRun(suite, key, &pass)) {
         snprintf(detail, detail_size,
                  "the program ended inside it earlier in this run%s; it is on the crash list%s%s%s, "
@@ -528,6 +560,14 @@ bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, c
         why = REPORT_REASON_HANG;
         snprintf(detail, detail_size,
                  "known to hang the program: %s; the mode word hang runs it", hang->why);
+        runs = false;
+    } else if (ban != NULL && !unban_asked) {
+        why = REPORT_REASON_BANNED;
+        snprintf(detail, detail_size,
+                 "banned on %s%s%s by source/bans.txt line %u (versions %s): %s; checked %s; the "
+                 "mode word unban runs it",
+                 ban_machine, ban_version[0] != '\0' ? " at " : ", no version given,", ban_version,
+                 (unsigned)ban->line, ban->versions, ban->breaks, ban->checked);
         runs = false;
     } else if (!retry_listed && CrashListHas(&crash_list, suite, key)) {
         snprintf(detail, detail_size,
@@ -550,6 +590,7 @@ bool ReportStart(const char *suite, const char *name) {
         Bookkeeping("started while", suite, key, pending_name);
         pending = false;
     }
+    Reached(suite, key);
     ReportReason reason = REPORT_REASON_CRASHED;
     char detail[REPORT_KEPT_DETAIL];
     if (!ReportWouldRun(suite, name, &reason, detail, sizeof(detail))) {
@@ -658,7 +699,7 @@ static void EndCase(const char *suite, const char *name, CheckTier tier, bool pa
 }
 
 static const char *const REASON_WORDS[REPORT_REASON_COUNT] = {
-    "crashed", "not configured", "unavailable", "depends", "hangs", "unanswered",
+    "crashed", "not configured", "unavailable", "depends", "hangs", "unanswered", "banned",
 };
 
 const char *ReportReasonWord(ReportReason reason) {
@@ -840,6 +881,57 @@ void ReportSetRetry(bool on) {
 
 void ReportSetHang(bool asked) {
     hang_asked = asked;
+}
+
+void ReportSetMachine(const char *machine, const char *version) {
+    snprintf(ban_machine, sizeof(ban_machine), "%s", machine != NULL ? machine : "");
+    snprintf(ban_version, sizeof(ban_version), "%s", version != NULL ? version : "");
+    memset(ban_reached, 0, sizeof(ban_reached));
+}
+
+const char *ReportMachine(void) {
+    return ban_machine;
+}
+
+const char *ReportMachineVersion(void) {
+    return ban_version;
+}
+
+void ReportSetUnban(bool asked) {
+    unban_asked = asked;
+}
+
+bool ReportUnbanAsked(void) {
+    return unban_asked;
+}
+
+size_t ReportBansUnreached(char *out, size_t out_size) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    size_t used = 0;
+    for (size_t i = 0; i < BanCount() && i < BANS_TRACKED; ++i) {
+        const BanLine *const ban = BanAt(i);
+        if (strcmp(ban->machine, ban_machine) != 0 || !BanVersionsHold(ban->versions, ban_version) ||
+            ban_reached[i]) {
+            continue;
+        }
+        bool ran = false;
+        for (uint32_t s = 0; s < suites_started_count && !ran; ++s) {
+            ran = strcmp(suites_started[s], ban->suite) == 0;
+        }
+        if (!ran) {
+            continue;
+        }
+        const int wrote = snprintf(out + used, out_size - used, "%sline %u, %s \"%s\"",
+                                   used > 0u ? "; " : "", (unsigned)ban->line, ban->suite, ban->name);
+        if (wrote < 0 || (size_t)wrote >= out_size - used) {
+            break;
+        }
+        used += (size_t)wrote;
+    }
+    return used;
 }
 
 bool ReportHangAsked(void) {

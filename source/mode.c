@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "bans.h"
 #include "mode.h"
 
 // Longer than any word this file knows. A longer one is unknown whatever it spells, and is
@@ -85,6 +86,10 @@ static void Take(RunMode *mode, const char *word, bool cut) {
         }
         if (strcmp(word, "hang") == 0) {
             mode->hang = true;
+            return;
+        }
+        if (strcmp(word, "unban") == 0) {
+            mode->unban = true;
             return;
         }
         if (strcmp(word, "nojournal") == 0) {
@@ -203,8 +208,51 @@ static void TakeFrames(RunMode *mode, const char *value, size_t length) {
     mode->frames_refused_cut = length > MODE_FRAMES_QUOTED;
 }
 
-/// The words a value follows (a name, or the number `frames=` takes), and the length of each without
-/// its sign.
+/// Takes the machine after `machine=`, @p length bytes of it, `<name>` or `<name>@<version>`: kept
+/// when the ban list knows the name and the version is one a machine can have, quoted in the mode
+/// line otherwise, an earlier good one left in effect.
+static void TakeMachine(RunMode *mode, const char *value, size_t length) {
+    size_t at = 0;
+    while (at < length && value[at] != '@') {
+        ++at;
+    }
+    char name[MODE_MACHINE_MAX + 1u] = "";
+    char version[MODE_MACHINE_VERSION_MAX + 1u] = "";
+    const size_t version_length = at < length ? length - at - 1u : 0u;
+    bool known = at > 0u && at <= MODE_MACHINE_MAX;
+    if (known) {
+        memcpy(name, value, at);
+        name[at] = '\0';
+        known = BanMachineKnown(name);
+    }
+    bool versioned = at == length;
+    if (!versioned && version_length <= MODE_MACHINE_VERSION_MAX) {
+        memcpy(version, value + at + 1u, version_length);
+        version[version_length] = '\0';
+        versioned = BanVersionValid(version);
+    }
+    if (known && versioned) {
+        memcpy(mode->machine, name, sizeof(mode->machine));
+        memcpy(mode->machine_version, version, sizeof(mode->machine_version));
+        mode->machine_was_refused = false;
+        mode->machine_refused[0] = '\0';
+        mode->machine_refused_cut = false;
+        mode->machine_refused_version = false;
+        return;
+    }
+    mode->machine_was_refused = true;
+    mode->machine_refused_version = known;
+    const size_t quoted = length < MODE_MACHINE_QUOTED ? length : MODE_MACHINE_QUOTED;
+    for (size_t i = 0; i < quoted; ++i) {
+        const unsigned char c = (unsigned char)value[i];
+        mode->machine_refused[i] = c < 0x20u || c >= 0x7Fu || c == '"' || c == '\\' ? '?' : (char)c;
+    }
+    mode->machine_refused[quoted] = '\0';
+    mode->machine_refused_cut = length > MODE_MACHINE_QUOTED;
+}
+
+/// The words a value follows (a name, the number `frames=` takes, a machine), and the length of
+/// each without its sign.
 static const struct {
     const char *word;
     size_t length;
@@ -213,6 +261,7 @@ static const struct {
     { "baseline", 8u },
     { "compare", 7u },
     { "frames", 6u },
+    { "machine", 7u },
 };
 
 /// Which of NAMED the @p length letters of @p word are, or -1.
@@ -231,6 +280,8 @@ static void TakeNamed(RunMode *mode, int which, const char *value, size_t length
         TakeLabel(mode, value, length);
     } else if (which == 3) {
         TakeFrames(mode, value, length);
+    } else if (which == 4) {
+        TakeMachine(mode, value, length);
     } else {
         TakeName(which == 1 ? &mode->baseline : &mode->compare, value, length);
     }
@@ -449,6 +500,38 @@ static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t p
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; the cases that hang");
     }
+    if (mode->machine[0] != '\0') {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; machine %s, %s%s", mode->machine,
+                 mode->machine_version[0] != '\0' ? "version " : "no version given",
+                 mode->machine_version);
+    }
+    if (mode->machine_was_refused) {
+        const size_t used = strlen(out);
+        char kept[MODE_MACHINE_MAX + MODE_MACHINE_VERSION_MAX + 48u];
+        if (mode->machine[0] != '\0') {
+            snprintf(kept, sizeof(kept), "the run keeps machine %s%s%s", mode->machine,
+                     mode->machine_version[0] != '\0' ? "@" : "", mode->machine_version);
+        } else {
+            snprintf(kept, sizeof(kept), "the run has no machine, and no ban holds");
+        }
+        if (mode->machine_refused_version) {
+            snprintf(out + used, out_size - used,
+                     "; machine=%s%s has a version that is not 1 to %u letters, digits, dots, dashes "
+                     "and underscores: %s",
+                     mode->machine_refused, mode->machine_refused_cut ? "..." : "",
+                     (unsigned)MODE_MACHINE_VERSION_MAX, kept);
+        } else {
+            snprintf(out + used, out_size - used,
+                     "; machine=%s%s names no machine the ban list knows (%s): %s",
+                     mode->machine_refused, mode->machine_refused_cut ? "..." : "", BanMachineList(),
+                     kept);
+        }
+    }
+    if (mode->unban) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; the cases banned on the machine run too");
+    }
     if (mode->retry) {
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; the crash list's cases again%s",
@@ -563,6 +646,10 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
     // Only when it is not the default, since that is the same scene and the same report.
     char frames[24];
     snprintf(frames, sizeof(frames), "frames=%u", (unsigned)mode->frames);
+    // The machine decides which bans hold, so a run on another machine is another run.
+    char machine[MODE_MACHINE_MAX + MODE_MACHINE_VERSION_MAX + 16u];
+    snprintf(machine, sizeof(machine), "machine=%s%s%s", mode->machine,
+             mode->machine_version[0] != '\0' ? "@" : "", mode->machine_version);
     const struct {
         bool on;
         const char *word;
@@ -583,6 +670,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { (mode->families_named & MODE_FAMILY_KERNEL) != 0u, "kernel" },
         { (mode->families_named & MODE_FAMILY_LIBC) != 0u, "libc" },
         { mode->listen, "listen" },
+        { mode->machine[0] != '\0', machine },
         { (mode->families_named & MODE_FAMILY_NET) != 0u, "net" },
         { mode->no_timing, "notime" },
         { (mode->families_named & MODE_FAMILY_NVN) != 0u, "nvn" },
@@ -590,6 +678,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { mode->retry, "retry" },
         { (mode->families_named & MODE_FAMILY_SERVICE) != 0u, "service" },
         { mode->stress, "stress" },
+        { mode->unban, "unban" },
         { (mode->families_named & MODE_FAMILY_VIDEO) != 0u, "video" },
     };
     for (size_t i = 0; i < sizeof(WORDS) / sizeof(WORDS[0]); ++i) {
