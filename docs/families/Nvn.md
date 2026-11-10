@@ -54,8 +54,9 @@ The reference is the graphics unit running what the layer recorded, never the of
   suite's colours.
 - **a window acquires and presents both its textures** (none tier): two 1280x720 textures on the default window,
   each acquired with `nvnQueueAcquireTexture`, cleared and presented once. Nothing is read back. Skipped as
-  `unavailable` while the program's screen holds the window: run it with the word `noprogress`, as the game family
-  presents only then.
+  `unavailable` while the program's screen holds the window, which a run begun on the start screen keeps up to its
+  end, `noprogress` or not: a quick run from the mode file runs it, as the game family presents only then, and the
+  start screen says so when the file names nvn.
 
 ## Where nvn/nvn.h comes from
 

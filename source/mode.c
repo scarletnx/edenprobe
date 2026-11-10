@@ -104,6 +104,10 @@ static void Take(RunMode *mode, const char *word, bool cut) {
             mode->listen = true;
             return;
         }
+        if (strcmp(word, "all") == 0) {
+            mode->all = true;
+            return;
+        }
         for (size_t i = 0; i < sizeof(FAMILIES) / sizeof(FAMILIES[0]); ++i) {
             if (strcmp(word, FAMILIES[i].word) == 0) {
                 mode->families_named |= FAMILIES[i].family;
@@ -453,15 +457,25 @@ bool ModeAsksPad(const RunMode *mode) {
     return mode != NULL && !mode->detailed;
 }
 
+uint32_t ModeFamiliesNamed(const RunMode *mode, uint32_t present) {
+    if (mode == NULL) {
+        return 0u;
+    }
+    const uint32_t all = mode->all ? present & ~MODE_FAMILIES_NOT_ALL : 0u;
+    return (mode->families_named | all) & present;
+}
+
 uint32_t ModeFamiliesToRunOf(const RunMode *mode, uint32_t present, uint32_t asked) {
     if (mode == NULL) {
         return present & ~asked;
     }
     const uint32_t listened = mode->listen ? MODE_FAMILY_AUDIO : 0u;
-    if (mode->families_named == 0u) {
+    // The default only when no word names a family: one this build lacks still names one, and
+    // the run is then the named families it has, which may be none.
+    if (mode->families_named == 0u && !mode->all) {
         return (present & ~asked) | (listened & present);
     }
-    return (mode->families_named | listened) & present;
+    return (ModeFamiliesNamed(mode, present) | listened) & present;
 }
 
 uint32_t ModeFamiliesToRun(const RunMode *mode, uint32_t present) {
@@ -743,6 +757,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         bool on;
         const char *word;
     } WORDS[] = {
+        { mode->all, "all" },
         { (mode->families_named & MODE_FAMILY_AUDIO) != 0u, "audio" },
         { (mode->families_named & MODE_FAMILY_CPU) != 0u, "cpu" },
         { (mode->families_named & MODE_FAMILY_DISPLAY) != 0u, "display" },
@@ -891,6 +906,7 @@ RunMode ModeWithChosen(RunMode from_file, const char *chosen) {
     }
     const RunMode screen = ModeFromText(chosen + 6);
     mode.families_named = screen.families_named;
+    mode.all = screen.all;
     mode.listen = screen.listen;
     mode.every_case = screen.every_case;
     mode.no_timing = screen.no_timing;

@@ -1322,6 +1322,45 @@ static bool SameStart(UiStartState a, UiStartState b) {
            a.no_timing == b.no_timing && a.save == b.save;
 }
 
+/// The start screen says nvn's window case is skipped in a run begun there, whole, on the line
+/// under the note on the judge, exactly when the mode file names nvn; nothing else moves. `all`
+/// does not name it.
+static void CheckStartNvn(Fixture *f) {
+    UiStartInfo info;
+    memset(&info, 0, sizeof(info));
+    info.heading = "edenprobe 0.2.0 (test)";
+    info.families_present = MODE_FAMILIES_PRESENT;
+    const UiFrame frame = { f->pixels, FRAME_WIDTH, FRAME_HEIGHT, FRAME_WIDTH * 4u };
+    const uint32_t top = UiStartNvnTop();
+    const uint32_t bottom = top + UI_ROW_HEIGHT;
+    const RunMode named = ModeFromText("nvn");
+    const RunMode all = ModeFromText("all");
+    const UiStartState state = UiStartOpen(&named, MODE_FAMILIES_PRESENT);
+    UiComposeStart(&frame, &info, state, 0u);
+    const uint32_t quiet = CountLitIn(&frame, 0, top, FRAME_WIDTH, bottom);
+    const uint32_t outside_quiet =
+        CountLit(&frame, 0, top) + CountLit(&frame, bottom, FRAME_HEIGHT);
+    info.nvn_named = (ModeFamiliesNamed(&named, MODE_FAMILIES_PRESENT) & MODE_FAMILY_NVN) != 0u;
+    UiComposeStart(&frame, &info, state, 0u);
+    const uint32_t said = CountColour(&frame, 0, top, FRAME_WIDTH, bottom, SKIPPED);
+    const uint32_t outside_said =
+        CountLit(&frame, 0, top) + CountLit(&frame, bottom, FRAME_HEIGHT);
+    DumpFrame(&frame, "8-start-nvn");
+    const bool all_leaves_it =
+        (ModeFamiliesNamed(&all, MODE_FAMILIES_PRESENT) & MODE_FAMILY_NVN) == 0u;
+    CHECK_TRUE(SUITE, "the start screen says nvn's window case is skipped in a run begun there, "
+                      "when the mode file names nvn",
+               CHECK_NONE,
+               info.nvn_named && quiet == 0u && said == GlyphPixels(UI_START_NVN_SAID) &&
+                   outside_said == outside_quiet && all_leaves_it &&
+                   top > UiStartRowTop(UI_START_ROWS),
+               "named %d; the line's band lit %u without nvn, %u of %u in the warning colour with "
+               "it; elsewhere %u and %u; all names nvn %d",
+               (int)info.nvn_named, (unsigned)quiet, (unsigned)said,
+               (unsigned)GlyphPixels(UI_START_NVN_SAID), (unsigned)outside_quiet,
+               (unsigned)outside_said, (int)!all_leaves_it);
+}
+
 /// The start screen: shown only with something to choose, X for the crash list and Y for
 /// nothing, its ten seconds, and the warning exactly while the crash list's choice is on.
 static void CheckStartScreen(Fixture *f) {
@@ -2608,6 +2647,7 @@ void RunSupportScreens(void) {
     CheckOverflow(f);
     CheckEdges(f);
     CheckStartScreen(f);
+    CheckStartNvn(f);
     CheckStartMenu(f);
     CheckResumeScreen(f);
     CheckProgress(f);

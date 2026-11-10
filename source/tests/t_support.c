@@ -720,6 +720,7 @@ static void CheckLabel(void);
 static void CheckFrames(void);
 static void CheckMachine(void);
 static void CheckSkipWord(void);
+static void CheckAllWord(void);
 static void CheckWidestMode(void);
 static void CheckFrontendFamilies(void);
 static void CheckRunnerRoot(void);
@@ -1022,6 +1023,7 @@ static void CheckLaunchAndMode(void) {
     CheckFrames();
     CheckMachine();
     CheckSkipWord();
+    CheckAllWord();
     CheckWidestMode();
     CheckFrontendFamilies();
     CheckRunnerRoot();
@@ -1430,6 +1432,58 @@ static void CheckSkipWord(void) {
                (unsigned)wrong, first, said);
 }
 
+/// all: every family a frontend has but pad and nvn, which named beside it add theirs; in the key,
+/// through a launch that goes on with the start screen's choice, and gone once the screen changes
+/// a family row, the families it named that have no row kept.
+static void CheckAllWord(void) {
+    char said[REPORT_NOTE_MAX + 1];
+    char key[MODE_KEY_MAX];
+    const uint32_t present = MODE_FAMILIES_PRESENT;
+    const uint32_t everything_alone = present & ~(MODE_FAMILY_PAD | MODE_FAMILY_NVN);
+    const RunMode all = ModeFromText("quick all");
+    ModeDescribe(said, sizeof(said), &all, present);
+    ModeKey(key, sizeof(key), &all);
+    const bool console = all.all && all.families_named == 0u && all.unknown_count == 0u &&
+                         ModeFamiliesToRun(&all, present) == everything_alone &&
+                         strcmp(key, "all") == 0 &&
+                         strcmp(said, "mode: quick, from the mode file; pictures of failures "
+                                      "only; families cpu graphics fs kernel display video audio "
+                                      "service net game libc") == 0;
+    const bool added = ModeFamiliesToRun(&(RunMode){ .all = true,
+                                                     .families_named = MODE_FAMILY_PAD |
+                                                                       MODE_FAMILY_NVN },
+                                         present) == present &&
+                       ModeFamiliesToRun(&(RunMode){ 0 }, present) == MODE_FAMILIES_DEFAULT;
+    const RunMode named = ModeFromText("quick all nvn pad");
+    const uint32_t android = MODE_FAMILY_LIBC | MODE_FAMILY_GRAPHICS | MODE_FAMILY_NET |
+                             MODE_FAMILY_JNI | MODE_FAMILY_FRAMEWORK;
+    const bool other_frontend = ModeFamiliesToRunOf(&all, android, 0u) == android &&
+                                ModeFamiliesToRun(&named, present) == present;
+
+    // The start screen's choice keeps it through a launch that goes on; a family row changed
+    // there names the rows and keeps what all named without one, with all gone.
+    RunMode chosen = all;
+    chosen.quick = false;
+    chosen.detailed = true;
+    char words[MODE_KEY_MAX + 16u];
+    ModeChosenWords(words, sizeof(words), &chosen);
+    const RunMode resumed = ModeWithChosen(all, words);
+    UiStartState state = UiStartOpen(&all, present);
+    state.families &= ~MODE_FAMILY_GRAPHICS;
+    const RunMode screen = UiStartMode(&state, all, present);
+    const bool kept = resumed.all && ModeFamiliesToRun(&resumed, present) == everything_alone;
+    const bool changed = !screen.all &&
+                         ModeFamiliesToRun(&screen, present) ==
+                             (everything_alone & ~MODE_FAMILY_GRAPHICS) &&
+                         screen.chosen_on_screen;
+    CHECK_TRUE(SUITE, "all runs every family but pad and nvn, which named beside it add theirs",
+               CHECK_NONE, console && added && other_frontend && kept && changed,
+               "console %d, pad and nvn added %d, another frontend %d, a launch going on %d, a "
+               "row changed %d (families 0x%x); key \"%.8s\"; said \"%.150s\"",
+               (int)console, (int)added, (int)other_frontend, (int)kept, (int)changed,
+               (unsigned)ModeFamiliesToRun(&screen, present), key, said);
+}
+
 _Static_assert(JOURNAL_MODE_MAX >= MODE_KEY_MAX + sizeof("screen  quick") - 1u,
                "a chosen record holds the widest key with the words around it");
 _Static_assert(JOURNAL_LINE_MAX >= sizeof("run   \t\n") + JOURNAL_SUITE_MAX + JOURNAL_NAME_MAX +
@@ -1440,13 +1494,13 @@ _Static_assert(JOURNAL_LINE_MAX >= sizeof("run   \t\n") + JOURNAL_SUITE_MAX + JO
 /// in MODE_KEY_MAX, the run and chosen records hold it, and a launch after a crash goes on with
 /// the run in that mode rather than starting over with an empty key.
 static void CheckWidestMode(void) {
-    static const char WIDEST[] = "quick audio cpu display fatal frames=36000 framework fs game "
+    static const char WIDEST[] = "quick all audio cpu display fatal frames=36000 framework fs game "
                                  "graphics hang images jni kernel libc listen "
                                  "machine=scarletnx-android@12345678901234567890123456789012 net "
                                  "notime nvn pad retry service skip=abcdefghijklmnop "
                                  "skip=bcdefghijklmnopq skip=cdefghijklmnopqr "
                                  "skip=defghijklmnopqrs stress unban video";
-    static const char KEY[] = "audio cpu display fatal frames=36000 framework fs game graphics "
+    static const char KEY[] = "all audio cpu display fatal frames=36000 framework fs game graphics "
                               "hang images jni kernel libc listen "
                               "machine=scarletnx-android@12345678901234567890123456789012 net "
                               "notime nvn pad retry service skip=abcdefghijklmnop "

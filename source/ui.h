@@ -366,6 +366,9 @@ typedef struct {
     const char *heading;
     /// The families this build has; a row for one it lacks cannot be turned on.
     uint32_t families_present;
+    /// The mode file names the nvn family, which has no row: the screen says its window case is
+    /// skipped in a run begun here, since this screen holds the window to the run's end.
+    bool nvn_named;
     /// The crash list's cases.
     uint32_t listed_count;
     const char *listed_suite[UI_START_LIST_MAX];
@@ -463,6 +466,13 @@ void UiComposeStart(const UiFrame *frame, const UiStartInfo *info, UiStartState 
 /// Where the warning is drawn, for the cases that check it is there exactly when it should be.
 #define UI_START_WARNING_LINES 3u
 uint32_t UiStartWarningTop(uint32_t frame_height);
+
+/// Where the line about the nvn family's window case is drawn, under the note on the judge, and
+/// what it says.
+uint32_t UiStartNvnTop(void);
+#define UI_START_NVN_SAID                                                                          \
+    "nvn's window case is skipped in a run begun here: this screen holds the window to its end. " \
+    "quick in the mode file runs it"
 
 /// The screen a detailed launch shows when its journal left a run in the middle, before anything
 /// is opened: where the program stopped, how far the run had got, and two choices, to go on from

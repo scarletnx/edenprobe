@@ -149,6 +149,7 @@ static RunMode StartScreen(const RunMode *from_file) {
     snprintf(heading, sizeof(heading), "edenprobe %s (%s)", EDENPROBE_VERSION, EDENPROBE_BUILD);
     info.heading = heading;
     info.families_present = MODE_FAMILIES_PRESENT;
+    info.nvn_named = (ModeFamiliesNamed(from_file, MODE_FAMILIES_PRESENT) & MODE_FAMILY_NVN) != 0u;
     const CrashList *const listed = ReportCrashList();
     for (uint32_t i = 0; i < listed->count && info.listed_count < UI_START_LIST_MAX; ++i) {
         info.listed_suite[info.listed_count] = listed->entries[i].suite;

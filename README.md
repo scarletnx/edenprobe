@@ -20,7 +20,9 @@ a [release](https://github.com/scarletnx/edenprobe/releases).
   with Android's own cases beside the ones every machine runs.
 
 Without a mode file the start screen asks what to run; `sdmc:/edenprobe/mode` chooses instead
-([Mode file](docs/ModeFile.md)). The report goes to `sdmc:/edenprobe/runs/<build>/report.jsonl`
+([Mode file](docs/ModeFile.md)): `quick all` runs every family that needs nobody, all but pad and nvn. Naming a family
+runs that family alone. nvn's window case runs only in a quick run from the mode file, never in one begun on the start
+screen, `noprogress` or not. The report goes to `sdmc:/edenprobe/runs/<build>/report.jsonl`
 ([Report](docs/Report.md)).
 
 ## Build
