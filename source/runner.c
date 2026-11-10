@@ -156,9 +156,8 @@ static void OpenReport(Runner *runner) {
     }
     JournalSimple(JOURNAL_LAUNCH, NULL, plan->launch);
     if (plan->start == JOURNAL_RESUME_CASE) {
-        JournalRecord record = plan->crash;
-        record.kind = JOURNAL_CRASH;
-        ReportJournalWrite(&record);
+        // The plan's record of the case, kind and all: crashed, or timedout with its seconds.
+        ReportJournalWrite(&plan->crash);
         // What the step drew before the program ended: it runs again from its start, and the
         // pictures it leaves are the ones its new lines name.
         (void)PictureRemoveSuite(runner->journal.step.suite);
@@ -172,8 +171,10 @@ void RunnerOpen(Runner *runner, const RunMode *mode) {
     OpenReport(runner);
     ReportSetCrashList(&runner->crashes, runner->crash_list_path, mode->retry);
     // A case the program ended inside goes on the crash list whether this run goes on or not:
-    // the machine did end inside it.
-    const bool listed = plan->crashed && ReportCrashListAdd(plan->crash.suite, plan->crash.name);
+    // the machine did end inside it. Not one a runner stopped the program inside at its limit:
+    // the limit is a launch's, so the case may only have been the one running when it came.
+    const bool ended_itself = plan->crashed && !plan->timed_out;
+    const bool listed = ended_itself && ReportCrashListAdd(plan->crash.suite, plan->crash.name);
     const bool usual = plan->start == JOURNAL_FRESH && !plan->crashed &&
                        (plan->why_new == JOURNAL_NEW_NO_JOURNAL ||
                         plan->why_new == JOURNAL_NEW_FINISHED);
@@ -181,7 +182,7 @@ void RunnerOpen(Runner *runner, const RunMode *mode) {
         char said[REPORT_NOTE_MAX + 1];
         JournalDescribePlan(said, sizeof(said), plan, &runner->journal);
         ReportNote("%s%s", said,
-                   plan->crashed && !listed ? " (it was on the crash list already)" : "");
+                   ended_itself && !listed ? " (it was on the crash list already)" : "");
     }
     if (plan->start != JOURNAL_FRESH) {
         JournalState *const journal = &runner->journal;

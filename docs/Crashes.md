@@ -3,6 +3,7 @@
 ## Index
 
 * [The journal](#the-journal)
+* [A launch stopped at its time limit](#a-launch-stopped-at-its-time-limit)
 * [The crash list](#the-crash-list)
 * [Every case runs](#every-case-runs)
 * [The hang table](#the-hang-table)
@@ -50,9 +51,30 @@ confirms, and nothing pressed for ten seconds goes on. A quick run never asks.
 | `crashed <suite> <pass> <case>` | by the launch after, for the case the program ended inside |
 | `done <step>` | after a step |
 | `finished <passed> <failed> <skipped> <crashed>` | after the summary |
+| `stopped` | by a runner a person stopped: the case under way did not end the program |
+| `timeout <limit> <quiet>` | by a runner that stopped a launch at its limit of `<limit>` seconds, the journal `<quiet>` seconds without a record by then |
+| `timedout <suite> <pass> <limit> <quiet> <case>` | by the launch after, for the case that launch was stopped inside |
 
 Every line ends in a tab before its newline. A last line that ends in its tab but has no newline is a whole record
 (Eden's abort keeps only the newline back); one without the tab is a cut write and never read.
+
+## A launch stopped at its time limit
+
+A runner that stops a launch because its time is up says so in the journal, `timeout <limit> <quiet>` after the case's
+start: `make run` does, at `TIMEOUT` ([Under an emulator](Emulator.md)), and `android/tools/run-scarletnx.sh`, at
+`--stall` or `--timeout`. The launch after skips that case with the
+reason `timeout`, not `crashed`, and the two numbers in its detail: the limit, which is the launch's and not the
+case's, and how long the journal had gone without a record, which is how long the case had run. A case stopped 58
+seconds in hung or is that slow; one stopped 2 seconds in was only the one running when the launch's time ran out.
+
+```json
+{"type":"case","suite":"tex8k","name":"a 256x256 region of the 8192x8192 BC7 texture copied out to a buffer holds its bytes","tier":"none","result":"skip","reason":"timeout","detail":"a runner stopped the program inside it earlier in this run, at the launch's limit of 60 s and 58 s after the journal's last record, which is how long the case had run; it is not on the crash list, so a later run starts it again"}
+{"type":"note","text":"journal: this run took 2 launches; 0 cases skipped as crashed; 1 case skipped as timeout, a runner having stopped the program at its limit inside tex8k \"a 256x256 region of the 8192x8192 BC7 texture copied out to a buffer holds its bytes\""}
+```
+
+It counts with the skips, never in `crashed`, and it does not go on the crash list: the next run starts it again. A
+runner that writes no such record (`android/tools/run-adb.sh`, whose journal is the app's on the device, ScarletNX's
+own, a person closing the window) leaves a stop looking like the program ending inside the case, as before.
 
 ## The crash list
 

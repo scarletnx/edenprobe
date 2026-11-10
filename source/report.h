@@ -50,8 +50,10 @@ uint64_t ReportOffset(void);
 /// @p path when it changes), and whether the mode word `retry` asked for its cases again.
 void ReportSetCrashList(const CrashList *list, const char *path, bool retry);
 
-/// A case the program ended inside earlier in this run. Skipped for the rest of the run
-/// whatever retry says, since running it again is what ended the launch before.
+/// A case the program ended inside earlier in this run, or, when the record's kind is
+/// JOURNAL_TIMED_OUT, one a runner stopped it inside at its time limit. Skipped for the rest of
+/// the run whatever retry says, since running it again is what ended the launch before; as
+/// crashed, or as timeout with the record's limit and quiet seconds.
 void ReportAddCrashed(const JournalRecord *crash);
 
 /// How many crashes this run has recorded so far, for a self-test to come back to.
@@ -213,6 +215,9 @@ typedef enum {
     /// Its suite is one the mode file's `skip=<suite>` leaves out: a person asked for it not to
     /// run on this machine.
     REPORT_REASON_ASKED,
+    /// A runner stopped the program inside it at a launch's time limit, earlier in this run.
+    /// Counted with the other skips, not with the crashes, and never put on the crash list.
+    REPORT_REASON_TIMEOUT,
     REPORT_REASON_COUNT,
 } ReportReason;
 
@@ -228,8 +233,9 @@ void ReportSkip(const char *suite, const char *name, ReportReason reason, const 
 /// Says the case @p name is about to start, before any of its work, and whether it may.
 ///
 /// False when it must not run: it ended this machine's program in this run or an earlier one,
-/// its suite is one `skip=` leaves out, it is in the hang table and the word `hang` did not ask
-/// for it, or the ban list bans it on this machine and the word `unban` did not ask for it.
+/// a runner stopped the program inside it at its time limit in this run, its suite is one `skip=`
+/// leaves out, it is in the hang table and the word `hang` did not ask for it, or the ban list
+/// bans it on this machine and the word `unban` did not ask for it.
 /// Its skip line is then already written, and the caller does none of the case's work and
 /// reports nothing more for it. True, and the journal says on the card that the case started,
 /// so a launch after the program ends inside it knows which case to skip. Every case of the
@@ -250,10 +256,10 @@ ReportWatcher ReportSetWatcher(ReportWatcher watcher);
 void ReportRequireStarts(bool on);
 
 /// What ReportStart decides for a case, without starting it or writing anything: whether it
-/// runs, and when it does not, the reason and the sentence its skip line carries. A crash in this
-/// run comes first, whatever retry or hang says, then a suite `skip=` leaves out, whatever hang,
-/// unban or retry ask, then the hang table unless the word `hang`, then the ban list unless
-/// `unban`, then the crash list unless retry; every other case runs.
+/// runs, and when it does not, the reason and the sentence its skip line carries. A crash or a
+/// timeout in this run comes first, whatever retry or hang says, then a suite `skip=` leaves out,
+/// whatever hang, unban or retry ask, then the hang table unless the word `hang`, then the ban
+/// list unless `unban`, then the crash list unless retry; every other case runs.
 bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, char *detail,
                     size_t detail_size);
 

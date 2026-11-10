@@ -505,15 +505,15 @@ static const char *PassWords(uint32_t pass) {
     return pass == 1u ? ", in the warm-up" : pass > 1u ? ", in a timed pass" : "";
 }
 
-static bool CrashedThisRun(const char *suite, const char *key, uint32_t *pass) {
+/// The record of a case this run already ended inside, or was stopped inside at its limit.
+static const JournalRecord *CrashedThisRun(const char *suite, const char *key) {
     for (uint32_t i = 0; i < crashed_this_run_count; ++i) {
         if (strcmp(crashed_this_run[i].suite, suite) == 0 &&
             strcmp(crashed_this_run[i].name, key) == 0) {
-            *pass = crashed_this_run[i].number;
-            return true;
+            return &crashed_this_run[i];
         }
     }
-    return false;
+    return NULL;
 }
 
 static void WriteCrashList(void) {
@@ -599,21 +599,31 @@ bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, c
     }
     detail[0] = '\0';
     ReportReason why = REPORT_REASON_CRASHED;
-    uint32_t pass = 0;
+    const JournalRecord *const ended = CrashedThisRun(suite, key);
     const Hang *const hang = HangFind(suite, key);
     const BanLine *const ban = BanFind(suite, key, ban_machine, ban_version);
     const int asked = SkipAsked(suite);
     bool runs = true;
-    // A crash in this run first, whatever retry or hang says. Then a suite the person left out:
-    // their word, whatever the words that run more ask. Then a known hang: retry would run it
-    // again and it would not return, so the launch would never mark it. Then a ban on this
-    // machine, unless unban; then the crash list, which is this machine's own evidence. Every
-    // other case runs: one that ends the program is the next launch's to skip.
-    if (CrashedThisRun(suite, key, &pass)) {
+    // A crash or a timeout in this run first, whatever retry or hang says. Then a suite the
+    // person left out: their word, whatever the words that run more ask. Then a known hang: retry
+    // would run it again and it would not return, so the launch would never mark it. Then a ban
+    // on this machine, unless unban; then the crash list, which is this machine's own evidence.
+    // Every other case runs: one that ends the program is the next launch's to skip.
+    if (ended != NULL && ended->kind == JOURNAL_TIMED_OUT) {
+        // The runner's doing, not the case's: the limit is a launch's, and the quiet seconds
+        // say how much of it this case had.
+        why = REPORT_REASON_TIMEOUT;
+        snprintf(detail, detail_size,
+                 "a runner stopped the program inside it earlier in this run%s, at the launch's "
+                 "limit of %u s and %u s after the journal's last record, which is how long the "
+                 "case had run; it is not on the crash list, so a later run starts it again",
+                 PassWords(ended->number), (unsigned)ended->limit, (unsigned)ended->quiet);
+        runs = false;
+    } else if (ended != NULL) {
         snprintf(detail, detail_size,
                  "the program ended inside it earlier in this run%s; it is on the crash list%s%s%s, "
                  "and the mode word retry runs it in a later run",
-                 PassWords(pass), crash_list_path[0] != '\0' ? " (" : "", crash_list_path,
+                 PassWords(ended->number), crash_list_path[0] != '\0' ? " (" : "", crash_list_path,
                  crash_list_path[0] != '\0' ? ")" : "");
         runs = false;
     } else if (asked >= 0) {
@@ -772,7 +782,7 @@ static void EndCase(const char *suite, const char *name, CheckTier tier, bool pa
 
 static const char *const REASON_WORDS[REPORT_REASON_COUNT] = {
     "crashed", "not configured", "unavailable", "depends", "hangs", "unanswered", "banned",
-    "asked",
+    "asked", "timeout",
 };
 
 const char *ReportReasonWord(ReportReason reason) {
@@ -915,8 +925,7 @@ void ReportAddCrashed(const JournalRecord *crash) {
     if (crash == NULL || crashed_this_run_count >= CRASHED_THIS_RUN_MAX) {
         return;
     }
-    uint32_t pass = 0;
-    if (CrashedThisRun(crash->suite, crash->name, &pass)) {
+    if (CrashedThisRun(crash->suite, crash->name) != NULL) {
         return;
     }
     crashed_this_run[crashed_this_run_count++] = *crash;

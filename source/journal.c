@@ -89,16 +89,25 @@ size_t JournalFormat(char *out, size_t out_size, const JournalRecord *r) {
     case JOURNAL_STOPPED:
         wrote = snprintf(out, out_size, "stopped\t\n");
         break;
+    case JOURNAL_TIMEOUT:
+        wrote = snprintf(out, out_size, "timeout %u %u\t\n", (unsigned)r->limit,
+                         (unsigned)r->quiet);
+        break;
+    case JOURNAL_TIMED_OUT:
+        wrote = snprintf(out, out_size, "timedout %s %u %u %u %s\t\n", suite, (unsigned)r->number,
+                         (unsigned)r->limit, (unsigned)r->quiet, name);
+        break;
     case JOURNAL_NONE:
         break;
     }
     // A name or a word with nothing in it would leave two fields where the reader wants three.
     const bool empty_field = (r->kind != JOURNAL_LAUNCH && r->kind != JOURNAL_FINISHED &&
                               r->kind != JOURNAL_CHOSEN && r->kind != JOURNAL_STOPPED &&
-                              suite[0] == '\0') ||
+                              r->kind != JOURNAL_TIMEOUT && suite[0] == '\0') ||
                              (r->kind == JOURNAL_CHOSEN && mode[0] == '\0') ||
                              ((r->kind == JOURNAL_START || r->kind == JOURNAL_END ||
-                               r->kind == JOURNAL_CRASH || r->kind == JOURNAL_RUN) &&
+                               r->kind == JOURNAL_CRASH || r->kind == JOURNAL_TIMED_OUT ||
+                               r->kind == JOURNAL_RUN) &&
                               name[0] == '\0');
     if (wrote <= 0 || (size_t)wrote >= out_size || strchr(suite, ' ') != NULL ||
         (r->kind == JOURNAL_RUN && strchr(name, ' ') != NULL) || empty_field) {
@@ -253,6 +262,14 @@ bool JournalParse(const char *line, JournalRecord *out) {
     } else if (strcmp(kind, "stopped") == 0) {
         out->kind = JOURNAL_STOPPED;
         ok = *cursor == '\0';
+    } else if (strcmp(kind, "timeout") == 0) {
+        out->kind = JOURNAL_TIMEOUT;
+        ok = Small(&cursor, &out->limit) && Small(&cursor, &out->quiet) && *cursor == '\0';
+    } else if (strcmp(kind, "timedout") == 0) {
+        out->kind = JOURNAL_TIMED_OUT;
+        ok = Word(&cursor, out->suite, sizeof(out->suite)) && Small(&cursor, &out->number) &&
+             Small(&cursor, &out->limit) && Small(&cursor, &out->quiet) &&
+             Rest(cursor, out->name, sizeof(out->name));
     }
     if (!ok) {
         memset(out, 0, sizeof(*out));
@@ -305,7 +322,9 @@ void JournalFeed(JournalState *state, const char *line, bool complete) {
         return;
     }
     state->present = true;
+    const bool was_in_case = state->in_case;
     state->in_case = false;
+    state->timed_out = false;
     switch (r.kind) {
     case JOURNAL_RUN: {
         // A journal holds one run; anything before its first line belongs to none.
@@ -345,7 +364,8 @@ void JournalFeed(JournalState *state, const char *line, bool complete) {
         }
         memcpy(state->last_ended, r.name, sizeof(state->last_ended));
         break;
-    case JOURNAL_CRASH: {
+    case JOURNAL_CRASH:
+    case JOURNAL_TIMED_OUT: {
         bool known = false;
         for (uint32_t i = 0; i < state->crash_count; ++i) {
             known = known || (strcmp(state->crashes[i].suite, r.suite) == 0 &&
@@ -372,6 +392,17 @@ void JournalFeed(JournalState *state, const char *line, bool complete) {
     case JOURNAL_STOPPED:
         // Nothing more: the case the last start named is no longer the one the program ended
         // inside, since something outside it did the ending.
+        break;
+    case JOURNAL_TIMEOUT:
+        // The case the last start named is still the one the launch ended inside, and the launch
+        // after skips it; what changes is why it ended there, and so the word it is skipped
+        // with. A timeout outside any case reads as a stop.
+        if (was_in_case) {
+            state->in_case = true;
+            state->timed_out = true;
+            state->started.limit = r.limit;
+            state->started.quiet = r.quiet;
+        }
         break;
     case JOURNAL_NONE:
         break;
@@ -418,6 +449,8 @@ JournalPlan JournalPlanStart(const JournalState *state, const char *version, con
     if (state->has_run && !state->finished && state->in_case) {
         plan.crashed = true;
         plan.crash = state->started;
+        plan.timed_out = state->timed_out;
+        plan.crash.kind = plan.timed_out ? JOURNAL_TIMED_OUT : JOURNAL_CRASH;
     }
     if (!state->present) {
         plan.why_new = JOURNAL_NEW_NO_JOURNAL;
@@ -481,6 +514,21 @@ static const char *PassSaid(uint32_t pass) {
     return pass == 1u ? " in its warm-up" : pass > 1u ? " in a timed pass" : "";
 }
 
+/// How the launch before ended inside the plan's case: by itself, or stopped by a runner at its
+/// limit, with the limit and how long the case had run.
+static void EndedInside(char *out, size_t out_size, const JournalPlan *plan) {
+    if (plan->timed_out) {
+        snprintf(out, out_size,
+                 "a runner stopped the program at its limit of %u s inside %s case \"%s\"%s, %u s "
+                 "after the journal's last record",
+                 (unsigned)plan->crash.limit, plan->crash.suite, plan->crash.name,
+                 PassSaid(plan->crash.number), (unsigned)plan->crash.quiet);
+    } else {
+        snprintf(out, out_size, "the program ended inside %s case \"%s\"%s", plan->crash.suite,
+                 plan->crash.name, PassSaid(plan->crash.number));
+    }
+}
+
 size_t JournalDescribeStop(char *out, size_t out_size, const JournalPlan *plan,
                            const JournalState *state) {
     if (out == NULL || out_size == 0u) {
@@ -492,8 +540,7 @@ size_t JournalDescribeStop(char *out, size_t out_size, const JournalPlan *plan,
     }
     switch (plan->start) {
     case JOURNAL_RESUME_CASE:
-        snprintf(out, out_size, "the program ended inside %s case \"%s\"%s", plan->crash.suite,
-                 plan->crash.name, PassSaid(plan->crash.number));
+        EndedInside(out, out_size, plan);
         break;
     case JOURNAL_RESUME_STEP:
         snprintf(out, out_size, "the program ended in step %s after \"%s\", outside any case",
@@ -518,11 +565,10 @@ size_t JournalDescribePlan(char *out, size_t out_size, const JournalPlan *plan,
     if (plan == NULL || state == NULL) {
         return 0;
     }
-    char crash[JOURNAL_NAME_MAX + JOURNAL_SUITE_MAX + 64];
+    char crash[JOURNAL_NAME_MAX + JOURNAL_SUITE_MAX + 160];
     crash[0] = '\0';
     if (plan->crashed) {
-        snprintf(crash, sizeof(crash), "the program ended inside %s case \"%s\"%s",
-                 plan->crash.suite, plan->crash.name, PassSaid(plan->crash.number));
+        EndedInside(crash, sizeof(crash), plan);
     }
     switch (plan->start) {
     case JOURNAL_FRESH: {
@@ -536,14 +582,19 @@ size_t JournalDescribePlan(char *out, size_t out_size, const JournalPlan *plan,
                        "a reason for every new run");
         snprintf(out, out_size, "journal: a new run (%s)%s%s%s", WHY[plan->why_new],
                  crash[0] != '\0' ? "; before it, " : "", crash,
-                 crash[0] != '\0' ? ", which goes on the crash list" : "");
+                 crash[0] == '\0' ? ""
+                 : plan->timed_out ? ", which stays off the crash list and runs again"
+                                   : ", which goes on the crash list");
         break;
     }
     case JOURNAL_RESUME_CASE:
         snprintf(out, out_size,
-                 "journal: launch %u resumes the run; %s: that case is skipped as crashed and "
-                 "goes on the crash list, and step %s runs again from its start",
-                 (unsigned)plan->launch, crash, state->step.suite);
+                 "journal: launch %u resumes the run; %s: that case is skipped as %s, and step "
+                 "%s runs again from its start",
+                 (unsigned)plan->launch, crash,
+                 plan->timed_out ? "timeout and stays off the crash list"
+                                 : "crashed and goes on the crash list",
+                 state->step.suite);
         break;
     case JOURNAL_RESUME_STEP:
         snprintf(out, out_size,
@@ -572,7 +623,8 @@ size_t JournalDescribeRun(char *out, size_t out_size, const JournalPlan *plan,
         return 0;
     }
     // The crash records are this run's only when the launch went on with it: the journal a new
-    // run reads is the run before's.
+    // run reads is the run before's. A record's kind says whether the program ended inside the
+    // case or a runner stopped it there at its limit.
     const bool resumed = plan->start != JOURNAL_FRESH;
     const uint32_t launches = resumed ? plan->launch : 1u;
     const JournalRecord *ended[JOURNAL_CRASHES_MAX + 1u];
@@ -590,6 +642,11 @@ size_t JournalDescribeRun(char *out, size_t out_size, const JournalPlan *plan,
             ended[count++] = &plan->crash;
         }
     }
+    uint32_t stopped = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        stopped += ended[i]->kind == JOURNAL_TIMED_OUT ? 1u : 0u;
+    }
+    const uint32_t ended_itself = count - stopped;
     if (launches == 1u && crashed == 0u) {
         return 0;
     }
@@ -598,22 +655,38 @@ size_t JournalDescribeRun(char *out, size_t out_size, const JournalPlan *plan,
                          (unsigned)launches, launches == 1u ? "" : "es", (unsigned)crashed,
                          crashed == 1u ? "" : "s");
     size_t used = wrote < 0 ? 0u : (size_t)wrote;
-    if (crashed > count && used < out_size) {
+    if (crashed > ended_itself && used < out_size) {
         // The rest the crash list named: earlier runs ended inside them, and this one never
         // started them.
         wrote = snprintf(out + used, out_size - used, ", %u of them from the crash list",
-                         (unsigned)(crashed - count));
+                         (unsigned)(crashed - ended_itself));
         used += wrote < 0 ? 0u : (size_t)wrote;
     }
-    for (uint32_t i = 0; i < count && used < out_size; ++i) {
-        wrote = snprintf(out + used, out_size - used, "%s%s \"%s\"",
-                         i == 0u ? "; the program ended inside " : ", ", ended[i]->suite,
-                         ended[i]->name);
-        if (wrote < 0 || used + (size_t)wrote + 4u >= out_size) {
-            snprintf(out + used, out_size - used, "...");
-            break;
+    // The cases the program ended inside, then the ones a runner stopped it inside.
+    for (int timed_out = 0; timed_out < 2; ++timed_out) {
+        bool first = true;
+        for (uint32_t i = 0; i < count && used < out_size; ++i) {
+            if ((ended[i]->kind == JOURNAL_TIMED_OUT) != (timed_out != 0)) {
+                continue;
+            }
+            char opening[96];
+            if (timed_out != 0) {
+                snprintf(opening, sizeof(opening),
+                         "; %u case%s skipped as timeout, a runner having stopped the program at "
+                         "its limit inside ",
+                         (unsigned)stopped, stopped == 1u ? "" : "s");
+            } else {
+                snprintf(opening, sizeof(opening), "; the program ended inside ");
+            }
+            wrote = snprintf(out + used, out_size - used, "%s%s \"%s\"", first ? opening : ", ",
+                             ended[i]->suite, ended[i]->name);
+            if (wrote < 0 || used + (size_t)wrote + 4u >= out_size) {
+                snprintf(out + used, out_size - used, "...");
+                return strlen(out);
+            }
+            used += (size_t)wrote;
+            first = false;
         }
-        used += (size_t)wrote;
     }
     return strlen(out);
 }
