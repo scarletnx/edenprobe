@@ -39,6 +39,9 @@ extern "C" {
 ///             For measuring what the journal costs, and for a card that must not be written.
 ///   noprogress no running screen while the suites run: the window keeps the screen before it,
 ///             as before there was one. For a machine whose window misbehaves while it draws.
+///   all       every family this build has but pad, which waits for a person, and nvn, whose
+///             window case runs only in a quick run from the file: one word for a run that needs
+///             nobody. pad and nvn named beside it add theirs.
 ///   listen    before the audio family's cases, a sequence of sounds for a person to hear, and
 ///             the audio family with it.
 ///   cpu       a suite family: the processor's instructions, which run in every mode anyway, so
@@ -139,6 +142,10 @@ enum {
 /// What runs when the file names no family.
 #define MODE_FAMILIES_DEFAULT ((uint32_t)(MODE_FAMILIES_PRESENT & ~MODE_FAMILIES_ASKED))
 
+/// The families the word `all` leaves out: pad waits for a person, and nvn's window case runs only
+/// while no screen of the program's is up, so it is a family to name on purpose.
+#define MODE_FAMILIES_NOT_ALL ((uint32_t)(MODE_FAMILY_PAD | MODE_FAMILY_NVN))
+
 /// How much of the mode file is read: every word there is fits many times over. A longer file is
 /// read to here and the report says so; a word the limit cuts in two is dropped, never quoted as
 /// an unknown one, since it is not a word anybody wrote.
@@ -165,7 +172,7 @@ typedef enum {
 
 /// Room for every word ModeKey writes with all of them on, `frames=` at its widest, `machine=`
 /// with a name and a version as long as they may be and MODE_SKIPS_MAX `skip=` words at their
-/// longest, 297 characters, with room to grow: the support suite holds the widest to it, and the
+/// longest, 301 characters, with room to grow: the support suite holds the widest to it, and the
 /// journal's fields are sized from it (journal.h, JOURNAL_MODE_MAX).
 #define MODE_KEY_MAX 320u
 
@@ -247,6 +254,9 @@ typedef struct {
     bool listen;
     /// The family words in the file, whether or not this build has them.
     uint32_t families_named;
+    /// The word `all`: every family the frontend has but MODE_FAMILIES_NOT_ALL, with the ones
+    /// named beside it.
+    bool all;
     /// How many words were not understood, and the first of them, space separated.
     uint32_t unknown_count;
     char unknown[MODE_UNKNOWN_TEXT_MAX];
@@ -301,6 +311,10 @@ RunMode ModeAtLaunch(const char *text, bool detailed_button_held);
 /// Whether the launch has to ask the pad about the button at all: only when the file asked for
 /// a quick run, since the button can do nothing but add the detailed mode.
 bool ModeAsksPad(const RunMode *mode);
+
+/// The families @p mode names among the @p present ones: its family words, and with `all` every
+/// present family but MODE_FAMILIES_NOT_ALL. Nought when it names none.
+uint32_t ModeFamiliesNamed(const RunMode *mode, uint32_t present);
 
 /// Which of the @p present families to run: the console's, whose MODE_FAMILIES_ASKED run only
 /// when named.

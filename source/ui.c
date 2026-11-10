@@ -1944,9 +1944,12 @@ RunMode UiStartMode(const UiStartState *state, RunMode from_file, uint32_t prese
     const bool families_changed = families != file_families || state->listen != from_file.listen;
     if (families_changed) {
         // Named whole, cpu with them, so even a run of nothing but cpu has a word to keep; a
-        // family the screen has no row for stays as the file named it.
-        mode.families_named =
-            families | MODE_FAMILY_CPU | (from_file.families_named & ~UI_START_FAMILIES);
+        // family the screen has no row for stays as the file named it, the ones `all` named
+        // among them, and `all` goes, or it would name the rows turned off again.
+        mode.families_named = families | MODE_FAMILY_CPU |
+                              (from_file.families_named & ~UI_START_FAMILIES) |
+                              (ModeFamiliesNamed(&from_file, present) & ~UI_START_FAMILIES);
+        mode.all = false;
         mode.listen = state->listen;
     }
     const bool timing_changed = state->no_timing != from_file.no_timing;
@@ -1981,6 +1984,11 @@ uint32_t UiStartWarningTop(uint32_t frame_height) {
 
 uint32_t UiStartRowTop(uint32_t row) {
     return UI_LIST_TOP + row * UI_ROW_HEIGHT;
+}
+
+uint32_t UiStartNvnTop(void) {
+    // The line under the note, which the crash list's heading leaves free.
+    return UiStartRowTop(UI_START_ROWS) + 4u + LINE;
 }
 
 // What each row is called and what it does, in the order of UiStartRow; the crash list's row says
@@ -2100,6 +2108,10 @@ void UiComposeStart(const UiFrame *frame, const UiStartInfo *info, UiStartState 
     }
     const uint32_t note = UiStartRowTop(UI_START_ROWS) + 4u;
     SayFitted(frame, MARGIN, note, DIM, "the judge and the cpu suite run whatever is chosen");
+    if (info->nvn_named) {
+        // Said where the person sees it before the run: the case's skip line says it after.
+        SayFitted(frame, MARGIN, UiStartNvnTop(), SKIPPED, UI_START_NVN_SAID);
+    }
 
     // The crash list in what is left above the warning's place, which is kept free whether or
     // not the warning shows, so turning the choice on moves nothing else.

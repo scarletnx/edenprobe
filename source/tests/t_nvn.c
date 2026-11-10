@@ -463,9 +463,12 @@ void RunNvn(void) {
 
     if (ViewerScreenUp()) {
         // The program's own screen holds the default window, and a swapchain made on it after
-        // the screen is what Eden never came back from (the game suite says the same).
+        // the screen is what Eden never came back from (the game suite says the same). The start
+        // screen leaves it up to the run's end, noprogress or not; a quick run from the mode file
+        // never opens it.
         ReportSkip(SUITE, WINDOW, REPORT_REASON_UNAVAILABLE,
-                   "the program's screen holds the window: run with the mode word noprogress");
+                   "the program's screen holds the window: a run begun on the start screen keeps "
+                   "it up to its end, noprogress or not; quick in the mode file runs this case");
     } else if (ReportStart(SUITE, WINDOW)) {
         NvnLayerClearError();
         const bool presented = Present(why, sizeof(why));
