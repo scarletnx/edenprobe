@@ -43,15 +43,22 @@ put on the card before the first launch and taken back after the last: one binar
 not skipped on another's run. A rebuilt binary, another size or modification time, has a list of
 its own.
 
+A line of the emulator's own that says its graphics device was lost (Eden's "Device loss
+occurred!", the Vulkan result named DEVICE_LOST or DeviceLost) ends the run there: the emulator is stopped,
+nothing is launched again, the report gets a note with that line and how many case lines came
+after it, which are no results, and the exit is 1. What an emulator draws once the host's driver
+has dropped its device says nothing about the emulator, and on some machines the next launch
+finds the display itself reset.
+
 Every line of the emulator's output goes to FILE when given; the lines about edenprobe are printed
 as they come, with ANSI colours taken off. At the end it prints the counts and, on lines of their
 own, the cases skipped as crashed and the ones a launch was stopped inside at its limit, and exits
-0 when the report ends on its summary, 1 when it does not, and 130 when stopped. Standard library
-only.
+0 when the report ends on its summary, 1 when it does not, 1 too when the run ended at a device loss, and 130 when stopped. Standard library only.
 """
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -63,6 +70,14 @@ import time
 
 ANSI = re.compile(rb"\x1b\[[0-9;]*m")
 SHOWN = re.compile(rb"edenprobe|EDENPROBE|\"type\":")
+# The probe's own lines in the emulator's output, its report's and its breadcrumbs, and the case
+# lines among them.
+PROBE = re.compile(rb"EDENPROBE|\"type\":")
+CASE = re.compile(rb"\"type\":\"case\"")
+# What an emulator logs when the host's driver has dropped its graphics device: Eden's "Device loss
+# occurred!", or the Vulkan result by its name (VK_ERROR_DEVICE_LOST, ErrorDeviceLost). Names only,
+# as they are spelled: "audio device lost" is another device's.
+LOST = re.compile(rb"Device loss occurred|DEVICE_LOST|DeviceLost")
 
 
 def card(xdg):
@@ -339,27 +354,44 @@ def journal_size(sd):
         return None
 
 
+class Launched:
+    """What one launch came to: its exit status; the seconds it was stopped after at its limit,
+    or None; quiet, the whole seconds the journal had gone without growing by then, which is how
+    long the case under way had run, since a case's start is a record; lost, the emulator's line
+    saying its graphics device was lost, or None; and after, how many case lines the probe still
+    reported after that line."""
+
+    def __init__(self):
+        self.status = None
+        self.stopped_after = None
+        self.quiet = 0
+        self.lost = None
+        self.after = 0
+
+
 def launch(emulator, nro, xdg, timeout, log, echo):
-    """One launch. Hands back (status, seconds it was stopped after or None, quiet): quiet is the
-    whole seconds the journal had gone without growing when the launch was stopped at its limit,
-    which is how long the case under way had run, since a case's start is a record."""
+    """One launch, stopped at its limit or at the emulator's word that its device was lost."""
     process = subprocess.Popen([emulator, "-g", nro], env=emulator_env(xdg, emulator),
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    ended = Launched()
 
     def pump():
         for raw in process.stdout:
             if log is not None:
                 log.write(raw)
-            if echo:
-                line = ANSI.sub(b"", raw)
-                if SHOWN.search(line):
-                    sys.stdout.buffer.write(line)
-                    sys.stdout.flush()
+            line = ANSI.sub(b"", raw)
+            if PROBE.search(line):
+                # The probe's own words are never the emulator's: a case may quote a loss.
+                if ended.lost is not None and CASE.search(line):
+                    ended.after += 1
+            elif ended.lost is None and LOST.search(line):
+                ended.lost = line.decode("utf-8", "replace").strip()
+            if echo and SHOWN.search(line):
+                sys.stdout.buffer.write(line)
+                sys.stdout.flush()
 
     reader = threading.Thread(target=pump, daemon=True)
     reader.start()
-    stopped_after = None
-    quiet = 0
     sd = card(xdg)
     started = time.monotonic()
     size = journal_size(sd)
@@ -371,21 +403,25 @@ def launch(emulator, nro, xdg, timeout, log, echo):
                 break
             except subprocess.TimeoutExpired:
                 pass
+            if ended.lost is not None:
+                stop(process)
+                break
             now = time.monotonic()
             current = journal_size(sd)
             if current != size:
                 size = current
                 grew = now
             if now - started >= timeout:
-                stopped_after = timeout
-                quiet = int(now - grew + 0.5)
+                ended.stopped_after = timeout
+                ended.quiet = int(now - grew + 0.5)
                 stop(process)
                 break
     except BaseException:
         stop(process)
         raise
     reader.join(timeout=10)
-    return process.returncode, stopped_after, quiet
+    ended.status = process.returncode
+    return ended
 
 
 def stop(process):
@@ -416,6 +452,22 @@ def mark(journal_path, record):
         f.write((b"\n" if open_line else b"") + record.encode("ascii") + b"\n")
         f.flush()
         os.fsync(f.fileno())
+    return True
+
+
+def note_in_report(report, text):
+    """Adds a note to the end of the report there, on a line of its own; nothing when there is no
+    report."""
+    if not os.path.isfile(report):
+        return False
+    with open(report, "rb") as f:
+        open_line = False
+        if f.seek(0, os.SEEK_END) > 0:
+            f.seek(-1, os.SEEK_END)
+            open_line = f.read(1) != b"\n"
+    with open(report, "ab") as f:
+        line = json.dumps({"type": "note", "text": text}, separators=(",", ":"))
+        f.write((b"\n" if open_line else b"") + line.encode("utf-8") + b"\n")
     return True
 
 
@@ -459,15 +511,43 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
     log = open(log_path, "wb") if log_path else None
     launches = 0
     code = 1
+    lost = None
     # A person's SIGTERM stops the run the way ctrl-C does.
     previous = signal.signal(signal.SIGTERM, interrupt)
     try:
         while True:
             before = Journal.read(journal_path) if journal_path is not None else None
             launches += 1
-            status, stopped_after, quiet = launch(emulator, nro, xdg, timeout, log, echo)
+            ended = launch(emulator, nro, xdg, timeout, log, echo)
+            status, stopped_after, quiet = ended.status, ended.stopped_after, ended.quiet
             said = "launch %d %s" % (launches, describe(status, stopped_after))
             named = run_folder(sd)
+            if ended.lost is not None:
+                # Before anything else the launch left: no summary, no relaunch and no case after
+                # the line counts once the device is gone.
+                where = None
+                if named is not None:
+                    folder = named
+                    report = os.path.join(folder, "report.jsonl")
+                    journal_path = os.path.join(folder, "journal")
+                    after = Journal.read(journal_path)
+                    where = after.inside() if after is not None else None
+                lost = "launch %d: the emulator said its graphics device was lost%s: \"%s\"" % (
+                    launches, " inside %s case \"%s\"" % (where[0], where[2]) if where else "",
+                    ended.lost)
+                came = ("%d case line%s came after that line and %s" % (
+                    ended.after, "" if ended.after == 1 else "s",
+                    "is no result" if ended.after == 1 else "are no results")
+                    if ended.after else "no case line came after that line")
+                noted = report is not None and note_in_report(
+                    report, "%s: %s; the run was stopped there, with no summary: %s" % (
+                        who, lost, came.replace("came after that line", "above came after it")))
+                say("%s; stopped there and not launched again, since what an emulator draws "
+                    "after a device loss is not its own work: %s%s%s" % (
+                        lost, came,
+                        "; the report's last line says so" if noted else "",
+                        "; that case goes on the crash list at the next run" if where else ""))
+                break
             if named is None:
                 say(said + "; it named no run folder in last-run, so no journal to go on with "
                     "and no relaunch")
@@ -521,6 +601,11 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
         swap_out(xdg, store)
     if code == 130:
         return code
+    if lost is not None:
+        print("%s: the run ended at a device loss, so the report has no summary to trust: %s%s" %
+              (who, lost, "; what it has is at %s" % report if report is not None else ""),
+              file=sys.stderr)
+        return 1
     if folder is None:
         print("%s: the emulator named no run folder in %s, so it left no report" %
               (who, os.path.join(sd, "last-run")), file=sys.stderr)

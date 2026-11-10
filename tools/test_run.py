@@ -19,7 +19,9 @@ run = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(run)
 
 # One launch per line of the scenario, the last line repeating: `crash <suite> <case>` starts the
-# case and aborts; `hang <suite> <case>` starts it and sleeps; `finish` ends the run with a
+# case and aborts; `hang <suite> <case>` starts it and sleeps; `lost <suite> <case>` starts it,
+# logs Eden's device loss, reports two more cases and sleeps; `quoted` reports a case whose detail
+# says device lost and finishes; `finish` ends the run with a
 # summary; `early` exits 1 having written nothing; `step` ends one more case and aborts outside
 # any, so every launch adds to the journal. Every launch but an early one names its folder in
 # last-run first, as the probe does: the one in fake-folder, or runs/fake; `named` exits 1 right
@@ -77,11 +79,25 @@ if len(before) > 1 and before[-1].startswith("timeout ") and before[-2].startswi
                                                         before[-1].split(" ", 1)[1], name))
 else:
     add(journal, "launch %d\n" % n)
-if what[0] in ("crash", "hang"):
+if what[0] in ("crash", "hang", "lost"):
     add(journal, "step %s 0 0 0 0 0\nstart %s 1 %s\n" % (what[1], what[1], what[2]))
-    if what[0] == "hang":
+    if what[0] == "lost":
+        print("\x1b[1;35m[  12.345678] Render.Vulkan <Critical> video_core/vulkan_common/"
+              "vulkan_device.cpp:898:ReportLoss: Device loss occurred!\x1b[0m", flush=True)
+        for name in ("drawn after the loss", "and another"):
+            line = '{"type":"case","suite":"%s","name":"%s","tier":"exact","result":"fail","detail":""}' % (what[1], name)
+            add(report, line + "\n")
+            print("[  12.4] Debug.Emulated <Info> svc_debug_string.cpp:25:OutputDebugString: " + line,
+                  flush=True)
+        # the last line with its newline held back, as Eden leaves it
+        add(report, '{"type":"note","text":"cut"}')
+    if what[0] != "crash":
         time.sleep(3600)
     os.abort()
+if what[0] == "quoted":
+    print('[  1.0] Debug.Emulated <Info> svc_debug_string.cpp:25:OutputDebugString: {"type":"case",'
+          '"suite":"one","name":"a case","tier":"none","result":"fail","detail":"the driver said '
+          'VK_ERROR_DEVICE_LOST"}', flush=True)
 if what[0] == "step":
     add(journal, "end one 0 pass case %d\n" % n)
     os.abort()
@@ -190,6 +206,49 @@ class Relaunch(unittest.TestCase):
         self.assertEqual(code, 0, said)
         self.assertNotIn("timeout", read(os.path.join(f.card, "runs", "fake", "journal")))
         self.assertNotIn("timeout", said)
+
+    def test_a_device_loss_ends_the_run_and_is_said(self):
+        f = self.fixture(["lost tex8k a copy", "finish"])
+        started = time.monotonic()
+        code, said = f.run()
+        self.assertEqual(code, 1, said)
+        self.assertLess(time.monotonic() - started, 30)
+        self.assertEqual(f.launches(), 1)
+        lost = ('launch 1: the emulator said its graphics device was lost inside tex8k case "a copy": '
+                '"[  12.345678] Render.Vulkan <Critical> video_core/vulkan_common/vulkan_device.cpp:898:'
+                'ReportLoss: Device loss occurred!"')
+        self.assertIn(lost + "; stopped there and not launched again, since what an emulator draws "
+                      "after a device loss is not its own work: 2 case lines came after that line "
+                      "and are no results; the report's last line says so; that case goes on the "
+                      "crash list at the next run", said)
+        self.assertIn("the run ended at a device loss, so the report has no summary to trust", said)
+        # The report's last line is the runner's note, on a line of its own, and it parses.
+        folder = os.path.join(f.card, "runs", "fake")
+        lines = read(os.path.join(folder, "report.jsonl")).split("\n")
+        self.assertEqual(lines[-1], "")
+        self.assertEqual(lines[-3], '{"type":"note","text":"cut"}')
+        note = run.json.loads(lines[-2])
+        self.assertEqual(note["type"], "note")
+        self.assertEqual(note["text"], "run.py: " + lost + "; the run was stopped there, with no "
+                         "summary: 2 case lines above came after it and are no results")
+        # No word in the journal: the case is the one the launch ended inside, for the crash list.
+        journal = read(os.path.join(folder, "journal"))
+        self.assertTrue(journal.endswith("start tex8k 1 a copy\n"), journal)
+
+    def test_a_case_that_quotes_a_loss_is_no_loss(self):
+        f = self.fixture(["quoted"])
+        code, said = f.run()
+        self.assertEqual(code, 0, said)
+        self.assertNotIn("device was lost", said)
+
+    def test_what_reads_as_a_device_loss(self):
+        for line in (b"ReportLoss: Device loss occurred!", b"vk::Check: VK_ERROR_DEVICE_LOST",
+                     b"Vulkan: ErrorDeviceLost"):
+            self.assertTrue(run.LOST.search(line), line)
+        # Another device's loss, and words that only look like one.
+        for line in (b"Audio device lost, reopening", b"the input device was lost",
+                     b"BC7's loss on the picture", b"lossy format", b"device opened"):
+            self.assertFalse(run.LOST.search(line), line)
 
     def test_a_launch_that_adds_nothing_ends_the_relaunching(self):
         f = self.fixture(["crash cpu sm4", "early"])
