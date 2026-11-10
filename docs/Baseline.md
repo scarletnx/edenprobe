@@ -18,7 +18,8 @@ number and how many the file has. The name follows the label's rules: letters, d
 most 32, not starting with a dot.
 
 - Name it after the machine (`console`, `eden-master`, `scarletnx`): a baseline is a machine's, not a build's.
-- Take at least three runs before comparing, and five or more where a case runs at one of two speeds per process.
+- Take at least three runs before comparing, and five or more where a case runs at one of two speeds per process;
+  under `make run`, `ROUNDS=5` makes them in one go ([Time per case](TimePerCase.md#several-rounds-of-one-build)).
 - A file with samples from more than one edenprobe build says how many builds and names the first two, since a newer
   edenprobe can time a case differently.
 

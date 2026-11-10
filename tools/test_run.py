@@ -22,7 +22,8 @@ SPEC.loader.exec_module(run)
 # case and aborts; `hang <suite> <case>` starts it and sleeps; `lost <suite> <case>` starts it,
 # logs Eden's device loss, reports two more cases and sleeps; `quoted` reports a case whose detail
 # says device lost and finishes; `talk` finishes a run of one timed suite of two cases, the first
-# failing, with the emulator's own lines between the probe's; `finish` ends the run with a
+# failing, with the emulator's own lines between the probe's; `timed` finishes a run whose two
+# cases carry a time, one of them 10 us more each launch; `finish` ends the run with a
 # summary; `early` exits 1 having written nothing; `step` ends one more case and aborts outside
 # any, so every launch adds to the journal. Every launch but an early one names its folder in
 # last-run first, as the probe does: the one in fake-folder, or runs/fake; `named` exits 1 right
@@ -97,6 +98,13 @@ if what[0] in ("crash", "hang", "lost"):
     print("\x1b[1;31m[   3.0] Core.ARM <Critical> core/arm/dynarmic.cpp:77:ExceptionRaised: "
           "Unsupported instruction\x1b[0m", flush=True)
     os.abort()
+if what[0] == "timed":
+    case = '{"type":"case","suite":"%s","name":"%s","tier":"exact","result":"pass","detail":"","us":%d}\n'
+    add(report, case % ("occlusion", "a query", 1000 + 10 * n) + case % ("clear", "red", 200) +
+        '{"type":"case","suite":"clear","name":"untimed","tier":"none","result":"pass","detail":""}\n'
+        '{"type":"summary","passed":3,"failed":0,"skipped":0,"crashed":0}\n')
+    add(journal, "finished 3 0 0 0\n")
+    sys.exit(0)
 if what[0] == "talk":
     def emulator(text):
         print("\x1b[1;31m[   1.0] Render.Vulkan <Error> shader.cpp:9:Build: %s\x1b[0m" % text, flush=True)
@@ -445,6 +453,89 @@ class Relaunch(unittest.TestCase):
         self.assertEqual(read(os.path.join(f.card, "mode")), "quick fatal\n")
         run.prepare(f.xdg, "")
         self.assertFalse(os.path.exists(os.path.join(f.card, "mode")))
+
+
+class Rounds(unittest.TestCase):
+    """--rounds: the whole run several times, each round's report kept and the times summed up."""
+
+    def setUp(self):
+        self.f = Fixture(["timed"])
+        self.folder = os.path.join(self.f.card, "runs", "fake")
+
+    def tearDown(self):
+        self.f.close()
+
+    def test_each_round_is_kept_and_the_times_summed_up(self):
+        # What an earlier call's rounds left must not pass for these.
+        os.makedirs(os.path.join(self.folder, "rounds"))
+        write(os.path.join(self.folder, "rounds", "report-9.jsonl"), "old\n")
+        code, said = self.f.run(rounds=3)
+        self.assertEqual(code, 0, said)
+        self.assertEqual(self.f.launches(), 3)
+        rounds = os.path.join(self.folder, "rounds")
+        self.assertEqual(sorted(os.listdir(rounds)),
+                         ["report-1.jsonl", "report-2.jsonl", "report-3.jsonl", "times.tsv"])
+        for number in (1, 2, 3):
+            self.assertIn('"name":"a query","tier":"exact","result":"pass","detail":"","us":%d}' %
+                          (1000 + 10 * number), read(os.path.join(rounds, "report-%d.jsonl" % number)))
+        # The folder's own report is the last round's.
+        self.assertEqual(read(os.path.join(self.folder, "report.jsonl")),
+                         read(os.path.join(rounds, "report-3.jsonl")))
+        self.assertEqual(read(os.path.join(rounds, "times.tsv")),
+                         "suite\tcase\truns\tmedian_us\tmean_us\tmin_us\tmax_us\tspread_percent\n"
+                         "occlusion\ta query\t3\t1020\t1020\t1010\t1030\t2.0\n"
+                         "clear\tred\t3\t200\t200\t200\t200\t0.0\n")
+        for text in ("round 1 of 3", "round 3 of 3",
+                     "3 rounds, 2 timed cases; each case's spread is from its fastest round to its "
+                     "slowest, and a change under it is not told from one round to the next:",
+                     "  suite         timed  median_spread  max_spread  the case with it",
+                     "  occlusion         1           2.0%        2.0%  a query",
+                     "  clear             1           0.0%        0.0%  red",
+                     "every case's median, mean, fastest, slowest and spread: " +
+                     os.path.join(rounds, "times.tsv"),
+                     "tools/perf.py " + os.path.join(rounds, "report-*.jsonl") +
+                     " -- THE-OTHER/rounds/report-*.jsonl"):
+            self.assertIn(text, said)
+
+    def test_one_round_is_the_run_it_always_was(self):
+        code, said = self.f.run(rounds=1)
+        self.assertEqual(code, 0, said)
+        self.assertEqual(self.f.launches(), 1)
+        self.assertFalse(os.path.exists(os.path.join(self.folder, "rounds")))
+        self.assertNotIn("round 1", said)
+
+    def test_a_round_that_does_not_finish_ends_them_with_the_ones_before_kept(self):
+        self.f.scenario(["timed", "early"])
+        code, said = self.f.run(rounds=3)
+        self.assertEqual(code, 1, said)
+        self.assertEqual(self.f.launches(), 2)
+        self.assertIn("round 2 of 3 did not end on its summary (exit 1), so the rounds end there "
+                      "with 1 kept in " + os.path.join(self.folder, "rounds"), said)
+        self.assertEqual(os.listdir(os.path.join(self.folder, "rounds")), ["report-1.jsonl"])
+
+    def test_rounds_that_time_nothing(self):
+        code, said = self.f.run(rounds=2, mode="quick NoTime")
+        self.assertEqual(code, 2, said)
+        self.assertFalse(os.path.exists(os.path.join(self.f.card, "fake-launches")))
+        self.assertIn("rounds=2 with the mode word notime would time nothing 2 times: rounds are "
+                      "for the times, so nothing was run", said)
+        # A family that times no case: the rounds run, and it is said.
+        self.f.scenario(["finish"])
+        code, said = self.f.run(rounds=2)
+        self.assertEqual(code, 0, said)
+        self.assertIn("no case of these 2 rounds carries a time (their families time none), so "
+                      "there is nothing to sum up; their reports are in " +
+                      os.path.join(self.folder, "rounds"), said)
+        self.assertFalse(os.path.exists(os.path.join(self.folder, "rounds", "times.tsv")))
+
+    def test_rounds_must_be_one_or_more(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as refused:
+            run.main(["--emulator", self.f.emulator, "--nro", self.f.nro, "--xdg", self.f.xdg,
+                      "--rounds", "0"])
+        self.assertEqual(refused.exception.code, 2)
+        self.assertIn("--rounds 0 is not a whole number from 1 up: one run is --rounds 1",
+                      err.getvalue())
 
 
 class Machine(unittest.TestCase):

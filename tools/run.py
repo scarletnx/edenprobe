@@ -4,7 +4,7 @@
 """Runs edenprobe under an emulator until its report is whole.
 
     tools/run.py --emulator EMULATOR --nro NRO --xdg DIR [--mode WORDS] [--machine NAME[@VERSION]]
-                 [--relaunches N] [--timeout SECONDS] [--log FILE] [--who NAME]
+                 [--relaunches N] [--timeout SECONDS] [--rounds N] [--log FILE] [--who NAME]
 
 The emulator's settings, memory card and caches go under DIR, as XDG_CONFIG_HOME, XDG_DATA_HOME and
 XDG_CACHE_HOME, so nothing of the person's own setup is read or written. The settings are each
@@ -57,11 +57,21 @@ that did not pass ran, in every pass and launch, cut out by the probe's own line
 it never ran, is then beside the case. Every line also goes to FILE as it came when --log is
 given; the lines about edenprobe are printed as they come, with ANSI colours taken off. At the end it prints the counts and, on lines of their
 own, the cases skipped as crashed and the ones a launch was stopped inside at its limit, and exits
-0 when the report ends on its summary, 1 when it does not, 1 too when the run ended at a device loss, and 130 when stopped. Standard library only.
+0 when the report ends on its summary, 1 when it does not, 1 too when the run ended at a device loss, and 130 when stopped.
+
+With --rounds N, more than one, the whole run is made N times, one after another, for the times:
+one run is one sample of the emulator's process, and processes differ by more than a small change
+does (docs/TimePerCase.md). Each round's report is kept as rounds/report-<n>.jsonl in the run's
+folder, the folder's own report.jsonl, pictures and logs being the last round's; then every timed
+case's median, mean, fastest, slowest and spread over the rounds go to rounds/times.tsv, and a
+line a suite is printed with its cases' spreads (tools/perf.py). A round that does not end on its
+summary ends the rounds with its exit status, the rounds before it kept. Refused, exit 2, with the
+mode word notime, which times nothing. Standard library only.
 """
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -377,12 +387,13 @@ def swap_out(xdg, store):
         shutil.copyfile(on_card, store)
 
 
-def prepare(xdg, mode):
+def prepare(xdg, mode, keep_rounds=False):
     """The directories, the previous runs' leavings taken away, and the mode file. Every run
     folder loses its report, its pictures and the emulator's logs, since this script cannot know which folder the build
     it runs will name. The journals stay: the probe reads its own to decide the run is new, the
     report being gone, and lists a case the last launch of an earlier run ended inside. The
-    report and the pictures at the top of the card are a build's from before run folders."""
+    report and the pictures at the top of the card are a build's from before run folders. The
+    rounds' reports go too, unless @keep_rounds: a round after the first of --rounds."""
     for d in ("data", "cache"):
         os.makedirs(os.path.join(xdg, d), exist_ok=True)
     sd = card(xdg)
@@ -394,7 +405,8 @@ def prepare(xdg, mode):
             path = os.path.join(folder, name)
             if os.path.isfile(path) or os.path.islink(path):
                 os.remove(path)
-        names = ("images", "support-check", "mode") if folder == sd else ("images", "logs")
+        names = ("images", "support-check", "mode") if folder == sd else \
+            ("images", "logs") if keep_rounds else ("images", "logs", "rounds")
         for name in names:
             path = os.path.join(folder, name)
             if os.path.isdir(path):
@@ -645,12 +657,14 @@ def mark_timeout(journal_path, limit, quiet):
     return mark(journal_path, "timeout %d %d\t" % (limit, quiet))
 
 
-def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=None,
-        who="run.py", echo=True, machine=None):
+def one_run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=None,
+            who="run.py", echo=True, machine=None, round_number=1):
+    """One whole run, launched again after each crash. Hands back (exit status, the report's path
+    or None). @round_number past 1 keeps the rounds before it and adds to the log file."""
     say = lambda text: print("%s: %s" % (who, text), flush=True)
     if not (os.path.isfile(emulator) and os.access(emulator, os.X_OK)):
         print("%s: no executable emulator at %s" % (who, emulator), file=sys.stderr)
-        return 1
+        return 1, None
     for d in ("data", "cache"):
         os.makedirs(os.path.join(xdg, d), exist_ok=True)
     for line in prepare_settings(xdg, emulator):
@@ -659,7 +673,7 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
     say(why)
     if word:
         mode = mode + " " + word
-    prepare(xdg, mode)
+    prepare(xdg, mode, keep_rounds=round_number > 1)
     say("mode file: %s" % mode if mode else "mode file: none, so the detailed screen")
     sd = card(xdg)
     # Where the report and the journal are once a launch has named its folder. Before the first
@@ -669,7 +683,7 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
     journal_path = None
     earlier = {f: Journal.read(os.path.join(f, "journal")) for f in run_folders(sd)}
     store = swap_in(xdg, emulator)
-    log = open(log_path, "wb") if log_path else None
+    log = open(log_path, "wb" if round_number == 1 else "ab") if log_path else None
     launches = 0
     code = 1
     lost = None
@@ -784,24 +798,24 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
                 (wanted, "" if wanted == 1 else "s", written,
                  os.path.join(folder, "logs") if written else "no logs/ written"))
     if code == 130:
-        return code
+        return code, report
     if lost is not None:
         print("%s: the run ended at a device loss, so the report has no summary to trust: %s%s" %
               (who, lost, "; what it has is at %s" % report if report is not None else ""),
               file=sys.stderr)
-        return 1
+        return 1, report
     if folder is None:
         print("%s: the emulator named no run folder in %s, so it left no report" %
               (who, os.path.join(sd, "last-run")), file=sys.stderr)
-        return 1
+        return 1, None
     if not os.path.isfile(report):
         print("%s: the emulator left no report at %s" % (who, report), file=sys.stderr)
-        return 1
+        return 1, None
     counts = summary(report)
     if counts is None:
         print("%s: no summary in the report after %d launch%s: stopped at %d s, or died first" %
               (who, launches, "" if launches == 1 else "es", timeout), file=sys.stderr)
-        return 1
+        return 1, report
     journal = Journal.read(journal_path)
     crashed = journal.crashed() if journal is not None else []
     timed_out = journal.timed_out() if journal is not None else []
@@ -815,7 +829,80 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
             (len(timed_out), timeout, ", ".join('%s "%s"' % c for c in timed_out)))
     say("%d launch%s" % (launches, "" if launches == 1 else "es"))
     print("report: %s" % report, flush=True)
-    return code
+    return code, report
+
+
+def perf_tool():
+    """tools/perf.py, which reads a report's times and knows a median and a spread."""
+    spec = importlib.util.spec_from_file_location(
+        "edenprobe_perf", os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def sum_up_rounds(reports, who):
+    """The times of the rounds' @reports case by case, into times.tsv beside them and a line a
+    suite on the output. Hands back the file's path, or None when no round timed a case."""
+    say = lambda text: print("%s: %s" % (who, text), flush=True)
+    perf = perf_tool()
+    runs = []
+    order = []
+    for path in reports:
+        times, suites = perf.read(path)
+        runs.append(times)
+        order.extend(suite for suite in suites if suite not in order)
+    rows = perf.rounds(runs)
+    folder = os.path.dirname(reports[-1])
+    if not rows:
+        say("no case of these %d rounds carries a time (their families time none), so there is "
+            "nothing to sum up; their reports are in %s" % (len(reports), folder))
+        return None
+    table = os.path.join(folder, "times.tsv")
+    with open(table, "w") as f:
+        f.write("\n".join(perf.rounds_tsv(rows, order)) + "\n")
+    say("%d rounds, %d timed cases; each case's spread is from its fastest round to its slowest, "
+        "and a change under it is not told from one round to the next:" % (len(reports), len(rows)))
+    for line in perf.table_rounds(rows, order):
+        print("  " + line, flush=True)
+    say("every case's median, mean, fastest, slowest and spread: %s" % table)
+    say("to hold another build's rounds to these: tools/perf.py %s -- THE-OTHER/rounds/report-*.jsonl"
+        % os.path.join(folder, "report-*.jsonl"))
+    return table
+
+
+NOTIME = re.compile(r"(?:^|[^A-Za-z])notime(?:$|[^A-Za-z])", re.I)
+
+
+def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=None,
+        who="run.py", echo=True, machine=None, rounds=1):
+    """The run, or @rounds of it one after another with their times summed up. The exit status."""
+    if rounds == 1:
+        return one_run(emulator, nro, xdg, mode, relaunches, timeout, log_path, who, echo,
+                       machine)[0]
+    if NOTIME.search(mode):
+        print("%s: rounds=%d with the mode word notime would time nothing %d times: rounds are "
+              "for the times, so nothing was run" % (who, rounds, rounds), file=sys.stderr)
+        return 2
+    reports = []
+    for number in range(1, rounds + 1):
+        print("%s: round %d of %d" % (who, number, rounds), flush=True)
+        code, report = one_run(emulator, nro, xdg, mode, relaunches, timeout, log_path, who, echo,
+                               machine, round_number=number)
+        if code != 0:
+            print("%s: round %d of %d did not end on its summary (exit %d), so the rounds end "
+                  "there with %d kept%s" % (
+                      who, number, rounds, code, len(reports),
+                      " in %s" % os.path.dirname(reports[-1]) if reports else ""), file=sys.stderr)
+            return code
+        kept = os.path.join(os.path.dirname(report), "rounds", "report-%d.jsonl" % number)
+        os.makedirs(os.path.dirname(kept), exist_ok=True)
+        shutil.copyfile(report, kept)
+        reports.append(kept)
+    sum_up_rounds(reports, who)
+    return 0
+
+
 
 
 def main(argv):
@@ -827,14 +914,18 @@ def main(argv):
     parser.add_argument("--machine", default="")
     parser.add_argument("--relaunches", type=int, default=16)
     parser.add_argument("--timeout", type=int, default=60)
+    parser.add_argument("--rounds", type=int, default=1)
     parser.add_argument("--log")
     parser.add_argument("--who", default="run.py")
     args = parser.parse_args(argv)
     if args.relaunches < 0 or args.timeout <= 0:
         parser.error("relaunches must be nought or more and the timeout more than nought")
+    if args.rounds < 1:
+        parser.error("--rounds %d is not a whole number from 1 up: one run is --rounds 1" %
+                     args.rounds)
     return run(os.path.abspath(args.emulator), os.path.abspath(args.nro),
                os.path.abspath(args.xdg), args.mode.strip(), args.relaunches, args.timeout,
-               args.log, args.who, machine=args.machine.strip() or None)
+               args.log, args.who, machine=args.machine.strip() or None, rounds=args.rounds)
 
 
 if __name__ == "__main__":
