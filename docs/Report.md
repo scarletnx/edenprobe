@@ -40,6 +40,7 @@ A case that could not ask its question is a `skip`, tier `none`, with a one-word
 | `unanswered` | it asked a person, and nothing was pressed in time |
 | `banned` | the ban list bans it on the machine `machine=` names, and `unban` did not ask for it; the detail names the line of `source/bans.txt` and what breaks |
 | `asked` | the mode file's `skip=<suite>` leaves its suite out ([Leaving a suite out](Crashes.md#leaving-a-suite-out)) |
+| `timeout` | a runner stopped the program inside it at a launch's time limit, earlier in this run; the detail gives the limit and how long the case had run ([a launch stopped at its time limit](Crashes.md#a-launch-stopped-at-its-time-limit)) |
 
 The summary's four counts add up to the case lines; `skipped` leaves out the `crashed` ones, which have their own
 count. The debug channel's `EDENPROBE DONE` line carries the same four. With `compare=<name>`, `baseline` lines and a

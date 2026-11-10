@@ -11,10 +11,12 @@
 # JVM's hs_err_pid files) lands there with each launch's log (launch-N.log) and the run's report.jsonl and journal. A
 # launch that ends before EDENPROBE DONE, prints no edenprobe line for --stall seconds (120), or runs past --timeout
 # seconds (900), is stopped and launched again: the engine reports the case it ended inside as crashed and goes on, up
-# to --launches (5). Exit 0 with a whole report, 1 a run that did not end whole, 2 refused (usage).
+# to --launches (5). A launch this script stopped is said in the journal, `timeout <limit> <quiet>`, the limit it ran
+# into and the seconds since the journal's last record, so the engine reports that case as timeout instead, off the
+# crash list (docs/Crashes.md). Exit 0 with a whole report, 1 a run that did not end whole, 2 refused (usage).
 set -u
 driver= apk= out= mode=quick java_home= framework= timeout=900 stall=120 launches=5
-usage() { sed -n '4,17s/^# \{0,1\}//p' "$0"; }
+usage() { sed -n '4,19s/^# \{0,1\}//p' "$0"; }
 while [ $# -gt 0 ]; do
     case $1 in
     --) shift; break ;;
@@ -71,6 +73,19 @@ stop() {
 }
 trap stop EXIT
 trap 'exit 1' INT TERM
+# Says in the journal of the folder last-run names that the launch was stopped at LIMIT seconds, on a line of its own:
+# the engine then skips the case under way as timeout. Nothing when the run has no journal yet.
+mark_timeout() { # LIMIT NOW
+    local folder journal written
+    folder=$(cat "$root/last-run" 2> /dev/null)
+    case $folder in runs/?*) ;; *) return ;; esac
+    journal=$root/$folder/journal
+    [ -f "$journal" ] || return
+    written=$(stat -c %Y "$journal" 2> /dev/null || stat -f %m "$journal")
+    [ -z "$(tail -c 1 "$journal")" ] || echo >> "$journal"
+    printf 'timeout %s %s\t\n' "$1" "$(($2 - written))" >> "$journal"
+    log "launch $launch: the journal says timeout $1 $(($2 - written)), so the case under way is skipped as timeout, not as crashed"
+}
 
 for launch in $(seq 1 "$launches"); do
     l="$out/launch-$launch.log"
@@ -108,6 +123,7 @@ for launch in $(seq 1 "$launches"); do
         if [ $((now - last_move)) -ge "$stall" ] || [ $((now - start)) -ge "$timeout" ]; then
             log "launch $launch: no progress for $((now - last_move)) s ($((now - start)) s in all): stopping it"
             stop
+            if [ $((now - last_move)) -ge "$stall" ]; then mark_timeout "$stall" "$now"; else mark_timeout "$timeout" "$now"; fi
             break
         fi
     done

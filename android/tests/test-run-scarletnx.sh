@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # android/tests/test-run-scarletnx.sh: android/tools/run-scarletnx.sh with a fake driver (fake-driver): headless, no
 # display, an empty home inside the run folder with the mode file in the app's place, the driver's options passed, a
-# launch that dies and one that hangs launched again, its crash files in the run folder, relative paths taken from
-# where it was called, and the report copied out.
+# launch that dies and one that hangs launched again, the hang said in the journal as a timeout, its crash files in the
+# run folder, relative paths taken from where it was called, and the report copied out.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 tmp=$(mktemp -d)
@@ -47,6 +47,13 @@ grep -qx "mode quick machine=scarletnx-android" "$tmp/dies/state/seen-1" &&
 scenario hangs stall --stall 3
 [ $rc = 0 ] && [ "$(cat "$tmp/hangs/state/launches")" = 2 ] && ok "hangs: stopped after 3 s silent and launched again" ||
     bad "hangs: exit $rc: $(cat "$tmp/hangs/log")"
+# the stop is said in the journal, between the two launches' records, with the limit and the journal's age
+[ "$(sed -n 1p "$tmp/hangs/out/journal")" = launch ] && sed -n 2p "$tmp/hangs/out/journal" | grep -qx $'timeout 3 [0-9][0-9]*\t' &&
+    [ "$(sed -n 3p "$tmp/hangs/out/journal")" = launch ] && ok "hangs: the journal says timeout 3 and the seconds it had been quiet" ||
+    bad "hangs: the journal: $(cat -A "$tmp/hangs/out/journal")"
+grep -q "the journal says timeout 3 [0-9][0-9]*, so the case under way is skipped as timeout, not as crashed" "$tmp/hangs/log" &&
+    ok "hangs: and the script says so" || bad "hangs: $(cat "$tmp/hangs/log")"
+grep -q timeout "$tmp/dies/out/journal" && bad "dies: a launch that ended by itself was marked as a timeout" || ok "dies: no timeout in the journal"
 
 [ $fails = 0 ] && echo "test-run-scarletnx: all passed" || echo "test-run-scarletnx: $fails failed"
 [ $fails = 0 ]

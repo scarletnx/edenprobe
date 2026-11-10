@@ -54,16 +54,26 @@ static bool SameRecord(const JournalRecord *a, const JournalRecord *b) {
     return a->kind == b->kind && strcmp(a->suite, b->suite) == 0 &&
            strcmp(a->name, b->name) == 0 && strcmp(a->mode, b->mode) == 0 &&
            a->number == b->number && a->result == b->result && a->offset == b->offset &&
+           a->limit == b->limit && a->quiet == b->quiet &&
            memcmp(&a->counts, &b->counts, sizeof(a->counts)) == 0;
 }
 
 static void CheckRecords(void) {
-    JournalRecord records[11];
+    JournalRecord records[13];
     records[0] = Record(JOURNAL_RUN, "0.2.0", "v0.2.0-20-g2ddafce-dirty", 0);
     snprintf(records[0].mode, sizeof(records[0].mode), "fatal graphics retry");
     records[9] = Record(JOURNAL_CHOSEN, NULL, NULL, 0);
     snprintf(records[9].mode, sizeof(records[9].mode), "fatal retry");
     records[10] = Record(JOURNAL_STOPPED, NULL, NULL, 0);
+    records[11] = Record(JOURNAL_TIMEOUT, NULL, NULL, 0);
+    records[11].limit = 60u;
+    records[11].quiet = 58u;
+    records[12] = Record(JOURNAL_TIMED_OUT, "tex8k", "a 256x256 region of the 8192x8192 BC7 "
+                                                     "texture copied out to a buffer holds its "
+                                                     "bytes",
+                         0);
+    records[12].limit = 60u;
+    records[12].quiet = 58u;
     records[1] = Record(JOURNAL_LAUNCH, NULL, NULL, 3);
     records[2] = Record(JOURNAL_STEP, "index", NULL, 0);
     records[2].offset = 84504u;
@@ -98,13 +108,21 @@ static void CheckRecords(void) {
     }
     char start[JOURNAL_LINE_MAX];
     JournalFormat(start, sizeof(start), &records[4]);
+    char timeout[JOURNAL_LINE_MAX];
+    JournalFormat(timeout, sizeof(timeout), &records[11]);
+    char timed_out[JOURNAL_LINE_MAX];
+    JournalFormat(timed_out, sizeof(timed_out), &records[12]);
     CHECK_TRUE(SUITE, "every journal record reads back as it was written", CHECK_NONE,
                wrong == 0u &&
                    strcmp(start, "start index 7 an indexed draw with the library's open limit "
-                                 "uses every index\t\n") == 0,
-               "%u of 11 records came back different, the first \"%.120s\"; a start reads "
-               "\"%.120s\"",
-               (unsigned)wrong, first_wrong, start);
+                                 "uses every index\t\n") == 0 &&
+                   strcmp(timeout, "timeout 60 58\t\n") == 0 &&
+                   strcmp(timed_out, "timedout tex8k 0 60 58 a 256x256 region of the 8192x8192 "
+                                     "BC7 texture copied out to a buffer holds its bytes\t\n") ==
+                       0,
+               "%u of 13 records came back different, the first \"%.120s\"; a start reads "
+               "\"%.120s\", a timeout \"%.40s\", a timed out case \"%.60s\"",
+               (unsigned)wrong, first_wrong, start, timeout, timed_out);
 
     // Half a record would read as another one, so a buffer too small for it gets nothing; and a
     // name with a newline in it cannot end its line early.
@@ -144,6 +162,12 @@ static void CheckRecords(void) {
         "done a b",
         "chosen",
         "stopped now",
+        "timeout",
+        "timeout 60",
+        "timeout 60 58 more",
+        "timeout sixty 58",
+        "timedout clear 1 60 a case",
+        "timedout clear 1 60 58",
         "begin clear 1 a case",
         "pass clear 99999999999",
         "start clear 1 a\tcase",
@@ -351,6 +375,116 @@ static void CheckReading(void) {
                "counts %u %u %u %u, want 11 3 4 2", (unsigned)counted.counts.counts[0],
                (unsigned)counted.counts.counts[1], (unsigned)counted.counts.counts[2],
                (unsigned)counted.counts.counts[3]);
+}
+
+/// A launch a runner stopped at its time limit: the case under way is skipped by the launch after
+/// as timeout, with the limit and how long the case had run, never as crashed, and the note
+/// before the summary keeps the two apart.
+static void CheckTimeout(void) {
+    static const char INSIDE[] = "run 0.2.0 b q\nlaunch 1\nstep tex8k 10 4 0 0 0\n"
+                                 "start tex8k 0 a copy\ntimeout 60 58\t\n";
+    static const char OUTSIDE[] = "run 0.2.0 b q\nlaunch 1\nstep tex8k 10 4 0 0 0\n"
+                                  "start tex8k 0 a copy\nend tex8k 0 pass a copy\n"
+                                  "timeout 60 3\n";
+    // The newline of the start lost, as Eden loses it, and the runner's record on a line of its
+    // own after it.
+    static const char TORN[] = "run 0.2.0 b q\nlaunch 1\nstep tex8k 10 4 0 0 0\n"
+                               "start tex8k 0 a copy\t\ntimeout 5 5\t\n";
+    // The launches after: one that went on and ended inside another case, then one more.
+    static const char LATER[] = "run 0.2.0 b q\nlaunch 1\nstep tex8k 10 4 0 0 0\n"
+                                "start tex8k 0 a copy\ntimeout 60 58\nlaunch 2\n"
+                                "timedout tex8k 0 60 58 a copy\nstep tex8k 10 4 0 0 0\n"
+                                "end tex8k 0 skip a copy\nstart tex8k 0 a draw\nlaunch 3\n"
+                                "crashed tex8k 0 a draw\nstep tex8k 10 4 0 0 0\n"
+                                "end tex8k 0 skip a copy\nend tex8k 0 crashed a draw\n";
+    JournalState inside, outside, torn, later;
+    JournalStateInit(&inside);
+    JournalStateInit(&outside);
+    JournalStateInit(&torn);
+    JournalStateInit(&later);
+    JournalReadText(&inside, INSIDE, strlen(INSIDE));
+    JournalReadText(&outside, OUTSIDE, strlen(OUTSIDE));
+    JournalReadText(&torn, TORN, strlen(TORN));
+    JournalReadText(&later, LATER, strlen(LATER));
+    const JournalPlan plan = JournalPlanStart(&inside, "0.2.0", "b", "q", 100);
+    const JournalPlan stop = JournalPlanStart(&outside, "0.2.0", "b", "q", 100);
+    const JournalPlan torn_plan = JournalPlanStart(&torn, "0.2.0", "b", "q", 100);
+    const JournalPlan other = JournalPlanStart(&inside, "0.2.0", "another", "q", 100);
+    const JournalPlan on = JournalPlanStart(&later, "0.2.0", "b", "q", 100);
+    const bool read_right =
+        inside.in_case && inside.timed_out && plan.start == JOURNAL_RESUME_CASE && plan.crashed &&
+        plan.timed_out && plan.crash.kind == JOURNAL_TIMED_OUT && plan.crash.limit == 60u &&
+        plan.crash.quiet == 58u && strcmp(plan.crash.name, "a copy") == 0 &&
+        // Outside any case it reads as a stop: the step keeps what it reported.
+        !outside.in_case && !outside.timed_out && !stop.crashed && !stop.timed_out &&
+        stop.start == JOURNAL_RESUME_STEP &&
+        torn.in_case && torn.timed_out && torn_plan.timed_out && torn_plan.crash.limit == 5u &&
+        // The launches after tell the two apart by their records.
+        later.crash_count == 2u && later.crashes[0].kind == JOURNAL_TIMED_OUT &&
+        later.crashes[0].limit == 60u && later.crashes[0].quiet == 58u &&
+        later.crashes[1].kind == JOURNAL_CRASH && !later.in_case && !later.timed_out &&
+        on.start == JOURNAL_RESUME_STEP && !on.timed_out;
+
+    char resumed[REPORT_NOTE_MAX + 1];
+    char anew[REPORT_NOTE_MAX + 1];
+    char asked[JOURNAL_SUITE_MAX + JOURNAL_NAME_MAX + 160u];
+    char run[REPORT_NOTE_MAX + 1];
+    JournalDescribePlan(resumed, sizeof(resumed), &plan, &inside);
+    JournalDescribePlan(anew, sizeof(anew), &other, &inside);
+    JournalDescribeStop(asked, sizeof(asked), &plan, &inside);
+    JournalDescribeRun(run, sizeof(run), &on, &later, 1u);
+    const bool said_right =
+        strcmp(resumed, "journal: launch 2 resumes the run; a runner stopped the program at its "
+                        "limit of 60 s inside tex8k case \"a copy\", 58 s after the journal's "
+                        "last record: that case is skipped as timeout and stays off the crash "
+                        "list, and step tex8k runs again from its start") == 0 &&
+        strcmp(anew, "journal: a new run (the journal is another build's); before it, a runner "
+                     "stopped the program at its limit of 60 s inside tex8k case \"a copy\", 58 "
+                     "s after the journal's last record, which stays off the crash list and runs "
+                     "again") == 0 &&
+        strcmp(asked, "a runner stopped the program at its limit of 60 s inside tex8k case \"a "
+                      "copy\", 58 s after the journal's last record") == 0 &&
+        strcmp(run, "journal: this run took 4 launches; 1 case skipped as crashed; the program "
+                    "ended inside tex8k \"a draw\"; 1 case skipped as timeout, a runner having "
+                    "stopped the program at its limit inside tex8k \"a copy\"") == 0;
+    CHECK_TRUE(SUITE, "a launch a runner stopped at its limit leaves a timeout, not a crash",
+               CHECK_NONE, read_right && said_right,
+               "read %s (inside: in a case %d, timed out %d, plan %d crashed %d timed out %d "
+               "limit %u quiet %u; outside: plan %d; later: %u records); said \"%.90s\"; "
+               "\"%.60s\"; \"%.90s\"",
+               read_right ? "right" : "wrong", (int)inside.in_case, (int)inside.timed_out,
+               (int)plan.start, (int)plan.crashed, (int)plan.timed_out,
+               (unsigned)plan.crash.limit, (unsigned)plan.crash.quiet, (int)stop.start,
+               (unsigned)later.crash_count, resumed, anew, run);
+
+    // What the launch after decides for the case: skipped as timeout with both numbers, retry or
+    // not, and counted with the skips. The run's own settings and crashes are handed back.
+    const uint32_t crashes = ReportCrashedMark();
+    static CrashList saved;
+    saved = *ReportCrashList();
+    char saved_path[64];
+    snprintf(saved_path, sizeof(saved_path), "%s", ReportCrashListPath());
+    const bool saved_retry = ReportRetrying();
+    ReportSetCrashList(NULL, NULL, true);
+    ReportAddCrashed(&plan.crash);
+    ReportReason reason = REPORT_REASON_CRASHED;
+    char detail[REPORT_KEPT_DETAIL];
+    const bool skipped = !ReportWouldRun("tex8k", "a copy", &reason, detail, sizeof(detail));
+    const bool next_runs = ReportWouldRun("tex8k", "a draw", NULL, NULL, 0);
+    ReportCrashedRewind(crashes);
+    ReportSetCrashList(&saved, saved_path, saved_retry);
+    CHECK_TRUE(SUITE, "a case a runner stopped the program inside is skipped as timeout, with "
+                      "the limit and how long it ran",
+               CHECK_NONE,
+               skipped && next_runs && reason == REPORT_REASON_TIMEOUT &&
+                   strcmp(ReportReasonWord(REPORT_REASON_TIMEOUT), "timeout") == 0 &&
+                   strcmp(detail, "a runner stopped the program inside it earlier in this run, at "
+                                  "the launch's limit of 60 s and 58 s after the journal's last "
+                                  "record, which is how long the case had run; it is not on the "
+                                  "crash list, so a later run starts it again") == 0 &&
+                   ReportCrashedMark() == crashes,
+               "skipped %d as %s, the next case runs %d; detail \"%.280s\"", (int)skipped,
+               ReportReasonWord(reason), (int)next_runs, detail);
 }
 
 static void CheckPlans(void) {
@@ -1774,6 +1908,75 @@ static void CheckRelaunchSkipped(const char *scratch) {
                (unsigned)Occurrences(report, LEFT_OUT), (unsigned)Occurrences(report, NOTHING),
                (int)gone, read && strlen(report) > 200u ? report + strlen(report) - 200u : report);
 }
+
+/// The same run with its first launch stopped by a runner at its limit, which the runner says in
+/// the journal: the next launch skips the case as timeout with the runner's numbers, counts it
+/// with the skips and leaves the crash list alone, so the run after starts the case again.
+static void CheckRelaunchTimeout(const char *scratch) {
+    char root[256];
+    char path[320];
+    char report_path[320];
+    snprintf(root, sizeof(root), "%.200s/relaunch", scratch);
+    snprintf(report_path, sizeof(report_path), "%s/runs/relaunch/report.jsonl", root);
+    mkdir(root, 0777);
+    snprintf(path, sizeof(path), "%s/mode", root);
+    const bool moded = JournalWriteFile(path, "quick\n");
+
+    static char report[16384];
+    static char journal[4096];
+    char listed[512] = "";
+    const int first = RelaunchOnce(root);
+    // What tools/run.py writes once it has stopped a launch at its limit.
+    snprintf(path, sizeof(path), "%s/runs/relaunch/journal", root);
+    FILE *const file = fopen(path, "a");
+    const bool marked = file != NULL && fputs("timeout 60 58\t\n", file) >= 0;
+    if (file != NULL) {
+        fclose(file);
+    }
+    const int second = RelaunchOnce(root);
+    const bool read = JournalReadFile(report_path, report, sizeof(report), NULL) > 0;
+    (void)JournalReadFile(path, journal, sizeof(journal), NULL);
+    snprintf(path, sizeof(path), "%s/crashes", root);
+    const bool no_list = JournalReadFile(path, listed, sizeof(listed), NULL) <= 0;
+    // A new run: the case is on no list, so it runs, and ends this launch too; with no word from
+    // a runner, the launch after that takes it for the crash it is.
+    const int third = RelaunchOnce(root);
+    const int fourth = RelaunchOnce(root);
+    (void)JournalReadFile(path, listed, sizeof(listed), NULL);
+
+    static const char TIMEOUT[] =
+        "{\"type\":\"case\",\"suite\":\"ending\",\"name\":\"a case that ends the program\","
+        "\"tier\":\"none\",\"result\":\"skip\",\"reason\":\"timeout\",\"detail\":\"a runner "
+        "stopped the program inside it earlier in this run, at the launch's limit of 60 s and 58 "
+        "s after the journal's last record, which is how long the case had run; it is not on the "
+        "crash list, so a later run starts it again\"}";
+    static const char NOTE[] =
+        "journal: this run took 2 launches; 0 cases skipped as crashed; 1 case skipped as "
+        "timeout, a runner having stopped the program at its limit inside ending \\\"a case that "
+        "ends the program\\\"";
+    static const char SUMMARY[] =
+        "{\"type\":\"summary\",\"passed\":3,\"failed\":0,\"skipped\":1,\"crashed\":0}";
+    const bool skipped =
+        moded && marked && first != -1 && WIFSIGNALED(first) && second != -1 &&
+        WIFEXITED(second) && WEXITSTATUS(second) == 0 && read &&
+        Occurrences(report, TIMEOUT) == 1u && Occurrences(report, NOTE) == 1u &&
+        strstr(report, "\"reason\":\"crashed\"") == NULL && strstr(report, SUMMARY) != NULL &&
+        strstr(journal, "timedout ending 0 60 58 a case that ends the program\t\n") != NULL &&
+        strstr(journal, "crashed ending") == NULL && no_list;
+    const bool again = third != -1 && WIFSIGNALED(third) && WTERMSIG(third) == SIGKILL &&
+                       fourth != -1 && WIFEXITED(fourth) && WEXITSTATUS(fourth) == 0 &&
+                       strstr(listed, "ending a case that ends the program\n") != NULL;
+    const bool gone = RelaunchSweep(root);
+    CHECK_TRUE(SUITE, "a launch a runner stopped at its limit costs the case as a timeout, and "
+                      "the run after starts it again",
+               CHECK_NONE, skipped && again && gone,
+               "mode file %d, marked %d; launch 1 status %d, launch 2 status %d; the timeout line "
+               "%u, the note %u, no crash list %d; the next run's launches %d and %d, files gone "
+               "%d; report ends \"...%.200s\"",
+               (int)moded, (int)marked, first, second, (unsigned)Occurrences(report, TIMEOUT),
+               (unsigned)Occurrences(report, NOTE), (int)no_list, third, fourth, (int)gone,
+               read && strlen(report) > 200u ? report + strlen(report) - 200u : report);
+}
 #endif
 
 /// A suite skip= names: its cases are skipped as asked whatever hang, unban and retry say, after a
@@ -1852,6 +2055,7 @@ static void CheckSkipSuites(void) {
 void RunSupportJournal(const char *scratch) {
     CheckRecords();
     CheckReading();
+    CheckTimeout();
     CheckPlans();
     CheckAsking();
     CheckChosenRun();
@@ -1895,5 +2099,6 @@ void RunSupportJournal(const char *scratch) {
     CheckRelaunch(scratch);
     CheckRelaunchBanned(scratch);
     CheckRelaunchSkipped(scratch);
+    CheckRelaunchTimeout(scratch);
 #endif
 }

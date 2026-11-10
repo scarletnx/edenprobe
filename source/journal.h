@@ -73,6 +73,13 @@ typedef struct {
 ///   finished <p> <f> <s> <c>              after the summary
 ///   stopped                               by a runner that stopped the program on purpose: the
 ///                                         case under way did not end it
+///   timeout <limit> <quiet>               by a runner that stopped the program at a launch's
+///                                         limit of <limit> seconds, the journal <quiet> seconds
+///                                         without a record by then: the case under way ran that
+///                                         long and did not end the program
+///   timedout <suite> <pass> <limit> <quiet> <case>
+///                                         the case the launch before was stopped inside at its
+///                                         limit, by the launch after
 ///
 /// A step is what main runs as one: a suite, or the whole net family. A case name runs to the
 /// end of its line; every other field is one word.
@@ -89,6 +96,8 @@ typedef enum {
     JOURNAL_DONE,
     JOURNAL_FINISHED,
     JOURNAL_STOPPED,
+    JOURNAL_TIMEOUT,
+    JOURNAL_TIMED_OUT,
 } JournalKind;
 
 typedef struct {
@@ -105,6 +114,10 @@ typedef struct {
     /// The report's length in bytes when a step began.
     uint64_t offset;
     JournalCounts counts;
+    /// A timeout's: the launch's limit in seconds, and the seconds the journal had gone without a
+    /// record when the runner stopped the program, which is how long the case under way had run.
+    uint32_t limit;
+    uint32_t quiet;
 } JournalRecord;
 
 /// Writes @p record as its line, newline included. Returns the length, or 0 when it does not fit,
@@ -148,9 +161,13 @@ typedef struct {
     /// The last record was a case starting: the program ended inside that case.
     bool in_case;
     JournalRecord started;
+    /// A runner's timeout record came right after that start: the runner stopped the program at
+    /// its limit inside the case, whose record then carries the limit and the quiet seconds.
+    bool timed_out;
     /// The last case of the step that ended, for saying where a step stopped.
     char last_ended[JOURNAL_NAME_MAX];
-    /// Every case this run already skipped as crashed, the step under way's marked.
+    /// Every case this run already skipped as crashed, the step under way's marked, and every
+    /// one it skipped as timeout, told apart by the record's kind.
     uint32_t crash_count;
     JournalRecord crashes[JOURNAL_CRASHES_MAX];
     /// Whole lines that were not records, and a last line with no newline, which a write cut
@@ -207,9 +224,15 @@ typedef struct {
     /// This launch's number.
     uint32_t launch;
     /// A case that began and never ended, whether or not the run goes on: it goes on the crash
-    /// list either way, since the machine ended inside it.
+    /// list either way, since the machine ended inside it, unless @p timed_out.
     bool crashed;
+    /// The record of it, its kind JOURNAL_CRASH, or JOURNAL_TIMED_OUT with the limit and the
+    /// quiet seconds.
     JournalRecord crash;
+    /// A runner stopped the program inside that case at its time limit: the case is skipped as
+    /// timeout for the rest of the run and stays off the crash list, since nothing says it would
+    /// not have ended, and the limit is the launch's, not the case's.
+    bool timed_out;
     /// Where the report goes back to, and the counts it had there, for the three resumes.
     uint64_t offset;
     JournalCounts counts;
@@ -242,8 +265,8 @@ size_t JournalDescribePlan(char *out, size_t out_size, const JournalPlan *plan,
 
 /// The note before the summary: how many launches the run took, how many cases were skipped as
 /// crashed (@p crashed, the report's count), how many of those only because the crash list named
-/// them, and which cases this run's program ended inside. Empty for a run of one launch that
-/// skipped nothing as crashed.
+/// them, which cases this run's program ended inside, and which a runner stopped it inside at
+/// its time limit. Empty for a run of one launch that skipped nothing as crashed.
 size_t JournalDescribeRun(char *out, size_t out_size, const JournalPlan *plan,
                           const JournalState *state, uint32_t crashed);
 

@@ -31,8 +31,12 @@ that case, and a launch that adds nothing to the journal but its own start ends 
 since the next would do the same.
 
 Each launch has SECONDS (default 60) before it is stopped, SIGTERM and then SIGKILL ten seconds
-later. A person stopping this script stops the emulator the same way and writes `stopped` into
-the journal, so the case it was in is not taken for a crash by the next launch.
+later. A launch stopped inside a case gets `timeout SECONDS QUIET` in the journal, QUIET being how
+long the journal had not grown, which is how long that case had run: the next launch skips the
+case as `timeout` with both numbers and leaves it off the crash list, since the limit is the
+launch's and the case may only have been the one running when it came. A person stopping this
+script stops the emulator the same way and writes `stopped` into the journal, so the case it was
+in is not taken for a crash by the next launch.
 
 The crash list (sdmc:/edenprobe/crashes) is kept per emulator binary, under DIR/crash-lists/, and
 put on the card before the first launch and taken back after the last: one binary's crashes are
@@ -40,9 +44,10 @@ not skipped on another's run. A rebuilt binary, another size or modification tim
 its own.
 
 Every line of the emulator's output goes to FILE when given; the lines about edenprobe are printed
-as they come, with ANSI colours taken off. At the end it prints the counts and, on a line of its own,
-the cases skipped as crashed, and exits 0 when the report ends on its summary, 1 when it does not,
-and 130 when stopped. Standard library only.
+as they come, with ANSI colours taken off. At the end it prints the counts and, on lines of their
+own, the cases skipped as crashed and the ones a launch was stopped inside at its limit, and exits
+0 when the report ends on its summary, 1 when it does not, and 130 when stopped. Standard library
+only.
 """
 
 import argparse
@@ -54,6 +59,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 
 ANSI = re.compile(rb"\x1b\[[0-9;]*m")
 SHOWN = re.compile(rb"edenprobe|EDENPROBE|\"type\":")
@@ -143,6 +149,16 @@ class Journal:
                 parts = r.split(" ", 3)
                 if len(parts) == 4 and (parts[1], parts[3]) not in out:
                     out.append((parts[1], parts[3]))
+        return out
+
+    def timed_out(self):
+        """The cases the launches after a stop at the time limit skipped, as (suite, name)."""
+        out = []
+        for r in self.records:
+            if r.startswith("timedout "):
+                parts = r.split(" ", 5)
+                if len(parts) == 6 and (parts[1], parts[5]) not in out:
+                    out.append((parts[1], parts[5]))
         return out
 
 
@@ -308,8 +324,25 @@ def describe(status, stopped_after):
     return "exited %d" % status
 
 
+# How often a launch under way is looked at: whether it ended, its time, and the journal's length.
+POLL = 0.25
+
+
+def journal_size(sd):
+    """The length of the journal in the folder last-run names, or None while there is none."""
+    folder = run_folder(sd)
+    if folder is None:
+        return None
+    try:
+        return os.path.getsize(os.path.join(folder, "journal"))
+    except OSError:
+        return None
+
+
 def launch(emulator, nro, xdg, timeout, log, echo):
-    """One launch. Hands back (status, seconds it was stopped after or None)."""
+    """One launch. Hands back (status, seconds it was stopped after or None, quiet): quiet is the
+    whole seconds the journal had gone without growing when the launch was stopped at its limit,
+    which is how long the case under way had run, since a case's start is a record."""
     process = subprocess.Popen([emulator, "-g", nro], env=emulator_env(xdg, emulator),
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
@@ -326,16 +359,33 @@ def launch(emulator, nro, xdg, timeout, log, echo):
     reader = threading.Thread(target=pump, daemon=True)
     reader.start()
     stopped_after = None
+    quiet = 0
+    sd = card(xdg)
+    started = time.monotonic()
+    size = journal_size(sd)
+    grew = started
     try:
-        process.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        stopped_after = timeout
-        stop(process)
+        while True:
+            try:
+                process.wait(timeout=POLL)
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            now = time.monotonic()
+            current = journal_size(sd)
+            if current != size:
+                size = current
+                grew = now
+            if now - started >= timeout:
+                stopped_after = timeout
+                quiet = int(now - grew + 0.5)
+                stop(process)
+                break
     except BaseException:
         stop(process)
         raise
     reader.join(timeout=10)
-    return process.returncode, stopped_after
+    return process.returncode, stopped_after, quiet
 
 
 def stop(process):
@@ -351,9 +401,9 @@ def interrupt(signum, frame):
     raise KeyboardInterrupt
 
 
-def mark_stopped(journal_path):
-    """Says in the journal that the program was stopped on purpose, so the case it was in is no
-    crash; nothing when there is no journal."""
+def mark(journal_path, record):
+    """Appends @record, a runner's own, to the journal there, on a line of its own; nothing when
+    there is no journal."""
     if not os.path.isfile(journal_path):
         return False
     with open(journal_path, "rb") as f:
@@ -363,10 +413,23 @@ def mark_stopped(journal_path):
             open_line = f.read(1) != b"\n"
     with open(journal_path, "ab") as f:
         # A line the program left open would swallow the word.
-        f.write(b"\nstopped\n" if open_line else b"stopped\n")
+        f.write((b"\n" if open_line else b"") + record.encode("ascii") + b"\n")
         f.flush()
         os.fsync(f.fileno())
     return True
+
+
+def mark_stopped(journal_path):
+    """Says in the journal that the program was stopped on purpose, so the case it was in is no
+    crash."""
+    return mark(journal_path, "stopped")
+
+
+def mark_timeout(journal_path, limit, quiet):
+    """Says in the journal that the launch was stopped at its limit of @limit seconds, the journal
+    @quiet seconds without growing by then, so the next launch skips the case it was in as
+    timeout and not as crashed (source/journal.h)."""
+    return mark(journal_path, "timeout %d %d\t" % (limit, quiet))
 
 
 def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=None,
@@ -402,7 +465,7 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
         while True:
             before = Journal.read(journal_path) if journal_path is not None else None
             launches += 1
-            status, stopped_after = launch(emulator, nro, xdg, timeout, log, echo)
+            status, stopped_after, quiet = launch(emulator, nro, xdg, timeout, log, echo)
             said = "launch %d %s" % (launches, describe(status, stopped_after))
             named = run_folder(sd)
             if named is None:
@@ -424,6 +487,10 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
                     where[0], where[2],
                     " (the warm-up)" if where[1] == "1" else
                     " (a timed pass)" if where[1] != "0" else "")
+                if stopped_after is not None and mark_timeout(journal_path, stopped_after, quiet):
+                    said += (", %d s after the journal last grew: the journal says timeout %d %d, "
+                             "so the next launch skips that case as timeout, not as crashed" %
+                             (quiet, stopped_after, quiet))
             if after is None:
                 say(said + "; no journal to go on with, so no relaunch")
                 break
@@ -468,11 +535,15 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
         return 1
     journal = Journal.read(journal_path)
     crashed = journal.crashed() if journal is not None else []
+    timed_out = journal.timed_out() if journal is not None else []
     say("passed %d, failed %d, skipped %d" % (counts["passed"], counts["failed"],
                                                counts["skipped"]))
     say("crashed %d%s%s" % (counts["crashed"],
                             ", in this run: " if crashed else "",
                             ", ".join('%s "%s"' % c for c in crashed)))
+    if timed_out:
+        say("skipped as timeout %d, a launch stopped inside each at its limit of %d s: %s" %
+            (len(timed_out), timeout, ", ".join('%s "%s"' % c for c in timed_out)))
     say("%d launch%s" % (launches, "" if launches == 1 else "es"))
     print("report: %s" % report, flush=True)
     return code

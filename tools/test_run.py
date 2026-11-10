@@ -69,7 +69,14 @@ def add(path, text):
 if not os.path.exists(journal) or n == 1:
     write(journal, "run 0.0.0 fake quick\n")
     write(report, '{"type":"note","text":"starting"}\n')
-add(journal, "launch %d\n" % n)
+# As the probe: a launch that finds a runner's timeout right after a case's start says which case.
+before = [l.rstrip("\t") for l in read(journal).split("\n") if l]
+if len(before) > 1 and before[-1].startswith("timeout ") and before[-2].startswith("start "):
+    _, suite, number, name = before[-2].split(" ", 3)
+    add(journal, "launch %d\ntimedout %s %s %s %s\n" % (n, suite, number,
+                                                        before[-1].split(" ", 1)[1], name))
+else:
+    add(journal, "launch %d\n" % n)
 if what[0] in ("crash", "hang"):
     add(journal, "step %s 0 0 0 0 0\nstart %s 1 %s\n" % (what[1], what[1], what[2]))
     if what[0] == "hang":
@@ -159,13 +166,30 @@ class Relaunch(unittest.TestCase):
         self.assertIn("crashed 1", said)
         self.assertIn("2 launches", said)
 
-    def test_a_hang_is_stopped_at_its_time_and_counted_as_a_crash(self):
+    def test_a_hang_is_stopped_at_its_time_and_marked_as_a_timeout(self):
         f = self.fixture(["hang fill 128 quads", "finish"])
         started = time.monotonic()
         code, said = f.run(timeout=1)
         self.assertEqual(code, 0, said)
         self.assertLess(time.monotonic() - started, 30)
-        self.assertIn('launch 1 was stopped after 1 s inside fill case "128 quads"', said)
+        self.assertRegex(said, r'launch 1 was stopped after 1 s inside fill case "128 quads" '
+                               r'\(the warm-up\), [0-9]+ s after the journal last grew: the journal '
+                               r'says timeout 1 [0-9]+, so the next launch skips that case as '
+                               r'timeout, not as crashed; launching again \(2 of at most 17\)')
+        # The runner's record follows the case's start, and the launch after names the case.
+        journal = read(os.path.join(f.card, "runs", "fake", "journal"))
+        self.assertRegex(journal, r"start fill 1 128 quads\ntimeout 1 [0-9]+\t\nlaunch 2\n"
+                                  r"timedout fill 1 1 [0-9]+ 128 quads\n")
+        self.assertIn('skipped as timeout 1, a launch stopped inside each at its limit of 1 s: '
+                      'fill "128 quads"', said)
+        self.assertNotIn("in this run:", said)
+
+    def test_a_crash_is_not_marked_as_a_timeout(self):
+        f = self.fixture(["crash bcn a case", "finish"])
+        code, said = f.run()
+        self.assertEqual(code, 0, said)
+        self.assertNotIn("timeout", read(os.path.join(f.card, "runs", "fake", "journal")))
+        self.assertNotIn("timeout", said)
 
     def test_a_launch_that_adds_nothing_ends_the_relaunching(self):
         f = self.fixture(["crash cpu sm4", "early"])
@@ -462,6 +486,19 @@ class JournalReading(unittest.TestCase):
         j = run.Journal("run 0 b q\ncrashed bcn 1 a case\ncrashed bcn 1 a case\n"
                         "crashed geometry 1 another\n")
         self.assertEqual(j.crashed(), [("bcn", "a case"), ("geometry", "another")])
+
+    def test_a_timeout_is_marked_after_a_torn_line_and_read_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "journal")
+            write(path, "run 0 b quick\nstart tex8k 0 a copy\t")
+            self.assertTrue(run.mark_timeout(path, 60, 58))
+            self.assertEqual(read(path), "run 0 b quick\nstart tex8k 0 a copy\t\ntimeout 60 58\t\n")
+            write(path, "launch 2\ntimedout tex8k 0 60 58 a copy\t\ntimedout tex8k 0 60 58 a copy\n"
+                        "crashed bcn 1 a case\n", "a")
+            journal = run.Journal.read(path)
+            self.assertEqual(journal.timed_out(), [("tex8k", "a copy")])
+            self.assertEqual(journal.crashed(), [("bcn", "a case")])
+            self.assertFalse(run.mark_timeout(os.path.join(d, "none"), 60, 58))
 
     def test_stopped_is_written_only_to_a_journal_there(self):
         with tempfile.TemporaryDirectory() as d:

@@ -35,8 +35,17 @@ seconds, then killed ten later), is followed by another that goes on after the c
 make run: launch 1 ended by signal 6 (SIGABRT) inside bcn case "every layer of a six-layer BC4 array keeps its own 2x2 and 1x1 levels" (the warm-up); launching again (2 of at most 17)
 ```
 
+A launch stopped at `TIMEOUT` inside a case is said in the journal, so the next launch skips that case as `timeout`,
+not as `crashed`, and keeps it off the crash list ([a launch stopped at its time
+limit](Crashes.md#a-launch-stopped-at-its-time-limit)):
+
+```
+make run: launch 1 was stopped after 60 s inside tex8k case "a 256x256 region of the 8192x8192 BC7 texture copied out to a buffer holds its bytes", 58 s after the journal last grew: the journal says timeout 60 58, so the next launch skips that case as timeout, not as crashed; launching again (2 of at most 17)
+```
+
 A launch that adds nothing to the journal but its own start ends the relaunching, and so does `nojournal`. At the
-end the target prints the counts, the cases skipped as crashed, the ones this run ended inside, and the launches. A
+end the target prints the counts, the cases skipped as crashed, the ones this run ended inside, the ones a launch was
+stopped inside at its limit, and the launches. A
 missing emulator, or a run that never reaches its summary, ends it with a line saying which and a non-zero exit.
 Stopping it by hand writes `stopped` into the journal, so the case under way is not taken for a crash.
 
