@@ -12,6 +12,16 @@ same tolerance: `exact`, `ulp`, `position`, `level`, or `none` for a line that c
 produced (the judge's own arithmetic, a precondition such as the device opening, a drawing case stopped before it
 compared, which gives the reason in its detail).
 
+A case whose expected value has a source worth knowing says it in `expected_from`, after the tier: `console` when a
+console run gave it, `astcenc` when ARM's reference ASTC codec gives it, `spec` when only this program's reading of the
+specification does. A failure against anything but `console` is a question about the machine, not a settled bug. The
+astc and astcimage suites say it today ([Graphics](families/Graphics.md#astc)); a line with nothing to compare, and a
+case that does not say, has no field:
+
+```json
+{"type":"case","suite":"astc","name":"an HDR partition is the error colour and the LDR one after it decodes","tier":"exact","expected_from":"astcenc","result":"fail","detail":"..."}
+```
+
 A case that could not ask its question is a `skip`, tier `none`, with a one-word `reason` and a sentence in
 `detail`, counted apart:
 

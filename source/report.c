@@ -260,20 +260,26 @@ size_t ReportBuildCaseLine(char *out, size_t out_size, const char *suite, const 
 size_t ReportBuildTimedCaseLine(char *out, size_t out_size, const char *suite, const char *name,
                                 const char *tier, bool passed_, const char *detail,
                                 const PicturePaths *paths, const uint32_t *us) {
-    return ReportBuildTimedResultLine(out, out_size, suite, name, tier,
+    return ReportBuildTimedResultLine(out, out_size, suite, name, tier, NULL,
                                       passed_ ? "pass" : "fail", NULL, detail, paths, us);
 }
 
 size_t ReportBuildResultLine(char *out, size_t out_size, const char *suite, const char *name,
                              const char *tier, const char *result, const char *reason,
                              const char *detail, const PicturePaths *paths) {
-    return ReportBuildTimedResultLine(out, out_size, suite, name, tier, result, reason, detail,
-                                      paths, NULL);
+    return ReportBuildTimedResultLine(out, out_size, suite, name, tier, NULL, result, reason,
+                                      detail, paths, NULL);
+}
+
+static const char *const FROM_WORDS[REPORT_FROM_COUNT] = { NULL, "spec", "astcenc", "console" };
+
+const char *ReportFromWord(ReportFrom from) {
+    return from < REPORT_FROM_COUNT ? FROM_WORDS[from] : NULL;
 }
 
 size_t ReportBuildTimedResultLine(char *out, size_t out_size, const char *suite,
-                                  const char *name, const char *tier, const char *result,
-                                  const char *reason, const char *detail,
+                                  const char *name, const char *tier, const char *expected_from,
+                                  const char *result, const char *reason, const char *detail,
                                   const PicturePaths *paths, const uint32_t *us) {
     char safe_suite[REPORT_KEPT_SUITE];
     char safe_name[REPORT_KEPT_NAME];
@@ -299,11 +305,16 @@ size_t ReportBuildTimedResultLine(char *out, size_t out_size, const char *suite,
     if (reason != NULL) {
         snprintf(reason_field, sizeof(reason_field), ",\"reason\":\"%s\"", reason);
     }
+    // Where the expected value comes from, beside the tier: both say what the comparison claims.
+    char from_field[40] = "";
+    if (expected_from != NULL) {
+        snprintf(from_field, sizeof(from_field), ",\"expected_from\":\"%s\"", expected_from);
+    }
     const int wrote =
         snprintf(out, room,
-                 "{\"type\":\"case\",\"suite\":\"%s\",\"name\":\"%s\",\"tier\":\"%s\","
+                 "{\"type\":\"case\",\"suite\":\"%s\",\"name\":\"%s\",\"tier\":\"%s\"%s,"
                  "\"result\":\"%s\"%s,\"detail\":\"%s\"",
-                 safe_suite, safe_name, tier, result, reason_field, safe_detail);
+                 safe_suite, safe_name, tier, from_field, result, reason_field, safe_detail);
     if (wrote < 0 || (size_t)wrote >= room) {
         // The caller's buffer cannot hold this case's line at all. An empty object still parses
         // and says nothing; half a line says something and cannot be read.
@@ -711,7 +722,7 @@ static void Survived(const char *suite, const char *key) {
 /// A case's end, everything but telling the watcher, which ReportCase does after it. @p given is
 /// the time a case measured itself, which its line carries in place of the timed passes' one.
 static void EndCase(const char *suite, const char *name, CheckTier tier, bool passed_,
-                    const char *detail, const uint32_t *given) {
+                    const char *detail, const uint32_t *given, ReportFrom from) {
     uint32_t us = 0;
     bool timed = PerfCaseEnd(name, &us);
     if (given != NULL) {
@@ -743,8 +754,10 @@ static void EndCase(const char *suite, const char *name, CheckTier tier, bool pa
     PictureFinish(suite, name, TierName(tier), passed_, detail, &paths);
 
     char line[REPORT_LINE_MAX];
-    ReportBuildTimedCaseLine(line, sizeof(line), suite, name, TierName(tier), passed_, detail,
-                             &paths, timed ? &us : NULL);
+    ReportBuildTimedResultLine(line, sizeof(line), suite, name, TierName(tier),
+                               tier != CHECK_NONE ? ReportFromWord(from) : NULL,
+                               passed_ ? "pass" : "fail", NULL, detail, &paths,
+                               timed ? &us : NULL);
     Emit(line);
     if (timed) {
         // The time the line carries, the one a baseline holds the run to (baseline.h).
@@ -803,13 +816,19 @@ static void EndSkip(const char *suite, const char *name, ReportReason reason,
 
 void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed_,
                 const char *detail) {
-    EndCase(suite, name, tier, passed_, detail, NULL);
+    EndCase(suite, name, tier, passed_, detail, NULL, REPORT_FROM_UNSAID);
+    Watch(suite, name);
+}
+
+void ReportCaseFrom(const char *suite, const char *name, CheckTier tier, ReportFrom from,
+                    bool passed_, const char *detail) {
+    EndCase(suite, name, tier, passed_, detail, NULL, from);
     Watch(suite, name);
 }
 
 void ReportCaseTime(const char *suite, const char *name, CheckTier tier, bool passed_,
                     const char *detail, uint32_t us) {
-    EndCase(suite, name, tier, passed_, detail, &us);
+    EndCase(suite, name, tier, passed_, detail, &us, REPORT_FROM_UNSAID);
     Watch(suite, name);
 }
 

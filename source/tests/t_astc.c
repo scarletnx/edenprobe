@@ -141,7 +141,7 @@ static void SampleBlock(GpuContext *gpu, const DkShader *vertex_shader,
             ++wrong;
         }
     }
-    CHECK_TRUE(SUITE, b->sentence, CHECK_EXACT, wrong == 0,
+    CHECK_TRUE_FROM(SUITE, b->sentence, CHECK_EXACT, AstcBlockExpectedFrom(b), wrong == 0,
                "%s %ux%u: %u of %u texels wrong, worst channel %u away; texel %u is "
                "%02x%02x%02x%02x, the specification's %02x%02x%02x%02x",
                b->name, (unsigned)b->width, (unsigned)b->height, (unsigned)wrong,

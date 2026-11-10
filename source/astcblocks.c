@@ -78,3 +78,7 @@ uint32_t AstcFnv1a(const void *data, uint32_t size) {
     }
     return hash;
 }
+
+ReportFrom AstcBlockExpectedFrom(const AstcTestBlock *block) {
+    return block != NULL && block->hash != 0u ? REPORT_FROM_ASTCENC : REPORT_FROM_SPEC;
+}

@@ -5,6 +5,8 @@
 
 #include <stdint.h>
 
+#include "report.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -33,6 +35,12 @@ extern const AstcTestBlock ASTC_TEST_BLOCK[ASTC_TEST_BLOCKS];
 
 /// FNV-1a over @p size bytes, the hash astcenc's answers are pinned with.
 uint32_t AstcFnv1a(const void *data, uint32_t size);
+
+/// Where the texels the astc suite expects of @p block come from, as its line says: astcenc where
+/// the reference suite holds source/astcref.c to astcenc's hash of the block, the specification
+/// alone where no hash pins it. None is a console's yet: a block a console run confirms says so
+/// here, as console.
+ReportFrom AstcBlockExpectedFrom(const AstcTestBlock *block);
 
 #ifdef __cplusplus
 }

@@ -632,6 +632,19 @@ static void CheckReportLine(void) {
                    0,
                "%.480s", line);
 
+    // Where the expected value comes from sits beside the tier, both claims about the comparison;
+    // with none said, the line is the one it always was.
+    char from[REPORT_LINE_MAX];
+    ReportBuildTimedResultLine(from, sizeof(from), "astc", "an illegal block is the error colour",
+                               "exact", ReportFromWord(REPORT_FROM_ASTCENC), "fail", NULL,
+                               "one wrong", NULL, NULL);
+    CHECK_TRUE(SUITE, "a case that says where its expected value comes from says it after its tier",
+               CHECK_NONE,
+               strcmp(from, "{\"type\":\"case\",\"suite\":\"astc\",\"name\":\"an illegal block "
+                            "is the error colour\",\"tier\":\"exact\",\"expected_from\":"
+                            "\"astcenc\",\"result\":\"fail\",\"detail\":\"one wrong\"}") == 0,
+               "%.480s", from);
+
     // A case that could not ask is a result of its own and a count of its own: a skip read as
     // a pass would make a run where nothing was asked look green. Its reason is one word of a
     // few, beside the sentence; a crash is counted apart from every other skip.

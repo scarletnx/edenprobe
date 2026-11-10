@@ -6,6 +6,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "report.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -49,6 +51,12 @@ uint32_t AstcImageRegion(uint32_t x, uint32_t y);
 
 /// The block of @p image that holds texel (@p x, @p y).
 const uint8_t *AstcImageBlock(const AstcImage *image, uint32_t x, uint32_t y);
+
+/// Where the texels the astcimage suite expects of @p image come from, as its line says: astcenc
+/// for a linear image, whose decodes both ways the reference suite holds to astcenc's hashes; the
+/// specification for an sRGB one, whose linear value is the code astcenc decodes to turned linear
+/// by the sRGB transfer function, which no decoder here gives. None is a console's yet.
+ReportFrom AstcImageExpectedFrom(const AstcImage *image);
 
 /// What source/astcref.c decodes the whole of @p image to, eight bits a channel, RGBA row major:
 /// for a linear image the FP16 decode's byte (AstcUnorm8Fp16), or with @p unorm8 C's top byte;

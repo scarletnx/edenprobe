@@ -187,7 +187,7 @@ static void Report(const char *name, const AstcImage *image, const char *what, c
         Psnr(region[r], sizeof(region[r]), j->squares[r], CHANNELS / ASTC_IMAGE_REGIONS);
     }
     Psnr(whole, sizeof(whole), all, CHANNELS);
-    CHECK_TRUE(SUITE, name, CHECK_EXACT, j->wrong == 0u,
+    CHECK_TRUE_FROM(SUITE, name, CHECK_EXACT, AstcImageExpectedFrom(image), j->wrong == 0u,
                "%s %s: %u of %u texels wrong, worst channel %u away; PSNR %s (%s %s, %s %s, %s %s, "
                "%s %s); texel %u,%u of the picture is %02x%02x%02x%02x, the specification's "
                "%02x%02x%02x%02x",
