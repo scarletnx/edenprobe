@@ -539,7 +539,58 @@ static void CheckExpectations(void) {
                slots, "%s", "one of the seven readings was wrong");
 }
 
+/// What a failure of nsd's expansion says the answer was, and when the cases that need a stream
+/// socket skip for a network that is off: what the dns suite and the bsd, ssl and socket suites
+/// decide from what the machine answered.
+static void CheckNetPreconditions(void) {
+    static const char *const ASKED = NET_PLACEHOLDER_NAME;
+    static const char *const EXPECTED = "probe-lp1.edenprobe.invalid";
+    char said[200];
+    const bool as_asked =
+        NetDescribeExpansion(said, sizeof(said), ASKED, EXPECTED, ASKED, true) > 0u &&
+        strcmp(said, "nsd handed the name back as it was asked, placeholder and all: its Resolve "
+                     "did nothing to it, as one not implemented answers") == 0;
+    const bool other_environment =
+        NetDescribeExpansion(said, sizeof(said), ASKED, EXPECTED, "probe-dd1.edenprobe.invalid",
+                             true) > 0u &&
+        strcmp(said, "nsd replaced the placeholder, but not with the environment it named") == 0;
+    const bool left_in =
+        NetDescribeExpansion(said, sizeof(said), ASKED, EXPECTED, "probe-%.other.invalid", true) >
+            0u &&
+        strcmp(said, "nsd changed the name and left the placeholder in it") == 0;
+    const bool quiet =
+        NetDescribeExpansion(said, sizeof(said), ASKED, EXPECTED, EXPECTED, true) == 0u &&
+        said[0] == '\0' &&
+        NetDescribeExpansion(said, sizeof(said), ASKED, EXPECTED, ASKED, false) == 0u &&
+        said[0] == '\0';
+    CHECK_TRUE(SUITE, "a wrong nsd expansion says whether the name came back as asked, with "
+                      "another environment, or with the placeholder left in",
+               CHECK_NONE, as_asked && other_environment && left_in && quiet,
+               "as asked %d, another environment %d, left in %d, nothing to say %d; last \"%s\"",
+               (int)as_asked, (int)other_environment, (int)left_in, (int)quiet, said);
+
+    char why[300];
+    const bool offline =
+        NetStreamsSkip(why, sizeof(why), 128, "Socket is not connected",
+                       "nifm says wireless communication is off, the flight mode") &&
+        strcmp(why, "no network: socket(AF_INET, SOCK_STREAM, 0) returned -1 with errno 128 "
+                    "(Socket is not connected) while nifm says wireless communication is off, "
+                    "the flight mode, so no stream socket, loopback's either, can be had here") ==
+            0;
+    const bool network_on = !NetStreamsSkip(why, sizeof(why), 128, "Socket is not connected", "") &&
+                            why[0] == '\0';
+    const bool made = !NetStreamsSkip(why, sizeof(why), 0, "", "nifm says no connection is up") &&
+                      why[0] == '\0';
+    CHECK_TRUE(SUITE, "the stream cases skip only when the machine refuses a stream socket and "
+                      "says its network is off",
+               CHECK_NONE, offline && network_on && made,
+               "off and refused %d, refused with the network on %d, made with it off %d; "
+               "\"%.200s\"",
+               (int)offline, (int)network_on, (int)made, why);
+}
+
 void RunReferenceNet(void) {
+    CheckNetPreconditions();
     CheckNetFile();
     CheckWords();
     CheckResolverFormats();

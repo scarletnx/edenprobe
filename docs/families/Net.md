@@ -1,5 +1,11 @@
 # The net family
 
+## Index
+
+* [A machine with its network off](#a-machine-with-its-network-off)
+* [The net file](#the-net-file)
+* [The fixture](#the-fixture)
+
 The net family asks the services a program reaches the network through, the way a game asks them,
 and judges each answer against its protocol or against what `sdmc:/edenprobe/net` says the backend
 publishes (see [The net file](#the-net-file) below). Every line says what was expected and what came
@@ -54,6 +60,24 @@ speaks costs a failed case, never the run.
 
 When a session is named and never answers the sign-in wait, every session case in dns, acc and
 friend says so at the end of its detail, so a failure there reads as a sign-in that did not happen.
+
+When nsd's expansion of the placeholder is wrong, the detail says what came back: the name as it
+was asked, placeholder and all, which is a Resolve that does nothing to a name (Eden's, a stub that
+hands every name back); the placeholder replaced with something other than the environment nsd
+named; or the name changed with the placeholder left in.
+
+## A machine with its network off
+
+Before its stream cases the family opens one stream socket. When the machine refuses it and says
+its network is off (nifm: wireless communication off, the flight mode, or no connection up), every
+case that needs one is `unavailable`, with the errno and what nifm said, rather than failed: bsd's
+loopback stream, its refused port and its two server cases, and ssl's socket, hand back and server
+cases. Eden refuses every stream socket with `ENOTCONN` (128 as libnx numbers it) while its
+`airplane_mode` setting is on, which is its default, and answers wireless off then; with the setting
+off the cases run. A refusal while the
+machine says its network is on runs the cases, which fail with their own errno. The datagram cases
+need no precondition and always run. The libc family's socket suite does the same
+([libc](Libc.md)).
 
 Some expectations rest on documentation and reasoning, not yet on a console run, which would settle
 them: that an unknown profile's slot carries the id that was asked (the contract says only that it

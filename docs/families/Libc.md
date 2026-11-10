@@ -19,7 +19,9 @@ Three suites, by what each needs from the machine; a frontend runs the ones its 
   each thread's own thread-local; the monotonic clock over a 20 ms sleep.
 - **socket**, three cases, the network stack on loopback (`PlatformSocketsOpen` first; a machine without it skips
   them as `unavailable`): a TCP connection that echoes, a UDP datagram there and back, and a connection to a closed
-  port refused with `ECONNREFUSED`.
+  port refused with `ECONNREFUSED`. A machine that refuses a stream socket while it says its network is off (Eden in
+  its flight mode, its default) skips the two TCP cases as `unavailable`, with the errno and what the machine said
+  ([The net family](Net.md#a-machine-with-its-network-off)); refused with the network on, they fail.
 
 Android adds a fourth to the family, **bionic**, Java cases on native code: what the standard leaves to the library
 as bionic words it (`-nan`, `strerror`), and the system under it (the loader, `mmap`, `/proc/self`, signals,

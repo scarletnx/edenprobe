@@ -36,7 +36,7 @@ family reports can be believed without them.
   case skipped as banned with its line, then run under `unban`, and nothing changed on a machine no
   line names; and the same run with `skip=` leaving its first step's suite out: one launch, each of
   its cases skipped as asked, the next step run, and a name no case came up for said.
-- **reference**, three hundred and eighty eight cases, no hardware involved either: the other half
+- **reference**, three hundred and ninety cases, no hardware involved either: the other half
   of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -58,13 +58,14 @@ family reports can be believed without them.
   - five on fmath: 54 answers worked out with exact rationals and sixty digit decimals, the float
     judge's decisions one at a time, the answer the console never gives refused at every pixel where
     it differs, where the edge operands sit, and a budget written down for every mode;
-  - twenty two on the net family's judge, `source/netref.c`: the net file, what each service is
+  - twenty four on the net family's judge, `source/netref.c`: the net file, what each service is
     expected to answer from it, and every format a service answers in, each fixture written out by
     hand from the format rather than captured (the resolver's two serialisations, a certificate in
     PEM and DER and whether it is self-signed, against bytes openssl printed, a handshake's two
     certificate forms, an HTTP response head, a status document, a friend profile at the offsets the
     guest reads, a bearer token's alphabet, a result code as the platform prints one), and what nsd,
-    sfdnsres, the sign-in wait, a picture url's `{size}` and a profile slot should be;
+    sfdnsres, the sign-in wait, a picture url's `{size}` and a profile slot should be, what a wrong
+    nsd expansion is said to be, and when a machine with its network off skips the stream cases;
   - eleven on the cpu suite's answers, against numbers written by hand: the leading zero counts,
     the two roundings, the saturating shifts, the conversions with 64 fraction bits, the SM4
     inputs from the standard's key and constants, and the rounding shifts, doubling multiplies and

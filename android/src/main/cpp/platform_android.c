@@ -27,3 +27,11 @@ bool PlatformSocketsOpen(void) {
 }
 
 void PlatformSocketsClose(void) {}
+
+size_t PlatformNetworkOff(char *out, size_t out_size) {
+    // bionic's loopback works in flight mode, so there is nothing to ask.
+    if (out != NULL && out_size > 0u) {
+        out[0] = '\0';
+    }
+    return 0;
+}
