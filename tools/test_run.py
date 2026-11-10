@@ -43,6 +43,14 @@ with open(os.path.join(card, "fake-scenario")) as f:
 count_path = os.path.join(card, "fake-launches")
 n = int(read(count_path)) + 1 if os.path.exists(count_path) else 1
 write(count_path, str(n))
+# As a frontend does: it reads its settings, and writes them on the way out. What it found, and
+# where, goes on the card for the test.
+config = os.environ["XDG_CONFIG_HOME"]
+ini = os.path.join(config, "eden", "fake-config.ini")
+write(os.path.join(card, "fake-settings"), "%s\n%s\n" % (
+    config, read(ini).strip() if os.path.exists(ini) else "defaults"))
+os.makedirs(os.path.dirname(ini), exist_ok=True)
+write(ini, "written by %s\n" % os.path.basename(sys.argv[0]))
 what = lines[min(n, len(lines)) - 1].split(" ", 2)
 print("\x1b[1;33mEDENPROBE fake launch %d: %s\x1b[0m" % (n, what[0]), flush=True)
 if what[0] == "early":
@@ -342,6 +350,68 @@ class CrashLists(unittest.TestCase):
             self.assertNotEqual(run.list_key(a), key)
         finally:
             f.close()
+
+
+class Settings(unittest.TestCase):
+    """Each emulator binary runs from settings of its own, never another build's or the
+    person's."""
+
+    def setUp(self):
+        self.f = Fixture(["finish"])
+
+    def tearDown(self):
+        self.f.close()
+
+    def seen(self):
+        return read(os.path.join(self.f.card, "fake-settings")).splitlines()
+
+    def test_each_binary_starts_from_its_own_defaults(self):
+        a = self.f.emulator
+        code, said = self.f.run()
+        self.assertEqual(code, 0, said)
+        folder_a = os.path.join(self.f.xdg, "settings", run.list_key(a))
+        self.assertEqual(self.seen(), [folder_a, "defaults"])
+        self.assertIn("settings: %s, this binary's own, made empty: the emulator starts from its "
+                      "defaults" % folder_a, said)
+        # Another build: what the first wrote on its way out is not its starting point.
+        self.f.emulator = self.f.make_emulator("eden-cli-other", "\n# another build\n")
+        code, said = self.f.run()
+        self.assertEqual(code, 0, said)
+        folder_b = os.path.join(self.f.xdg, "settings", run.list_key(self.f.emulator))
+        self.assertNotEqual(folder_a, folder_b)
+        self.assertEqual(self.seen(), [folder_b, "defaults"])
+        # The first build again: its own settings, as it left them.
+        self.f.emulator = a
+        code, said = self.f.run()
+        self.assertEqual(code, 0, said)
+        self.assertEqual(self.seen(), [folder_a, "written by eden-cli-fake"])
+        self.assertIn("settings: %s, this binary's own, as its earlier runs left it" % folder_a,
+                      said)
+
+    def test_a_rebuild_starts_from_its_defaults_again(self):
+        code, said = self.f.run()
+        self.assertEqual(code, 0, said)
+        os.utime(self.f.emulator, ns=(0, os.stat(self.f.emulator).st_mtime_ns + 1000000000))
+        code, said = self.f.run()
+        self.assertEqual(code, 0, said)
+        self.assertEqual(self.seen()[1], "defaults")
+
+    def test_the_shared_folder_of_before_is_left_unread_and_said(self):
+        shared = os.path.join(self.f.xdg, "config", "eden")
+        os.makedirs(shared)
+        write(os.path.join(shared, "fake-config.ini"), "a person's choice\n")
+        code, said = self.f.run()
+        self.assertEqual(code, 0, said)
+        self.assertEqual(self.seen()[1], "defaults")
+        self.assertEqual(read(os.path.join(shared, "fake-config.ini")), "a person's choice\n")
+        self.assertIn("%s, the settings every binary shared before, is not read" %
+                      os.path.join(self.f.xdg, "config"), said)
+
+    def test_the_version_is_asked_with_the_binary_settings(self):
+        env = run.emulator_env(self.f.xdg, self.f.emulator)
+        self.assertEqual(env["XDG_CONFIG_HOME"],
+                         os.path.join(self.f.xdg, "settings", run.list_key(self.f.emulator)))
+        self.assertEqual(env["XDG_DATA_HOME"], os.path.join(self.f.xdg, "data"))
 
 
 class JournalReading(unittest.TestCase):
