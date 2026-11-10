@@ -29,7 +29,8 @@ Stopping it by hand writes `stopped` into the journal, so the case under way is 
 
 **The crash list is per emulator binary**, in `build/xdg/crash-lists/`, put on the card before the first launch and
 taken back after the last; a binary of another size or time starts its own. To try a case again, delete its line
-there.
+there. To keep a whole suite out instead, `MODE="quick skip=tex8k"` ([Leaving a suite out](Crashes.md#leaving-a-suite-out)):
+the list is not for a person to fill.
 
 `make run` writes `quick` into the mode file. `MODE` sets it: `MODE="quick images"` keeps every picture, `MODE="quick
 retry"` runs the crash list's cases again, and `MODE=` writes no file, so the start and result screens come up, each

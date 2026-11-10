@@ -36,6 +36,7 @@
 | `machine=<name>[@<version>]` | the machine the run is on, one of `console`, `eden`, `ryujinx`, `scarletnx`, `scarletnx-android` and `android`, and its version when the runner knows it (1 to 32 letters, digits, dots, dashes and underscores): the ban list's lines for it hold. The runners write it ([The ban list](Crashes.md#the-ban-list)); without it no line holds. A name the list does not know, or a version that cannot be one, is refused in the mode line with the machine in effect: `machine=yuzu names no machine the ban list knows (console eden ryujinx scarletnx scarletnx-android android): the run has no machine, and no ban holds` |
 | `label=<name>` | the run's folder gets `_<name>` after the build's hash, to keep apart runs of one build under two emulators; see [the report](Report.md#where-a-run-leaves-its-report) |
 | `baseline=<name>` | once the suites end, this run's times go into `sdmc:/edenprobe/baseline/<name>.jsonl` as a new sample; the name takes the label's rules; see [Baselines](Baseline.md) |
+| `skip=<suite>` | the suite's cases are skipped as `asked`, whatever `hang`, `unban` or `retry` ask: a suite that harms this machine left out of every run ([Leaving a suite out](Crashes.md#leaving-a-suite-out)). The name its lines carry, 1 to 16 letters, digits and dashes, in any case; up to four, one word each. Anything else, or a fifth, is refused in the mode line with the suites in effect: `skip=te_x is not a suite name, 1 to 16 letters, digits and dashes, the first a letter: the run leaves out tex8k` |
 | `compare=<name>` | once the suites end, this run's times are held to that file's samples: a line for each case held to them, `same`, `slower` or `faster`, and one that sums them up, no verdict changed; see [Baselines](Baseline.md) |
 
 The judge and the cpu suite always run. With no family named, every family runs but audio, pad, kernel, display,
@@ -63,9 +64,10 @@ for edenprobe's own APK, `files/edenprobe/mode` in its external files ([Android]
 | `quick compare=console` | the same run, held to the console's baseline: on an emulator, with the console's file copied to its card |
 | `quick game` | the judge, cpu and the game scene's 600 frames, then exit |
 | `quick game frames=120` | the same scene for 120 frames, two seconds at 60 a second |
+| `quick skip=tex8k` | the families a file naming none runs, the tex8k suite's cases each a skip asked for |
 
-The first 4096 bytes are read, and a longer file says so in the mode line; a word, or a `label=`, `baseline=` or
-`compare=` value, the limit cuts in two is dropped. A folder named `mode` reads as no file, and the mode line says so.
+The first 4096 bytes are read, and a longer file says so in the mode line; a word, or a `label=`, `baseline=`,
+`compare=` or `skip=` value, the limit cuts in two is dropped. A folder named `mode` reads as no file, and the mode line says so.
 The mode line is a note of at most 767 bytes; a longer one ends `...; the mode line is cut here, its whole is N
 bytes`.
 

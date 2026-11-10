@@ -1721,7 +1721,133 @@ static void CheckRelaunchBanned(const char *scratch) {
                "status %d, unchanged %d",
                ended, after, (int)reread, (int)ran_it, plain, (int)unchanged);
 }
+
+/// The run with skip= naming its ending suite and a suite it does not have: one launch, every case
+/// of the ending suite a skip with the reason asked and the case that ends the program not run,
+/// the next step's case run, and the name nothing came up for said at the end.
+static void CheckRelaunchSkipped(const char *scratch) {
+    char root[256];
+    char path[320];
+    char report_path[320];
+    snprintf(root, sizeof(root), "%.200s/relaunch", scratch);
+    snprintf(path, sizeof(path), "%s/mode", root);
+    snprintf(report_path, sizeof(report_path), "%s/runs/relaunch/report.jsonl", root);
+    mkdir(root, 0777);
+    static char report[16384];
+    const bool moded = JournalWriteFile(path, "quick skip=Ending skip=nosuch\n");
+    const int status = RelaunchOnce(root);
+    const bool read = JournalReadFile(report_path, report, sizeof(report), NULL) > 0;
+    // No case ended the program, so no crash list was written: the sweep takes one.
+    snprintf(path, sizeof(path), "%s/crashes", root);
+    char list[8];
+    const bool no_list = JournalReadFile(path, list, sizeof(list), NULL) < 0 &&
+                         JournalWriteFile(path, "");
+    const bool gone = RelaunchSweep(root) && no_list;
+
+    static const char ASKED[] = "\"suite\":\"ending\",\"name\":\"a case that ends the program\","
+                                "\"tier\":\"none\",\"result\":\"skip\",\"reason\":\"asked\","
+                                "\"detail\":\"the mode file's skip=ending leaves the ending suite "
+                                "out; without the word it runs\"";
+    static const char NEXT[] = "\"suite\":\"after\",\"name\":\"the next step's case\",\"tier\":"
+                               "\"none\",\"result\":\"pass\"";
+    static const char LEFT_OUT[] = "suites left out by skip=: ending nosuch";
+    static const char NOTHING[] = "skip: no case of nosuch asked to start in this run, so skip= "
+                                  "left nothing of it out";
+    static const char SUMMARY[] =
+        "{\"type\":\"summary\",\"passed\":1,\"failed\":0,\"skipped\":3,\"crashed\":0}";
+    const bool one_launch = moded && status != -1 && WIFEXITED(status) &&
+                            WEXITSTATUS(status) == 0 && read;
+    const bool skipped = one_launch && Occurrences(report, "\"reason\":\"asked\"") == 3u &&
+                         Occurrences(report, ASKED) == 1u && Occurrences(report, NEXT) == 1u &&
+                         strstr(report, SUMMARY) != NULL;
+    const bool said = one_launch && Occurrences(report, LEFT_OUT) == 1u &&
+                      Occurrences(report, NOTHING) == 1u &&
+                      strstr(report, "no case of ending") == NULL;
+    CHECK_TRUE(SUITE, "skip= leaves its suite out of a run, each case a skip asked for, and says a "
+                      "name nothing came up for",
+               CHECK_NONE, skipped && said && gone,
+               "mode file %d; launch status %d, report %d; skipped as asked %u, the ending case "
+               "%u, the next step %u; mode line %u, note %u; files gone %d; report ends "
+               "\"...%.200s\"",
+               (int)moded, status, (int)read, (unsigned)Occurrences(report, "\"reason\":\"asked\""),
+               (unsigned)Occurrences(report, ASKED), (unsigned)Occurrences(report, NEXT),
+               (unsigned)Occurrences(report, LEFT_OUT), (unsigned)Occurrences(report, NOTHING),
+               (int)gone, read && strlen(report) > 200u ? report + strlen(report) - 200u : report);
+}
 #endif
+
+/// A suite skip= names: its cases are skipped as asked whatever hang, unban and retry say, after a
+/// crash in this run, and only its own. The run's settings are handed back afterwards, its own
+/// skip= suites among them: this case runs inside a run that may have some.
+static void CheckSkipSuites(void) {
+    const uint32_t crashes = ReportCrashedMark();
+    char run_skips[REPORT_SKIP_SUITES_MAX][JOURNAL_SUITE_MAX];
+    const char *run_skip[REPORT_SKIP_SUITES_MAX];
+    const size_t run_skip_count = ReportSkipSuiteCount();
+    for (size_t i = 0; i < run_skip_count && i < REPORT_SKIP_SUITES_MAX; ++i) {
+        snprintf(run_skips[i], sizeof(run_skips[i]), "%s", ReportSkipSuite(i));
+        run_skip[i] = run_skips[i];
+    }
+    static CrashList saved;
+    saved = *ReportCrashList();
+    char saved_path[64];
+    snprintf(saved_path, sizeof(saved_path), "%s", ReportCrashListPath());
+    const bool saved_retry = ReportRetrying();
+    const bool saved_hang = ReportHangAsked();
+    static CrashList listed;
+    CrashListInit(&listed);
+    CrashListAdd(&listed, "bsd", HANG_BSD_TIMEOUT);
+
+    static const char *const SKIPS[] = { "bsd", "tex8k" };
+    ReportSetSkipSuites(SKIPS, 2u);
+    char unreached[64];
+    ReportSkipsUnreached(unreached, sizeof(unreached));
+    ReportReason why = REPORT_REASON_CRASHED;
+    char detail[REPORT_KEPT_DETAIL];
+    ReportSetCrashList(NULL, NULL, false);
+    ReportSetHang(false);
+    const bool asked = !ReportWouldRun("bsd", HANG_BSD_TIMEOUT, &why, detail, sizeof(detail)) &&
+                       why == REPORT_REASON_ASKED &&
+                       strcmp(detail, "the mode file's skip=bsd leaves the bsd suite out; "
+                                      "without the word it runs") == 0 &&
+                       strcmp(ReportReasonWord(REPORT_REASON_ASKED), "asked") == 0;
+    ReportSetHang(true);
+    ReportSetCrashList(&listed, NULL, true);
+    const bool over_words = !ReportWouldRun("bsd", HANG_BSD_TIMEOUT, &why, NULL, 0) &&
+                            why == REPORT_REASON_ASKED;
+    const bool other_suite = ReportWouldRun("dns", HANG_BSD_TIMEOUT, &why, NULL, 0) &&
+                             ReportWouldRun("tex8", "a case", &why, NULL, 0);
+    JournalRecord crash = Record(JOURNAL_CRASH, "bsd", HANG_BSD_TIMEOUT, 1);
+    ReportAddCrashed(&crash);
+    const bool crash_first = !ReportWouldRun("bsd", HANG_BSD_TIMEOUT, &why, NULL, 0) &&
+                             why == REPORT_REASON_CRASHED;
+    ReportSetSkipSuites(NULL, 0u);
+    char none[16] = "x";
+    ReportSkipsUnreached(none, sizeof(none));
+    const bool cleared = ReportWouldRun("tex8k", "a case", &why, NULL, 0) && none[0] == '\0';
+
+    ReportCrashedRewind(crashes);
+    ReportSetCrashList(&saved, saved_path, saved_retry);
+    ReportSetHang(saved_hang);
+    ReportSetSkipSuites(run_skip, run_skip_count);
+    bool skips_back =
+        ReportSkipSuiteCount() == run_skip_count && ReportSkipSuite(run_skip_count) == NULL;
+    for (size_t i = 0; skips_back && i < run_skip_count; ++i) {
+        skips_back = strcmp(ReportSkipSuite(i), run_skips[i]) == 0;
+    }
+    const bool handed_back = ReportRetrying() == saved_retry && ReportHangAsked() == saved_hang &&
+                             strcmp(ReportCrashListPath(), saved_path) == 0 &&
+                             ReportCrashedMark() == crashes && skips_back;
+    CHECK_TRUE(SUITE, "a suite skip= names is skipped as asked, after a crash in this run and "
+                      "before hang, unban and the crash list",
+               CHECK_NONE,
+               asked && over_words && other_suite && crash_first && cleared && handed_back &&
+                   strcmp(unreached, "bsd tex8k") == 0,
+               "asked %d (\"%.120s\"); over hang and retry %d; other suites run %d; a crash "
+               "first %d; cleared %d; unreached before any case \"%s\"; settings %s",
+               (int)asked, detail, (int)over_words, (int)other_suite, (int)crash_first,
+               (int)cleared, unreached, handed_back ? "handed back" : "lost");
+}
 
 void RunSupportJournal(const char *scratch) {
     CheckRecords();
@@ -1745,6 +1871,10 @@ void RunSupportJournal(const char *scratch) {
     snprintf(host_machine, sizeof(host_machine), "%s", ReportMachine());
     snprintf(host_version, sizeof(host_version), "%s", ReportMachineVersion());
     ReportSetMachine("scarletnx", "10ed344");
+    // And a suite skip= leaves out, as a run with the word has one: a check that borrows the
+    // suites and does not hand them back fails here too, not only in a run that named some.
+    static const char *const HOST_SKIPS[] = { "tex8k" };
+    ReportSetSkipSuites(HOST_SKIPS, 1u);
 #endif
     CheckDecisions();
     CheckBookkeeping();
@@ -1752,15 +1882,18 @@ void RunSupportJournal(const char *scratch) {
     CheckPrecedence();
     CheckHang();
     CheckBans();
+    CheckSkipSuites();
     CheckBanVersions();
     CheckBanTable();
     CheckCrashesHandedBack(crashes_before);
 #ifdef EDENPROBE_HOST
     ReportSetMachine(host_machine, host_version);
+    ReportSetSkipSuites(NULL, 0u);
 #endif
     CheckModeWords();
 #ifdef EDENPROBE_HOST
     CheckRelaunch(scratch);
     CheckRelaunchBanned(scratch);
+    CheckRelaunchSkipped(scratch);
 #endif
 }

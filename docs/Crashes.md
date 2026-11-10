@@ -7,6 +7,7 @@
 * [Every case runs](#every-case-runs)
 * [The hang table](#the-hang-table)
 * [The ban list](#the-ban-list)
+* [Leaving a suite out](#leaving-a-suite-out)
 * [Who launches again](#who-launches-again)
 * [What a crash costs](#what-a-crash-costs)
 * [Ryujinx and the console](#ryujinx-and-the-console)
@@ -99,6 +100,21 @@ the banned cases anyway, to see whether they still end it; a banned case that is
 beside it. Only what a run showed goes on the list, with that run as its source; a line with versions `*` holds for
 every version until a run with `unban` shows otherwise. `tools/bans.py` checks every line and writes
 `source/banlist.c`, the table the program holds.
+
+## Leaving a suite out
+
+The crash list and the ban list are a machine's evidence; `skip=<suite>` in the mode file is a person's word, for a
+suite that should not run on this machine at all, such as tex8k on a handheld whose graphics unit a texture that
+large resets. Every case of the suite is then a `skip` with the reason `asked`, before the hang table, the ban list
+and the crash list, and whatever `hang`, `unban` or `retry` ask; nothing of the case runs. Up to four suites, one
+`skip=` each, by the name their lines carry (`suite`); the mode line lists them, and a new run's report names one no
+case came up for, since it left nothing out:
+
+```json
+{"type":"case","suite":"tex8k","name":"graphics device opens with room for the 8192x8192 RGBA8 texture","tier":"none","result":"skip","reason":"asked","detail":"the mode file's skip=tex8k leaves the tex8k suite out; without the word it runs"}
+```
+
+The runner's own files are never edited for it: `make run MODE="quick skip=tex8k"`.
 
 ## Who launches again
 

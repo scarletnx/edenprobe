@@ -719,6 +719,7 @@ static void CheckReportLine(void) {
 static void CheckLabel(void);
 static void CheckFrames(void);
 static void CheckMachine(void);
+static void CheckSkipWord(void);
 static void CheckWidestMode(void);
 static void CheckFrontendFamilies(void);
 static void CheckRunnerRoot(void);
@@ -1020,6 +1021,7 @@ static void CheckLaunchAndMode(void) {
     CheckLabel();
     CheckFrames();
     CheckMachine();
+    CheckSkipWord();
     CheckWidestMode();
     CheckFrontendFamilies();
     CheckRunnerRoot();
@@ -1347,6 +1349,87 @@ static void CheckMachine(void) {
                (unsigned)wrong, first, said);
 }
 
+/// skip=<suite>: the suites a run leaves out, lower case, each once and in the order of their
+/// names, in the key and in what the start screen saves; a name no suite can have, or one past the
+/// most it takes, is refused with the suites in effect.
+static void CheckSkipWord(void) {
+    char said[REPORT_NOTE_MAX + 1];
+    char key[MODE_KEY_MAX];
+    char saved[MODE_FILE_MAX];
+    uint32_t wrong = 0;
+    const char *first = "none";
+#define SKIP_EXPECT(condition, what)                                                               \
+    do {                                                                                           \
+        if (!(condition) && wrong++ == 0u) {                                                       \
+            first = (what);                                                                        \
+        }                                                                                          \
+    } while (0)
+
+    const RunMode two = ModeFromText("quick skip=Tex8k skip=am-state skip=tex8k");
+    ModeDescribe(said, sizeof(said), &two, MODE_FAMILIES_PRESENT);
+    ModeKey(key, sizeof(key), &two);
+    ModeFormat(saved, sizeof(saved), &two);
+    SKIP_EXPECT(two.skip_count == 2u && strcmp(two.skip[0], "am-state") == 0 &&
+                    strcmp(two.skip[1], "tex8k") == 0 && !two.skip_was_refused &&
+                    two.unknown_count == 0u,
+                "two suites, one twice and in capitals, kept once each in name order");
+    SKIP_EXPECT(strstr(said, "; suites left out by skip=: am-state tex8k") != NULL &&
+                    strcmp(key, "skip=am-state skip=tex8k") == 0 &&
+                    strcmp(saved, "quick skip=am-state skip=tex8k") == 0,
+                "the mode line, the key and the saved file name both");
+    const RunMode reordered = ModeFromText("skip=tex8k quick skip=AM-STATE");
+    char other[MODE_KEY_MAX];
+    ModeKey(other, sizeof(other), &reordered);
+    SKIP_EXPECT(strcmp(key, other) == 0, "another order is the same run");
+    const RunMode plain = ModeFromText("quick");
+    ModeDescribe(said, sizeof(said), &plain, MODE_FAMILIES_PRESENT);
+    SKIP_EXPECT(plain.skip_count == 0u && strstr(said, "skip") == NULL,
+                "no word, no suite left out and nothing said");
+
+    static const struct {
+        const char *text;
+        const char *said;
+        uint32_t keeps;
+    } BAD[] = {
+        { "skip=tex8k skip=te_x",
+          "; skip=te_x is not a suite name, 1 to 16 letters, digits and dashes, the first a "
+          "letter: the run leaves out tex8k",
+          1u },
+        { "skip=", "; skip= is not a suite name, 1 to 16 letters, digits and dashes, the first a "
+                   "letter: the run leaves out none",
+          0u },
+        { "skip=8k", "; skip=8k is not a suite name", 0u },
+        { "skip=abcdefghijklmnopq", "; skip=abcdefghijklmnop... is not a suite name", 0u },
+        { "skip=a skip=b skip=c skip=d skip=e",
+          "; suites left out by skip=: a b c d; skip=e is one past the 4 suites skip= takes: the "
+          "run leaves out a b c d",
+          4u },
+    };
+    for (size_t i = 0; i < sizeof(BAD) / sizeof(BAD[0]); ++i) {
+        const RunMode bad = ModeFromText(BAD[i].text);
+        ModeDescribe(said, sizeof(said), &bad, MODE_FAMILIES_PRESENT);
+        SKIP_EXPECT(bad.skip_was_refused && bad.skip_count == BAD[i].keeps &&
+                        bad.unknown_count == 0u && strstr(said, BAD[i].said) != NULL,
+                    BAD[i].text);
+    }
+
+    // The start screen does not choose the suites left out: a choice there keeps the file's.
+    RunMode chosen = two;
+    chosen.families_named = MODE_FAMILY_FS | MODE_FAMILY_CPU;
+    chosen.chosen_on_screen = true;
+    char words[MODE_KEY_MAX + 16u];
+    ModeChosenWords(words, sizeof(words), &chosen);
+    const RunMode resumed = ModeWithChosen(two, words);
+    SKIP_EXPECT(resumed.skip_count == 2u && strcmp(resumed.skip[1], "tex8k") == 0 &&
+                    resumed.families_named == (MODE_FAMILY_FS | MODE_FAMILY_CPU),
+                "a launch that goes on with a choice keeps the file's suites");
+#undef SKIP_EXPECT
+    CHECK_TRUE(SUITE, "skip= names the suites a run leaves out, and a bad one says the suites in "
+                      "effect",
+               CHECK_NONE, wrong == 0u, "%u readings wrong, the first: %.80s; said \"%.200s\"",
+               (unsigned)wrong, first, said);
+}
+
 _Static_assert(JOURNAL_MODE_MAX >= MODE_KEY_MAX + sizeof("screen  quick") - 1u,
                "a chosen record holds the widest key with the words around it");
 _Static_assert(JOURNAL_LINE_MAX >= sizeof("run   \t\n") + JOURNAL_SUITE_MAX + JOURNAL_NAME_MAX +
@@ -1357,14 +1440,18 @@ _Static_assert(JOURNAL_LINE_MAX >= sizeof("run   \t\n") + JOURNAL_SUITE_MAX + JO
 /// in MODE_KEY_MAX, the run and chosen records hold it, and a launch after a crash goes on with
 /// the run in that mode rather than starting over with an empty key.
 static void CheckWidestMode(void) {
-    static const char WIDEST[] = "quick audio cpu display fatal frames=36000 fs game graphics hang "
-                                 "images kernel listen "
+    static const char WIDEST[] = "quick audio cpu display fatal frames=36000 framework fs game "
+                                 "graphics hang images jni kernel libc listen "
                                  "machine=scarletnx-android@12345678901234567890123456789012 net "
-                                 "notime pad retry service stress unban video";
-    static const char KEY[] = "audio cpu display fatal frames=36000 fs game graphics hang images "
-                              "kernel listen "
+                                 "notime nvn pad retry service skip=abcdefghijklmnop "
+                                 "skip=bcdefghijklmnopq skip=cdefghijklmnopqr "
+                                 "skip=defghijklmnopqrs stress unban video";
+    static const char KEY[] = "audio cpu display fatal frames=36000 framework fs game graphics "
+                              "hang images jni kernel libc listen "
                               "machine=scarletnx-android@12345678901234567890123456789012 net "
-                              "notime pad retry service stress unban video";
+                              "notime nvn pad retry service skip=abcdefghijklmnop "
+                              "skip=bcdefghijklmnopq skip=cdefghijklmnopqr skip=defghijklmnopqrs "
+                              "stress unban video";
     const RunMode file = ModeFromText(WIDEST);
     char key[MODE_KEY_MAX];
     const size_t key_length = ModeKey(key, sizeof(key), &file);
