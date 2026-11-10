@@ -71,7 +71,7 @@ extern "C" {
 ///             program has, and times its frames. It runs only when named until a console has
 ///             run it.
 ///
-/// Five that are not words. `frames=<n>`, the frames the game scene runs, a whole number from 1
+/// Six that are not words. `frames=<n>`, the frames the game scene runs, a whole number from 1
 /// to MODE_FRAMES_MAX, MODE_FRAMES_DEFAULT without one; anything else is refused and said in the
 /// mode line with the number in effect. `machine=<name>[@<version>]`, the machine the run is on as
 /// the ban list names machines (BanMachineKnown), and its version when the runner knows it
@@ -84,7 +84,12 @@ extern "C" {
 /// to the next space or line end; letters, digits, dot, dash and underscore, at most
 /// MODE_LABEL_MAX, not starting with a dot. Anything else is refused and said in the mode line: a
 /// refused label puts the run in the folder with no label, a refused baseline or compare name
-/// leaves that out.
+/// leaves that out. `skip=<suite>`, as many as MODE_SKIPS_MAX, the suites whose cases the run
+/// leaves out, each case a skip with the reason `asked` (report.h): a person's way to keep a suite
+/// that harms the machine out of every run, where the crash list is the machine's own evidence. A
+/// suite name is 1 to MODE_SKIP_NAME_MAX letters, digits and dashes, read in any case; anything
+/// else, or one past MODE_SKIPS_MAX, is refused and said in the mode line with the suites in
+/// effect.
 ///
 /// Families choose which suites beyond the judge run. None named means every family this build
 /// has but audio, display, game, kernel, pad, service and video. The judge itself (selfcheck,
@@ -158,11 +163,16 @@ typedef enum {
 /// The longest folder name ModeRunFolder makes, the separator included.
 #define MODE_FOLDER_MAX (MODE_HASH_MAX + 1u + MODE_LABEL_MAX)
 
-/// Room for every word ModeKey writes with all of them on, `frames=` at its widest and `machine=`
-/// with a name and a version as long as they may be, 193 characters, with room to grow: the
-/// support suite holds the widest to it, and the journal's fields are sized from it (journal.h,
-/// JOURNAL_MODE_MAX).
-#define MODE_KEY_MAX 256u
+/// Room for every word ModeKey writes with all of them on, `frames=` at its widest, `machine=`
+/// with a name and a version as long as they may be and MODE_SKIPS_MAX `skip=` words at their
+/// longest, 297 characters, with room to grow: the support suite holds the widest to it, and the
+/// journal's fields are sized from it (journal.h, JOURNAL_MODE_MAX).
+#define MODE_KEY_MAX 320u
+
+/// How many `skip=<suite>` words a mode file may have, and the longest suite name one takes: every
+/// suite edenprobe has fits, the longest today twelve characters.
+#define MODE_SKIPS_MAX 4u
+#define MODE_SKIP_NAME_MAX 16u
 
 /// A name a word carries after its sign, `baseline=<name>` or `compare=<name>`: the last good one,
 /// or empty, and the last one refused, as written and cut to fit, for the mode line. A refusal
@@ -252,6 +262,16 @@ typedef struct {
     ModeName baseline;
     /// `compare=<name>`: this run's times are held to that file's samples once the suites end.
     ModeName compare;
+    /// `skip=<suite>`: the suites whose cases the run leaves out, lower case, each once, in the
+    /// order of their names.
+    uint32_t skip_count;
+    char skip[MODE_SKIPS_MAX][MODE_SKIP_NAME_MAX + 1u];
+    /// The last `skip=` refused, as written and cut to fit, for the mode line: a name no suite can
+    /// have, or, with skip_refused_full, a good one past MODE_SKIPS_MAX. The ones before it stay.
+    bool skip_was_refused;
+    bool skip_refused_full;
+    char skip_refused[MODE_SKIP_NAME_MAX + 1u];
+    bool skip_refused_cut;
     /// The game scene's frames: `frames=<n>` when the file has a good one, the last of several,
     /// MODE_FRAMES_DEFAULT otherwise; and whether the file gave it.
     uint32_t frames;

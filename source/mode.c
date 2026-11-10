@@ -251,8 +251,47 @@ static void TakeMachine(RunMode *mode, const char *value, size_t length) {
     mode->machine_refused_cut = length > MODE_MACHINE_QUOTED;
 }
 
-/// The words a value follows (a name, the number `frames=` takes, a machine), and the length of
-/// each without its sign.
+/// Takes the suite after `skip=`, @p length bytes of it: kept, lower case and in the order of the
+/// names, when a suite can be called that and there is room, quoted in the mode line otherwise.
+static void TakeSkip(RunMode *mode, const char *value, size_t length) {
+    char name[MODE_SKIP_NAME_MAX + 1u];
+    bool good = length >= 1u && length <= MODE_SKIP_NAME_MAX && IsLetter(value[0]);
+    for (size_t i = 0; good && i < length; ++i) {
+        const char c = value[i];
+        good = IsLetter(c) || (c >= '0' && c <= '9') || c == '-';
+        name[i] = (char)(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+    }
+    if (good) {
+        name[length] = '\0';
+        size_t at = 0;
+        while (at < mode->skip_count && strcmp(mode->skip[at], name) < 0) {
+            ++at;
+        }
+        if (at < mode->skip_count && strcmp(mode->skip[at], name) == 0) {
+            return;
+        }
+        if (mode->skip_count < MODE_SKIPS_MAX) {
+            for (size_t i = mode->skip_count; i > at; --i) {
+                memcpy(mode->skip[i], mode->skip[i - 1u], sizeof(mode->skip[i]));
+            }
+            memcpy(mode->skip[at], name, length + 1u);
+            ++mode->skip_count;
+            return;
+        }
+    }
+    mode->skip_was_refused = true;
+    mode->skip_refused_full = good;
+    const size_t quoted = length < MODE_SKIP_NAME_MAX ? length : MODE_SKIP_NAME_MAX;
+    for (size_t i = 0; i < quoted; ++i) {
+        const unsigned char c = (unsigned char)value[i];
+        mode->skip_refused[i] = c < 0x20u || c >= 0x7Fu || c == '"' || c == '\\' ? '?' : (char)c;
+    }
+    mode->skip_refused[quoted] = '\0';
+    mode->skip_refused_cut = length > MODE_SKIP_NAME_MAX;
+}
+
+/// The words a value follows (a name, the number `frames=` takes, a machine, a suite), and the
+/// length of each without its sign.
 static const struct {
     const char *word;
     size_t length;
@@ -262,6 +301,7 @@ static const struct {
     { "compare", 7u },
     { "frames", 6u },
     { "machine", 7u },
+    { "skip", 4u },
 };
 
 /// Which of NAMED the @p length letters of @p word are, or -1.
@@ -282,6 +322,8 @@ static void TakeNamed(RunMode *mode, int which, const char *value, size_t length
         TakeFrames(mode, value, length);
     } else if (which == 4) {
         TakeMachine(mode, value, length);
+    } else if (which == 5) {
+        TakeSkip(mode, value, length);
     } else {
         TakeName(which == 1 ? &mode->baseline : &mode->compare, value, length);
     }
@@ -460,6 +502,44 @@ static void DescribeName(char *out, size_t out_size, const char *word, const Mod
     }
 }
 
+/// The suites `skip=` leaves out, space separated, or "none".
+static void AppendSkips(char *out, size_t out_size, const RunMode *mode) {
+    for (uint32_t i = 0; i < mode->skip_count; ++i) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "%s%s", i > 0u ? " " : "", mode->skip[i]);
+    }
+    if (mode->skip_count == 0u) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "none");
+    }
+}
+
+/// The part of the mode line `skip=` adds: the suites left out, then a refused one as written
+/// and the suites in effect after it.
+static void DescribeSkips(char *out, size_t out_size, const RunMode *mode) {
+    if (mode->skip_count > 0u) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "; suites left out by skip=: ");
+        AppendSkips(out, out_size, mode);
+    }
+    if (!mode->skip_was_refused) {
+        return;
+    }
+    size_t used = strlen(out);
+    if (mode->skip_refused_full) {
+        snprintf(out + used, out_size - used,
+                 "; skip=%s is one past the %u suites skip= takes: the run leaves out ",
+                 mode->skip_refused, (unsigned)MODE_SKIPS_MAX);
+    } else {
+        snprintf(out + used, out_size - used,
+                 "; skip=%s%s is not a suite name, 1 to %u letters, digits and dashes, the first "
+                 "a letter: the run leaves out ",
+                 mode->skip_refused, mode->skip_refused_cut ? "..." : "",
+                 (unsigned)MODE_SKIP_NAME_MAX);
+    }
+    AppendSkips(out, out_size, mode);
+}
+
 /// ModeDescribe's line, whole when @p out_size is large enough.
 static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t present,
                      uint32_t asked) {
@@ -532,6 +612,7 @@ static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t p
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; the cases banned on the machine run too");
     }
+    DescribeSkips(out, out_size, mode);
     if (mode->retry) {
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; the crash list's cases again%s",
@@ -650,6 +731,14 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
     char machine[MODE_MACHINE_MAX + MODE_MACHINE_VERSION_MAX + 16u];
     snprintf(machine, sizeof(machine), "machine=%s%s%s", mode->machine,
              mode->machine_version[0] != '\0' ? "@" : "", mode->machine_version);
+    // The suites a run leaves out change what it reports, in the order of their names, so two
+    // files that name them in another order are one run.
+    char skips[MODE_SKIPS_MAX * (MODE_SKIP_NAME_MAX + 6u) + 1u] = "";
+    for (uint32_t i = 0; i < mode->skip_count && i < MODE_SKIPS_MAX; ++i) {
+        const size_t used = strlen(skips);
+        snprintf(skips + used, sizeof(skips) - used, "%sskip=%s", i > 0u ? " " : "",
+                 mode->skip[i]);
+    }
     const struct {
         bool on;
         const char *word;
@@ -677,6 +766,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { (mode->families_named & MODE_FAMILY_PAD) != 0u, "pad" },
         { mode->retry, "retry" },
         { (mode->families_named & MODE_FAMILY_SERVICE) != 0u, "service" },
+        { mode->skip_count > 0u, skips },
         { mode->stress, "stress" },
         { mode->unban, "unban" },
         { (mode->families_named & MODE_FAMILY_VIDEO) != 0u, "video" },

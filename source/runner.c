@@ -225,11 +225,20 @@ void RunnerBeginJournal(Runner *runner, const RunMode *from_file, const RunMode 
     JournalSimple(JOURNAL_LAUNCH, NULL, 1u);
 }
 
+_Static_assert(REPORT_SKIP_SUITES_MAX >= MODE_SKIPS_MAX && JOURNAL_SUITE_MAX > MODE_SKIP_NAME_MAX,
+               "every suite skip= names reaches the report whole");
+
 void RunnerApplyMode(Runner *runner, const RunMode *mode) {
     ReportSetRetry(mode->retry);
     ReportSetHang(mode->hang);
     ReportSetMachine(mode->machine, mode->machine_version);
     ReportSetUnban(mode->unban);
+    const char *skips[MODE_SKIPS_MAX];
+    for (uint32_t i = 0; i < mode->skip_count && i < MODE_SKIPS_MAX; ++i) {
+        skips[i] = mode->skip[i];
+    }
+    ReportSetSkipSuites(skips,
+                        mode->skip_count < MODE_SKIPS_MAX ? mode->skip_count : MODE_SKIPS_MAX);
     if (runner->plan.start == JOURNAL_FRESH) {
         char described[REPORT_NOTE_MAX + 1];
         ModeDescribeOf(described, sizeof(described), mode, runner->frontend->present,
@@ -333,6 +342,20 @@ void RunnerFinish(Runner *runner, const RunMode *mode, bool timing) {
             ReportNote("bans: source/bans.txt bans %s on %s, which the suites that ran never "
                        "reached",
                        unreached, ReportMachine());
+        }
+    }
+    {
+        // A suite skip= names that no case of this launch asked to start in is a name this build
+        // lacks, or a suite the run left out: the word left nothing out. Said only by a launch
+        // that began the run, since one that goes on with it skips the steps the launches before
+        // it ran.
+        char unreached[REPORT_NOTE_MAX - 160];
+        if (plan->start == JOURNAL_FRESH &&
+            ReportSkipsUnreached(unreached, sizeof(unreached)) > 0u) {
+            ReportNote("skip: no case of %s asked to start in this run, so skip= left nothing of "
+                       "it out: a suite this build does not have, or one the families that ran do "
+                       "not hold",
+                       unreached);
         }
     }
     // Only when some close had to wait: a machine that delivers its copies before the queue is

@@ -59,6 +59,10 @@ static bool ban_reached[BANS_TRACKED];
 #define SUITES_TRACKED 64u
 static char suites_started[SUITES_TRACKED][JOURNAL_SUITE_MAX];
 static uint32_t suites_started_count;
+// The suites skip= leaves out, and which of them a case of this launch came up in.
+static char skip_suites[REPORT_SKIP_SUITES_MAX][JOURNAL_SUITE_MAX];
+static uint32_t skip_suite_count;
+static bool skip_reached[REPORT_SKIP_SUITES_MAX];
 #define CRASHED_THIS_RUN_MAX JOURNAL_CRASHES_MAX
 static JournalRecord crashed_this_run[CRASHED_THIS_RUN_MAX];
 static uint32_t crashed_this_run_count;
@@ -530,6 +534,49 @@ static void Reached(const char *suite, const char *key) {
     }
 }
 
+/// Which of the suites skip= leaves out @p suite is, or -1.
+static int SkipAsked(const char *suite) {
+    for (uint32_t i = 0; suite != NULL && i < skip_suite_count; ++i) {
+        if (strcmp(skip_suites[i], suite) == 0) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+void ReportSetSkipSuites(const char *const *suites, size_t count) {
+    skip_suite_count = 0;
+    memset(skip_reached, 0, sizeof(skip_reached));
+    for (size_t i = 0; suites != NULL && i < count && i < REPORT_SKIP_SUITES_MAX; ++i) {
+        snprintf(skip_suites[skip_suite_count], sizeof(skip_suites[0]), "%s",
+                 suites[i] != NULL ? suites[i] : "");
+        ++skip_suite_count;
+    }
+}
+
+size_t ReportSkipSuiteCount(void) {
+    return skip_suite_count;
+}
+
+const char *ReportSkipSuite(size_t index) {
+    return index < skip_suite_count ? skip_suites[index] : NULL;
+}
+
+size_t ReportSkipsUnreached(char *out, size_t out_size) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    for (uint32_t i = 0; i < skip_suite_count; ++i) {
+        if (skip_reached[i]) {
+            continue;
+        }
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used, "%s%s", used > 0u ? " " : "", skip_suites[i]);
+    }
+    return strlen(out);
+}
+
 bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, char *detail,
                     size_t detail_size) {
     char key[JOURNAL_NAME_MAX];
@@ -544,17 +591,25 @@ bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, c
     uint32_t pass = 0;
     const Hang *const hang = HangFind(suite, key);
     const BanLine *const ban = BanFind(suite, key, ban_machine, ban_version);
+    const int asked = SkipAsked(suite);
     bool runs = true;
-    // A crash in this run first, whatever retry or hang says. Then a known hang: retry would
-    // run it again and it would not return, so the launch would never mark it. Then a ban on
-    // this machine, unless unban; then the crash list, which is this machine's own evidence.
-    // Every other case runs: one that ends the program is the next launch's to skip.
+    // A crash in this run first, whatever retry or hang says. Then a suite the person left out:
+    // their word, whatever the words that run more ask. Then a known hang: retry would run it
+    // again and it would not return, so the launch would never mark it. Then a ban on this
+    // machine, unless unban; then the crash list, which is this machine's own evidence. Every
+    // other case runs: one that ends the program is the next launch's to skip.
     if (CrashedThisRun(suite, key, &pass)) {
         snprintf(detail, detail_size,
                  "the program ended inside it earlier in this run%s; it is on the crash list%s%s%s, "
                  "and the mode word retry runs it in a later run",
                  PassWords(pass), crash_list_path[0] != '\0' ? " (" : "", crash_list_path,
                  crash_list_path[0] != '\0' ? ")" : "");
+        runs = false;
+    } else if (asked >= 0) {
+        why = REPORT_REASON_ASKED;
+        snprintf(detail, detail_size,
+                 "the mode file's skip=%s leaves the %s suite out; without the word it runs",
+                 skip_suites[asked], skip_suites[asked]);
         runs = false;
     } else if (hang != NULL && !hang_asked) {
         why = REPORT_REASON_HANG;
@@ -594,6 +649,10 @@ bool ReportStart(const char *suite, const char *name) {
     ReportReason reason = REPORT_REASON_CRASHED;
     char detail[REPORT_KEPT_DETAIL];
     if (!ReportWouldRun(suite, name, &reason, detail, sizeof(detail))) {
+        const int asked = reason == REPORT_REASON_ASKED ? SkipAsked(suite) : -1;
+        if (asked >= 0) {
+            skip_reached[asked] = true;
+        }
         ReportSkip(suite, name, reason, detail);
         return false;
     }
@@ -700,6 +759,7 @@ static void EndCase(const char *suite, const char *name, CheckTier tier, bool pa
 
 static const char *const REASON_WORDS[REPORT_REASON_COUNT] = {
     "crashed", "not configured", "unavailable", "depends", "hangs", "unanswered", "banned",
+    "asked",
 };
 
 const char *ReportReasonWord(ReportReason reason) {

@@ -90,6 +90,23 @@ const char *ReportMachineVersion(void);
 void ReportSetUnban(bool asked);
 bool ReportUnbanAsked(void);
 
+/// The suites the mode file's `skip=<suite>` leaves out, @p count names, at most
+/// REPORT_SKIP_SUITES_MAX, each at most JOURNAL_SUITE_MAX - 1 characters: every case of one is a
+/// skip with the reason asked. Forgets which of them a case came up in. None with a count of
+/// nought.
+#define REPORT_SKIP_SUITES_MAX 8u
+void ReportSetSkipSuites(const char *const *suites, size_t count);
+
+/// How many suites skip= leaves out, and the one at @p index (NULL past the last): what a case
+/// that borrows the setting for a moment hands back as it found it.
+size_t ReportSkipSuiteCount(void);
+const char *ReportSkipSuite(size_t index);
+
+/// The suites ReportSetSkipSuites named that no case of this launch came up in, space separated:
+/// a name no suite of this build has, or one whose family the run leaves out, so `skip=` left
+/// nothing out. Returns the length; the text is always terminated.
+size_t ReportSkipsUnreached(char *out, size_t out_size);
+
 /// The ban lines that hold on this machine and that this launch did not reach although their
 /// suite started cases, as `line <n>, suite "case"` separated by semicolons: a case the list
 /// names and this build does not have. Returns the length; the text is always terminated.
@@ -169,6 +186,9 @@ typedef enum {
     /// On the ban list for this run's machine, and the mode word `unban` did not ask: the line
     /// and what breaks are in the detail.
     REPORT_REASON_BANNED,
+    /// Its suite is one the mode file's `skip=<suite>` leaves out: a person asked for it not to
+    /// run on this machine.
+    REPORT_REASON_ASKED,
     REPORT_REASON_COUNT,
 } ReportReason;
 
@@ -184,8 +204,8 @@ void ReportSkip(const char *suite, const char *name, ReportReason reason, const 
 /// Says the case @p name is about to start, before any of its work, and whether it may.
 ///
 /// False when it must not run: it ended this machine's program in this run or an earlier one,
-/// it is in the hang table and the word `hang` did not ask for it, or the ban list bans it on
-/// this machine and the word `unban` did not ask for it.
+/// its suite is one `skip=` leaves out, it is in the hang table and the word `hang` did not ask
+/// for it, or the ban list bans it on this machine and the word `unban` did not ask for it.
 /// Its skip line is then already written, and the caller does none of the case's work and
 /// reports nothing more for it. True, and the journal says on the card that the case started,
 /// so a launch after the program ends inside it knows which case to skip. Every case of the
@@ -207,8 +227,9 @@ void ReportRequireStarts(bool on);
 
 /// What ReportStart decides for a case, without starting it or writing anything: whether it
 /// runs, and when it does not, the reason and the sentence its skip line carries. A crash in this
-/// run comes first, whatever retry or hang says, then the hang table unless the word `hang`,
-/// then the ban list unless `unban`, then the crash list unless retry; every other case runs.
+/// run comes first, whatever retry or hang says, then a suite `skip=` leaves out, whatever hang,
+/// unban or retry ask, then the hang table unless the word `hang`, then the ban list unless
+/// `unban`, then the crash list unless retry; every other case runs.
 bool ReportWouldRun(const char *suite, const char *name, ReportReason *reason, char *detail,
                     size_t detail_size);
 

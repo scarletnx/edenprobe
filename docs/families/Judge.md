@@ -7,15 +7,15 @@ family reports can be believed without them.
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, two hundred and one cases, no hardware involved: what the program does
+- **support**, two hundred and three cases, no hardware involved: what the program does
   around a verdict rather than to reach one. The pictures a failing case leaves and the names they
   get, the detailed mode's store, screens and navigation, the start screen, the screen that asks
   whether to go on with a run, the running screen, the listening screen, the pad screen and the
   touch suite's, a tap on each of them and the touch bar's boxes, the mode file and its words, the
   label and the folder it names, the game family's word and the frames it runs, the widest mode kept
   whole in the journal, the families each frontend runs and the runner's files under its root, the `skip` result, the time a case reports (twenty cases, see [Time per
-  case](../TimePerCase.md)), the journal, the crash list, the hang table, the ban list and what a
-  launch decides from them (thirty one cases, see [When the program ends in the
+  case](../TimePerCase.md)), the journal, the crash list, the hang table, the ban list, the suites
+  `skip=` leaves out and what a launch decides from them (thirty two cases, see [When the program ends in the
   middle](../Crashes.md)), the last copy a device waits for before it closes, and the note a late
   one leaves (eight cases), and a baseline: the limit a case's samples allow, its file and lines,
   the words that name one and the mode line they can make too long, what a run with them does and a
@@ -23,7 +23,7 @@ family reports can be believed without them.
   [Baselines](../Baseline.md)). One case carries the whole idea: the diff picture is built from what
   the judge decided pixel by pixel, not from comparing two images, so a pixel that differs and was
   allowed to is not painted as a difference. Every line is the none tier, because none of it is a
-  claim about a machine. On a computer (`make -f host.mk host-run`) the suite has eight cases more: a
+  claim about a machine. On a computer (`make -f host.mk host-run`) the suite has nine cases more: a
   backward seek that drops a buffered line, which needs the C library's own stream buffer; a
   baseline file that is there and cannot be read, which needs the computer's own file errors; a
   case that times itself, with the one that reads its line back off standard output, the debug
@@ -33,7 +33,8 @@ family reports can be believed without them.
   from the crash list, and the word `fatal` in its mode file is said once a run and changes none of
   it; and the same run with that case banned on the machine its mode file names: one launch, the
   case skipped as banned with its line, then run under `unban`, and nothing changed on a machine no
-  line names.
+  line names; and the same run with `skip=` leaving its first step's suite out: one launch, each of
+  its cases skipped as asked, the next step run, and a name no case came up for said.
 - **reference**, three hundred and eighty eight cases, no hardware involved either: the other half
   of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
