@@ -105,6 +105,10 @@ counting down ten seconds. Beside `MODE` it writes the machine for the [ban list
 `machine=eden@<commit>` from `eden-cli --version` when the emulator's name starts with eden, `machine=ryujinx` for
 Ryujinx; `MACHINE=<name>[@<version>]` names another, and an emulator of another name gets none, which `make run` says.
 
+**Several rounds, for the times.** `make run ROUNDS=5` makes the whole run five times and prints how far apart each
+suite's times came, with every case's median and spread in `rounds/times.tsv` in the run's folder and each round's
+report beside it ([Time per case](TimePerCase.md#several-rounds-of-one-build)).
+
 **On a private display.** A closed window stops the emulator, which reads like a crash inside the case under way.
 A run nobody watches can use Xvfb. There Vulkan finds no queue that can present, so use OpenGL on the software
 rasteriser: `backend=0` under `[Renderer]` in the binary's `eden/sdl2-config.ini`, in an `XDG` of its own, under

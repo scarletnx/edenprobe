@@ -101,6 +101,48 @@ def merge(runs):
             {key: spread(v) for key, v in values.items()})
 
 
+def rounds(runs):
+    """Each case over several runs of one build: {case: (runs that timed it, median, mean rounded
+    down, fastest, slowest, spread)}, the times in microseconds and the spread in percent from the
+    fastest to the slowest. A change smaller than a case's spread is one these runs cannot tell
+    from the difference between two of them."""
+    values = {}
+    for times in runs:
+        for key, us in times.items():
+            values.setdefault(key, []).append(us)
+    return {key: (len(v), median(v), sum(v) // len(v), min(v), max(v), spread(v))
+            for key, v in values.items()}
+
+
+def rounds_tsv(rows, order):
+    """Every case of @rows as a line of tab separated fields under a line naming them, the suites
+    in @order and each suite's cases by name."""
+    lines = ["suite\tcase\truns\tmedian_us\tmean_us\tmin_us\tmax_us\tspread_percent"]
+    for suite in order:
+        for key in sorted(k for k in rows if k[0] == suite):
+            timed, mid, mean, low, high, apart = rows[key]
+            lines.append("%s\t%s\t%d\t%d\t%d\t%d\t%d\t%.1f" % (
+                suite, key[1].replace("\t", " "), timed, mid, mean, low, high, apart))
+    return lines
+
+
+def table_rounds(rows, order):
+    """A suite a line: its timed cases, the median of their spreads, the widest and whose it is."""
+    out = ["%-12s %6s %14s %11s  %s" % ("suite", "timed", "median_spread", "max_spread",
+                                         "the case with it")]
+    for suite in order:
+        cases = sorted((rows[k][5], k[1]) for k in rows if k[0] == suite)
+        if not cases:
+            continue
+        spreads = [apart for apart, _ in cases]
+        count = len(spreads)
+        middle = spreads[count // 2] if count % 2 else (spreads[count // 2 - 1] +
+                                                        spreads[count // 2]) / 2.0
+        out.append("%-12s %6d %13.1f%% %10.1f%%  %s" % (suite, count, middle, cases[-1][0],
+                                                       cases[-1][1]))
+    return out
+
+
 def summarize(times, suite):
     """(timed, total, min, median, max) for one suite, in microseconds."""
     values = [us for (s, _), us in times.items() if s == suite]

@@ -6,6 +6,7 @@
 * [How it is repeated](#how-it-is-repeated)
 * [When a rehearsal hangs](#when-a-rehearsal-hangs)
 * [What a number can see](#what-a-number-can-see)
+* [Several rounds of one build](#several-rounds-of-one-build)
 * [Comparing two builds](#comparing-two-builds)
 
 Every line a drawing suite reports ends with how long the case kept the graphics unit busy, in microseconds, and every
@@ -86,6 +87,29 @@ opens a fresh device:
 The two first uploads ("the texels reach the textures", "the starting texels reach the textures") also jump between
 emulator processes, and `perf.py` usually names them unsteady.
 
+## Several rounds of one build
+
+One run cannot show a small change: the same build's times differ from one emulator process to the next, a few percent
+for most cases and far more for some. `make run ROUNDS=3` makes the whole run three times, one after another, and says
+how far apart they came. `MODE="quick fs" ROUNDS=3` under Eden, on a computer busy with other work, which is what the
+fs suite's spread shows (the support suite's two are its made-up timed cases, the same every time):
+
+```
+make run: 3 rounds, 12 timed cases; each case's spread is from its fastest round to its slowest, and a change under it is not told from one round to the next:
+  suite         timed  median_spread  max_spread  the case with it
+  support           2           0.0%        0.0%  baseline: a made-up timed suite's case that draws twice
+  fs               10          57.2%      294.1%  sequential reads of 64 KiB cover 64 MiB
+make run: every case's median, mean, fastest, slowest and spread: build/xdg/data/eden/sdmc/edenprobe/runs/5fd6ec1/rounds/times.tsv
+```
+
+Each round's report is kept in the run's folder as `rounds/report-<n>.jsonl`; `report.jsonl`, the pictures and the
+emulator's logs there are the last round's. `rounds/times.tsv` has a line a timed case, tab separated: the suite, the
+case, how many rounds timed it, then its median, mean, fastest and slowest time in microseconds and its spread, the
+percent from the fastest to the slowest. The median is the number to quote, for the reason a side's is below. A round
+that does not end on its summary ends the rounds, the ones before it kept, and `ROUNDS` with `notime` is refused
+before anything runs, since it would time nothing. With `baseline=<name>` every round adds its sample
+([Baselines](Baseline.md)).
+
 ## Comparing two builds
 
 One report is one sample of the emulator's process, and processes differ (one now and then runs every case about 13
@@ -93,6 +117,8 @@ percent slower), so a comparison takes three runs a side, both sides in the same
 shared:
 
 ```sh
+make run ROUNDS=3 EMULATOR=/path/to/a XDG=/tmp/a   # three runs a side, kept as rounds/report-<n>.jsonl
+make run ROUNDS=3 EMULATOR=/path/to/b XDG=/tmp/b
 tools/perf.py a1.jsonl a2.jsonl a3.jsonl -- b1.jsonl b2.jsonl b3.jsonl
 tools/perf.py before.jsonl after.jsonl      # one run a side, a quick look only
 tools/perf.py report.jsonl                  # the per-suite table of one run

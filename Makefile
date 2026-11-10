@@ -172,6 +172,11 @@ MODE ?= quick
 RELAUNCHES ?= 16
 TIMEOUT ?= 60
 
+# How many times the whole run is made, for the times: one run is one sample of the emulator's
+# process, so past 1 each round's report is kept under rounds/ in the run's folder and every timed
+# case's median and spread over them printed and written there (docs/TimePerCase.md).
+ROUNDS ?= 1
+
 # The machine the mode file names for the ban list (docs/Crashes.md), <name>[@<version>]: empty,
 # run.py takes it from the emulator's name, and an eden's version from its --version.
 MACHINE ?=
@@ -184,7 +189,7 @@ MACHINE ?=
 run: $(TARGET).nro
 	@python3 tools/run.py --who "make run" --emulator "$(EMULATOR)" \
 	  --nro "$(CURDIR)/$(TARGET).nro" --xdg "$(XDG)" --mode "$(MODE)" --machine "$(MACHINE)" \
-	  --relaunches $(RELAUNCHES) --timeout $(TIMEOUT)
+	  --relaunches $(RELAUNCHES) --timeout $(TIMEOUT) --rounds $(ROUNDS)
 
 # The graphics family once under the Khronos validation layer with synchronisation validation,
 # and the table of what it said, message id by message id, with the case each came before

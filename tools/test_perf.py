@@ -160,6 +160,34 @@ class Output(unittest.TestCase):
         ])
 
 
+class Rounds(unittest.TestCase):
+    RUNS = [{("occlusion", "a query"): 1000, ("occlusion", "two"): 500, ("clear", "red"): 200},
+            {("occlusion", "a query"): 1020, ("occlusion", "two"): 800, ("clear", "red"): 200},
+            {("occlusion", "a query"): 1010, ("clear", "red"): 203}]
+
+    def test_a_case_over_its_runs(self):
+        rows = perf.rounds(self.RUNS)
+        self.assertEqual(rows[("occlusion", "a query")], (3, 1010, 1010, 1000, 1020, 2.0))
+        # Timed in two runs of the three: the two it has, and the count says so.
+        self.assertEqual(rows[("occlusion", "two")], (2, 650, 650, 500, 800, 60.0))
+        self.assertEqual(rows[("clear", "red")], (3, 200, 201, 200, 203, 1.5))
+        self.assertEqual(perf.rounds([]), {})
+
+    def test_the_file_and_the_table(self):
+        rows = perf.rounds(self.RUNS)
+        self.assertEqual(perf.rounds_tsv(rows, ["clear", "occlusion"]), [
+            "suite\tcase\truns\tmedian_us\tmean_us\tmin_us\tmax_us\tspread_percent",
+            "clear\tred\t3\t200\t201\t200\t203\t1.5",
+            "occlusion\ta query\t3\t1010\t1010\t1000\t1020\t2.0",
+            "occlusion\ttwo\t2\t650\t650\t500\t800\t60.0",
+        ])
+        self.assertEqual(perf.table_rounds(rows, ["clear", "occlusion", "absent"]), [
+            "suite         timed  median_spread  max_spread  the case with it",
+            "clear             1           1.5%        1.5%  red",
+            "occlusion         2          31.0%       60.0%  two",
+        ])
+
+
 class Command(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
