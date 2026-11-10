@@ -75,6 +75,23 @@ void Tex8kSetTiming(bool on) {
     timing = on;
 }
 
+static uint32_t vram_mib;
+
+void Tex8kSetVram(uint32_t mib) {
+    vram_mib = mib;
+}
+
+/// Whether the machine has the memory the suite's textures want, by the mode file's `vram=`: when
+/// it has not, @p name, the case that opens a device, is skipped as unavailable and says why.
+static bool Room(const char *name) {
+    char why[384];
+    if (Tex8kShortOfMemory(why, sizeof(why), vram_mib) == 0u) {
+        return true;
+    }
+    ReportSkip(SUITE, name, REPORT_REASON_UNAVAILABLE, why);
+    return false;
+}
+
 typedef struct {
     const char *label;
     DkImageFormat format;
@@ -523,6 +540,9 @@ static void Descriptors(DkImageDescriptor *images, DkSamplerDescriptor *samplers
 }
 
 static bool Open(Run *r, const char *name) {
+    if (!Room(name)) {
+        return false;
+    }
     const Entry *const e = r->e;
     GpuSpec spec;
     GpuSpecDefaults(&spec, TEX8K_TARGET, TEX8K_TARGET);
@@ -1349,6 +1369,13 @@ static void RenderTarget(const RtTarget *t) {
         if (t->blit != NULL) {
             ReportSkip(SUITE, t->blit, REPORT_REASON_DEPENDS,
                        "the case that opens the device did not run");
+        }
+        return;
+    }
+    if (!Room(t->open)) {
+        ReportSkip(SUITE, t->name, REPORT_REASON_DEPENDS, "the device did not open");
+        if (t->blit != NULL) {
+            ReportSkip(SUITE, t->blit, REPORT_REASON_DEPENDS, "the device did not open");
         }
         return;
     }

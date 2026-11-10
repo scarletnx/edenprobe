@@ -168,6 +168,16 @@ class Fixture:
         self.scenario(scenario)
         self.nro = os.path.join(self.dir, "edenprobe.nro")
         open(self.nro, "w").close()
+        # No card of this machine's: a run here writes the vram= word only when a test makes one.
+        self.drm = os.path.join(self.dir, "drm")
+        os.makedirs(self.drm)
+        self.real_drm = run.DRM
+        run.DRM = self.drm
+
+    def card_with(self, name, size):
+        """A card as a driver shows it under /sys/class/drm, saying @size bytes of memory."""
+        os.makedirs(os.path.join(self.drm, name, "device"))
+        write(os.path.join(self.drm, name, "device", "mem_info_vram_total"), "%s\n" % size)
 
     def make_emulator(self, name, extra=""):
         path = os.path.join(self.dir, name)
@@ -195,6 +205,7 @@ class Fixture:
         return code, out.getvalue() + err.getvalue()
 
     def close(self):
+        run.DRM = self.real_drm
         self.tmp.cleanup()
 
 
@@ -602,6 +613,67 @@ class Machine(unittest.TestCase):
         code, said = self.f.run(mode="")
         self.assertIn("no mode file, so no machine= word", said)
         self.assertFalse(os.path.exists(os.path.join(self.f.card, "mode")))
+
+
+class Vram(unittest.TestCase):
+    """The vram= word make run puts beside the mode's words, for tex8k's textures."""
+
+    def setUp(self):
+        self.f = Fixture(["finish"])
+
+    def tearDown(self):
+        self.f.close()
+
+    def mode_after(self, **kwargs):
+        code, said = self.f.run(**kwargs)
+        self.assertEqual(code, 0, said)
+        return read(os.path.join(self.f.card, "mode")).strip(), said
+
+    def test_the_cards_own_memory_in_mib(self):
+        self.f.card_with("card0", 1073741824)
+        path = os.path.join(self.f.drm, "card0", "device", "mem_info_vram_total")
+        mode, said = self.mode_after()
+        self.assertEqual(mode, "quick machine=eden@0123abcdef vram=1024")
+        self.assertIn("vram=1024, the MiB %s says; vram=<MiB> among MODE's words says another" % path,
+                      said)
+
+    def test_the_largest_of_several_and_only_cards(self):
+        self.f.card_with("card0", 536870912)
+        self.f.card_with("card1", 12868124672)
+        # A connector, a card that says nothing, one that says no number and a render node.
+        self.f.card_with("card1-DP-1", 99999999999999)
+        os.makedirs(os.path.join(self.f.drm, "card2", "device"))
+        self.f.card_with("card3", "unknown")
+        self.f.card_with("renderD128", 99999999999999)
+        mode, said = self.mode_after()
+        self.assertEqual(mode, "quick machine=eden@0123abcdef vram=12272")
+        self.assertIn("vram=12272, the MiB %s says, the largest of 2 cards" %
+                      os.path.join(self.f.drm, "card1", "device", "mem_info_vram_total"), said)
+
+    def test_no_card_says_one_and_it_is_said(self):
+        mode, said = self.mode_after()
+        self.assertEqual(mode, "quick machine=eden@0123abcdef")
+        self.assertIn("no vram= word: no card under %s says its memory in mem_info_vram_total, "
+                      "amdgpu's file, so tex8k's textures are tried whatever this machine has; "
+                      "vram=<MiB> among MODE's words says it" % self.f.drm, said)
+
+    def test_a_mode_that_says_it_keeps_its_own(self):
+        self.f.card_with("card0", 1073741824)
+        mode, said = self.mode_after(mode="quick VRAM=8192")
+        self.assertEqual(mode, "quick VRAM=8192 machine=eden@0123abcdef")
+        self.assertIn("the mode says its vram", said)
+
+    def test_no_mode_file_no_word(self):
+        self.f.card_with("card0", 1073741824)
+        code, said = self.f.run(mode="")
+        self.assertNotIn("vram", said)
+
+    def test_a_missing_folder_and_a_number_past_the_most(self):
+        run.DRM = os.path.join(self.f.dir, "none")
+        self.assertIsNone(run.graphics_memory())
+        run.DRM = self.f.drm
+        self.f.card_with("card0", 1 << 60)
+        self.assertEqual(run.graphics_memory()[0], 1048576)
 
 
 class CrashLists(unittest.TestCase):

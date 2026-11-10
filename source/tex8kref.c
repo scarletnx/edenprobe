@@ -1,12 +1,30 @@
 // SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <stdio.h>
 #include <string.h>
 
 #include "astcref.h"
 #include "tex8kref.h"
 
 const uint8_t TEX8K_BC7_BOUND[ASTC_IMAGE_REGIONS] = { 8, 76, 61, 8 };
+
+size_t Tex8kShortOfMemory(char *out, size_t out_size, uint32_t vram_mib) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (vram_mib == 0u || vram_mib >= TEX8K_VRAM_MIB) {
+        return 0;
+    }
+    snprintf(out, out_size,
+             "the mode file says this machine has %u MiB of graphics memory (vram=%u), and the "
+             "suite's textures want %u: not tried, since a host that runs out can lose its "
+             "graphics device; a mode file with no vram=, or one of %u and more, tries them",
+             (unsigned)vram_mib, (unsigned)vram_mib, (unsigned)TEX8K_VRAM_MIB,
+             (unsigned)TEX8K_VRAM_MIB);
+    return strlen(out);
+}
 
 uint32_t Tex8kMix(uint32_t x, uint32_t y, uint32_t salt) {
     uint32_t h = x * 0x9E3779B1u ^ y * 0x85EBCA77u ^ salt * 0xC2B2AE3Du;

@@ -7,13 +7,14 @@ family reports can be believed without them.
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, two hundred and eight cases, no hardware involved: what the program does
+- **support**, two hundred and nine cases, no hardware involved: what the program does
   around a verdict rather than to reach one. The pictures a failing case leaves and the names they
   get, the detailed mode's store, screens and navigation, the start screen, the screen that asks
   whether to go on with a run, the running screen, the listening screen, the pad screen and the
   touch suite's, a tap on each of them and the touch bar's boxes, the start screen's line on nvn's
   window case, the mode file and its words, `all` among them, the
-  label and the folder it names, the game family's word and the frames it runs, the widest mode kept
+  label and the folder it names, the game family's word and the frames it runs, the machine's
+  graphics memory and what `vram=` says of it, the widest mode kept
   whole in the journal, the families each frontend runs and the runner's files under its root, the `skip` result, the time a case reports (twenty cases, see [Time per
   case](../TimePerCase.md)), the journal, the crash list, the hang table, the ban list, the suites
   `skip=` leaves out and what a launch decides from them, a launch a runner stopped at its time
@@ -39,7 +40,7 @@ family reports can be believed without them.
   its cases skipped as asked, the next step run, and a name no case came up for said; and the same
   run with a runner's `timeout` after the first launch: the case skipped as timeout with the
   runner's two numbers, off the crash list, and started again by the next run.
-- **reference**, three hundred and ninety one cases, no hardware involved either: the other half
+- **reference**, three hundred and ninety two cases, no hardware involved either: the other half
   of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -137,7 +138,8 @@ family reports can be believed without them.
     1024 frames, the frame times' mean, 99th percentile, longest and hitches on runs made to order,
     the audio thread's limit, the timed cases the warm-up is left out of, and the notes they end on
     (see [The game family](Game.md));
-  - ten on the tex8k suite's judge, `source/tex8kref.c`: its BC7 mode 6 and BC1 blocks against the
+  - eleven on the tex8k suite's judge, `source/tex8kref.c`: the graphics memory its textures want
+    of a machine and what it says of one with less, its BC7 mode 6 and BC1 blocks against the
     bytes and texels Pillow 12.3.0 decodes them to, both ways a BC1 code may become eight bits, its
     RGBA8 texels, their fast fill and a salt past 63 folded, its ASTC texels against the picture's
     from the block their tile shifts in, BC7's bound in each region against the texel it was

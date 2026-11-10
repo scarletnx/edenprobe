@@ -19,7 +19,12 @@ directory, last-run and the mode file are removed, and WORDS (default `quick`; e
 which is the detailed screen) written into a new mode file, with machine=NAME[@VERSION] after them
 for the ban list (docs/Crashes.md): --machine's, or the one the emulator's name says, eden asked for
 its version with --version, ryujinx with none; WORDS that name a machine already keep theirs, and
-an emulator of another name gets no machine word, which is said. The program names the folder it
+an emulator of another name gets no machine word, which is said. After it goes vram=MiB, the
+graphics memory this machine's card says it has of its own (the largest mem_info_vram_total under
+/sys/class/drm, a file amdgpu writes): with less than the tex8k suite's textures want, the program
+does not try them and says both numbers (docs/families/Graphics.md), since a host that runs out
+there can lose its graphics device. WORDS that say vram= keep theirs, and a machine whose driver
+says no such number gets no word, which is said: its textures are tried. The program names the folder it
 reports in, its build's hash and the mode file's label, in sdmc:/edenprobe/last-run; the report
 and the journal are read from there.
 
@@ -497,6 +502,55 @@ def machine_word(emulator, xdg, mode, machine):
                   "ban list holds for none; MACHINE=<name>[@<version>] names it" % emulator)
 
 
+# Where the kernel's graphics drivers show their cards.
+DRM = "/sys/class/drm"
+# The most vram= takes (source/mode.h, MODE_VRAM_MAX).
+VRAM_MAX = 1048576
+
+
+def graphics_memory():
+    """The graphics memory a card here says it has of its own, as (MiB, the file that says it, how
+    many cards said one), the largest when several do; None when none does. The file is the
+    driver's mem_info_vram_total, in bytes, which amdgpu writes and most other drivers do not."""
+    found = []
+    try:
+        cards = sorted(os.listdir(DRM))
+    except OSError:
+        cards = []
+    for name in cards:
+        if not re.fullmatch(r"card[0-9]+", name):
+            continue
+        path = os.path.join(DRM, name, "device", "mem_info_vram_total")
+        try:
+            with open(path) as f:
+                size = int(f.read().strip())
+        except (OSError, ValueError):
+            continue
+        if size >= 1024 * 1024:
+            found.append((min(size // (1024 * 1024), VRAM_MAX), path))
+    if not found:
+        return None
+    mib, path = max(found)
+    return mib, path, len(found)
+
+
+def vram_word(mode):
+    """The vram= word to add to the mode file and a line saying where it came from, or None and
+    why there is none."""
+    if not mode:
+        return None, None
+    if re.search(r"(?:^|\s)vram=", mode, re.I):
+        return None, "the mode says its vram"
+    memory = graphics_memory()
+    if memory is None:
+        return None, ("no vram= word: no card under %s says its memory in mem_info_vram_total, "
+                      "amdgpu's file, so tex8k's textures are tried whatever this machine has; "
+                      "vram=<MiB> among MODE's words says it" % DRM)
+    mib, path, cards = memory
+    return "vram=%d" % mib, "vram=%d, the MiB %s says%s; vram=<MiB> among MODE's words says another" % (
+        mib, path, ", the largest of %d cards" % cards if cards > 1 else "")
+
+
 def describe(status, stopped_after):
     if stopped_after is not None:
         return "was stopped after %d s" % stopped_after
@@ -671,6 +725,11 @@ def one_run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_pat
         say(line)
     word, why = machine_word(emulator, xdg, mode, machine)
     say(why)
+    if word:
+        mode = mode + " " + word
+    word, why = vram_word(mode)
+    if why:
+        say(why)
     if word:
         mode = mode + " " + word
     prepare(xdg, mode, keep_rounds=round_number > 1)

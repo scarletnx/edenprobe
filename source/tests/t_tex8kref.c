@@ -451,7 +451,38 @@ static void Numbers(void) {
                (unsigned)Tex8kDistance(off, answers), (unsigned)Tex8kDistance(on, answers));
 }
 
+/// The memory the suite's textures want of a machine: tried with no word and with enough, and
+/// with less the reason carries what the machine has and what they want.
+static void Memory(void) {
+    char none[8] = "x";
+    char enough[8] = "x";
+    char more[8] = "x";
+    char under[384];
+    char little[384];
+    const size_t no_word = Tex8kShortOfMemory(none, sizeof(none), 0u);
+    const size_t at = Tex8kShortOfMemory(enough, sizeof(enough), TEX8K_VRAM_MIB);
+    const size_t past = Tex8kShortOfMemory(more, sizeof(more), 12288u);
+    const size_t just = Tex8kShortOfMemory(under, sizeof(under), TEX8K_VRAM_MIB - 1u);
+    const size_t small = Tex8kShortOfMemory(little, sizeof(little), 1024u);
+    CHECK_TRUE(SUITE, "tex8k's textures are tried with no vram word or 4096 MiB, and with less "
+                      "say what the machine has",
+               CHECK_NONE,
+               no_word == 0u && none[0] == '\0' && at == 0u && enough[0] == '\0' && past == 0u &&
+                   more[0] == '\0' && just == strlen(under) &&
+                   strstr(under, "has 4095 MiB of graphics memory (vram=4095), and the suite's "
+                                 "textures want 4096") != NULL &&
+                   small == strlen(little) &&
+                   strcmp(little,
+                          "the mode file says this machine has 1024 MiB of graphics memory "
+                          "(vram=1024), and the suite's textures want 4096: not tried, since a "
+                          "host that runs out can lose its graphics device; a mode file with no "
+                          "vram=, or one of 4096 and more, tries them") == 0,
+               "no word %zu, 4096 %zu, 12288 %zu; 4095 says \"%.120s\"; 1024 says \"%.160s\"",
+               no_word, at, past, under, little);
+}
+
 void RunReferenceTex8k(void) {
+    Memory();
     Bc7();
     Bc1();
     Rgba8();
