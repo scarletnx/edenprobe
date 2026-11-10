@@ -23,9 +23,9 @@ make run: settings: .../build/xdg/settings/eden-cli-5c1e0a9f3b21, this binary's 
 `build/xdg/config`, every binary's settings before, is no longer read and stays where it is; the run says so while it
 is there.
 
-The target runs `tools/run.py`. It first deletes the reports and pictures of every run folder, `last-run` and the
-support suite's scratch folder, so no old report passes for the new one; the journals stay, so a run the program
-left in the middle goes on.
+The target runs `tools/run.py`. It first deletes the reports, pictures and emulator logs of every run folder,
+`last-run` and the support suite's scratch folder, so no old report passes for the new one; the journals stay, so a
+run the program left in the middle goes on.
 
 **After a crash it starts the emulator again.** A launch that ends without a summary, crashed or past `TIMEOUT` (60
 seconds, then killed ten later), is followed by another that goes on after the case the last one ended inside
@@ -62,6 +62,37 @@ make run: launch 1: the emulator said its graphics device was lost inside tex8k 
 
 The case the launch was inside goes on the crash list when the next run starts, as any case a launch ended inside, so
 that run skips it as `crashed`; `MODE="quick retry"` runs it again.
+
+**What the emulator said is kept beside the report.** A failure can have its cause only in the emulator's log: every
+pixel of a case wrong because a shader was never translated, a video job that wrote nothing because it never ran. So
+`make run` keeps the emulator's output in the run's folder, colours taken off:
+
+```
+runs/5fd6ec1/
+  report.jsonl
+  emulator.log                 everything the emulator printed, a launch after another
+  logs/<suite>/<case>.log      what it said while that case ran, for each case that did not pass
+```
+
+`logs/intmath/a-left-shift-by-31-32-and-33-in-a-register-clamps-the-count-to-32.log`, from a `notime` run under Eden:
+
+```
+intmath: a left shift by 31, 32 and 33 in a register clamps the count to 32: fail
+== launch 1, up to its line in the report
+ [  45.629048] Render.Vulkan <Error> video_core/renderer_vulkan/vk_pipeline_cache.cpp:930:CreateGraphicsPipeline: Instruction IMUL32I is not implemented is not implemented
+```
+
+A case's file is named as its pictures are ([Failure pictures](FailurePictures.md)) and holds the emulator's own lines,
+never the probe's, under a heading for each pass and launch they came in. The probe's lines in the output are what
+cuts it: a case's report line closes what came before it; in the passes a timed suite makes before it reports, the
+breadcrumb before each case does ([Time per case](TimePerCase.md#when-a-rehearsal-hangs)), the n-th of a pass being
+the suite's n-th case; and what a launch said after the probe's last line belongs to the case the journal says it
+ended inside, which is where a crash's reason is. A case the emulator said nothing during gets no file, and neither
+does one that passed: `emulator.log` has it all. An emulator says some things once: a shader it cannot translate when
+the first case draws with it, and nothing for the cases after that fail the same way, so a suite's failures with no
+file are read beside the ones that have one. What a suite's first case gets includes the device before it closing.
+An emulator that does not log the debug channel leaves nothing to cut by, which `make run` says; `--log FILE` on
+`tools/run.py` still keeps every line as it came, colours and all.
 
 **The crash list is per emulator binary**, in `build/xdg/crash-lists/`, put on the card before the first launch and
 taken back after the last; a binary of another size or time starts its own. To try a case again, delete its line

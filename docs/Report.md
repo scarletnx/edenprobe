@@ -64,6 +64,8 @@ sdmc:/edenprobe/
       report.jsonl
       images/       the failing cases' pictures
       journal       where the run is, for the launch after a crash
+      emulator.log  under make run: everything the emulator printed
+      logs/         under make run: what it said during each case that did not pass
     5fd6ec1_phone/  the same build with label=phone
     9e1c2a4-dirty/  a build of a tree with uncommitted changes
 ```
@@ -73,4 +75,5 @@ report's first note names the build and the second the folder. `label=<name>` ad
 emulators that share a card: 1 to 32 letters, digits, dots, dashes and underscores, not starting with a dot; anything
 else is refused in the mode line and the run goes in the folder with no label. Each folder has its own journal, so a
 run one build left in the middle waits while another build runs. The crash list is shared by every build. Every
-launch rewrites `last-run` before it opens the report, which is how `make run` finds it.
+launch rewrites `last-run` before it opens the report, which is how `make run` finds it. The last two are the
+runner's, not the program's ([Under an emulator](Emulator.md)).

@@ -50,8 +50,12 @@ after it, which are no results, and the exit is 1. What an emulator draws once t
 has dropped its device says nothing about the emulator, and on some machines the next launch
 finds the display itself reset.
 
-Every line of the emulator's output goes to FILE when given; the lines about edenprobe are printed
-as they come, with ANSI colours taken off. At the end it prints the counts and, on lines of their
+The emulator's output is kept beside the report, colours taken off: all of it in emulator.log, a
+launch after another, and in logs/<suite>/<case>.log what the emulator itself said while each case
+that did not pass ran, in every pass and launch, cut out by the probe's own lines in that output
+(CaseLogs). A failure whose cause only the emulator knows, a shader it could not translate, a job
+it never ran, is then beside the case. Every line also goes to FILE as it came when --log is
+given; the lines about edenprobe are printed as they come, with ANSI colours taken off. At the end it prints the counts and, on lines of their
 own, the cases skipped as crashed and the ones a launch was stopped inside at its limit, and exits
 0 when the report ends on its summary, 1 when it does not, 1 too when the run ended at a device loss, and 130 when stopped. Standard library only.
 """
@@ -74,6 +78,8 @@ SHOWN = re.compile(rb"edenprobe|EDENPROBE|\"type\":")
 # lines among them.
 PROBE = re.compile(rb"EDENPROBE|\"type\":")
 CASE = re.compile(rb"\"type\":\"case\"")
+# A breadcrumb before a rehearsed case (source/report.h, ReportBuildBreadcrumb): its suite and pass.
+CRUMB = re.compile(rb"EDENPROBE TIMING (\S+) pass (\d+) case ")
 # What an emulator logs when the host's driver has dropped its graphics device: Eden's "Device loss
 # occurred!", or the Vulkan result by its name (VK_ERROR_DEVICE_LOST, ErrorDeviceLost). Names only,
 # as they are spelled: "audio device lost" is another device's.
@@ -177,6 +183,157 @@ class Journal:
         return out
 
 
+def stem(text):
+    """A file's name for a suite or a case, as a picture's (docs/FailurePictures.md): lower case,
+    every run of other characters one dash, at most 96 characters."""
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:96].strip("-") or "case"
+
+
+class CaseLogs:
+    """What the emulator said while each case ran, cut out of its output by the probe's own lines
+    in it, which an emulator logs from the debug channel in the order they came.
+
+    A case's line closes the emulator's lines before it: they came while that case ran. In the
+    passes a timed suite makes before the one that reports, no case has a line, and a breadcrumb
+    opens each case instead: the n-th breadcrumb of a pass is the suite's n-th case, named by the
+    n-th case line the suite then reports, and the one past the last is the device closing, which
+    is no case's. What a launch said after its last such line belongs to the case the journal
+    says it ended inside. Lines before a suite's first breadcrumb, and anything no line of the
+    probe's closes, stay in the whole log only."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.launch = 0
+        self.output = []
+        self.pending = []
+        self.opened = None
+        self.crumbs = {}
+        self.reported = set()
+        self.segments = []
+        self.results = {}
+        self.order = {}
+        self.inside = set()
+        self.markers = 0
+
+    def begin(self, launch):
+        with self.lock:
+            self.launch = launch
+            self.output = []
+            self.pending = []
+            self.opened = None
+            self.crumbs = {}
+            self.reported = set()
+
+    def close(self, owner, label):
+        if self.pending and owner is not None:
+            self.segments.append((owner, "launch %d, %s" % (self.launch, label), self.pending))
+        self.pending = []
+
+    def feed(self, line):
+        """One line of the emulator's output, colours off."""
+        with self.lock:
+            self.output.append(line)
+            crumb = CRUMB.search(line)
+            if crumb:
+                if self.opened is not None:
+                    self.close(*self.opened)
+                else:
+                    self.pending = []
+                suite, number = crumb.group(1).decode("utf-8", "replace"), int(crumb.group(2))
+                index = self.crumbs.get((suite, number), 0)
+                self.crumbs[(suite, number)] = index + 1
+                self.opened = (("index", suite, index),
+                               "pass %d%s" % (number, " (the warm-up)" if number == 1 else ""))
+                self.markers += 1
+                return
+            at = line.find(b'{"type":')
+            if at >= 0:
+                try:
+                    said = json.loads(line[at:].decode("utf-8", "replace").strip())
+                except ValueError:
+                    said = None
+                if isinstance(said, dict) and said.get("type") == "case" and \
+                        isinstance(said.get("suite"), str) and isinstance(said.get("name"), str):
+                    suite, name = said["suite"], said["name"]
+                    self.close(("name", suite, name), "up to its line in the report")
+                    self.opened = None
+                    result = str(said.get("result"))
+                    if isinstance(said.get("reason"), str):
+                        result += " (%s)" % said["reason"]
+                    self.results[(suite, name)] = result
+                    if suite not in self.reported:
+                        self.reported.add(suite)
+                        self.order[suite] = []
+                    self.order[suite].append(name)
+                    self.markers += 1
+                return
+            if PROBE.search(line):
+                return
+            self.pending.append(line)
+
+    def end(self, where, how):
+        """The launch is over: @where is the case the journal says it ended inside, as (suite,
+        pass, name), or None, and @how what became of the launch."""
+        with self.lock:
+            if where is not None:
+                suite, number, name = where
+                self.inside.add((suite, name))
+                self.results.setdefault((suite, name), "the launch ended inside it")
+                self.close(("name", suite, name), "%swhere the launch %s" % (
+                    "pass %s%s, " % (number, " (the warm-up)" if number == "1" else "")
+                    if number != "0" else "", how))
+            elif self.opened is not None:
+                self.close(*self.opened)
+            self.pending = []
+            self.opened = None
+
+    def keep_output(self, folder):
+        """Adds the launch's whole output to emulator.log in @folder."""
+        with self.lock:
+            with open(os.path.join(folder, "emulator.log"), "ab") as f:
+                f.write(b"== launch %d\n" % self.launch)
+                for line in self.output:
+                    f.write(line if line.endswith(b"\n") else line + b"\n")
+            self.output = []
+
+    def write(self, folder):
+        """Writes logs/<suite>/<case>.log in @folder for every case that did not pass and that
+        the emulator said something during. Hands back (files written, cases that did not
+        pass)."""
+        with self.lock:
+            said = {}
+            for owner, label, lines in self.segments:
+                kind, suite, which = owner
+                if kind == "index":
+                    names = self.order.get(suite, [])
+                    if which >= len(names):
+                        continue
+                    which = names[which]
+                said.setdefault((suite, which), []).append((label, lines))
+            wanted = [key for key, result in self.results.items()
+                      if result != "pass" or key in self.inside]
+            taken = {}
+            written = 0
+            for key in wanted:
+                if key not in said:
+                    continue
+                suite, name = key
+                directory = os.path.join(folder, "logs", stem(suite))
+                os.makedirs(directory, exist_ok=True)
+                base = stem(name)
+                number = taken.get((directory, base), 0) + 1
+                taken[(directory, base)] = number
+                path = os.path.join(directory, base + ("-%d" % number if number > 1 else "") + ".log")
+                with open(path, "wb") as f:
+                    f.write(("%s: %s: %s\n" % (suite, name, self.results[key])).encode("utf-8"))
+                    for label, lines in said[key]:
+                        f.write(("== %s\n" % label).encode("utf-8"))
+                        for line in lines:
+                            f.write(line if line.endswith(b"\n") else line + b"\n")
+                written += 1
+            return written, len(wanted)
+
+
 def summary(report):
     """The summary line of a report, as a dict of its counts, or None."""
     try:
@@ -222,7 +379,7 @@ def swap_out(xdg, store):
 
 def prepare(xdg, mode):
     """The directories, the previous runs' leavings taken away, and the mode file. Every run
-    folder loses its report and pictures, since this script cannot know which folder the build
+    folder loses its report, its pictures and the emulator's logs, since this script cannot know which folder the build
     it runs will name. The journals stay: the probe reads its own to decide the run is new, the
     report being gone, and lists a case the last launch of an earlier run ended inside. The
     report and the pictures at the top of the card are a build's from before run folders."""
@@ -231,12 +388,13 @@ def prepare(xdg, mode):
     sd = card(xdg)
     os.makedirs(sd, exist_ok=True)
     for folder in [sd] + run_folders(sd):
-        names = ("report.jsonl", "mode", "last-run") if folder == sd else ("report.jsonl",)
+        names = ("report.jsonl", "mode", "last-run") if folder == sd else ("report.jsonl",
+                                                                         "emulator.log")
         for name in names:
             path = os.path.join(folder, name)
             if os.path.isfile(path) or os.path.islink(path):
                 os.remove(path)
-        names = ("images", "support-check", "mode") if folder == sd else ("images",)
+        names = ("images", "support-check", "mode") if folder == sd else ("images", "logs")
         for name in names:
             path = os.path.join(folder, name)
             if os.path.isdir(path):
@@ -369,8 +527,9 @@ class Launched:
         self.after = 0
 
 
-def launch(emulator, nro, xdg, timeout, log, echo):
-    """One launch, stopped at its limit or at the emulator's word that its device was lost."""
+def launch(emulator, nro, xdg, timeout, log, echo, logs=None):
+    """One launch, stopped at its limit or at the emulator's word that its device was lost. Its
+    output goes to @log as it came and to @logs a line at a time, colours off."""
     process = subprocess.Popen([emulator, "-g", nro], env=emulator_env(xdg, emulator),
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     ended = Launched()
@@ -380,6 +539,8 @@ def launch(emulator, nro, xdg, timeout, log, echo):
             if log is not None:
                 log.write(raw)
             line = ANSI.sub(b"", raw)
+            if logs is not None:
+                logs.feed(line)
             if PROBE.search(line):
                 # The probe's own words are never the emulator's: a case may quote a loss.
                 if ended.lost is not None and CASE.search(line):
@@ -512,16 +673,25 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
     launches = 0
     code = 1
     lost = None
+    logs = CaseLogs()
     # A person's SIGTERM stops the run the way ctrl-C does.
     previous = signal.signal(signal.SIGTERM, interrupt)
     try:
         while True:
             before = Journal.read(journal_path) if journal_path is not None else None
             launches += 1
-            ended = launch(emulator, nro, xdg, timeout, log, echo)
+            logs.begin(launches)
+            ended = launch(emulator, nro, xdg, timeout, log, echo, logs)
             status, stopped_after, quiet = ended.status, ended.stopped_after, ended.quiet
             said = "launch %d %s" % (launches, describe(status, stopped_after))
             named = run_folder(sd)
+            # What the launch said after the probe's last line is the case's it ended inside.
+            left = Journal.read(os.path.join(named, "journal")) if named is not None else None
+            logs.end(left.inside() if left is not None else None,
+                     "was stopped at the emulator's word that its device was lost"
+                     if ended.lost is not None else describe(status, stopped_after))
+            if named is not None:
+                logs.keep_output(named)
             if ended.lost is not None:
                 # Before anything else the launch left: no summary, no relaunch and no case after
                 # the line counts once the device is gone.
@@ -592,6 +762,10 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
         named = run_folder(sd)
         if named is not None:
             mark_stopped(os.path.join(named, "journal"))
+            # The launch under way never reached its end here: its output is kept all the same.
+            logs.end(None, "was stopped by hand")
+            logs.keep_output(named)
+            folder = named
         say("stopped; the journal says so, so the case under way is not taken for a crash")
         code = 130
     finally:
@@ -599,6 +773,16 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
         if log is not None:
             log.close()
         swap_out(xdg, store)
+    if folder is not None:
+        written, wanted = logs.write(folder)
+        say("the emulator's output: %s" % os.path.join(folder, "emulator.log"))
+        if logs.markers == 0:
+            say("that output carried none of the report's lines, so it is not cut by case: an "
+                "emulator that logs the debug channel is what logs/ needs")
+        elif wanted:
+            say("of the %d case%s that did not pass, the emulator said something during %d: %s" %
+                (wanted, "" if wanted == 1 else "s", written,
+                 os.path.join(folder, "logs") if written else "no logs/ written"))
     if code == 130:
         return code
     if lost is not None:
