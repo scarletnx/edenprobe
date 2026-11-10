@@ -74,7 +74,11 @@ extern "C" {
 ///             program has, and times its frames. It runs only when named until a console has
 ///             run it.
 ///
-/// Six that are not words. `frames=<n>`, the frames the game scene runs, a whole number from 1
+/// Seven that are not words. `vram=<MiB>`, the graphics memory the machine has, as its runner read
+/// it, a whole number of MiB from 1 to MODE_VRAM_MAX: with less than TEX8K_VRAM_MIB (tex8kref.h)
+/// the tex8k suite's textures are not tried, each device's case skipped as unavailable; without
+/// the word they run, as on the console; anything else is refused and said in the mode line with
+/// the number in effect. `frames=<n>`, the frames the game scene runs, a whole number from 1
 /// to MODE_FRAMES_MAX, MODE_FRAMES_DEFAULT without one; anything else is refused and said in the
 /// mode line with the number in effect. `machine=<name>[@<version>]`, the machine the run is on as
 /// the ban list names machines (BanMachineKnown), and its version when the runner knows it
@@ -170,10 +174,10 @@ typedef enum {
 /// The longest folder name ModeRunFolder makes, the separator included.
 #define MODE_FOLDER_MAX (MODE_HASH_MAX + 1u + MODE_LABEL_MAX)
 
-/// Room for every word ModeKey writes with all of them on, `frames=` at its widest, `machine=`
-/// with a name and a version as long as they may be and MODE_SKIPS_MAX `skip=` words at their
-/// longest, 301 characters, with room to grow: the support suite holds the widest to it, and the
-/// journal's fields are sized from it (journal.h, JOURNAL_MODE_MAX).
+/// Room for every word ModeKey writes with all of them on, `frames=` and `vram=` at their widest,
+/// `machine=` with a name and a version as long as they may be and MODE_SKIPS_MAX `skip=` words at
+/// their longest, 314 characters: the support suite holds the widest to it, and the journal's
+/// fields are sized from it (journal.h, JOURNAL_MODE_MAX).
 #define MODE_KEY_MAX 320u
 
 /// How many `skip=<suite>` words a mode file may have, and the longest suite name one takes: every
@@ -200,6 +204,9 @@ typedef struct {
 #define MODE_FRAMES_DEFAULT 600u
 #define MODE_FRAMES_MAX 36000u
 #define MODE_FRAMES_QUOTED 16u
+/// The most `vram=` takes, a TiB in MiB, and how much of a refused value the mode line quotes.
+#define MODE_VRAM_MAX 1048576u
+#define MODE_VRAM_QUOTED 16u
 
 typedef struct {
     /// What was at the path. Nothing changes with it but the line that says so.
@@ -291,6 +298,14 @@ typedef struct {
     bool frames_was_refused;
     char frames_refused[MODE_FRAMES_QUOTED + 1u];
     bool frames_refused_cut;
+    /// `vram=<MiB>`: the machine's graphics memory when the file has a good one, the last of
+    /// several, and nought when it has none, which holds no texture back.
+    uint32_t vram;
+    /// The last `vram=` refused, as written and cut to fit, for the mode line. A refusal leaves
+    /// an earlier good value alone; a good value after it clears it.
+    bool vram_was_refused;
+    char vram_refused[MODE_VRAM_QUOTED + 1u];
+    bool vram_refused_cut;
 } RunMode;
 
 /// Reads the words in @p text. NULL means there was no file, which reads like an empty one.

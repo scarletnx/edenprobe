@@ -6,6 +6,7 @@
 
 #include "bans.h"
 #include "mode.h"
+#include "tex8kref.h"
 
 // Longer than any word this file knows. A longer one is unknown whatever it spells, and is
 // quoted cut short rather than in full.
@@ -212,6 +213,35 @@ static void TakeFrames(RunMode *mode, const char *value, size_t length) {
     mode->frames_refused_cut = length > MODE_FRAMES_QUOTED;
 }
 
+/// Takes the number after `vram=`, @p length bytes of it: kept when it is a whole number of MiB
+/// from 1 to MODE_VRAM_MAX, quoted in the mode line otherwise.
+static void TakeVram(RunMode *mode, const char *value, size_t length) {
+    uint32_t number = 0;
+    bool whole = length > 0u;
+    for (size_t i = 0; i < length && whole; ++i) {
+        const char c = value[i];
+        // Checked before each digit is added, so no length of digits can wrap round to a
+        // number that looks good.
+        whole = c >= '0' && c <= '9' && number <= MODE_VRAM_MAX;
+        number = whole ? number * 10u + (uint32_t)(c - '0') : number;
+    }
+    if (whole && number >= 1u && number <= MODE_VRAM_MAX) {
+        mode->vram = number;
+        mode->vram_was_refused = false;
+        mode->vram_refused[0] = '\0';
+        mode->vram_refused_cut = false;
+        return;
+    }
+    mode->vram_was_refused = true;
+    const size_t quoted = length < MODE_VRAM_QUOTED ? length : MODE_VRAM_QUOTED;
+    for (size_t i = 0; i < quoted; ++i) {
+        const unsigned char c = (unsigned char)value[i];
+        mode->vram_refused[i] = c < 0x20u || c >= 0x7Fu || c == '"' || c == '\\' ? '?' : (char)c;
+    }
+    mode->vram_refused[quoted] = '\0';
+    mode->vram_refused_cut = length > MODE_VRAM_QUOTED;
+}
+
 /// Takes the machine after `machine=`, @p length bytes of it, `<name>` or `<name>@<version>`: kept
 /// when the ban list knows the name and the version is one a machine can have, quoted in the mode
 /// line otherwise, an earlier good one left in effect.
@@ -306,6 +336,7 @@ static const struct {
     { "frames", 6u },
     { "machine", 7u },
     { "skip", 4u },
+    { "vram", 4u },
 };
 
 /// Which of NAMED the @p length letters of @p word are, or -1.
@@ -328,6 +359,8 @@ static void TakeNamed(RunMode *mode, int which, const char *value, size_t length
         TakeMachine(mode, value, length);
     } else if (which == 5) {
         TakeSkip(mode, value, length);
+    } else if (which == 6) {
+        TakeVram(mode, value, length);
     } else {
         TakeName(which == 1 ? &mode->baseline : &mode->compare, value, length);
     }
@@ -669,6 +702,30 @@ static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t p
                  mode->frames_refused, mode->frames_refused_cut ? "..." : "",
                  (unsigned)MODE_FRAMES_MAX, (unsigned)mode->frames);
     }
+    if (mode->vram != 0u) {
+        const size_t used = strlen(out);
+        const bool graphics =
+            (ModeFamiliesToRunOf(mode, present, asked) & MODE_FAMILY_GRAPHICS) != 0u;
+        const bool under = mode->vram < TEX8K_VRAM_MIB;
+        const char *const then = !graphics ? ", in the graphics family, which this run leaves out"
+                                 : under   ? ": their cases are skipped as unavailable"
+                                           : "";
+        snprintf(out + used, out_size - used, "; vram %u MiB, %s the %u tex8k's textures want%s",
+                 (unsigned)mode->vram, under ? "under" : "not under", (unsigned)TEX8K_VRAM_MIB,
+                 then);
+    }
+    if (mode->vram_was_refused) {
+        const size_t used = strlen(out);
+        char kept[96];
+        if (mode->vram != 0u) {
+            snprintf(kept, sizeof(kept), "it keeps %u", (unsigned)mode->vram);
+        } else {
+            snprintf(kept, sizeof(kept), "the run has no vram, and tex8k's textures are tried");
+        }
+        snprintf(out + used, out_size - used,
+                 "; vram=%s%s is not a whole number of MiB from 1 to %u: %s", mode->vram_refused,
+                 mode->vram_refused_cut ? "..." : "", (unsigned)MODE_VRAM_MAX, kept);
+    }
     DescribeName(out, out_size, "baseline", &mode->baseline, "this run's times added as a sample");
     DescribeName(out, out_size, "compare", &mode->compare, "this run's times held to its samples");
     if (mode->saved_by_screen) {
@@ -753,6 +810,9 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         snprintf(skips + used, sizeof(skips) - used, "%sskip=%s", i > 0u ? " " : "",
                  mode->skip[i]);
     }
+    // The memory decides whether tex8k's textures are tried, so another memory is another run.
+    char vram[24];
+    snprintf(vram, sizeof(vram), "vram=%u", (unsigned)mode->vram);
     const struct {
         bool on;
         const char *word;
@@ -785,6 +845,7 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { mode->stress, "stress" },
         { mode->unban, "unban" },
         { (mode->families_named & MODE_FAMILY_VIDEO) != 0u, "video" },
+        { mode->vram != 0u, vram },
     };
     for (size_t i = 0; i < sizeof(WORDS) / sizeof(WORDS[0]); ++i) {
         if (!WORDS[i].on) {

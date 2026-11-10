@@ -642,6 +642,19 @@ processor spent filling the staging, writing a region and reading back, from the
 since an emulator can spend there what the console does not. `notime` drops the times and the
 parts.
 
+An emulator keeps each of these textures on its host, with its staging and a copy of its own:
+under ScarletNX on a 12 GiB card the suite's staging alone peaked at 4512 MiB, and a handheld's
+graphics device was lost inside the suite, its display reset with it. So the suite asks what the
+machine has before it tries: the mode file's `vram=<MiB>`, which `make run` writes from the
+host's card ([Under an emulator](../Emulator.md)). Under 4096 no texture is tried: the case that
+opens each device is a `skip`, `unavailable`, and the cases on that texture `depends`.
+
+```json
+{"type":"case","suite":"tex8k","name":"graphics device opens with room for the 8192x8192 RGBA8 texture","tier":"none","result":"skip","reason":"unavailable","detail":"the mode file says this machine has 1024 MiB of graphics memory (vram=1024), and the suite's textures want 4096: not tried, since a host that runs out can lose its graphics device; a mode file with no vram=, or one of 4096 and more, tries them"}
+```
+
+With no `vram=`, which is a console and any emulator opened by hand, every texture is tried.
+
 Every texture has a device of its own, sized for it, so a run never holds two. The copy engine
 uploads it from staging the processor filled, each level a square of level 0's staging from a
 corner of its own, so a fetch of the wrong level reads other texels: the first eight levels (8192

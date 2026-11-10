@@ -260,6 +260,7 @@ int main(int argc, char **argv) {
     GameSetFrames(mode.frames);
     GameSetTiming(timing);
     Tex8kSetTiming(timing);
+    Tex8kSetVram(mode.vram);
     // The running screen, for a run with a screen: a detailed one, or one the start screen made
     // quick. Counted over every step the run has, done ones included, so a launch that goes on
     // says how far the whole run is.

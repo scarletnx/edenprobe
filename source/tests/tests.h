@@ -224,6 +224,11 @@ void RunTex8k(void);
 /// Whether the tex8k cases carry their times: off for a run with the mode word `notime`.
 void Tex8kSetTiming(bool on);
 
+/// The machine's graphics memory in MiB as the mode file's `vram=` says it, nought for no word:
+/// under TEX8K_VRAM_MIB the suite's textures are not tried, and each device's case is skipped as
+/// unavailable with both numbers.
+void Tex8kSetVram(uint32_t mib);
+
 /// The nvn family: the program's NVN (nvnlayer.c, on deko3d) looked up by name as a game looks up
 /// its driver's, a device and a queue brought up through it, a 64x64 target cleared and read back
 /// pixel by pixel, and a window that acquires and presents both its textures. Under ScarletNX the

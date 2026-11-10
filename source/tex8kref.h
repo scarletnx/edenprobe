@@ -70,6 +70,19 @@ extern "C" {
 #define TEX8K_TAIL_FROM 1280u
 #define TEX8K_TAIL_TO 1792u
 
+/// The graphics memory, in MiB, a machine wants before the suite's textures are tried on it: an
+/// emulator keeps each texture, its staging and its own copy on the host, and under ScarletNX on
+/// a 12 GiB card the suite's staging alone peaked at 4512 MiB. A host with far less can lose its
+/// graphics device inside the suite, and the display with it. Held to what the mode file's
+/// `vram=<MiB>` says the machine has (mode.h), which a runner reads off the host; with no word, as
+/// on the console, every texture is tried.
+#define TEX8K_VRAM_MIB 4096u
+
+/// Why the suite's textures are not tried on a machine whose runner read @p vram_mib MiB of
+/// graphics memory, as a skip's detail, both numbers in it; empty, and nought returned, when they
+/// are tried: @p vram_mib nought, which is no word, or TEX8K_VRAM_MIB and more.
+size_t Tex8kShortOfMemory(char *out, size_t out_size, uint32_t vram_mib);
+
 typedef enum {
     TEX8K_RGBA8,
     TEX8K_BC1,

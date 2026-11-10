@@ -16,6 +16,7 @@
 #include "../picture.h"
 #include "../report.h"
 #include "../runner.h"
+#include "../tex8kref.h"
 #include "../ui.h"
 #include "tests.h"
 
@@ -731,6 +732,7 @@ static void CheckReportLine(void) {
 // what is left here is what happens before and after them: the launch and the mode file.
 static void CheckLabel(void);
 static void CheckFrames(void);
+static void CheckVram(void);
 static void CheckMachine(void);
 static void CheckSkipWord(void);
 static void CheckAllWord(void);
@@ -1034,6 +1036,7 @@ static void CheckLaunchAndMode(void) {
 
     CheckLabel();
     CheckFrames();
+    CheckVram();
     CheckMachine();
     CheckSkipWord();
     CheckAllWord();
@@ -1276,6 +1279,108 @@ static void CheckFrames(void) {
                first);
 }
 
+/// `vram=<MiB>`, the graphics memory a runner read off the machine: what it reads, what the mode
+/// line says it does to tex8k's textures, a refusal with the number in effect, and the key.
+static void CheckVram(void) {
+    char said[REPORT_NOTE_MAX + 1];
+    char key[JOURNAL_MODE_MAX];
+    uint32_t wrong = 0;
+    const char *first = "none";
+#define VRAM_EXPECT(condition, what)                                                               \
+    do {                                                                                           \
+        if (!(condition) && wrong++ == 0u) {                                                       \
+            first = (what);                                                                        \
+        }                                                                                          \
+    } while (0)
+
+    const RunMode plain = ModeFromText("quick");
+    ModeDescribe(said, sizeof(said), &plain, MODE_FAMILIES_PRESENT);
+    VRAM_EXPECT(plain.vram == 0u && !plain.vram_was_refused && strstr(said, "vram") == NULL,
+                "no word: no memory said, and the mode line as it was");
+    const RunMode small = ModeFromText("quick vram=1024");
+    ModeDescribe(said, sizeof(said), &small, MODE_FAMILIES_PRESENT);
+    VRAM_EXPECT(small.vram == 1024u && small.unknown_count == 0u &&
+                    strstr(said, "; vram 1024 MiB, under the 4096 tex8k's textures want: their "
+                                 "cases are skipped as unavailable") != NULL,
+                "vram=1024");
+    const RunMode large = ModeFromText("quick VRAM=012288");
+    ModeDescribe(said, sizeof(said), &large, MODE_FAMILIES_PRESENT);
+    VRAM_EXPECT(large.vram == 12288u &&
+                    strstr(said, "; vram 12288 MiB, not under the 4096 tex8k's textures want") !=
+                        NULL &&
+                    strstr(said, "skipped") == NULL,
+                "vram=12288, capitals and a leading nought");
+    VRAM_EXPECT(ModeFromText("vram=1").vram == 1u &&
+                    ModeFromText("vram=1048576").vram == MODE_VRAM_MAX &&
+                    ModeFromText("vram=5 vram=7").vram == 7u &&
+                    ModeFromText("vram=4096").vram == TEX8K_VRAM_MIB,
+                "the two ends, the last of two and the suite's own number");
+    const RunMode elsewhere = ModeFromText("quick fs vram=1024");
+    ModeDescribe(said, sizeof(said), &elsewhere, MODE_FAMILIES_PRESENT);
+    VRAM_EXPECT(strstr(said, "; vram 1024 MiB, under the 4096 tex8k's textures want, in the "
+                             "graphics family, which this run leaves out") != NULL,
+                "vram=1024 with no graphics family");
+
+    // Refused, each with what it keeps: no memory, or the good value before it.
+    static const struct {
+        const char *text;
+        const char *said;
+        uint32_t keeps;
+        bool cut;
+    } BAD[] = {
+        { "vram=abc",
+          "; vram=abc is not a whole number of MiB from 1 to 1048576: the run has no vram, and "
+          "tex8k's textures are tried",
+          0u, false },
+        { "vram=0", "; vram=0 is not a whole number of MiB from 1 to 1048576: the run has no vram",
+          0u, false },
+        { "vram=1048577", "; vram=1048577 is not a whole number of MiB from 1 to 1048576: the", 0u,
+          false },
+        { "vram=", "; vram= is not a whole number of MiB", 0u, false },
+        { "vram=8G", "; vram=8G is not a whole number of MiB", 0u, false },
+        { "vram=99999999999999999999", "; vram=9999999999999999... is not a whole number of MiB",
+          0u, true },
+        { "vram=2048 vram=lots",
+          "; vram 2048 MiB, under the 4096 tex8k's textures want: their cases are skipped as "
+          "unavailable; vram=lots is not a whole number of MiB from 1 to 1048576: it keeps 2048",
+          2048u, false },
+    };
+    for (size_t i = 0; i < sizeof(BAD) / sizeof(BAD[0]); ++i) {
+        const RunMode bad = ModeFromText(BAD[i].text);
+        ModeDescribe(said, sizeof(said), &bad, MODE_FAMILIES_PRESENT);
+        VRAM_EXPECT(bad.vram == BAD[i].keeps && bad.vram_was_refused &&
+                        bad.vram_refused_cut == BAD[i].cut && bad.unknown_count == 0u &&
+                        strstr(said, BAD[i].said) != NULL,
+                    BAD[i].text);
+    }
+    const RunMode fixed = ModeFromText("vram=abc vram=900");
+    VRAM_EXPECT(fixed.vram == 900u && !fixed.vram_was_refused, "a good value after a refused one");
+
+    // In the key, since it decides what tex8k reports, and back through the file the screen
+    // saves; a launch that goes on with what the screen chose keeps the file's.
+    ModeKey(key, sizeof(key), &small);
+    VRAM_EXPECT(strcmp(key, "vram=1024") == 0, "the key");
+    char text[MODE_FILE_MAX];
+    ModeFormat(text, sizeof(text), &small);
+    VRAM_EXPECT(strcmp(text, "quick vram=1024") == 0 && ModeFromText(text).vram == 1024u,
+                "the words the start screen saves");
+    const RunMode chosen = ModeWithChosen(small, "screen graphics quick");
+    VRAM_EXPECT(chosen.vram == 1024u && chosen.families_named == MODE_FAMILY_GRAPHICS,
+                "a launch that goes on with the screen's choice");
+
+    // The limit falling inside the number drops it, which would be another number.
+    static const char LONG[] = "quick vram=12288 more";
+    const RunMode cut = ModeFromFile(MODE_SOURCE_FILE, LONG, 13u, true);
+    const RunMode whole = ModeFromFile(MODE_SOURCE_FILE, LONG, 16u, true);
+    VRAM_EXPECT(cut.quick && cut.vram == 0u && !cut.vram_was_refused && whole.vram == 12288u,
+                "a number cut by the limit");
+#undef VRAM_EXPECT
+    CHECK_TRUE(SUITE, "the word vram=<MiB> says the machine's graphics memory, and a bad number "
+                      "says the one it keeps",
+               CHECK_NONE, wrong == 0u, "%u readings wrong, the first: %.80s", (unsigned)wrong,
+               first);
+}
+
 /// machine=<name>[@<version>] and the word unban: what each reads, what a refusal says with the
 /// machine in effect, and both in the words a launch compares and the start screen saves.
 static void CheckMachine(void) {
@@ -1512,13 +1617,13 @@ static void CheckWidestMode(void) {
                                  "machine=scarletnx-android@12345678901234567890123456789012 net "
                                  "notime nvn pad retry service skip=abcdefghijklmnop "
                                  "skip=bcdefghijklmnopq skip=cdefghijklmnopqr "
-                                 "skip=defghijklmnopqrs stress unban video";
+                                 "skip=defghijklmnopqrs stress unban video vram=1048576";
     static const char KEY[] = "all audio cpu display fatal frames=36000 framework fs game graphics "
                               "hang images jni kernel libc listen "
                               "machine=scarletnx-android@12345678901234567890123456789012 net "
                               "notime nvn pad retry service skip=abcdefghijklmnop "
                               "skip=bcdefghijklmnopq skip=cdefghijklmnopqr skip=defghijklmnopqrs "
-                              "stress unban video";
+                              "stress unban video vram=1048576";
     const RunMode file = ModeFromText(WIDEST);
     char key[MODE_KEY_MAX];
     const size_t key_length = ModeKey(key, sizeof(key), &file);
