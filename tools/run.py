@@ -7,7 +7,13 @@
                  [--relaunches N] [--timeout SECONDS] [--log FILE] [--who NAME]
 
 The emulator's settings, memory card and caches go under DIR, as XDG_CONFIG_HOME, XDG_DATA_HOME and
-XDG_CACHE_HOME, so nothing of the person's own setup is read or written. The run starts clean: the
+XDG_CACHE_HOME, so nothing of the person's own setup is read or written. The settings are each
+emulator binary's own, DIR/settings/<binary>, named as its crash list is (below): a frontend writes
+its settings on the way out, and one build's written settings would otherwise be the next build's
+starting point, so two builds would not run from their own defaults. A binary's first run makes
+its folder empty, and the emulator starts from its defaults; its later runs keep what it, or a
+person, wrote there. DIR/config, every binary's settings before, is no longer read and stays where
+it is, which the run says. The run starts clean: the
 reports and pictures in every run folder (sdmc:/edenprobe/runs/*), the support suite's scratch
 directory, last-run and the mode file are removed, and WORDS (default `quick`; empty for no file,
 which is the detailed screen) written into a new mode file, with machine=NAME[@VERSION] after them
@@ -189,7 +195,7 @@ def prepare(xdg, mode):
     it runs will name. The journals stay: the probe reads its own to decide the run is new, the
     report being gone, and lists a case the last launch of an earlier run ended inside. The
     report and the pictures at the top of the card are a build's from before run folders."""
-    for d in ("data", "config", "cache"):
+    for d in ("data", "cache"):
         os.makedirs(os.path.join(xdg, d), exist_ok=True)
     sd = card(xdg)
     os.makedirs(sd, exist_ok=True)
@@ -209,16 +215,40 @@ def prepare(xdg, mode):
             f.write(mode + "\n")
 
 
-def emulator_env(xdg):
-    """The emulator's environment: its settings, card and caches under xdg, never the person's."""
+def settings_folder(xdg, emulator):
+    """The binary's own settings folder, its XDG_CONFIG_HOME: named as its crash list is, so a
+    rebuild starts from its defaults again."""
+    return os.path.join(xdg, "settings", list_key(emulator))
+
+
+def emulator_env(xdg, emulator):
+    """The emulator's environment: its settings, card and caches under xdg, never the person's,
+    and the settings the binary's own."""
     env = dict(os.environ)
     env.update({
         "XDG_DATA_HOME": os.path.join(xdg, "data"),
-        "XDG_CONFIG_HOME": os.path.join(xdg, "config"),
+        "XDG_CONFIG_HOME": settings_folder(xdg, emulator),
         "XDG_CACHE_HOME": os.path.join(xdg, "cache"),
     })
     env["DISPLAY"] = env.get("DISPLAY") or ":0"
     return env
+
+
+def prepare_settings(xdg, emulator):
+    """Makes the binary's settings folder when it has none, and says which it is and whether the
+    old shared one is left unread."""
+    folder = settings_folder(xdg, emulator)
+    made = not os.path.isdir(folder)
+    os.makedirs(folder, exist_ok=True)
+    said = ["settings: %s, this binary's own, %s" % (
+        folder, "made empty: the emulator starts from its defaults" if made else
+        "as its earlier runs left it")]
+    shared = os.path.join(xdg, "config")
+    if os.path.isdir(shared) and os.listdir(shared):
+        said.append("%s, the settings every binary shared before, is not read: each binary has "
+                    "its own now; what a binary needs from it goes into that binary's folder" %
+                    shared)
+    return said
 
 
 VERSION = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
@@ -228,8 +258,8 @@ def eden_version(emulator, xdg):
     """The version Eden says with --version, its commit or its release number, or None: it logs
     "Eden <branch> <commit>-<branch>" or "Eden v0.1.0"."""
     try:
-        done = subprocess.run([emulator, "--version"], env=emulator_env(xdg), capture_output=True,
-                              timeout=30)
+        done = subprocess.run([emulator, "--version"], env=emulator_env(xdg, emulator),
+                              capture_output=True, timeout=30)
         said = (done.stdout + done.stderr).decode("utf-8", "replace")
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -280,8 +310,8 @@ def describe(status, stopped_after):
 
 def launch(emulator, nro, xdg, timeout, log, echo):
     """One launch. Hands back (status, seconds it was stopped after or None)."""
-    process = subprocess.Popen([emulator, "-g", nro], env=emulator_env(xdg), stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT)
+    process = subprocess.Popen([emulator, "-g", nro], env=emulator_env(xdg, emulator),
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     def pump():
         for raw in process.stdout:
@@ -345,8 +375,10 @@ def run(emulator, nro, xdg, mode="quick", relaunches=16, timeout=60, log_path=No
     if not (os.path.isfile(emulator) and os.access(emulator, os.X_OK)):
         print("%s: no executable emulator at %s" % (who, emulator), file=sys.stderr)
         return 1
-    for d in ("data", "config", "cache"):
+    for d in ("data", "cache"):
         os.makedirs(os.path.join(xdg, d), exist_ok=True)
+    for line in prepare_settings(xdg, emulator):
+        say(line)
     word, why = machine_word(emulator, xdg, mode, machine)
     say(why)
     if word:

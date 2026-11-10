@@ -6,9 +6,22 @@ make run EMULATOR=/path/to/emulator
 
 The report and its pictures go in the run's folder under `sdmc:/edenprobe/runs` ([the report](Report.md#where-a-run-leaves-its-report)).
 `make run` points the emulator's `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` at `build/xdg/` in this tree,
-so it starts from the emulator's defaults every time and never reads or rewrites your settings; the report is then
-at `build/xdg/data/eden/sdmc/edenprobe/runs/<hash>/report.jsonl`, which the target's last line prints, and `make
-clean` removes it all. `XDG=/elsewhere` moves the tree.
+so it never reads or rewrites your settings; the report is then at
+`build/xdg/data/eden/sdmc/edenprobe/runs/<hash>/report.jsonl`, which the target's last line prints, and `make clean`
+removes it all. `XDG=/elsewhere` moves the tree.
+
+**The settings are per emulator binary**, in `build/xdg/settings/<binary>/`, its `XDG_CONFIG_HOME`. A frontend writes
+its settings on the way out, so with one folder for every build the second build would start from what the first
+wrote, not from its own defaults. A binary's first run makes its folder empty and the emulator starts from its
+defaults; its later runs keep what it, or you, wrote there. A rebuilt binary, another size or modification time, starts
+a folder of its own, as its crash list does. The run's first lines name the folder:
+
+```
+make run: settings: .../build/xdg/settings/eden-cli-5c1e0a9f3b21, this binary's own, made empty: the emulator starts from its defaults
+```
+
+`build/xdg/config`, every binary's settings before, is no longer read and stays where it is; the run says so while it
+is there.
 
 The target runs `tools/run.py`. It first deletes the reports and pictures of every run folder, `last-run` and the
 support suite's scratch folder, so no old report passes for the new one; the journals stay, so a run the program
@@ -40,8 +53,9 @@ Ryujinx; `MACHINE=<name>[@<version>]` names another, and an emulator of another 
 
 **On a private display.** A closed window stops the emulator, which reads like a crash inside the case under way.
 A run nobody watches can use Xvfb. There Vulkan finds no queue that can present, so use OpenGL on the software
-rasteriser: `backend=0` under `[Renderer]` in `sdl2-config.ini`, in an `XDG` of its own. Not for the graphics family,
-which needs a real backend.
+rasteriser: `backend=0` under `[Renderer]` in the binary's `eden/sdl2-config.ini`, in an `XDG` of its own, under
+`settings/<binary>/`, the folder the run names (a first run there makes it). Not for the graphics family, which needs
+a real backend.
 
 ```sh
 Xvfb -displayfd 1 -screen 0 1280x720x24 -nolisten tcp > display &   # it picks a free number

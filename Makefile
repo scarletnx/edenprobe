@@ -156,9 +156,10 @@ clean:
 EMULATOR ?= $(HOME)/WorkDir/accord/bin/eden-cli-e8d142f2b6
 
 # The emulator keeps its settings, its memory card and its caches under the XDG directories, and
-# a frontend saves its settings on the way out. Pointed at a tree inside the build, a run starts
-# from the emulator's own defaults every time, the report lands somewhere this makefile knows,
-# and nothing of the person's own emulator setup is read or rewritten.
+# a frontend saves its settings on the way out. Pointed at a tree inside the build, the report
+# lands somewhere this makefile knows and nothing of the person's own emulator setup is read or
+# rewritten; run.py gives each emulator binary a settings folder of its own under it, so a build
+# starts from its own defaults, never from what another build wrote.
 XDG     := $(CURDIR)/$(BUILD)/xdg
 
 # What goes into the mode file first. Quick, because the default with no file is the detailed
