@@ -30,6 +30,18 @@ extern "C" {
         }                                                                                        \
     } while (0)
 
+/// CHECK_TRUE for a case whose line says where its expected value comes from (ReportCaseFrom).
+#define CHECK_TRUE_FROM(suite, name, tier, from, condition, fmt, ...)                            \
+    do {                                                                                         \
+        if (condition) {                                                                         \
+            ReportCaseFrom((suite), (name), (tier), (from), true, NULL);                         \
+        } else {                                                                                 \
+            char detail_[512];                                                                   \
+            snprintf(detail_, sizeof(detail_), (fmt), ##__VA_ARGS__);                            \
+            ReportCaseFrom((suite), (name), (tier), (from), false, detail_);                     \
+        }                                                                                        \
+    } while (0)
+
 /// Whether two 32-bit floats agree to within @p ulps units in the last place.
 ///
 /// The budget is a distance, the step between neighbouring representable values at the expected

@@ -426,7 +426,10 @@ bits. Nothing else. In 2,080 of the 65,536 values the first is a byte neither ot
 would fail where the case allowed only two. HDR endpoint modes are the error colour, opaque magenta, on their own partition's
 texels in this profile, as astcenc has it. In an emulator a failure points at the ASTC decoder
 it uses (`video_core/host_shaders/astc_decoder.comp`, `video_core/textures/astc.cpp`): the 4-bit
-and 5-bit cases at the weight unquantization, the partition cases at the partition hash.
+and 5-bit cases at the weight unquantization, the partition cases at the partition hash. Every
+block's line says `"expected_from":"astcenc"`: no console has shown its texels yet. The HDR case
+rests on that most, since it takes the console's texture unit for an LDR profile one; a unit that
+decodes HDR endpoints would answer otherwise, and only a console run settles which.
 
 ## astcimage
 
@@ -448,7 +451,9 @@ same blocks repeated, 4x4 and 8x8, each made and fetched at every sixteenth texe
 the upload, decoding included; and the 4x4 one fetched by 256 draws, each texel once, whose time
 is sampling it. In an emulator a failure points at its ASTC decoder, or at what it does with the
 texels after (`video_core/host_shaders/astc_decoder.comp`, `astc_recompression`), and the times
-at how it uploads and keeps an ASTC texture.
+at how it uploads and keeps an ASTC texture. A linear picture's lines say
+`"expected_from":"astcenc"`, an sRGB one's `"spec"`: its linear value is astcenc's code through the
+sRGB transfer function, which no decoder here gives.
 
 ## eac
 

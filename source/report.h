@@ -153,12 +153,36 @@ typedef enum {
     CHECK_BOUND,
 } CheckTier;
 
+/// Where the value a case's verdict holds the machine to comes from, which its line carries as
+/// `expected_from`: the strongest source that gives it, so a failure against one no console has
+/// shown is read as a question about the machine, not a settled bug.
+typedef enum {
+    /// Not said, and the line has no field: every case but the ones that say one.
+    REPORT_FROM_UNSAID,
+    /// The specification alone: this program's reading of it, which nothing independent gives.
+    REPORT_FROM_SPEC,
+    /// ARM's reference ASTC codec, astcenc, gives it: the reference suite holds this program's
+    /// decoder to astcenc's answers.
+    REPORT_FROM_ASTCENC,
+    /// A console run gave it.
+    REPORT_FROM_CONSOLE,
+    REPORT_FROM_COUNT,
+} ReportFrom;
+
+/// The word a source goes onto the line as, or NULL for REPORT_FROM_UNSAID.
+const char *ReportFromWord(ReportFrom from);
+
 /// One finished case. @p detail is free text explaining a failure, and is ignored when passing.
 ///
 /// This is also where a case's picture is closed, written and named on the line, so a picture
 /// belongs to exactly one case and cannot outlive it.
 void ReportCase(const char *suite, const char *name, CheckTier tier, bool passed,
                 const char *detail);
+
+/// ReportCase for a case whose line says where its expected value comes from: `expected_from`
+/// after the tier, unless the tier is none, which compares nothing.
+void ReportCaseFrom(const char *suite, const char *name, CheckTier tier, ReportFrom from,
+                    bool passed, const char *detail);
 
 /// ReportCase for a case that timed itself rather than through a timed suite's passes: its line
 /// carries @p us as `"us"`, in the place a drawing case's time goes. For a run that times its
@@ -292,10 +316,11 @@ size_t ReportBuildPerfLine(char *out, size_t out_size, const char *suite,
 /// Emits the perf line for the suite just run.
 void ReportPerf(const char *suite);
 
-/// Both of the above at once, the one every other line builder here ends in.
+/// Both of the above at once, the one every other line builder here ends in, with
+/// `expected_from` after the tier when @p expected_from is not NULL (ReportFromWord).
 size_t ReportBuildTimedResultLine(char *out, size_t out_size, const char *suite,
-                                  const char *name, const char *tier, const char *result,
-                                  const char *reason, const char *detail,
+                                  const char *name, const char *tier, const char *expected_from,
+                                  const char *result, const char *reason, const char *detail,
                                   const PicturePaths *paths, const uint32_t *us);
 
 

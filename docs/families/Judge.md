@@ -7,7 +7,7 @@ family reports can be believed without them.
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, two hundred and five cases, no hardware involved: what the program does
+- **support**, two hundred and six cases, no hardware involved: what the program does
   around a verdict rather than to reach one. The pictures a failing case leaves and the names they
   get, the detailed mode's store, screens and navigation, the start screen, the screen that asks
   whether to go on with a run, the running screen, the listening screen, the pad screen and the
@@ -36,7 +36,7 @@ family reports can be believed without them.
   case skipped as banned with its line, then run under `unban`, and nothing changed on a machine no
   line names; and the same run with `skip=` leaving its first step's suite out: one launch, each of
   its cases skipped as asked, the next step run, and a name no case came up for said.
-- **reference**, three hundred and ninety cases, no hardware involved either: the other half
+- **reference**, three hundred and ninety one cases, no hardware involved either: the other half
   of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -78,10 +78,11 @@ family reports can be believed without them.
     and on a lower left device, the window depth of each z from minus one, the depth bounds with
     both ends included, and the eight alpha tests told apart by an alpha of 0.5 at three
     references, against answers worked out by hand;
-  - twenty two on the astc suite's answers: the ASTC reference decoder, `source/astcref.c`, held
+  - twenty three on the astc suite's answers: the ASTC reference decoder, `source/astcref.c`, held
     block by block to hashes of what ARM's decoder (astcenc) makes of the same sixteen blocks, its
-    weight table to values worked out by hand from the bit replication rule, and one value whose
-    FP16 decode lands on a byte neither other answer gives, worked out by hand;
+    weight table to values worked out by hand from the bit replication rule, one value whose
+    FP16 decode lands on a byte neither other answer gives, worked out by hand, and where each astc
+    and astcimage case says its expected texels come from;
   - ten on the astcimage suite's answers: the reference decoder's sRGB mode and its FP16 decode's
     byte, `AstcUnorm8Fp16`, held over the suite's whole picture to hashes of what astcenc decodes
     it to, the linear footprints both ways (to FP16 and to eight bits) and the sRGB ones once;

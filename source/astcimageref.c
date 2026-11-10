@@ -13,6 +13,13 @@ uint32_t AstcImageRegion(uint32_t x, uint32_t y) {
     return (y >= half ? 2u : 0u) + (x >= half ? 1u : 0u);
 }
 
+ReportFrom AstcImageExpectedFrom(const AstcImage *image) {
+    if (image == NULL || image->srgb || image->hash == 0u || image->hash_unorm8 == 0u) {
+        return REPORT_FROM_SPEC;
+    }
+    return REPORT_FROM_ASTCENC;
+}
+
 const uint8_t *AstcImageBlock(const AstcImage *image, uint32_t x, uint32_t y) {
     const uint32_t across = (ASTC_IMAGE_SIZE + image->block_width - 1u) / image->block_width;
     return image->blocks + 16u * ((y / image->block_height) * across + x / image->block_width);

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "../astcblocks.h"
 #include "../astcimages.h"
@@ -17,7 +18,44 @@
 
 static const char *const SUITE = "reference";
 
+/// Where each astc and astcimage case says its expected texels come from: astcenc where a hash of
+/// astcenc's answer pins the block or the picture, the specification for an sRGB picture's linear
+/// value and for a block no hash pins, and nothing a console's.
+static void CheckExpectedFrom(void) {
+    uint32_t astcenc_blocks = 0;
+    for (uint32_t i = 0; i < ASTC_TEST_BLOCKS; ++i) {
+        astcenc_blocks += ASTC_TEST_BLOCK[i].hash != 0u &&
+                                  AstcBlockExpectedFrom(&ASTC_TEST_BLOCK[i]) == REPORT_FROM_ASTCENC
+                              ? 1u
+                              : 0u;
+    }
+    AstcTestBlock unpinned = ASTC_TEST_BLOCK[0];
+    unpinned.hash = 0u;
+    uint32_t right_images = 0;
+    for (uint32_t i = 0; i < ASTC_IMAGES; ++i) {
+        const ReportFrom from = AstcImageExpectedFrom(&ASTC_IMAGE[i]);
+        right_images += from == (ASTC_IMAGE[i].srgb ? REPORT_FROM_SPEC : REPORT_FROM_ASTCENC) ? 1u
+                                                                                               : 0u;
+    }
+    const bool words = ReportFromWord(REPORT_FROM_UNSAID) == NULL &&
+                       strcmp(ReportFromWord(REPORT_FROM_SPEC), "spec") == 0 &&
+                       strcmp(ReportFromWord(REPORT_FROM_ASTCENC), "astcenc") == 0 &&
+                       strcmp(ReportFromWord(REPORT_FROM_CONSOLE), "console") == 0 &&
+                       ReportFromWord(REPORT_FROM_COUNT) == NULL;
+    CHECK_TRUE(SUITE, "each astc block and astcimage picture says its texels are astcenc's where a "
+                      "hash pins them, the specification's otherwise",
+               CHECK_NONE,
+               astcenc_blocks == ASTC_TEST_BLOCKS &&
+                   AstcBlockExpectedFrom(&unpinned) == REPORT_FROM_SPEC &&
+                   right_images == ASTC_IMAGES && words,
+               "%u of %u blocks astcenc's, an unpinned one %s; %u of %u pictures right; words %s",
+               (unsigned)astcenc_blocks, (unsigned)ASTC_TEST_BLOCKS,
+               ReportFromWord(AstcBlockExpectedFrom(&unpinned)), (unsigned)right_images,
+               (unsigned)ASTC_IMAGES, words ? "right" : "wrong");
+}
+
 void RunReferenceAstc(void) {
+    CheckExpectedFrom();
     static uint16_t texels[ASTC_MAX_TEXELS][4];
     for (uint32_t i = 0; i < ASTC_TEST_BLOCKS; ++i) {
         const AstcTestBlock *const b = &ASTC_TEST_BLOCK[i];
