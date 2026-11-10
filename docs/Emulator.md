@@ -49,6 +49,20 @@ stopped inside at its limit, and the launches. A
 missing emulator, or a run that never reaches its summary, ends it with a line saying which and a non-zero exit.
 Stopping it by hand writes `stopped` into the journal, so the case under way is not taken for a crash.
 
+**A lost graphics device ends the run.** When the emulator's own log says the host's driver dropped its device (Eden's
+`Device loss occurred!`, the Vulkan result named `DEVICE_LOST` or `DeviceLost`), `make run` stops it there and
+launches nothing more: what an emulator draws after a loss is not its own work, and on some machines the next launch
+finds the display itself reset. It prints the line and how many case lines came after it, which are no results, adds
+the same as the report's last note, and exits 1 with no summary. The probe's own lines never count, so a case whose
+detail quotes a loss ends nothing.
+
+```
+make run: launch 1: the emulator said its graphics device was lost inside tex8k case "the copy engine uploads the 8192x8192 ASTC 4x4 texture, and a draw fetches 4096 texels across it": "[  41.107514] Render.Vulkan <Critical> video_core/vulkan_common/vulkan_device.cpp:898:ReportLoss: Device loss occurred!"; stopped there and not launched again, since what an emulator draws after a device loss is not its own work: 2 case lines came after that line and are no results; the report's last line says so; that case goes on the crash list at the next run
+```
+
+The case the launch was inside goes on the crash list when the next run starts, as any case a launch ended inside, so
+that run skips it as `crashed`; `MODE="quick retry"` runs it again.
+
 **The crash list is per emulator binary**, in `build/xdg/crash-lists/`, put on the card before the first launch and
 taken back after the last; a binary of another size or time starts its own. To try a case again, delete its line
 there. To keep a whole suite out instead, `MODE="quick skip=tex8k"` ([Leaving a suite out](Crashes.md#leaving-a-suite-out)):
