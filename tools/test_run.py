@@ -21,7 +21,8 @@ SPEC.loader.exec_module(run)
 # One launch per line of the scenario, the last line repeating: `crash <suite> <case>` starts the
 # case and aborts; `hang <suite> <case>` starts it and sleeps; `lost <suite> <case>` starts it,
 # logs Eden's device loss, reports two more cases and sleeps; `quoted` reports a case whose detail
-# says device lost and finishes; `finish` ends the run with a
+# says device lost and finishes; `talk` finishes a run of one timed suite of two cases, the first
+# failing, with the emulator's own lines between the probe's; `finish` ends the run with a
 # summary; `early` exits 1 having written nothing; `step` ends one more case and aborts outside
 # any, so every launch adds to the journal. Every launch but an early one names its folder in
 # last-run first, as the probe does: the one in fake-folder, or runs/fake; `named` exits 1 right
@@ -93,7 +94,37 @@ if what[0] in ("crash", "hang", "lost"):
         add(report, '{"type":"note","text":"cut"}')
     if what[0] != "crash":
         time.sleep(3600)
+    print("\x1b[1;31m[   3.0] Core.ARM <Critical> core/arm/dynarmic.cpp:77:ExceptionRaised: "
+          "Unsupported instruction\x1b[0m", flush=True)
     os.abort()
+if what[0] == "talk":
+    def emulator(text):
+        print("\x1b[1;31m[   1.0] Render.Vulkan <Error> shader.cpp:9:Build: %s\x1b[0m" % text, flush=True)
+    def probe(text, to_report=True):
+        if to_report:
+            add(report, text + "\n")
+        print("[   1.0] Debug.Emulated <Info> svc_debug_string.cpp:25:OutputDebugString: " + text,
+              flush=True)
+    case = '{"type":"case","suite":"one","name":"%s","tier":"exact","result":"%s","detail":""}'
+    emulator("booting")
+    probe('{"type":"note","text":"timing one: 1 warm-up and 1 rehearsal before the verdict pass"}')
+    probe("EDENPROBE TIMING one pass 1 case number 1", False)
+    emulator("IMUL32I not implemented")
+    probe("EDENPROBE TIMING one pass 1 case number 2 after Bitwise AND, 4x4", False)
+    emulator("said in the second case's warm-up")
+    probe("EDENPROBE TIMING one pass 1 case number 3 after another", False)
+    emulator("closing the device")
+    probe("EDENPROBE TIMING one pass 2 case Bitwise AND, 4x4", False)
+    emulator("pass two of the first")
+    probe("EDENPROBE TIMING one pass 2 case another", False)
+    probe("EDENPROBE TIMING one pass 2 case number 3 after another", False)
+    emulator("every pixel 0x80000000")
+    probe(case % ("Bitwise AND, 4x4", "fail"))
+    emulator("said in the second case")
+    probe(case % ("another", "pass"))
+    add(journal, "finished 1 1 0 0\n")
+    probe('{"type":"summary","passed":1,"failed":1,"skipped":0,"crashed":0}')
+    sys.exit(0)
 if what[0] == "quoted":
     print('[  1.0] Debug.Emulated <Info> svc_debug_string.cpp:25:OutputDebugString: {"type":"case",'
           '"suite":"one","name":"a case","tier":"none","result":"fail","detail":"the driver said '
@@ -250,6 +281,73 @@ class Relaunch(unittest.TestCase):
                      b"BC7's loss on the picture", b"lossy format", b"device opened"):
             self.assertFalse(run.LOST.search(line), line)
 
+    def test_the_emulators_words_are_kept_whole_and_beside_each_case_that_did_not_pass(self):
+        f = self.fixture(["talk"])
+        code, said = f.run()
+        self.assertEqual(code, 0, said)
+        folder = os.path.join(f.card, "runs", "fake")
+        line = "[   1.0] Render.Vulkan <Error> shader.cpp:9:Build: %s\n"
+        # The failing case: what the emulator said in each of its passes, the warm-up's found by
+        # its place in the suite, and nothing of the other case's or the device's closing.
+        self.assertEqual(read(os.path.join(folder, "logs", "one", "bitwise-and-4x4.log")),
+                         "one: Bitwise AND, 4x4: fail\n"
+                         "== launch 1, pass 1 (the warm-up)\n" + line % "IMUL32I not implemented" +
+                         "== launch 1, pass 2\n" + line % "pass two of the first" +
+                         "== launch 1, up to its line in the report\n" +
+                         line % "every pixel 0x80000000")
+        self.assertEqual(os.listdir(os.path.join(folder, "logs", "one")), ["bitwise-and-4x4.log"])
+        whole = read(os.path.join(folder, "emulator.log"))
+        self.assertTrue(whole.startswith("== launch 1\n"), whole[:80])
+        for text in ("booting", "closing the device", "said in the second case",
+                     "EDENPROBE TIMING one pass 2 case another", '"name":"another"'):
+            self.assertIn(text, whole)
+        self.assertNotIn("\x1b", whole)
+        self.assertIn("the emulator's output: " + os.path.join(folder, "emulator.log"), said)
+        self.assertIn("of the 1 case that did not pass, the emulator said something during 1: " +
+                      os.path.join(folder, "logs"), said)
+
+    def test_what_a_launch_said_last_is_the_case_s_it_ended_inside(self):
+        f = self.fixture(["crash bcn A Case", "finish"])
+        code, said = f.run()
+        self.assertEqual(code, 0, said)
+        folder = os.path.join(f.card, "runs", "fake")
+        self.assertEqual(read(os.path.join(folder, "logs", "bcn", "a-case.log")),
+                         "bcn: A Case: the launch ended inside it\n"
+                         "== launch 1, pass 1 (the warm-up), where the launch ended by signal 6 "
+                         "(SIGABRT)\n"
+                         "[   3.0] Core.ARM <Critical> core/arm/dynarmic.cpp:77:ExceptionRaised: "
+                         "Unsupported instruction\n")
+        whole = read(os.path.join(folder, "emulator.log"))
+        self.assertEqual(whole.count("== launch "), 2)
+        self.assertIn("== launch 2\n", whole)
+
+    def test_an_output_with_none_of_the_reports_lines_is_kept_whole_and_said(self):
+        f = self.fixture(["finish"])
+        code, said = f.run()
+        self.assertEqual(code, 0, said)
+        folder = os.path.join(f.card, "runs", "fake")
+        self.assertTrue(os.path.isfile(os.path.join(folder, "emulator.log")))
+        self.assertFalse(os.path.exists(os.path.join(folder, "logs")))
+        self.assertIn("that output carried none of the report's lines, so it is not cut by case", said)
+
+    def test_two_cases_one_name_would_share_get_a_file_each(self):
+        logs = run.CaseLogs()
+        logs.begin(1)
+        case = b'x: {"type":"case","suite":"s","name":"%s","tier":"none","result":"fail","detail":""}'
+        for name in (b"a b", b"A-B", b"passes"):
+            logs.feed(b"said during " + name)
+            logs.feed((case % name).replace(b'"fail"', b'"pass"') if name == b"passes" else case % name)
+        logs.feed(b'x: {"type":"case","suite":"s","name":"cut')
+        logs.end(None, "exited 0")
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(logs.write(d), (2, 2))
+            self.assertEqual(sorted(os.listdir(os.path.join(d, "logs", "s"))), ["a-b-2.log", "a-b.log"])
+            self.assertEqual(read(os.path.join(d, "logs", "s", "a-b-2.log")),
+                             "s: A-B: fail\n== launch 1, up to its line in the report\nsaid during A-B\n")
+        self.assertEqual(run.stem("The 8192x8192 BC7 texture's mip tail, levels 8 to 13"),
+                         "the-8192x8192-bc7-texture-s-mip-tail-levels-8-to-13")
+        self.assertEqual(run.stem("!!"), "case")
+
     def test_a_launch_that_adds_nothing_ends_the_relaunching(self):
         f = self.fixture(["crash cpu sm4", "early"])
         code, said = f.run()
@@ -329,6 +427,8 @@ class Relaunch(unittest.TestCase):
         for name in ("a", "b_label"):
             folder = os.path.join(f.card, "runs", name)
             os.makedirs(os.path.join(folder, "images", "clear"))
+            os.makedirs(os.path.join(folder, "logs", "clear"))
+            write(os.path.join(folder, "emulator.log"), "old\n")
             write(os.path.join(folder, "report.jsonl"), "old\n")
             write(os.path.join(folder, "journal"), "run 0.0.0 old quick\nfinished 0 0 0 0\n")
         run.prepare(f.xdg, "quick fatal")
@@ -338,6 +438,8 @@ class Relaunch(unittest.TestCase):
         for name in ("a", "b_label"):
             folder = os.path.join(f.card, "runs", name)
             self.assertFalse(os.path.exists(os.path.join(folder, "images")))
+            self.assertFalse(os.path.exists(os.path.join(folder, "logs")))
+            self.assertFalse(os.path.exists(os.path.join(folder, "emulator.log")))
             self.assertFalse(os.path.exists(os.path.join(folder, "report.jsonl")))
             self.assertTrue(os.path.exists(os.path.join(folder, "journal")))
         self.assertEqual(read(os.path.join(f.card, "mode")), "quick fatal\n")
