@@ -1057,3 +1057,43 @@ void NetResultText(char *out, size_t out_size, uint32_t result) {
     const unsigned description = (result >> 9) & 0x1FFFu;
     snprintf(out, out_size, "%04u-%04u (0x%x)", 2000u + module, description, (unsigned)result);
 }
+
+size_t NetDescribeExpansion(char *out, size_t out_size, const char *asked, const char *expected,
+                            const char *got, bool succeeded) {
+    if (out == NULL || out_size == 0u) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (!succeeded || asked == NULL || expected == NULL || got == NULL ||
+        strcmp(got, expected) == 0) {
+        return 0;
+    }
+    if (strcmp(got, asked) == 0) {
+        snprintf(out, out_size,
+                 "nsd handed the name back as it was asked, placeholder and all: its Resolve did "
+                 "nothing to it, as one not implemented answers");
+    } else if (strchr(got, '%') == NULL) {
+        snprintf(out, out_size,
+                 "nsd replaced the placeholder, but not with the environment it named");
+    } else {
+        snprintf(out, out_size, "nsd changed the name and left the placeholder in it");
+    }
+    return strlen(out);
+}
+
+bool NetStreamsSkip(char *out, size_t out_size, int socket_error, const char *error_name,
+                    const char *network_off) {
+    if (out == NULL || out_size == 0u) {
+        return false;
+    }
+    out[0] = '\0';
+    if (socket_error == 0 || network_off == NULL || network_off[0] == '\0') {
+        return false;
+    }
+    snprintf(out, out_size,
+             "no network: socket(AF_INET, SOCK_STREAM, 0) returned -1 with errno %d (%s) while %s, "
+             "so no stream socket, loopback's either, can be had here",
+             socket_error, error_name != NULL && error_name[0] != '\0' ? error_name : "unnamed",
+             network_off);
+    return true;
+}

@@ -531,9 +531,12 @@ static void RunDns(const char *sockets_why) {
         const Result rc = NsdResolve(&nsd, PLACEHOLDER_NAME, got);
         got[sizeof(got) - 1u] = '\0';
         expanded_done = R_SUCCEEDED(rc) && strcmp(got, expanded) == 0;
+        // What the answer is, so a failure reads as nsd's and not the harness's.
+        char what[160];
+        NetDescribeExpansion(what, sizeof(what), PLACEHOLDER_NAME, expanded, got, R_SUCCEEDED(rc));
         Case(S, EXPANDED, CHECK_EXACT, expanded_done,
-             "expected \"%.100s\"; got %s, \"%.100s\"%s", expanded, ResultText(rc),
-             Visible(got, 100), session_late);
+             "expected \"%.100s\"; got %s, \"%.100s\"%s%s%s", expanded, ResultText(rc),
+             Visible(got, 100), what[0] != '\0' ? ": " : "", what, session_late);
     }
 
     // A name with no placeholder and no rewrite is nothing nsd has to change.
@@ -951,7 +954,7 @@ static void CheckReceiveTimeout(const char *suite, const char *name) {
                    : "");
 }
 
-static void RunBsd(const char *sockets_why) {
+static void RunBsd(const char *sockets_why, const char *streams_why) {
     static const char *const S = "bsd";
     static const char *const BIND = "two datagram sockets bind to loopback on ports of their own";
     static const char *const DATAGRAM = "a datagram goes to the echo and back whole, from the "
@@ -1065,7 +1068,11 @@ static void RunBsd(const char *sockets_why) {
         close(b);
     }
 
-    if (ReportStart(S, STREAM)) {
+    if (streams_why != NULL) {
+        Skip(S, STREAM, REPORT_REASON_UNAVAILABLE, "%s", streams_why);
+        Skip(S, REFUSED, REPORT_REASON_UNAVAILABLE, "%s", streams_why);
+    }
+    if (streams_why == NULL && ReportStart(S, STREAM)) {
         int client = -1;
         int served = -1;
         char said[120] = "";
@@ -1107,7 +1114,7 @@ static void RunBsd(const char *sockets_why) {
         }
     }
 
-    if (ReportStart(S, REFUSED)) {
+    if (streams_why == NULL && ReportStart(S, REFUSED)) {
         // A port this program just held and let go, with nothing listening on it.
         const int holder = OpenSocket(SOCK_STREAM);
         struct sockaddr_in free_port = Loopback(0);
@@ -1134,6 +1141,11 @@ static void RunBsd(const char *sockets_why) {
     if (!config.has_server) {
         Skip(S, SERVER, REPORT_REASON_NOT_CONFIGURED, "%s", NO_SERVER);
         Skip(S, NONBLOCKING, REPORT_REASON_NOT_CONFIGURED, "%s", NO_SERVER);
+        return;
+    }
+    if (streams_why != NULL) {
+        Skip(S, SERVER, REPORT_REASON_UNAVAILABLE, "%s", streams_why);
+        Skip(S, NONBLOCKING, REPORT_REASON_UNAVAILABLE, "%s", streams_why);
         return;
     }
     struct sockaddr_in server;
@@ -1333,7 +1345,7 @@ static const char *HandshakeText(Result rc) {
     return ResultText(rc);
 }
 
-static void RunSsl(const char *sockets_why) {
+static void RunSsl(const char *sockets_why, const char *streams_why) {
     static const char *const S = "ssl";
     static const char *const CONTEXT = "a context is created";
     static const char *const DEFAULT_VERIFY = "a new connection verifies the peer and its name "
@@ -1489,7 +1501,10 @@ static void RunSsl(const char *sockets_why) {
         int handed = -1;
         int error = 0;
         Result mode_set = created;
-        const bool set_up = ReportStart(S, SOCKET);
+        if (streams_why != NULL) {
+            Skip(S, SOCKET, REPORT_REASON_UNAVAILABLE, "%s", streams_why);
+        }
+        const bool set_up = streams_why == NULL && ReportStart(S, SOCKET);
         if (set_up) {
             paired = LoopbackStream(&client, &served, said, sizeof(said));
             created = paired ? sslContextCreateConnection(&context, &connection)
@@ -1541,7 +1556,9 @@ static void RunSsl(const char *sockets_why) {
         // a socket of its own. Unverified on a console.
         int client_2 = -1;
         int served_2 = -1;
-        if (!set_up) {
+        if (streams_why != NULL) {
+            Skip(S, HANDBACK, REPORT_REASON_UNAVAILABLE, "%s", streams_why);
+        } else if (!set_up) {
             Skip(S, HANDBACK, REPORT_REASON_DEPENDS,
                  "%s: it holds the default this one compares with", DID_NOT_RUN);
         } else if (ReportStart(S, HANDBACK)) {
@@ -1596,9 +1613,11 @@ static void RunSsl(const char *sockets_why) {
         }
     }
 
-    if (!config.has_server) {
+    if (!config.has_server || streams_why != NULL) {
         for (size_t i = first_server_case; i < sizeof(all) / sizeof(all[0]); ++i) {
-            Skip(S, all[i], REPORT_REASON_NOT_CONFIGURED, "%s", NO_SERVER);
+            Skip(S, all[i],
+                 !config.has_server ? REPORT_REASON_NOT_CONFIGURED : REPORT_REASON_UNAVAILABLE,
+                 "%s", !config.has_server ? NO_SERVER : streams_why);
         }
         sslContextClose(&context);
         sslExit();
@@ -2293,9 +2312,14 @@ void RunNet(void) {
                  ResultText(sockets));
     }
     const char *const why = sockets_why[0] != '\0' ? sockets_why : NULL;
+    // A machine whose network is off may refuse every stream socket, loopback's too: Eden does in
+    // its flight mode, its default. The cases that need one say so rather than fail on it.
+    char streams[REPORT_KEPT_DETAIL];
+    const char *const streams_why =
+        why == NULL && SocketStreamsRefused(streams, sizeof(streams)) ? streams : NULL;
     RunDns(why);
-    RunBsd(why);
-    RunSsl(why);
+    RunBsd(why, streams_why);
+    RunSsl(why, streams_why);
     if (R_SUCCEEDED(sockets)) {
         socketExit();
     }

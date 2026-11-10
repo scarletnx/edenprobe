@@ -23,6 +23,7 @@
 
 #include "../check.h"
 #include "../libcmath.h"
+#include "../netref.h"
 #include "../platform.h"
 #include "../report.h"
 #include "tests.h"
@@ -541,20 +542,45 @@ static void Refused(void) {
                why[0] ? "; " : "", result, error, ECONNREFUSED);
 }
 
+bool SocketStreamsRefused(char *why, size_t why_size) {
+    errno = 0;
+    const int s = socket(AF_INET, SOCK_STREAM, 0);
+    const int error = s < 0 ? (errno != 0 ? errno : -1) : 0;
+    if (s >= 0) {
+        close(s);
+    }
+    char network_off[160] = "";
+    if (error != 0) {
+        PlatformNetworkOff(network_off, sizeof(network_off));
+    }
+    return NetStreamsSkip(why, why_size, error, error > 0 ? strerror(error) : "", network_off);
+}
+
 void RunSocket(void) {
+    static const char *const TCP = "a TCP socket listens on loopback, connects and echoes";
+    static const char *const UDP = "a UDP datagram goes over loopback and comes back";
+    static const char *const REFUSED = "a connection to a closed loopback port is refused";
     if (!PlatformSocketsOpen()) {
-        static const char *const NAMES[] = {
-            "a TCP socket listens on loopback, connects and echoes",
-            "a UDP datagram goes over loopback and comes back",
-            "a connection to a closed loopback port is refused",
-        };
-        for (size_t i = 0; i < sizeof(NAMES) / sizeof(NAMES[0]); ++i) {
-            ReportSkip(SOCKET, NAMES[i], REPORT_REASON_UNAVAILABLE, PlatformError());
+        const char *const names[] = { TCP, UDP, REFUSED };
+        for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+            ReportSkip(SOCKET, names[i], REPORT_REASON_UNAVAILABLE, PlatformError());
         }
         return;
     }
-    TcpEcho();
+    // A machine whose network is off may refuse every stream socket, loopback's too, as Eden
+    // does in its flight mode, its default: the stream cases say so rather than fail on it.
+    char streams_why[REPORT_KEPT_DETAIL];
+    const bool streams_refused = SocketStreamsRefused(streams_why, sizeof(streams_why));
+    if (streams_refused) {
+        ReportSkip(SOCKET, TCP, REPORT_REASON_UNAVAILABLE, streams_why);
+    } else {
+        TcpEcho();
+    }
     UdpEcho();
-    Refused();
+    if (streams_refused) {
+        ReportSkip(SOCKET, REFUSED, REPORT_REASON_UNAVAILABLE, streams_why);
+    } else {
+        Refused();
+    }
     PlatformSocketsClose();
 }

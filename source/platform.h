@@ -35,6 +35,11 @@ const char *PlatformError(void);
 bool PlatformSocketsOpen(void);
 void PlatformSocketsClose(void);
 
+/// Whether the machine says its network is off, as a clause in @p out: on the console nifm, with
+/// wireless communication off (flight mode) or no connection up. Returns its length; nought, with
+/// an empty string, when the machine says it is on or the frontend has no such question to ask.
+size_t PlatformNetworkOff(char *out, size_t out_size);
+
 /// A surface the shared drawing cases draw into and read back: RGBA, 8 bits a channel, rows from
 /// the top. Only a frontend whose steps run the draw suite defines these. One open at a time, at
 /// most PLATFORM_SURFACE_MAX pixels a side.

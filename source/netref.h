@@ -221,6 +221,23 @@ const char *NetSessionProbeName(const NetConfig *config);
 /// The name every dns case that carries the placeholder asks about.
 #define NET_PLACEHOLDER_NAME "probe-%.edenprobe.invalid"
 
+/// What nsd's answer @p got for @p asked, a name carrying the placeholder, is when it is not the
+/// @p expected one, as a clause a failure's detail ends on: the name handed back as it was asked,
+/// which is how a Resolve that does nothing to a name answers; the placeholder replaced with
+/// something other than the environment nsd named; or the name changed with the placeholder left
+/// in. Empty when nsd refused the call (@p succeeded false; its result says why) or answered
+/// what was expected. Returns the length; the text is always terminated.
+size_t NetDescribeExpansion(char *out, size_t out_size, const char *asked, const char *expected,
+                            const char *got, bool succeeded);
+
+/// Whether the cases that need a stream socket skip: the machine refused one, @p socket_error
+/// the errno it gave (nought when it made one), named @p error_name, while it says its network
+/// is off, how in @p network_off (empty when it does not say so). The skip's sentence goes in
+/// @p out. False, and an empty @p out, otherwise: a refusal with the network on is the cases'
+/// to fail, with their own errno.
+bool NetStreamsSkip(char *out, size_t out_size, int socket_error, const char *error_name,
+                    const char *network_off);
+
 /// A profile image url with every `{size}` replaced by the decimal @p pixels, scanning on past
 /// each replacement (the contract: avatar_url may contain {size}). False when it does not fit.
 bool NetExpandSize(char *out, size_t out_size, const char *url, uint32_t pixels);

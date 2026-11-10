@@ -4,6 +4,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -76,6 +77,11 @@ void RunReferenceBcn(void);
 void RunLibc(void);
 void RunSystem(void);
 void RunSocket(void);
+
+/// Whether the cases that need a stream socket skip here: the machine refuses one and says its
+/// network is off (netref.h, NetStreamsSkip, which writes the sentence into @p why). The socket
+/// suite asks before its stream cases, and the net family's bsd and ssl suites before theirs.
+bool SocketStreamsRefused(char *why, size_t why_size);
 #ifdef __SWITCH__
 /// The processor's own instructions, compared bit for bit with the reference. Console only,
 /// because its cases are AArch64 instructions; no device, so it runs in every mode.
