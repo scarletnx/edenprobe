@@ -1085,15 +1085,24 @@ whether the machine does.
   a one sample integer target, the split each position pattern gives, the grid's odd columns, the
   modulation and its table, and 0xa after the depth test? Expected yes; no emulator passes most of
   them yet, so a console run is the first that says the cases are right.
-- **Q13, topology.** Which vertex's colour a polygon takes (OpenGL: its first, under either
-  convention), and a quad under the first vertex convention (OpenGL: its first or its fourth);
-  the two notes count the pixels by vertex. And do the cases OpenGL's tables decide come out as
-  written on the 3D class: a quad strip's last vertex, a fan's rim vertex under the first vertex
-  convention, a quad and a polygon drawn as lines with no diagonal? Expected yes.
-- **Q14, copy.** What a blit from sRGB to linear gives 0x80 (0x37 decoded or 0x80 kept), what
-  a half of a quarter becomes in eight bits (0x3f or 0x40), and what the 2D engine's BLEND
-  operation makes of a half transparent source; the three notes give each. Expected yes for the
-  cases, which follow the library and the formats.
+- **Q13, topology.** Six cases no emulator passes yet, ScarletNX and Eden alike, whose answers are
+  OpenGL's table 10.2 and section 10.1 for the types the 3D class shares with it: a quad's and a
+  quad strip's flat colour from their last vertex, quads that restart at an index, a line loop's
+  closing side, and a quad and a polygon drawn as lines with no diagonal. Do they come out as
+  written? Expected yes. And the two notes: the vertex whose colour a polygon takes (OpenGL: its
+  first under either convention; both emulators give it their fan's last vertices, 3 and 4), and a
+  quad's under the first vertex convention (OpenGL: its first or its fourth; both give the first).
+- **Q14, copy.** Six cases no emulator passes yet: FlipY to and from a buffer, which the library
+  sends to the copy engine as a negative pitch, and the four blits between formats, whose answers
+  are the formats' layouts in memory. Do they come out as written? Expected yes. And the three
+  notes: what an sRGB 0x80 blitted into RGBA8 gives (0x37 decoded or 0x80 kept; ScarletNX keeps it,
+  Eden decodes two channels of three), what a half of a quarter becomes in eight bits (0x3f or
+  0x40), and what the 2D engine's BLEND operation makes of a half transparent source (both emulators
+  copy it).
+- **Q15, vertex.** What a fixed attribute, the state deko3d leaves every unbound one in, gives a
+  shader: Eden gives OpenGL's `0 0 0 1`. And do the eleven cases hold? Eden passes all but BGRA.
+- **Q16, queue.** Do the waits hold and wake as written? ScarletNX passes all five; Eden runs the
+  waiting list at once and releases the other queue's wait before that queue's copy lands.
 
 The blit2d suite asks two questions of its own, which texel each origin samples when the copy
 scales and how a fraction in the scale is stepped; they are on [its page](Blit2d.md), as its Q1
@@ -1136,3 +1145,38 @@ Read in reden at 75c12299a6; each gap is a case here that fails, and the new cas
   reads it (`texture_cache/texture_cache.h:712-713`, `engines/maxwell_3d.cpp:588-592`): the
   blit2d cases fail on the raw read and pass on the copy to buffer. See [The blit2d
   suite](Blit2d.md).
+- **A restart index other than all ones is not passed on** (read at 44395ac49c, as the two after
+  it). The Vulkan path never reads `primitive_restart.index` (only
+  `renderer_opengl/gl_rasterizer.cpp:960` does), so a strip or a fan with restart at 8 draws through
+  it: the topology suite's four restart cases at 8 fail, and the all-ones 0xff of 8-bit indices
+  passes.
+- **An indexed quad draw's first index is taken for its vertex offset.**
+  `buffer_cache/buffer_cache.h:766` hands `index_buffer.first` to `BindIndexBuffer`'s `base_vertex`,
+  which the quad pass adds to every index (`vk_buffer_cache.cpp:580-589`), and the draw's own vertex
+  offset is not passed: the case with first index 3 and offset 2 draws nothing where its quads are.
+- **Quads, quad strips, polygons and line loops are made into triangles.** A quad's two triangles
+  carry their own last vertices under the last vertex convention, so half of each quad takes its
+  third vertex's colour; a quad or polygon drawn as lines shows the diagonal the two triangles
+  share; a polygon takes the colours of its fan's last vertices, not its first; and a line loop
+  (`maxwell_to_vk.cpp:352-353`, made a triangle list) loses its closing side. ScarletNX fails the
+  same six cases.
+- **A copy engine copy that steps a buffer backwards.** The library's FlipY on a copy to or from a
+  buffer is a negative pitch. From a buffer, `engines/maxwell_dma.cpp:275` sizes the source as the
+  pitch times the lines in a `size_t`, which the negative pitch makes enormous: the program ends
+  (`std::bad_alloc`). To a buffer, `:166` takes the pitch's absolute value and keeps the start, the
+  last row's, so the rows go forward from there: one row of sixteen lands. ScarletNX writes none of
+  either.
+- **The 2D engine's copies between formats.** RGBA8 into BGRA8, RGB565 and RGBA16F, and RGBA16F into
+  RGBA8, come back with their channels in the wrong places (`engines/fermi_2d.cpp`,
+  `texture_cache/texture_cache.h`, `BlitImage`): an RGBA16F quarter reads ff 3f 3f 3f in RGBA8,
+  alpha first, and the sRGB note's 80 80 80 reads 80 37 37. ScarletNX copies the bytes unconverted.
+  The four cases follow the formats' layouts in memory (BGRA8 is the 3D class's A8R8G8B8, blue
+  first); no emulator passes them yet.
+- **A vertex attribute's BGRA order is dropped.** A 4x8 unsigned normalised attribute marked BGRA
+  reads red from its first byte (`maxwell_to_vk.cpp`, `VertexFormat`, which maps the size and type
+  and not the order): the vertex suite's BGRA case fails, the other ten pass. ScarletNX draws none
+  of the suite's points, positioned by the vertex's number with no position attribute.
+- **A queue's wait on a word in memory is not kept.** A list that waits for the word runs at once,
+  its copy made while the word is short, and another queue's release reaches it before that queue's
+  own copy has landed (`engines/puller.cpp`, `ProcessSemaphoreAcquire`): three of the queue suite's
+  five cases fail. ScarletNX passes all five.
