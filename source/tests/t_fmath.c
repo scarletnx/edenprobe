@@ -21,6 +21,11 @@
 // distance it saw. The operands come from the fragment's coordinate, as whole numbers over 64, as
 // multiples of a sixteenth or a quarter, or built from their bits, so every pixel is a different
 // input and all of them are exactly representable.
+//
+// Then the saturate a game's compiled shaders use for every clamp to nought and one (.SAT, which
+// uam folds GLSL's clamp into: saturate.frag.glsl compiles to FADD.SAT): a NaN of either sign,
+// quiet or signalling, gives +0, which GLSL's clamp of a NaN does not promise and ScarletNX's
+// saturate test holds its translation to; and the rest is clamped, a nought keeping either sign.
 
 static const char *const SUITE = "fmath";
 
@@ -261,6 +266,106 @@ static void ModeCase(GpuContext *gpu, const DkShader *vertex_shader,
     CHECK_TRUE(SUITE, name, tier, matched, "%s", detail);
 }
 
+/// The saturate's inputs, a column each, and what each must give.
+typedef struct {
+    uint32_t in;
+    uint32_t want;
+} Saturated;
+
+/// Draws saturate.frag.glsl over the target with @p words as its buffer, and judges the columns
+/// @p first to @p first + @p count against @p cases (a want of +0 also takes -0 when the input is
+/// a nought).
+static void SaturateCase(GpuContext *gpu, const DkShader *vertex_shader, const DkShader *saturate,
+                         const char *name, const uint32_t words[32], const Saturated *cases,
+                         uint32_t first, uint32_t count) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    DkGpuAddr buffer = 0;
+    uint32_t *const cpu = (uint32_t *)GpuAllocData(gpu, 32u * 4u, 256u, &buffer);
+    if (cpu == NULL) {
+        ReportCase(SUITE, name, CHECK_NONE, false, "no scratch left for the inputs");
+        return;
+    }
+    memcpy(cpu, words, 32u * 4u);
+    GpuClear(gpu, SENTINEL, 0.0f, 0.0f, 0.0f);
+    GpuBeginPass(gpu);
+    dkCmdBufBindStorageBuffer(gpu->cmdbuf, DkStage_Fragment, 0, buffer, 32u * 4u);
+    GpuVertex quad[6];
+    FullScreenQuad(quad);
+    const bool drawn = GpuDrawTriangles(gpu, vertex_shader, saturate, quad, 6);
+    GpuSubmit(gpu);
+    const uint8_t *const pixels = drawn && gpu->ready ? GpuReadBack(gpu) : NULL;
+    if (pixels == NULL) {
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure : "the draw or readback did not happen");
+        return;
+    }
+    uint32_t wrong = 0, first_wrong = 0, seen = 0;
+    for (uint32_t y = 0; y < TARGET_HEIGHT; ++y) {
+        for (uint32_t i = 0; i < count; ++i) {
+            uint32_t got = 0;
+            memcpy(&got, pixels + ((size_t)y * TARGET_WIDTH + first + i) * 4u, 4);
+            const Saturated *const c = &cases[i];
+            const bool nought = (c->in & 0x7FFFFFFFu) == 0u;
+            if (got != c->want && !(nought && got == 0x80000000u)) {
+                if (wrong == 0) {
+                    first_wrong = i;
+                    seen = got;
+                }
+                ++wrong;
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, name, CHECK_EXACT, wrong == 0,
+               "%u of %u pixels wrong; the first, input 0x%08x, gave 0x%08x, expected 0x%08x",
+               (unsigned)wrong, (unsigned)(count * TARGET_HEIGHT), (unsigned)cases[first_wrong].in,
+               (unsigned)seen, (unsigned)cases[first_wrong].want);
+}
+
+static void SaturateCases(GpuContext *gpu, const DkShader *vertex_shader) {
+    static const char *const LOAD = "the saturating shader loads";
+    if (!ReportStart(SUITE, LOAD)) {
+        return;
+    }
+    DkShader saturate;
+    const bool loaded = GpuLoadShader(gpu, &saturate, ShaderData(SHADER_SATURATE_FRAG),
+                                      ShaderSize(SHADER_SATURATE_FRAG));
+    CHECK_TRUE(SUITE, LOAD, CHECK_NONE, loaded, "%s", gpu->failure);
+    if (!loaded) {
+        return;
+    }
+    static const Saturated NANS[] = {
+        { 0x7FC00000u, 0 }, { 0xFFC00000u, 0 }, { 0x7F800001u, 0 }, { 0xFF800001u, 0 },
+        { 0x7FFFFFFFu, 0 }, { 0xFFFFFFFFu, 0 }, { 0x7FA00001u, 0 },
+    };
+    static const Saturated REST[] = {
+        { 0x3F000000u, 0x3F000000u }, { 0x3F800000u, 0x3F800000u }, { 0x40000000u, 0x3F800000u },
+        { 0x7F800000u, 0x3F800000u }, { 0x7F7FFFFFu, 0x3F800000u }, { 0xBF800000u, 0 },
+        { 0xFF800000u, 0 },           { 0xFF7FFFFFu, 0 },           { 0x3E800000u, 0x3E800000u },
+        { 0x3F7FFFFFu, 0x3F7FFFFFu }, { 0x00000000u, 0 },           { 0x80000000u, 0 },
+    };
+    const uint32_t nan_count = (uint32_t)(sizeof(NANS) / sizeof(NANS[0]));
+    const uint32_t rest_count = (uint32_t)(sizeof(REST) / sizeof(REST[0]));
+    // Columns past the inputs read the last word, a half, which saturates to itself.
+    uint32_t words[32];
+    for (uint32_t i = 0; i < 32u; ++i) {
+        words[i] = 0x3F000000u;
+    }
+    for (uint32_t i = 0; i < nan_count; ++i) {
+        words[i] = NANS[i].in;
+    }
+    for (uint32_t i = 0; i < rest_count; ++i) {
+        words[nan_count + i] = REST[i].in;
+    }
+    SaturateCase(gpu, vertex_shader, &saturate,
+                 "a saturate gives +0 for quiet and signalling NaNs of either sign", words, NANS, 0,
+                 nan_count);
+    SaturateCase(gpu, vertex_shader, &saturate,
+                 "a saturate clamps to 0 and 1 and keeps what lies between", words, REST, nan_count,
+                 rest_count);
+}
+
 void RunFmath(void) {
     GpuSpec spec;
     GpuSpecDefaults(&spec, TARGET_WIDTH, TARGET_HEIGHT);
@@ -322,6 +427,7 @@ void RunFmath(void) {
     for (uint32_t mode = 0; mode < FMATH_MODE_COUNT; ++mode) {
         ModeCase(&gpu, &vertex_shader, &fragment_shader, uniform, (FMathMode)mode);
     }
+    SaturateCases(&gpu, &vertex_shader);
 
     GpuClose(&gpu);
 }

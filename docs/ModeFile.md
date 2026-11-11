@@ -18,7 +18,7 @@
 | `noprogress` | no running screen while the suites run; for a machine whose window misbehaves while the suites draw |
 | `all` | every family the build has but pad, which waits for a person, and nvn: one word for a run that needs nobody. `pad` or `nvn` beside it adds that family; the mode line lists the families that run |
 | `cpu` | the processor family. It runs in every mode, so naming it alone leaves the graphics, fs and net families out: a few seconds, nothing drawn |
-| `graphics` | the graphics family: the forty one drawing suites, clear to copy, and tex8k; selfcheck, support, reference and cpu always run, whatever family is named |
+| `graphics` | the graphics family: the forty two drawing suites, clear to copy, and tex8k; selfcheck, support, reference and cpu always run, whatever family is named |
 | `nvn` | the nvn family: the clear suite's question asked through the program's NVN, a layer on deko3d that a runtime running a game's NVN itself (ScarletNX) takes as a game's driver; only when named, with no row on the start screen; its window case runs only in a quick run from the mode file, since a run begun on the start screen keeps the program's screen up to its end, `noprogress` or not, and the start screen says so; see [nvn](families/Nvn.md) |
 | `fs` | the fs family: reads from the memory card, timed and checked; it writes a 64 MiB file and 256 small ones under `sdmc:/edenprobe/fs` the first time |
 | `audio` | the audio family: the renderer's resampler, circular buffer sink and limiter, recorded through its own effect and sink; only when named, since it makes sound (most at a gain of nought) |

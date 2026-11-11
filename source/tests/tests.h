@@ -175,6 +175,10 @@ void RunInstance(void);
 /// tessellated quad patch whose level reaches the evaluation stage. Every pixel exact.
 void RunGeometry(void);
 
+/// Transform feedback through the 3D class's registers: one triangle's positions captured into a
+/// buffer, and the primitives written counter.
+void RunXfb(void);
+
 /// 256 textures reached through a uniform array of handles at a dynamic index: every index must
 /// sample its own texture.
 void RunBindless(void);

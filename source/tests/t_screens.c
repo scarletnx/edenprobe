@@ -504,6 +504,7 @@ static void CheckFamilies(void) {
         { "vertex", UI_FAMILY_GRAPHICS },
         { "instance", UI_FAMILY_GRAPHICS },
         { "geometry", UI_FAMILY_GRAPHICS }, { "bindless", UI_FAMILY_GRAPHICS },
+        { "xfb", UI_FAMILY_GRAPHICS },
         { "astc", UI_FAMILY_GRAPHICS },     { "astcimage", UI_FAMILY_GRAPHICS },
         { "eac", UI_FAMILY_GRAPHICS },
         { "etc2", UI_FAMILY_GRAPHICS },     { "bcn", UI_FAMILY_GRAPHICS },
@@ -570,7 +571,7 @@ static void CheckFamilies(void) {
     }
     // A run with every family has a group for each suite, so the index holds them all.
     CHECK_TRUE(SUITE, "every suite a run reports is shown under its own family", CHECK_NONE,
-               wrong == 0u && count == 103u && count <= UI_MAX_GROUPS &&
+               wrong == 0u && count == 104u && count <= UI_MAX_GROUPS &&
                    UiFamilyOf("weird") == UI_FAMILY_OTHER && UiFamilyOf(NULL) == UI_FAMILY_OTHER,
                "%u of %u suites under the wrong family, the first %s; the index holds %u groups",
                (unsigned)wrong, (unsigned)count, first, (unsigned)UI_MAX_GROUPS);

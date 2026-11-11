@@ -7,6 +7,7 @@
 #include "../check.h"
 #include "../gpu.h"
 #include "../picture.h"
+#include "../rawref.h"
 #include "../report.h"
 #include "tests.h"
 
@@ -18,7 +19,21 @@
 // each differ from the one before in all four channels, which a stale readback cannot survive;
 // only the fourth, which clears a rectangle, tells a correct readback from a scrambled one.
 
+// Then what cuts a clear to the scissor: the library sets the clear flags' scissor bit (bit 8 of
+// the 3D class's CLEAR_FLAGS, deko3d's ClearBufferFlags) once at start-up, and the bounded
+// rectangle above leans on it. Two raw writes ask what the bit and scissor 0's own enable do: with
+// the bit cleared, or with scissor 0 turned off, the same clear covers the whole target, as
+// ScarletNX's clear flags test holds its 3D engine to. Each puts the register back after its clear.
+
 static const char *const SUITE = "clear";
+
+/// The 3D class's CLEAR_FLAGS (deko3d source/maxwell/engine_3d.def, ClearBufferFlags): the
+/// stencil mask in bit 0, the scissor in bit 8, the viewport in bit 12; the library's setting is
+/// the first two. And SCISSOR_ENABLE of scissor 0, the first word of its three.
+#define CLEAR_FLAGS 0x43Eu
+#define CLEAR_FLAGS_LIBRARY 0x101u
+#define CLEAR_FLAGS_NO_SCISSOR 0x001u
+#define SCISSOR_0_ENABLE 0x380u
 
 // Small on purpose. 64 by 64 is four of the 64-byte-wide blocks across and eight down, which is
 // enough for the fourth case to straddle block boundaries in both directions, and small enough
@@ -139,12 +154,42 @@ static void ClearAndCheck(GpuContext *gpu, const char *name, float red, float gr
     ReadBackAndCheck(gpu, name, 0, 0, gpu->width, gpu->height, expected, expected);
 }
 
+/// The whole target cleared to cyan, then red over the bounded rectangle's scissor with @p method
+/// set to @p value for that clear alone: the red must cover every pixel.
+static void UnboundedCase(GpuContext *gpu, const char *name, uint32_t method, uint32_t value,
+                          uint32_t restore) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    GpuClear(gpu, 0.0f, 1.0f, 1.0f, 0.0f);
+    GpuBeginPass(gpu);
+    const DkScissor scissor = { RECT_X, RECT_Y, RECT_WIDTH, RECT_HEIGHT };
+    dkCmdBufSetScissors(gpu->cmdbuf, 0, &scissor, 1);
+    const uint32_t set = RawInlineHeader(RAW_SUBCHANNEL_3D, method, value);
+    const uint32_t back = RawInlineHeader(RAW_SUBCHANNEL_3D, method, restore);
+    bool ok = GpuRawMethods(gpu, &set, 1);
+    dkCmdBufClearColorFloat(gpu->cmdbuf, 0, DkColorMask_RGBA, 1.0f, 0.0f, 0.0f, 1.0f);
+    ok = ok && GpuRawMethods(gpu, &back, 1);
+    GpuSubmit(gpu);
+    if (!ok) {
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   gpu->failure[0] != '\0' ? gpu->failure : "the raw methods were not recorded");
+        return;
+    }
+    const uint8_t red[4] = { 0xFF, 0x00, 0x00, 0xFF };
+    ReadBackAndCheck(gpu, name, 0, 0, gpu->width, gpu->height, red, red);
+}
+
 void RunClear(void) {
     if (!ReportStart(SUITE, "graphics device opens")) {
         return;
     }
     GpuContext gpu;
-    const bool opened = GpuOpen(&gpu, TARGET_WIDTH, TARGET_HEIGHT);
+    // Scratch for the raw methods the last two cases record, and nothing else.
+    GpuSpec spec;
+    GpuSpecDefaults(&spec, TARGET_WIDTH, TARGET_HEIGHT);
+    spec.data_size = 4u * 1024u;
+    const bool opened = GpuOpenSpec(&gpu, &spec);
     CHECK_TRUE(SUITE, "graphics device opens", CHECK_NONE, opened, "%s", gpu.failure);
     if (!opened) {
         // Every case below would report the same failure four more times and say nothing new.
@@ -178,6 +223,10 @@ void RunClear(void) {
         ReadBackAndCheck(&gpu, "clear bounded by a rectangle", RECT_X, RECT_Y, RECT_WIDTH,
                          RECT_HEIGHT, inside, outside);
     }
+    UnboundedCase(&gpu, "with the clear flags' scissor bit off a clear covers the whole target",
+                  CLEAR_FLAGS, CLEAR_FLAGS_NO_SCISSOR, CLEAR_FLAGS_LIBRARY);
+    UnboundedCase(&gpu, "with scissor 0 turned off a clear covers the whole target",
+                  SCISSOR_0_ENABLE, 0u, 1u);
 
     GpuClose(&gpu);
 }

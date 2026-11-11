@@ -38,6 +38,12 @@
 // which nothing writes; a draw after a barrier must fetch the three stored words; and store.vert
 // writes 0xb0 plus the vertex index into texel index mod 4. A host that binds images per stage
 // only for the fragment stage, or holds the image in a layout the second use cannot see, fails.
+//
+// And one storage buffer both stages before the fragment one bind: buffer_store.geom writes words
+// 0 to 15 while buffer_read.vert, in the same draw, reads word 32 for the colour. A host that
+// gives the geometry stage's global memory nothing of the draw's, or takes the two stages' views
+// of the one buffer for two buffers, loses the stores or the colour (ScarletNX's draw storage
+// test holds its renderer to the geometry stage's writes aliasing the vertex stage's reads).
 
 static const char *const SUITE = "geometry";
 
@@ -58,6 +64,8 @@ typedef struct {
     DkShader tes_clip_first;
     DkShader tes_clip_last;
     DkShader tes_store;
+    DkShader vs_buffer;
+    DkShader gs_buffer;
     DkShader vs_store;
     DkShader fs_texel;
     DkImage stage_image;
@@ -179,6 +187,74 @@ static void SquaresCase(GeometryContext *g, const char *name, const DkShader *gs
     }
     GpuSubmit(&g->gpu);
     Judge(g, name, ok, rects, count);
+}
+
+/// The colour word buffer_read.vert reads, its bytes red to alpha.
+#define SHARED_COLOUR 0xFF2A6B19u
+
+/// A quad over the target, its vertex stage reading word 32 of a buffer its geometry stage writes
+/// words 0 to 15 of: every pixel the colour, and the buffer holding the sixteen stores, the colour
+/// and the other words as they were.
+static void SharedBufferCase(GeometryContext *g) {
+    static const char *const NAME =
+        "a geometry stage's stores land beside the word the vertex stage reads in one buffer";
+    if (!ReportStart(SUITE, NAME)) {
+        return;
+    }
+    DkGpuAddr address = 0;
+    uint32_t *const words = (uint32_t *)GpuAllocData(&g->gpu, 64u * 4u, 256u, &address);
+    if (words == NULL) {
+        ReportCase(SUITE, NAME, CHECK_NONE, false, "no scratch left for the buffer");
+        return;
+    }
+    uint32_t want[64];
+    for (uint32_t i = 0; i < 64u; ++i) {
+        words[i] = 0x5A000000u + i;
+        want[i] = i < 16u ? 0xC0DE0000u + i : words[i];
+    }
+    words[32] = SHARED_COLOUR;
+    want[32] = SHARED_COLOUR;
+    const uint8_t white[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
+    const GpuVertex quad[6] = { At(0, 64, white), At(64, 64, white), At(64, 0, white),
+                                At(0, 64, white), At(64, 0, white),  At(0, 0, white) };
+    GpuClear(&g->gpu, 0.0f, 0.0f, 0.0f, 0.0f);
+    GpuBeginPass(&g->gpu);
+    bool ok = GpuBindTriangleState(&g->gpu, &g->vs_buffer, &g->fs, quad, 6);
+    if (ok) {
+        dkCmdBufBindStorageBuffer(g->gpu.cmdbuf, DkStage_Vertex, 0, address, 64u * 4u);
+        dkCmdBufBindStorageBuffer(g->gpu.cmdbuf, DkStage_Geometry, 0, address, 64u * 4u);
+        const DkShader *const gs[] = { &g->gs_buffer };
+        dkCmdBufBindShaders(g->gpu.cmdbuf, DkStageFlag_Geometry, gs, 1);
+        dkCmdBufDraw(g->gpu.cmdbuf, DkPrimitive_Triangles, 6, 1, 0, 0);
+        Unbind(g);
+        dkCmdBufBarrier(g->gpu.cmdbuf, DkBarrier_Full, DkInvalidateFlags_L2Cache);
+    }
+    GpuSubmit(&g->gpu);
+    const uint8_t *const pixels = ok && g->gpu.ready ? GpuReadBack(&g->gpu) : NULL;
+    if (pixels == NULL) {
+        ReportCase(SUITE, NAME, CHECK_NONE, false,
+                   g->gpu.failure[0] != '\0' ? g->gpu.failure : "the draw was not recorded");
+        return;
+    }
+    uint32_t wrong_pixels = 0, wrong_words = 0, first_word = 0, seen_pixel = 0;
+    for (uint32_t i = 0; i < TARGET_WIDTH * TARGET_HEIGHT; ++i) {
+        uint32_t pixel = 0;
+        memcpy(&pixel, pixels + i * 4u, 4);
+        if (pixel != SHARED_COLOUR && wrong_pixels++ == 0u) {
+            seen_pixel = pixel;
+        }
+    }
+    for (uint32_t i = 0; i < 64u; ++i) {
+        if (words[i] != want[i] && wrong_words++ == 0u) {
+            first_word = i;
+        }
+    }
+    CHECK_TRUE(SUITE, NAME, CHECK_EXACT, wrong_pixels == 0 && wrong_words == 0,
+               "%u of %u pixels wrong, the first 0x%08x where the colour is 0x%08x; %u of 64 words "
+               "wrong, the first, word %u, 0x%08x where 0x%08x belongs",
+               (unsigned)wrong_pixels, (unsigned)(TARGET_WIDTH * TARGET_HEIGHT),
+               (unsigned)seen_pixel, (unsigned)SHARED_COLOUR, (unsigned)wrong_words,
+               (unsigned)first_word, (unsigned)words[first_word], (unsigned)want[first_word]);
 }
 
 /// A patch over the rectangle from (8,8) to (56,56), tessellated at @p level: by @p tcs, or
@@ -366,7 +442,11 @@ void RunGeometry(void) {
         GpuLoadShader(&g.gpu, &g.vs_store, ShaderData(SHADER_STORE_VERT),
                       ShaderSize(SHADER_STORE_VERT)) &&
         GpuLoadShader(&g.gpu, &g.fs_texel, ShaderData(SHADER_FETCH_TEXEL_FRAG),
-                      ShaderSize(SHADER_FETCH_TEXEL_FRAG));
+                      ShaderSize(SHADER_FETCH_TEXEL_FRAG)) &&
+        GpuLoadShader(&g.gpu, &g.vs_buffer, ShaderData(SHADER_BUFFER_READ_VERT),
+                      ShaderSize(SHADER_BUFFER_READ_VERT)) &&
+        GpuLoadShader(&g.gpu, &g.gs_buffer, ShaderData(SHADER_BUFFER_STORE_GEOM),
+                      ShaderSize(SHADER_BUFFER_STORE_GEOM));
     CHECK_TRUE(SUITE, "the geometry and tessellation shaders load", CHECK_NONE, loaded, "%s",
                g.gpu.failure);
     if (!loaded) {
@@ -396,6 +476,7 @@ void RunGeometry(void) {
     PatchCase(&g, "a negative eighth clip distance passed on by the evaluation stage clips the "
                   "patch",
               &g.vs_clip, NULL, &g.tes_clip_last, 4u, false);
+    SharedBufferCase(&g);
 
     if (!ReportStart(SUITE, "the stage image and its descriptors are in place")) {
         GpuClose(&g.gpu);
