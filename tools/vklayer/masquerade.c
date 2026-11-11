@@ -1,28 +1,39 @@
 // SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// VK_LAYER_EDENPROBE_masquerade: makes this machine's Vulkan driver look like an older one to
-// the emulator above it, so a path the emulator takes only on such a driver runs here, under
-// edenprobe. Two masks, each off unless its variable is set:
+// VK_LAYER_EDENPROBE_masquerade: makes this machine's Vulkan driver look like one that lacks
+// what the variables name, to the emulator above it, so a path the emulator takes only on such
+// a driver runs here, under edenprobe. Each mask is off unless its variable is set:
 //
-//   EDENPROBE_MASQUERADE_API=1.1           the physical device reports Vulkan 1.1: an emulator
-//                                          then enables Vulkan 1.2 and 1.3 features through their
-//                                          extensions, as it does on a Vulkan 1.1 driver.
+//   EDENPROBE_MASQUERADE_API=1.1           the physical device reports that Vulkan version, 1.0 to
+//                                          1.4, where its own is newer: an emulator then enables
+//                                          the later versions' features through their extensions.
+//   EDENPROBE_MASQUERADE_HIDE=NAME,NAME    each NAME a device extension or a feature, by the
+//                                          registry's name. An extension leaves the device's
+//                                          list, and a feature structure that only hidden
+//                                          extensions add reads all VK_FALSE, unless the version
+//                                          reported has it in its core. A feature reads VK_FALSE
+//                                          in every structure that has it, the core ones too.
 //   EDENPROBE_MASQUERADE_NO_HOST_QUERY_RESET=1
-//                                          no VK_EXT_host_query_reset and no hostQueryReset
-//                                          feature: queries are reset in command buffers.
+//                                          the same as HIDE=VK_EXT_host_query_reset,hostQueryReset.
 //
-// Everything else is passed down untouched. The driver itself is not changed: an application
-// that enables what was hidden still gets it, so the masks decide what an emulator chooses, not
-// what the driver can do. Enabled with VK_ADD_LAYER_PATH pointing at the directory of the
-// manifest and VK_INSTANCE_LAYERS=VK_LAYER_EDENPROBE_masquerade (see tools/vklayer/Makefile).
+// A name the registry has not, or an API that is no version, makes vkCreateInstance fail with
+// VK_ERROR_INITIALIZATION_FAILED and the reason on stderr: a typo would otherwise hide nothing.
+// An instance that masks anything says what on stderr as it is made. Everything else is passed
+// down untouched. The driver itself is not changed: an application that enables what was hidden
+// still gets it, so the masks decide what an emulator chooses, not what the driver can do.
+// Enabled with VK_ADD_LAYER_PATH pointing at the directory of the manifest and
+// VK_INSTANCE_LAYERS=VK_LAYER_EDENPROBE_masquerade (see tools/vklayer/Makefile).
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <vulkan/vk_layer.h>
 #include <vulkan/vulkan.h>
+
+#include "features.h"
 
 #define LAYER_NAME "VK_LAYER_EDENPROBE_masquerade"
 #define MAX_OBJECTS 16
@@ -39,8 +50,13 @@ typedef struct {
     PFN_vkDestroyInstance destroy;
     PFN_vkGetPhysicalDeviceProperties properties;
     PFN_vkGetPhysicalDeviceProperties2 properties2;
+    PFN_vkGetPhysicalDeviceFeatures features;
     PFN_vkGetPhysicalDeviceFeatures2 features2;
     PFN_vkEnumerateDeviceExtensionProperties extensions;
+    uint32_t api; // the version reported where the device's is newer, 0 for the device's own
+    bool hides;   // an extension or a feature is hidden
+    bool hide_extension[COUNT(DEVICE_EXTENSIONS)];
+    bool hide_member[COUNT(MEMBERS)];
 } Instance;
 
 typedef struct {
@@ -83,48 +99,208 @@ static bool Set(const char *name) {
     return value != NULL && value[0] != '\0' && strcmp(value, "0") != 0;
 }
 
-static bool ApiIs11(void) {
-    const char *const value = getenv("EDENPROBE_MASQUERADE_API");
-    return value != NULL && strcmp(value, "1.1") == 0;
+/// Hides one name, an extension or a feature (every member of that name); false for a name the
+/// registry has not.
+static bool Hide(Instance *instance, const char *name, size_t length) {
+    const int extension = MaskExtension(name, length);
+    if (extension >= 0) {
+        instance->hide_extension[extension] = true;
+        instance->hides = true;
+        return true;
+    }
+    bool found = false;
+    for (int i = 0; i < COUNT(MEMBERS); ++i) {
+        if (strlen(MEMBERS[i]) == length && strncmp(MEMBERS[i], name, length) == 0) {
+            instance->hide_member[i] = true;
+            found = true;
+        }
+    }
+    instance->hides |= found;
+    return found;
 }
 
-static bool NoHostQueryReset(void) {
-    return Set("EDENPROBE_MASQUERADE_NO_HOST_QUERY_RESET");
+/// The masks from the environment, into the instance; false, with the reason on stderr, for a
+/// value that names nothing.
+static bool ReadMasks(Instance *instance) {
+    const char *const api = getenv("EDENPROBE_MASQUERADE_API");
+    if (api != NULL && api[0] != '\0') {
+        if (strlen(api) != 3 || api[0] != '1' || api[1] != '.' || api[2] < '0' || api[2] > '4') {
+            fprintf(stderr,
+                    LAYER_NAME ": EDENPROBE_MASQUERADE_API=%s is not 1.0, 1.1, 1.2, 1.3 or 1.4: no "
+                               "instance is made\n",
+                    api);
+            return false;
+        }
+        instance->api = VK_MAKE_API_VERSION(0, 1, (uint32_t)(api[2] - '0'), 0);
+    }
+    if (Set("EDENPROBE_MASQUERADE_NO_HOST_QUERY_RESET")) {
+        Hide(instance, "VK_EXT_host_query_reset", strlen("VK_EXT_host_query_reset"));
+        Hide(instance, "hostQueryReset", strlen("hostQueryReset"));
+    }
+    const char *at = getenv("EDENPROBE_MASQUERADE_HIDE");
+    while (at != NULL && *at != '\0') {
+        at += strspn(at, ", ");
+        const size_t length = strcspn(at, ", ");
+        if (length != 0 && !Hide(instance, at, length)) {
+            fprintf(stderr,
+                    LAYER_NAME ": EDENPROBE_MASQUERADE_HIDE names %.*s, which is no device extension or "
+                               "feature of the Vulkan registry " MASQUERADE_REGISTRY
+                               " this layer was made from: no instance is made\n",
+                    (int)length, at);
+            return false;
+        }
+        at += length;
+    }
+    return true;
 }
 
-static void Mask(VkPhysicalDeviceProperties *properties) {
-    if (ApiIs11() && properties->apiVersion > VK_API_VERSION_1_1) {
-        const uint32_t patch = VK_API_VERSION_PATCH(properties->apiVersion);
-        properties->apiVersion = VK_MAKE_API_VERSION(0, 1, 1, patch);
+/// What the instance masks, on stderr, so the run's log says it.
+static void SayMasks(const Instance *instance) {
+    if (instance->api == 0 && !instance->hides) {
+        return;
+    }
+    fprintf(stderr, LAYER_NAME ":");
+    if (instance->api != 0) {
+        fprintf(stderr, " Vulkan 1.%u where the device has a newer one;", VK_API_VERSION_MINOR(instance->api));
+    }
+    if (instance->hides) {
+        fprintf(stderr, " hidden:");
+        for (int i = 0; i < COUNT(DEVICE_EXTENSIONS); ++i) {
+            if (instance->hide_extension[i]) {
+                fprintf(stderr, " %s", DEVICE_EXTENSIONS[i]);
+            }
+        }
+        for (int i = 0; i < COUNT(MEMBERS); ++i) {
+            bool first = instance->hide_member[i];
+            for (int j = 0; j < i && first; ++j) {
+                first = !(instance->hide_member[j] && strcmp(MEMBERS[j], MEMBERS[i]) == 0);
+            }
+            if (first) {
+                fprintf(stderr, " %s", MEMBERS[i]);
+            }
+        }
+    }
+    fprintf(stderr, "\n");
+}
+
+static void MaskVersion(const Instance *instance, VkPhysicalDeviceProperties *properties) {
+    if (instance->api != 0 && properties->apiVersion > instance->api) {
+        properties->apiVersion = VK_MAKE_API_VERSION(0, 1, VK_API_VERSION_MINOR(instance->api),
+                                                     VK_API_VERSION_PATCH(properties->apiVersion));
     }
 }
 
 static VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceProperties(VkPhysicalDevice physical,
                                                               VkPhysicalDeviceProperties *out) {
-    FindInstance(physical)->properties(physical, out);
-    Mask(out);
+    const Instance *const instance = FindInstance(physical);
+    instance->properties(physical, out);
+    MaskVersion(instance, out);
 }
 
 static VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceProperties2(VkPhysicalDevice physical,
                                                                VkPhysicalDeviceProperties2 *out) {
-    FindInstance(physical)->properties2(physical, out);
-    Mask(&out->properties);
+    const Instance *const instance = FindInstance(physical);
+    instance->properties2(physical, out);
+    MaskVersion(instance, &out->properties);
+}
+
+/// The driver's own extensions, for the caller to free with their count; NULL when they could
+/// not be listed.
+static VkExtensionProperties *DriverExtensions(const Instance *instance, VkPhysicalDevice physical,
+                                               uint32_t *count) {
+    *count = 0;
+    if (instance->extensions(physical, NULL, count, NULL) != VK_SUCCESS) {
+        return NULL;
+    }
+    VkExtensionProperties *const list = calloc(*count ? *count : 1, sizeof(*list));
+    if (list != NULL && instance->extensions(physical, NULL, count, list) < 0) {
+        free(list);
+        return NULL;
+    }
+    return list;
+}
+
+static bool Hidden(const Instance *instance, const char *extension) {
+    const int i = MaskExtension(extension, strlen(extension));
+    return i >= 0 && instance->hide_extension[i];
+}
+
+/// Whether the application still sees an extension that adds structure s: one the driver lists
+/// and this layer does not hide.
+static bool StillAdded(const Instance *instance, const VkExtensionProperties *list, uint32_t count, int s) {
+    for (int o = 0; o < COUNT(OWNERS); ++o) {
+        if (OWNERS[o].structure != s || Hidden(instance, OWNERS[o].extension)) {
+            continue;
+        }
+        for (uint32_t i = 0; i < count; ++i) {
+            if (strcmp(list[i].extensionName, OWNERS[o].extension) == 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// The extension list StillAdded reads, fetched once for a whole chain.
+typedef struct {
+    VkExtensionProperties *list;
+    uint32_t count;
+    bool fetched;
+} Listed;
+
+/// The hidden features of one structure turned off, and every feature of a structure that the
+/// version reported has not in its core and no extension the application sees adds.
+static void MaskStructure(const Instance *instance, VkPhysicalDevice physical, void *structure, int stype,
+                          Listed *listed) {
+    const int s = MaskStructOf(stype);
+    if (s < 0) {
+        return;
+    }
+    bool all = false;
+    if (stype != 0) {
+        VkPhysicalDeviceProperties properties;
+        GetPhysicalDeviceProperties(physical, &properties);
+        const int version =
+            (int)(VK_API_VERSION_MAJOR(properties.apiVersion) * 10 + VK_API_VERSION_MINOR(properties.apiVersion));
+        if (STRUCTS[s].core == 0 || STRUCTS[s].core > version) {
+            if (!listed->fetched) {
+                listed->list = DriverExtensions(instance, physical, &listed->count);
+                listed->fetched = true;
+            }
+            all = listed->list != NULL && !StillAdded(instance, listed->list, listed->count, s);
+        }
+    }
+    VkBool32 *const members = MaskMembers(structure, stype);
+    for (int m = 0; m < STRUCTS[s].count; ++m) {
+        if (all || instance->hide_member[STRUCTS[s].first + m]) {
+            members[m] = VK_FALSE;
+        }
+    }
+}
+
+static VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceFeatures(VkPhysicalDevice physical,
+                                                            VkPhysicalDeviceFeatures *out) {
+    const Instance *const instance = FindInstance(physical);
+    instance->features(physical, out);
+    if (instance->hides) {
+        Listed listed = { 0 };
+        MaskStructure(instance, physical, out, 0, &listed);
+    }
 }
 
 static VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceFeatures2(VkPhysicalDevice physical,
                                                              VkPhysicalDeviceFeatures2 *out) {
-    FindInstance(physical)->features2(physical, out);
-    if (!NoHostQueryReset()) {
+    const Instance *const instance = FindInstance(physical);
+    instance->features2(physical, out);
+    if (!instance->hides && instance->api == 0) {
         return;
     }
-    for (VkBaseOutStructure *next = (VkBaseOutStructure *)out->pNext; next != NULL;
-         next = next->pNext) {
-        if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES) {
-            ((VkPhysicalDeviceHostQueryResetFeatures *)next)->hostQueryReset = VK_FALSE;
-        } else if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES) {
-            ((VkPhysicalDeviceVulkan12Features *)next)->hostQueryReset = VK_FALSE;
-        }
+    Listed listed = { 0 };
+    MaskStructure(instance, physical, &out->features, 0, &listed);
+    for (VkBaseOutStructure *next = (VkBaseOutStructure *)out->pNext; next != NULL; next = next->pNext) {
+        MaskStructure(instance, physical, next, (int)next->sType, &listed);
     }
+    free(listed.list);
 }
 
 static VKAPI_ATTR VkResult VKAPI_CALL EnumerateDeviceExtensionProperties(
@@ -134,25 +310,21 @@ static VKAPI_ATTR VkResult VKAPI_CALL EnumerateDeviceExtensionProperties(
         return VK_SUCCESS;
     }
     Instance *const instance = FindInstance(physical);
-    if (layer != NULL || !NoHostQueryReset()) {
+    if (layer != NULL || !instance->hides) {
         return instance->extensions(physical, layer, count, out);
     }
     uint32_t all = 0;
-    VkResult result = instance->extensions(physical, NULL, &all, NULL);
-    if (result != VK_SUCCESS) {
-        return result;
-    }
-    VkExtensionProperties *const list = calloc(all ? all : 1, sizeof(*list));
+    VkExtensionProperties *const list = DriverExtensions(instance, physical, &all);
     if (list == NULL) {
         return VK_ERROR_OUT_OF_HOST_MEMORY;
     }
-    result = instance->extensions(physical, NULL, &all, list);
     uint32_t kept = 0;
     for (uint32_t i = 0; i < all; ++i) {
-        if (strcmp(list[i].extensionName, VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME) != 0) {
+        if (!Hidden(instance, list[i].extensionName)) {
             list[kept++] = list[i];
         }
     }
+    VkResult result = VK_SUCCESS;
     if (out == NULL) {
         *count = kept;
     } else {
@@ -178,39 +350,46 @@ static VKAPI_ATTR VkResult VKAPI_CALL CreateInstance(const VkInstanceCreateInfo 
     if (link == NULL) {
         return VK_ERROR_INITIALIZATION_FAILED;
     }
+    Instance *slot = NULL;
+    for (int i = 0; i < MAX_OBJECTS && slot == NULL; ++i) {
+        if (instances[i].key == NULL) {
+            slot = &instances[i];
+        }
+    }
+    if (slot == NULL) {
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
+    }
+    memset(slot, 0, sizeof(*slot));
+    if (!ReadMasks(slot)) {
+        memset(slot, 0, sizeof(*slot));
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
     const PFN_vkGetInstanceProcAddr next = link->u.pLayerInfo->pfnNextGetInstanceProcAddr;
     link->u.pLayerInfo = link->u.pLayerInfo->pNext;
     const PFN_vkCreateInstance create = (PFN_vkCreateInstance)next(NULL, "vkCreateInstance");
     const VkResult result = create(info, allocator, instance);
     if (result != VK_SUCCESS) {
+        memset(slot, 0, sizeof(*slot));
         return result;
     }
-    for (int i = 0; i < MAX_OBJECTS; ++i) {
-        if (instances[i].key == NULL) {
-            Instance *const slot = &instances[i];
-            slot->key = Key(*instance);
-            slot->next = next;
-            slot->destroy = (PFN_vkDestroyInstance)next(*instance, "vkDestroyInstance");
-            slot->properties =
-                (PFN_vkGetPhysicalDeviceProperties)next(*instance, "vkGetPhysicalDeviceProperties");
-            slot->properties2 = (PFN_vkGetPhysicalDeviceProperties2)next(
-                *instance, "vkGetPhysicalDeviceProperties2");
-            if (slot->properties2 == NULL) {
-                slot->properties2 = (PFN_vkGetPhysicalDeviceProperties2)next(
-                    *instance, "vkGetPhysicalDeviceProperties2KHR");
-            }
-            slot->features2 =
-                (PFN_vkGetPhysicalDeviceFeatures2)next(*instance, "vkGetPhysicalDeviceFeatures2");
-            if (slot->features2 == NULL) {
-                slot->features2 = (PFN_vkGetPhysicalDeviceFeatures2)next(
-                    *instance, "vkGetPhysicalDeviceFeatures2KHR");
-            }
-            slot->extensions = (PFN_vkEnumerateDeviceExtensionProperties)next(
-                *instance, "vkEnumerateDeviceExtensionProperties");
-            return VK_SUCCESS;
-        }
+    slot->key = Key(*instance);
+    slot->next = next;
+    slot->destroy = (PFN_vkDestroyInstance)next(*instance, "vkDestroyInstance");
+    slot->properties = (PFN_vkGetPhysicalDeviceProperties)next(*instance, "vkGetPhysicalDeviceProperties");
+    slot->properties2 = (PFN_vkGetPhysicalDeviceProperties2)next(*instance, "vkGetPhysicalDeviceProperties2");
+    if (slot->properties2 == NULL) {
+        slot->properties2 =
+            (PFN_vkGetPhysicalDeviceProperties2)next(*instance, "vkGetPhysicalDeviceProperties2KHR");
     }
-    return VK_ERROR_OUT_OF_HOST_MEMORY;
+    slot->features = (PFN_vkGetPhysicalDeviceFeatures)next(*instance, "vkGetPhysicalDeviceFeatures");
+    slot->features2 = (PFN_vkGetPhysicalDeviceFeatures2)next(*instance, "vkGetPhysicalDeviceFeatures2");
+    if (slot->features2 == NULL) {
+        slot->features2 = (PFN_vkGetPhysicalDeviceFeatures2)next(*instance, "vkGetPhysicalDeviceFeatures2KHR");
+    }
+    slot->extensions =
+        (PFN_vkEnumerateDeviceExtensionProperties)next(*instance, "vkEnumerateDeviceExtensionProperties");
+    SayMasks(slot);
+    return VK_SUCCESS;
 }
 
 static VKAPI_ATTR void VKAPI_CALL DestroyInstance(VkInstance instance,
@@ -276,6 +455,7 @@ static PFN_vkVoidFunction Intercepted(const char *name) {
         { "vkGetPhysicalDeviceProperties", (PFN_vkVoidFunction)GetPhysicalDeviceProperties },
         { "vkGetPhysicalDeviceProperties2", (PFN_vkVoidFunction)GetPhysicalDeviceProperties2 },
         { "vkGetPhysicalDeviceProperties2KHR", (PFN_vkVoidFunction)GetPhysicalDeviceProperties2 },
+        { "vkGetPhysicalDeviceFeatures", (PFN_vkVoidFunction)GetPhysicalDeviceFeatures },
         { "vkGetPhysicalDeviceFeatures2", (PFN_vkVoidFunction)GetPhysicalDeviceFeatures2 },
         { "vkGetPhysicalDeviceFeatures2KHR", (PFN_vkVoidFunction)GetPhysicalDeviceFeatures2 },
         { "vkEnumerateDeviceExtensionProperties",
