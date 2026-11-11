@@ -44,6 +44,11 @@
 // 8192x4096, 256 MiB, and 8192x8192, 512 MiB, whose window across its 256 MiB mark the 2D engine
 // copies out for the processor to read.
 //
+// After those, a volume past 512 Mi texels: BC1, 1024x1024x513, 257 MiB, in memory the processor
+// writes, whose first block alone it fills (a game's light volume, made by the graphics unit and
+// sampled where it was written); the fetch of that block's sixteen texels must give the block's
+// colours, where a host that takes so large a volume for no texture reads zeros.
+//
 // A host that samples no ASTC may keep an ASTC texture as BC7, which moves texels: such a texel
 // passes when it is within BC7's loss measured on the same texels (TEX8K_BC7_BOUND), and the line
 // then says bound instead of exact, with how far it moved in each region of the picture.
@@ -1505,6 +1510,129 @@ static void RenderTarget(const RtTarget *t) {
     GpuClose(gpu);
 }
 
+// ---- a volume past 512 Mi texels
+
+#define VOLUME_SIDE 1024u
+#define VOLUME_SLICES 513u
+
+/// The volume's first block, a texel a pixel on a 4x4 target. BC1, red 0xf800 above blue 0x001f
+/// (four colours), every row's texels at indices 3, 2, 1 and 0: two thirds blue, two thirds red,
+/// blue and red, which every decoder gives exactly.
+static void BigVolume(void) {
+    static const char *const NAME =
+        "a BC1 volume of 1024x1024x513, past 512 Mi texels, samples its first block";
+    if (!Room(NAME) || !ReportStart(SUITE, NAME)) {
+        return;
+    }
+    static const uint8_t BLOCK[8] = { 0x00, 0xF8, 0x1F, 0x00, 0x1B, 0x1B, 0x1B, 0x1B };
+    static const uint8_t ROW[4][4] = {
+        { 85, 0, 170, 255 }, { 170, 0, 85, 255 }, { 0, 0, 255, 255 }, { 255, 0, 0, 255 }
+    };
+    const uint64_t bytes = (uint64_t)(VOLUME_SIDE / 4u) * (VOLUME_SIDE / 4u) * 8u * VOLUME_SLICES;
+    GpuSpec spec;
+    GpuSpecDefaults(&spec, 4, 4);
+    spec.code_size = 32u * 1024u;
+    spec.data_size = 64u * 1024u;
+    spec.cpu_image_size = (uint32_t)(bytes + IMAGE_SLACK);
+    GpuContext gpu;
+    const bool opened = GpuOpenSpec(&gpu, &spec);
+    if (!opened && gpu.out_of_memory) {
+        char why[384];
+        snprintf(why, sizeof(why), "%s, asking for %u MiB of volume: the machine refuses the size",
+                 gpu.failure, (unsigned)((spec.cpu_image_size + MIB - 1u) / MIB));
+        ReportSkip(SUITE, NAME, REPORT_REASON_UNAVAILABLE, why);
+        return;
+    }
+    DkShader shaders[2];
+    DkImage volume;
+    DkImageLayout layout;
+    uint8_t *memory = NULL;
+    DkGpuAddr image_set = 0, sampler_set = 0;
+    DkImageDescriptor *images = NULL;
+    DkSamplerDescriptor *samplers = NULL;
+    bool ready = opened &&
+                 GpuLoadShader(&gpu, &shaders[0], ShaderData(SHADER_COMMON_VERT),
+                               ShaderSize(SHADER_COMMON_VERT)) &&
+                 GpuLoadShader(&gpu, &shaders[1], ShaderData(SHADER_FETCH_VOLUME_FRAG),
+                               ShaderSize(SHADER_FETCH_VOLUME_FRAG));
+    if (ready) {
+        images = (DkImageDescriptor *)GpuAllocData(&gpu, (uint32_t)sizeof(DkImageDescriptor),
+                                                   DK_IMAGE_DESCRIPTOR_ALIGNMENT, &image_set);
+        samplers = (DkSamplerDescriptor *)GpuAllocData(&gpu, (uint32_t)sizeof(DkSamplerDescriptor),
+                                                       DK_SAMPLER_DESCRIPTOR_ALIGNMENT,
+                                                       &sampler_set);
+        DkImageLayoutMaker maker;
+        dkImageLayoutMakerDefaults(&maker, gpu.device);
+        maker.type = DkImageType_3D;
+        maker.format = DkImageFormat_RGBA_BC1;
+        maker.dimensions[0] = VOLUME_SIDE;
+        maker.dimensions[1] = VOLUME_SIDE;
+        maker.dimensions[2] = VOLUME_SLICES;
+        ready = images != NULL && samplers != NULL &&
+                GpuCreateFromMaker(&gpu, &volume, &layout, &maker, &memory);
+    }
+    if (!ready) {
+        End(NAME, CHECK_NONE, false, gpu.failure[0] != '\0' ? gpu.failure : "no room for the volume",
+            0);
+        GpuClose(&gpu);
+        return;
+    }
+    // The first block of a block linear volume is its first eight bytes, whatever the blocks'
+    // depth.
+    memcpy(memory, BLOCK, sizeof(BLOCK));
+    DkImageView view;
+    dkImageViewDefaults(&view, &volume);
+    dkImageDescriptorInitialize(&images[0], &view, false, false);
+    DkSampler sampler;
+    dkSamplerDefaults(&sampler);
+    sampler.minFilter = DkFilter_Nearest;
+    sampler.magFilter = DkFilter_Nearest;
+    sampler.mipFilter = DkMipFilter_None;
+    dkSamplerDescriptorInitialize(&samplers[0], &sampler);
+    static const GpuVertex quad[6] = {
+        { -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
+        { 1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
+        { 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
+        { -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
+        { 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
+        { -1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
+    };
+    GpuClear(&gpu, 0.0f, 0.0f, 0.0f, 0.0f);
+    GpuBeginPass(&gpu);
+    dkCmdBufBindImageDescriptorSet(gpu.cmdbuf, image_set, 1);
+    dkCmdBufBindSamplerDescriptorSet(gpu.cmdbuf, sampler_set, 1);
+    dkCmdBufBindTexture(gpu.cmdbuf, DkStage_Fragment, 0, dkMakeTextureHandle(0, 0));
+    const uint64_t start = armGetSystemTick();
+    const bool drawn = GpuDrawTriangles(&gpu, &shaders[0], &shaders[1], quad, 6);
+    GpuSubmit(&gpu);
+    const uint64_t work = armTicksToNs(armGetSystemTick() - start);
+    const uint8_t *const pixels = drawn && gpu.ready ? GpuReadBack(&gpu) : NULL;
+    if (pixels == NULL) {
+        End(NAME, CHECK_NONE, false,
+            gpu.failure[0] != '\0' ? gpu.failure : "the draw or the readback did not happen", work);
+        GpuClose(&gpu);
+        return;
+    }
+    uint32_t wrong = 0, first = 0;
+    for (uint32_t i = 0; i < 16u; ++i) {
+        if (memcmp(pixels + i * 4u, ROW[i % 4u], 4) != 0 && wrong++ == 0u) {
+            first = i;
+        }
+    }
+    char detail[256] = "";
+    if (wrong != 0u) {
+        const uint8_t *const got = pixels + first * 4u;
+        snprintf(detail, sizeof(detail),
+                 "%u of 16 texels wrong; texel %u,%u reads %02x %02x %02x %02x, the block holds "
+                 "%02x %02x %02x %02x",
+                 (unsigned)wrong, (unsigned)(first % 4u), (unsigned)(first / 4u), got[0], got[1],
+                 got[2], got[3], ROW[first % 4u][0], ROW[first % 4u][1], ROW[first % 4u][2],
+                 ROW[first % 4u][3]);
+    }
+    End(NAME, CHECK_EXACT, wrong == 0u, detail, work);
+    GpuClose(&gpu);
+}
+
 void RunTex8k(void) {
     for (size_t i = 0; i < ENTRY_COUNT; ++i) {
         OneTexture(&ENTRIES[i]);
@@ -1513,4 +1641,5 @@ void RunTex8k(void) {
     for (size_t i = 0; i < sizeof(RT_TARGETS) / sizeof(RT_TARGETS[0]); ++i) {
         RenderTarget(&RT_TARGETS[i]);
     }
+    BigVolume();
 }

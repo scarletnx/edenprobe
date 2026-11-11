@@ -198,8 +198,22 @@ void RunEtc2(void);
 /// every level and layer fetched.
 void RunBcn(void);
 
-/// Depth textures the processor writes, Z16, ZF32 and Z24S8, sampled texel by texel.
+/// Depth textures the processor writes, Z16, ZF32 and Z24S8, sampled texel by texel, stencil
+/// included; depth targets the graphics unit clears, read by the processor in memory; and a
+/// three layer target cleared a layer at a time.
 void RunZeta(void);
+
+/// Multisampled targets as memory holds them: four samples a pixel two by two, resolved,
+/// cleared, fetched and drawn conservatively.
+void RunMsaa(void);
+
+/// Compute stores into images of ten formats and into a level, a layer and a slice, a formatted
+/// load, and loads and stores that keep a texel's bits.
+void RunStorage(void);
+
+/// What the sampler hands a shader: each format's channels, the min/max reduction and a
+/// rectangle texture's texel coordinates.
+void RunSampling(void);
 
 /// Block linear textures of every texel size and block height, written by the processor and
 /// sampled back texel for texel; and a 4 MiB one for the time an upload takes.

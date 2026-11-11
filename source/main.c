@@ -59,11 +59,17 @@ static const RunnerStep STEPS[] = {
     { "lod", RunLod, MODE_FAMILY_GRAPHICS, true, true },
     // After lod: its last cases fetch a four sample texture, which leans on the texture suites.
     { "coverage", RunCoverage, MODE_FAMILY_GRAPHICS, true, true },
+    // After coverage, whose four sample targets these lay out in memory.
+    { "msaa", RunMsaa, MODE_FAMILY_GRAPHICS, true, true },
+    // After the texture suites: the same sampler, asked about formats, reductions and coordinates.
+    { "sampling", RunSampling, MODE_FAMILY_GRAPHICS, true, true },
     { "coherence", RunCoherence, MODE_FAMILY_GRAPHICS, true, true },
     { "fmath", RunFmath, MODE_FAMILY_GRAPHICS, true, true },
     { "order", RunOrder, MODE_FAMILY_GRAPHICS, true, true },
     // After order: the same question between two queues, by a word in memory.
     { "queue", RunQueue, MODE_FAMILY_GRAPHICS, true, true },
+    // After order and queue, whose compute dispatches these store into images from.
+    { "storage", RunStorage, MODE_FAMILY_GRAPHICS, true, true },
     { "index", RunIndex, MODE_FAMILY_GRAPHICS, true, true },
     // After index, whose indexed draws the restart and indexed quad cases lean on.
     { "topology", RunTopology, MODE_FAMILY_GRAPHICS, true, true },

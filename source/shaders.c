@@ -71,6 +71,16 @@ static const ShaderBlob BLOBS[SHADER_COUNT] = {
     [SHADER_STORE_VERT] = { store_vert_dksh, (uint32_t)store_vert_dksh_size },
     [SHADER_FETCH_TEXEL_FRAG] = { fetch_texel_frag_dksh, (uint32_t)fetch_texel_frag_dksh_size },
     [SHADER_VERTEX_VALUE_VERT] = { vertex_value_vert_dksh, (uint32_t)vertex_value_vert_dksh_size },
+    [SHADER_STORAGE_FLOAT_COMP] = { storage_float_comp_dksh, (uint32_t)storage_float_comp_dksh_size },
+    [SHADER_STORAGE_UINT_COMP] = { storage_uint_comp_dksh, (uint32_t)storage_uint_comp_dksh_size },
+    [SHADER_STORAGE_SINT_COMP] = { storage_sint_comp_dksh, (uint32_t)storage_sint_comp_dksh_size },
+    [SHADER_STORAGE_LAYER_COMP] = { storage_layer_comp_dksh, (uint32_t)storage_layer_comp_dksh_size },
+    [SHADER_STORAGE_SLICE_COMP] = { storage_slice_comp_dksh, (uint32_t)storage_slice_comp_dksh_size },
+    [SHADER_STORAGE_LOAD_COMP] = { storage_load_comp_dksh, (uint32_t)storage_load_comp_dksh_size },
+    [SHADER_STORAGE_COPY_COMP] = { storage_copy_comp_dksh, (uint32_t)storage_copy_comp_dksh_size },
+    [SHADER_STORAGE_COPY_INT_COMP] = { storage_copy_int_comp_dksh, (uint32_t)storage_copy_int_comp_dksh_size },
+    [SHADER_SAMPLE_AT_FRAG] = { sample_at_frag_dksh, (uint32_t)sample_at_frag_dksh_size },
+    [SHADER_FETCH_VOLUME_FRAG] = { fetch_volume_frag_dksh, (uint32_t)fetch_volume_frag_dksh_size },
 };
 
 const void *ShaderData(ShaderId id) {

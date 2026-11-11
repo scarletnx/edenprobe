@@ -236,6 +236,14 @@ bool GpuCreateImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout, DkImag
                     uint32_t width, uint32_t height, uint32_t flags, uint32_t pitch_or_tile,
                     uint8_t **cpu_bytes);
 
+/// Lays out the image @p maker describes and gives it memory: in the processor-visible image
+/// block with its first byte stored in @p cpu_bytes, or in the ordinary one when @p cpu_bytes is
+/// NULL. The maker's device is set here. For the shapes the helpers above do not make: arrays and
+/// multisampled images that are rendered and then read by the processor, render targets of more
+/// than one layer, volumes.
+bool GpuCreateFromMaker(GpuContext *gpu, DkImage *out, DkImageLayout *layout,
+                        DkImageLayoutMaker *maker, uint8_t **cpu_bytes);
+
 /// A pitch linear image in the processor-cached block, rows @p width * 4 bytes apart rounded
 /// to the linear stride alignment, with its first byte stored in @p cpu_bytes. A write through
 /// that pointer sits in the processor's data cache until GpuFlushCachedImage.
