@@ -563,7 +563,7 @@ static const struct {
     { "texel", UI_FAMILY_GRAPHICS },  { "stream", UI_FAMILY_GRAPHICS },
     { "fill", UI_FAMILY_GRAPHICS },   { "ring", UI_FAMILY_GRAPHICS },
     { "occlusion", UI_FAMILY_GRAPHICS }, { "drawtex", UI_FAMILY_GRAPHICS },
-    { "geometry", UI_FAMILY_GRAPHICS },
+    { "geometry", UI_FAMILY_GRAPHICS }, { "xfb", UI_FAMILY_GRAPHICS },
     { "query", UI_FAMILY_GRAPHICS },  { "dma", UI_FAMILY_GRAPHICS },
     { "blit2d", UI_FAMILY_GRAPHICS }, { "copy", UI_FAMILY_GRAPHICS },
     { "tex8k", UI_FAMILY_GRAPHICS },

@@ -25,6 +25,7 @@
 * [vertex](#vertex)
 * [instance](#instance)
 * [geometry](#geometry)
+* [xfb](#xfb)
 * [bindless](#bindless)
 * [astc](#astc)
 * [astcimage](#astcimage)
@@ -47,16 +48,23 @@
 * [What a console run settles](#what-a-console-run-settles)
 * [Where reden falls short](#where-reden-falls-short)
 
-The forty one drawing suites, clear to copy, in the order they run, and tex8k after them.
+The forty two drawing suites, clear to copy, in the order they run, and tex8k after them.
 
 ## clear
 
-Five cases, on the graphics unit: whether the device came up (no tier, it compares
+Seven cases, on the graphics unit: whether the device came up (no tier, it compares
 nothing), and four that clear a 64 by 64 RGBA8 target and copy all 4096 pixels back. Three cover
 the whole target in three colours in a row, so a stale readback cannot pass by accident. The
 fourth clears a rectangle of another colour inside it, which makes the answer depend on where a
 pixel is: only this one catches a transposed, flipped or shuffled readback. All four are Exact:
 the format is integer and every clear value a constant, so each channel has one right byte.
+
+The last two ask what cuts a clear to the scissor, which the bounded rectangle leans on: the
+library sets CLEAR_FLAGS' scissor bit (bit 8, deko3d's ClearBufferFlags) once at start-up. With
+the bit cleared by a raw write, and then with scissor 0's own enable off, the same clear over the
+rectangle's scissor covers the whole target, as ScarletNX's clear flags test holds its 3D engine
+to; each puts the register back after its clear. In an emulator a failure points at a clear cut
+to the scissor whatever the flags say, or at the enable left unread.
 
 ## format
 
@@ -386,7 +394,7 @@ conversion lands on. In an emulator a failure points at its format table (`textu
 
 ## coherence
 
-Twenty one cases, five of them the none tier (the device, the shaders, the images
+Twenty five cases, six of them the none tier (the device, the shaders, the images
 and their starting texels coming up, and the block linear texture having the size the gob rule
 assumes) and sixteen exact. Every suite above draws once into memory nobody has read, so the
 caches an emulator keeps between draws, submits and copies never have an old answer to give. Here
@@ -411,9 +419,20 @@ wait on the queue only where the processor touches the memory, since a wait anyw
 hide the fault the suite is there to find. Every expectation comes from one image model,
 `source/coherref.c`, pinned by the reference suite.
 
+Last, on a device of its own, code and vertices rewritten in place, each target half judged whole:
+a fragment program the processor rewrites at its address between two lists, and one the copy
+engine rewrites in the middle of a list behind a full barrier and the shader cache's invalidation,
+both drawing as the new program after (`const_red.frag.glsl`'s code overwritten by
+`const_green.frag.glsl`'s, which share their control section, so the program is the other in
+every byte the draw reads; the case says so if the compiler ever makes them differ); and
+vertices the copy engine writes between two draws of one list, which the second draw fetches.
+ScarletNX's shader invalidation and pass break tests hold its renderer to these. In an emulator a
+failure points at a shader cache keyed by address that misses the rewrite, or at a buffer cache
+that serves the second draw what the first one read.
+
 ## fmath
 
-Twenty six cases. Addition, multiplication, a fused multiply and add, division, the
+Twenty nine cases. Addition, multiplication, a fused multiply and add, division, the
 square root, powers and logarithms of two, the sine and the cosine, into an R32_Float target,
 against the same arithmetic in double precision; and the edges: a fused multiply and add that
 nearly cancels its own product, the minimum and the maximum against infinities and NaNs, mix
@@ -472,9 +491,17 @@ room was left. Every case that computes something is the units in the last place
 of nought included, since a tolerance of nought is still a tolerance; the one Exact case is the
 guard, which copies a float through a uniform buffer and computes nothing.
 
+The last three ask the saturate a game's compiled shaders clamp to nought and one with: uam folds
+GLSL's clamp into the hardware's .SAT (`saturate.frag.glsl` compiles to FADD.SAT), which turns a
+NaN of either sign, quiet or signalling, into +0, where GLSL's clamp of a NaN promises nothing;
+and clamps the rest, a nought keeping either sign. Seven NaNs in one case, twelve other values in
+the next, each a column of the target. Exact. ScarletNX's saturate test holds its translation to
+the same; a translator that makes .SAT a plain clamp gives the NaN back, or whatever its host's
+clamp gives.
+
 ## order
 
-Nineteen cases, on the graphics unit with a compute queue. A dispatch writes a buffer,
+Twenty two cases, on the graphics unit with a compute queue. A dispatch writes a buffer,
 a wait for idle follows (`DkBarrier_Primitives`, the library's "completes the processing of all
 previous primitives and compute jobs", emitted as the 3D engine's WaitForIdle, the pattern
 deko3d's own compute example uses between generating vertices and drawing them), and the next
@@ -501,6 +528,14 @@ only its own word, with the shader cache invalidation and no image cache one; in
 failure points at `FragmentBarrier` and `TiledCacheBarrier` (`renderer_vulkan/vk_rasterizer.cpp`).
 The tiles case holds the library to its documentation and has not been run on a console yet.
 
+Then three a launch answers on its own, which ScarletNX's runtime tests hold it to: an indirect
+dispatch whose grid the processor wrote as nought groups runs none, every slot keeping its
+nought; a draw with no target bound at all, colour or depth, still runs its fragments, whose only
+effect is the words they store (`store_ssbo.frag.glsl`, sixteen words and none past them); and a
+block of 64 invocations uses all 48 KiB of shared memory a block of the console's GPU is given
+(`shared_reach.comp.glsl`), each invocation folding in order the 192 words the one at the other
+end wrote. In an emulator these point at a dispatch of nothing turned into one of something, a
+draw skipped for having no target, and shared memory a host gives a block less of.
 
 ## queue
 
@@ -671,7 +706,7 @@ one region along, so the target says which instances ran. In an emulator a failu
 
 ## geometry
 
-Seventeen cases. The two optional stages every other suite leaves out. A geometry shader
+Eighteen cases. The two optional stages every other suite leaves out. A geometry shader
 turns each of four points into an 8 by 8 square in the point's colour, or into nothing when the
 point's alpha is nought; a tessellation control and evaluation pair spreads a four point patch
 over its corners' rectangle at level 4 and at level 7, the level taken from the patch and handed
@@ -705,6 +740,28 @@ show 0x44, the texel's starting word, and the image must hold the three stores; 
 barrier must fetch them; and `store.vert` writes 0xb0 plus the vertex index into texel index mod 4.
 A host that binds images per stage for the fragment stage only, or keeps an image in a layout the
 other use cannot see, fails these.
+
+The last case binds one storage buffer to both stages before the fragment one:
+`buffer_store.geom.glsl` stores words 0 to 15 while `buffer_read.vert.glsl`, in the same draw,
+reads word 32 for the colour. Every pixel must be the colour and the buffer must hold the
+sixteen stores and its other words as they were. ScarletNX's draw storage test holds its
+renderer to the geometry stage's writes aliasing the vertex stage's reads; a host that gives the
+geometry stage none of the draw's global memory loses the stores.
+
+## xfb
+
+Four cases. Transform feedback, which a game's driver turns on through the 3D class's registers
+and deko3d has no call for: one triangle drawn with the rasterizer off, its three positions
+captured into buffer 0, four words a vertex in the order the stream layout names them (the
+position's attributes, 0x1c to 0x1f), and the primitives written counter reading one. The
+registers are the 3D class's, at the byte offsets reden's `maxwell_3d.h` asserts: buffer n's
+enable, address, size and start offset at 0x380 + 0x20 n, its stream, varying count and stride at
+0x700 + 0x10 n, the enable at 0x744, and the stream layout, a byte per varying, at 0x2800 + 0x80 n.
+Every captured word is the float the vertex stage wrote, and the bytes past the 48 keep what they
+held: exact. ScarletNX's transform feedback test captures through the same registers. In an
+emulator a failure points at the capture (`renderer_vulkan/vk_rasterizer.cpp`, transform feedback
+through VK_EXT_transform_feedback, and the shader translator's outputs decorated from the
+layout) or at the counter.
 
 ## bindless
 

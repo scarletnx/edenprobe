@@ -76,6 +76,8 @@ static const RunnerStep STEPS[] = {
     { "vertex", RunVertex, MODE_FAMILY_GRAPHICS, true, true },
     { "instance", RunInstance, MODE_FAMILY_GRAPHICS, true, true },
     { "geometry", RunGeometry, MODE_FAMILY_GRAPHICS, true, true },
+    // After geometry: the vertex stage's outputs again, captured into a buffer instead of drawn.
+    { "xfb", RunXfb, MODE_FAMILY_GRAPHICS, true, true },
     { "bindless", RunBindless, MODE_FAMILY_GRAPHICS, true, true },
     { "astc", RunAstc, MODE_FAMILY_GRAPHICS, true, true },
     { "astcimage", RunAstcImage, MODE_FAMILY_GRAPHICS, true, true },

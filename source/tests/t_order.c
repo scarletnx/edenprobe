@@ -33,6 +33,12 @@
 // DkBarrier_Fragments ("similar to Vulkan renderpasses") and DkBarrier_Tiles ("similar to
 // Vulkan subpasses"), each pixel reading back only its own word, with the shader cache
 // invalidation and no image cache one (which an emulator may answer with a wait for idle).
+//
+// Last, three things a compute or drawing launch does that ScarletNX's runtime tests hold it to:
+// an indirect dispatch whose grid the processor wrote as nought groups runs none; a draw with no
+// target bound at all, colour or depth, still runs its fragments, whose only effect is the words
+// they store; and a block of 64 invocations uses all 48 KiB of shared memory a block of the
+// console's GPU is given, every word written by one invocation and read by another.
 
 static const char *const SUITE = "order";
 
@@ -73,6 +79,7 @@ typedef struct {
     DkShader store_late;
     DkShader load_ssbo;
     DkShader common_vert;
+    DkShader shared_reach;
 } OrderContext;
 
 /// A buffer in scratch, the processor's pointer and the graphics unit's address of it.
@@ -417,6 +424,115 @@ static void CaseDispatchIndirect(OrderContext *o) {
                o->gpu.failure[0] != '\0' ? o->gpu.failure : "the list was not recorded");
 }
 
+/// The grid the processor wrote is nought groups by one by one: the dispatch launches nothing,
+/// and every slot keeps the nought it held.
+static void CaseZeroGrid(OrderContext *o) {
+    const char *const name = "an indirect dispatch of a grid of nought groups runs none";
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    Scratch grid, params, marks;
+    Begin(o);
+    if (!Alloc(o, &grid, 16, 256) || !Alloc(o, &params, UNIFORM_SIZE, DK_UNIFORM_BUF_ALIGNMENT) ||
+        !Alloc(o, &marks, (MARK_GROUPS + 1u) * 4u, 256)) {
+        ReportCase(SUITE, name, CHECK_NONE, false, "no scratch left for the buffers");
+        return;
+    }
+    const uint32_t words[4] = { 0u, 1u, 1u, 0u };
+    memcpy(grid.cpu, words, sizeof(words));
+    memset(marks.cpu, 0, (MARK_GROUPS + 1u) * 4u);
+    params.cpu[0] = MARK_BASE;
+    const DkShader *const shaders[] = { &o->mark };
+    dkCmdBufBindShaders(o->gpu.cmdbuf, DkStageFlag_Compute, shaders, 1);
+    dkCmdBufBindUniformBuffer(o->gpu.cmdbuf, DkStage_Compute, 0, params.gpu, UNIFORM_SIZE);
+    dkCmdBufBindStorageBuffer(o->gpu.cmdbuf, DkStage_Compute, 0, marks.gpu,
+                              (MARK_GROUPS + 1u) * 4u);
+    dkCmdBufDispatchComputeIndirect(o->gpu.cmdbuf, grid.gpu);
+    WaitForIdle(o);
+    GpuSubmit(&o->gpu);
+    uint32_t want[MARK_GROUPS + 1u];
+    memset(want, 0, sizeof(want));
+    JudgeWords(name, marks.cpu, want, MARK_GROUPS + 1u, 0u, o->gpu.ready,
+               o->gpu.failure[0] != '\0' ? o->gpu.failure : "the list was not recorded");
+}
+
+/// A quad over a 4x4 viewport with no render target bound, colour or depth: every fragment still
+/// runs, and stores the marker plus its index (store_ssbo.frag.glsl), sixteen words.
+static void CaseTargetless(OrderContext *o) {
+    const char *const name = "a draw with no target bound still runs its fragments' stores";
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    Scratch params, out;
+    Begin(o);
+    if (!Alloc(o, &params, UNIFORM_SIZE, DK_UNIFORM_BUF_ALIGNMENT) || !Alloc(o, &out, 17u * 4u, 256)) {
+        ReportCase(SUITE, name, CHECK_NONE, false, "no scratch left for the buffers");
+        return;
+    }
+    memset(out.cpu, 0, 17u * 4u);
+    params.cpu[0] = MARKER;
+    params.cpu[1] = 4u;
+    dkCmdBufBindRenderTargets(o->gpu.cmdbuf, NULL, 0, NULL);
+    const DkViewport viewport = { 0.0f, 0.0f, 4.0f, 4.0f, 0.0f, 1.0f };
+    dkCmdBufSetViewports(o->gpu.cmdbuf, 0, &viewport, 1);
+    const DkScissor scissor = { 0, 0, 4, 4 };
+    dkCmdBufSetScissors(o->gpu.cmdbuf, 0, &scissor, 1);
+    dkCmdBufBindUniformBuffer(o->gpu.cmdbuf, DkStage_Fragment, 0, params.gpu, UNIFORM_SIZE);
+    dkCmdBufBindStorageBuffer(o->gpu.cmdbuf, DkStage_Fragment, 0, out.gpu, 17u * 4u);
+    static const GpuVertex quad[6] = {
+        { -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
+        { 1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
+        { 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
+        { -1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
+        { 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
+        { -1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f },
+    };
+    const bool drawn = GpuDrawTriangles(&o->gpu, &o->common_vert, &o->store_ssbo, quad, 6);
+    dkCmdBufBarrier(o->gpu.cmdbuf, DkBarrier_Full, DkInvalidateFlags_L2Cache);
+    GpuSubmit(&o->gpu);
+    uint32_t want[17];
+    for (uint32_t i = 0; i < 16u; ++i) {
+        want[i] = MARKER + i;
+    }
+    // One past the sixteen stays nought: no fragment outside the viewport ran.
+    want[16] = 0u;
+    JudgeWords(name, out.cpu, want, 17u, 0u, drawn && o->gpu.ready,
+               o->gpu.failure[0] != '\0' ? o->gpu.failure : "the draw was not recorded");
+}
+
+/// One block of 64 over 48 KiB of shared memory (shared_reach.comp.glsl): every invocation's sum
+/// of the 192 words the opposite one wrote, folded in order, as the processor folds them.
+static void CaseSharedReach(OrderContext *o) {
+    const char *const name = "a block of 64 uses all 48 KiB of its shared memory";
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    Scratch out;
+    Begin(o);
+    if (!Alloc(o, &out, 64u * 4u, 256)) {
+        ReportCase(SUITE, name, CHECK_NONE, false, "no scratch left for the buffers");
+        return;
+    }
+    memset(out.cpu, 0, 64u * 4u);
+    const DkShader *const shaders[] = { &o->shared_reach };
+    dkCmdBufBindShaders(o->gpu.cmdbuf, DkStageFlag_Compute, shaders, 1);
+    dkCmdBufBindStorageBuffer(o->gpu.cmdbuf, DkStage_Compute, 0, out.gpu, 64u * 4u);
+    dkCmdBufDispatchCompute(o->gpu.cmdbuf, 1, 1, 1);
+    WaitForIdle(o);
+    GpuSubmit(&o->gpu);
+    uint32_t want[64];
+    for (uint32_t t = 0; t < 64u; ++t) {
+        uint32_t sum = 0;
+        for (uint32_t i = 0; i < 192u; ++i) {
+            const uint32_t at = i * 64u + (63u - t);
+            sum = sum * 31u + (at * 2654435761u + 12345u);
+        }
+        want[t] = sum;
+    }
+    JudgeWords(name, out.cpu, want, 64u, 0u, o->gpu.ready,
+               o->gpu.failure[0] != '\0' ? o->gpu.failure : "the dispatch was not recorded");
+}
+
 static void CaseComputeToCompute(OrderContext *o) {
     const char *const name =
         "words a dispatch wrote before a wait for idle reach the next dispatch";
@@ -677,7 +793,11 @@ void RunOrder(void) {
         GpuLoadShader(&o.gpu, &o.store_late, ShaderData(SHADER_STORE_LATE_FRAG),
                       ShaderSize(SHADER_STORE_LATE_FRAG)) &&
         GpuLoadShader(&o.gpu, &o.load_ssbo, ShaderData(SHADER_LOAD_SSBO_FRAG),
-                      ShaderSize(SHADER_LOAD_SSBO_FRAG));
+                      ShaderSize(SHADER_LOAD_SSBO_FRAG)) &&
+        GpuLoadShader(&o.gpu, &o.shared_reach, ShaderData(SHADER_SHARED_REACH_COMP),
+                      ShaderSize(SHADER_SHARED_REACH_COMP)) &&
+        GpuLoadShader(&o.gpu, &o.common_vert, ShaderData(SHADER_COMMON_VERT),
+                      ShaderSize(SHADER_COMMON_VERT));
     CHECK_TRUE(SUITE, "the compute and drawing shaders load", CHECK_NONE, loaded, "%s",
                o.gpu.failure);
     if (!loaded) {
@@ -717,6 +837,9 @@ void RunOrder(void) {
     PairsCase(&o, false);
     DrawsCase(&o, true);
     DrawsCase(&o, false);
+    CaseZeroGrid(&o);
+    CaseTargetless(&o);
+    CaseSharedReach(&o);
 
     GpuClose(&o.gpu);
 }

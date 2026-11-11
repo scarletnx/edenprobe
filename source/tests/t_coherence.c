@@ -39,6 +39,8 @@
 // library also drops these caches on every queue flush (Queue::postSubmitFlush); the explicit
 // invalidation stays, since it is what the pattern asks of a program and what an emulator acts on.
 //
+// Last, on a device of its own, programs and vertices rewritten in place (below, RewriteCases).
+//
 // Sampling is nearest, one texel of a 32 by 32 texture per pixel, so every pixel centre is a
 // texel centre, half a texel from any edge. Drawn contents are quads on whole pixels, the
 // geometry the raster suite already proved, filled by pattern.frag.glsl with four bytes unique
@@ -603,7 +605,7 @@ static bool Open(Suite *s) {
     return loaded;
 }
 
-void RunCoherence(void) {
+static void Caches(void) {
     static Suite suite;
     Suite *const s = &suite;
     memset(s, 0, sizeof(*s));
@@ -892,4 +894,221 @@ void RunCoherence(void) {
     }
 
     GpuClose(gpu);
+}
+
+// ---- code and vertices rewritten in place
+
+// Three more writes a reader must see, each by a path a game's driver takes. A fragment program
+// the processor rewrites at its address between two lists, and one the copy engine rewrites in
+// the middle of a list, behind a full barrier and the shader cache's invalidation: the draw after
+// runs the new code (const_red.frag.glsl's code overwritten by const_green.frag.glsl's, which
+// share their control section, so the program is the other one in every byte the draw reads). And
+// vertices the copy engine writes between two draws of one list, which the second draw fetches.
+// ScarletNX's shader invalidation and pass break tests hold its renderer to these. Each target
+// half is judged whole: red where the old program or vertices drew, green where the new did.
+
+#define HALF (TARGET_SIZE / 2u)
+
+typedef struct {
+    GpuContext gpu;
+    DkShader vertex;
+    DkShader flat;
+    DkShader red;
+    DkShader green;
+    uint32_t red_at;   ///< where red's code starts in code memory
+    uint32_t green_at;
+    uint32_t code_size;
+} Rewrites;
+
+static const uint8_t RED[4] = { 0xFF, 0x00, 0x00, 0xFF };
+static const uint8_t GREEN[4] = { 0x00, 0xFF, 0x00, 0xFF };
+
+/// The bytes of machine code in the module @p id, from its header (gpu.c's ShaderModuleHeader).
+static uint32_t CodeSize(ShaderId id) {
+    uint32_t header[6];
+    memcpy(header, ShaderData(id), sizeof(header));
+    return header[3];
+}
+
+/// Loads @p id and says where its code went.
+static bool LoadAt(Rewrites *r, DkShader *out, ShaderId id, uint32_t *at) {
+    if (!GpuLoadShader(&r->gpu, out, ShaderData(id), ShaderSize(id))) {
+        return false;
+    }
+    *at = r->gpu.code_used - CodeSize(id);
+    return true;
+}
+
+/// Six vertices of the quad over columns @p x0 to @p x1 of the target, every row, in @p colour.
+static void HalfQuad(GpuVertex out[6], uint32_t x0, uint32_t x1, const uint8_t colour[4]) {
+    const float l = 2.0f * (float)x0 / (float)TARGET_SIZE - 1.0f;
+    const float r = 2.0f * (float)x1 / (float)TARGET_SIZE - 1.0f;
+    const float c[4] = { colour[0] / 255.0f, colour[1] / 255.0f, colour[2] / 255.0f,
+                         colour[3] / 255.0f };
+    const float corners[6][2] = { { l, -1.0f }, { r, -1.0f }, { r, 1.0f },
+                                  { l, -1.0f }, { r, 1.0f },  { l, 1.0f } };
+    for (uint32_t i = 0; i < 6u; ++i) {
+        out[i] = (GpuVertex){ corners[i][0], corners[i][1], 0.0f, 0.0f, 0.0f, c[0], c[1], c[2], c[3] };
+    }
+}
+
+/// Runs the list and judges the left half against @p left and the right against @p right.
+static void JudgeHalves(Rewrites *r, const char *name, bool recorded, const uint8_t left[4],
+                        const uint8_t right[4]) {
+    GpuSubmit(&r->gpu);
+    const uint8_t *const pixels = recorded && r->gpu.ready ? GpuReadBack(&r->gpu) : NULL;
+    if (pixels == NULL) {
+        ReportCase(SUITE, name, CHECK_NONE, false,
+                   r->gpu.failure[0] != '\0' ? r->gpu.failure : "the list was not recorded");
+        return;
+    }
+    uint32_t wrong = 0, fx = 0, fy = 0;
+    uint8_t seen[4] = { 0, 0, 0, 0 };
+    for (uint32_t y = 0; y < TARGET_SIZE; ++y) {
+        for (uint32_t x = 0; x < TARGET_SIZE; ++x) {
+            const uint8_t *const pixel = GpuPixel(pixels, TARGET_SIZE, x, y);
+            if (memcmp(pixel, x < HALF ? left : right, 4) != 0 && wrong++ == 0u) {
+                fx = x;
+                fy = y;
+                memcpy(seen, pixel, 4);
+            }
+        }
+    }
+    const uint8_t *const want = fx < HALF ? left : right;
+    CHECK_TRUE(SUITE, name, CHECK_EXACT, wrong == 0,
+               "%u of %u pixels wrong; the first, (%u, %u), is %02x%02x%02x%02x, expected "
+               "%02x%02x%02x%02x",
+               (unsigned)wrong, (unsigned)(TARGET_SIZE * TARGET_SIZE), (unsigned)fx, (unsigned)fy,
+               seen[0], seen[1], seen[2], seen[3], want[0], want[1], want[2], want[3]);
+}
+
+/// Draws red over the whole target with the red program, which an emulator then holds; the
+/// processor writes green's code over red's; the next list draws with the red program again.
+static void ProcessorRewrite(Rewrites *r) {
+    static const char *const NAME = "a fragment program the processor rewrote between two lists "
+                                    "draws as the new one";
+    if (!ReportStart(SUITE, NAME)) {
+        return;
+    }
+    GpuVertex left[6], right[6];
+    HalfQuad(left, 0, HALF, RED);
+    HalfQuad(right, HALF, TARGET_SIZE, RED);
+    GpuClear(&r->gpu, 0.0f, 0.0f, 0.0f, 0.0f);
+    GpuBeginPass(&r->gpu);
+    bool ok = GpuDrawTriangles(&r->gpu, &r->vertex, &r->red, left, 6);
+    GpuSubmit(&r->gpu);
+    uint8_t *const code = (uint8_t *)dkMemBlockGetCpuAddr(r->gpu.code_memory);
+    memcpy(code + r->red_at, code + r->green_at, r->code_size);
+    // GpuBeginPass drops the shader cache, code included, as a game does after writing code.
+    GpuBeginPass(&r->gpu);
+    ok = ok && GpuDrawTriangles(&r->gpu, &r->vertex, &r->red, right, 6);
+    JudgeHalves(r, NAME, ok, RED, GREEN);
+}
+
+/// One list: the left half with the red program, the copy engine writes green's code over red's
+/// behind a full barrier, the shader cache is dropped, and the right half with the red program.
+static void CopyRewrite(Rewrites *r) {
+    static const char *const NAME = "a fragment program the copy engine rewrote in the middle of "
+                                    "a list draws as the new one after it";
+    if (!ReportStart(SUITE, NAME)) {
+        return;
+    }
+    GpuVertex left[6], right[6];
+    HalfQuad(left, 0, HALF, RED);
+    HalfQuad(right, HALF, TARGET_SIZE, RED);
+    GpuClear(&r->gpu, 0.0f, 0.0f, 0.0f, 0.0f);
+    GpuBeginPass(&r->gpu);
+    bool ok = GpuDrawTriangles(&r->gpu, &r->vertex, &r->red, left, 6);
+    const DkGpuAddr code = dkMemBlockGetGpuAddr(r->gpu.code_memory);
+    dkCmdBufBarrier(r->gpu.cmdbuf, DkBarrier_Full, 0);
+    dkCmdBufCopyBuffer(r->gpu.cmdbuf, code + r->green_at, code + r->red_at, r->code_size);
+    dkCmdBufBarrier(r->gpu.cmdbuf, DkBarrier_Full, DkInvalidateFlags_Shader);
+    ok = ok && GpuDrawTriangles(&r->gpu, &r->vertex, &r->red, right, 6);
+    JudgeHalves(r, NAME, ok, RED, GREEN);
+}
+
+/// One vertex buffer of two quads, both red: the first drawn, then the copy engine writes the
+/// second's six vertices again in green behind a full barrier, then the second drawn.
+static void CopiedVertices(Rewrites *r) {
+    static const char *const NAME = "vertices the copy engine wrote between two draws of a list "
+                                    "reach the second";
+    if (!ReportStart(SUITE, NAME)) {
+        return;
+    }
+    DkGpuAddr vertices = 0, staged = 0;
+    GpuVertex *const both = (GpuVertex *)GpuAllocData(&r->gpu, 12u * sizeof(GpuVertex), 256u,
+                                                      &vertices);
+    GpuVertex *const green = (GpuVertex *)GpuAllocData(&r->gpu, 6u * sizeof(GpuVertex), 256u,
+                                                       &staged);
+    if (both == NULL || green == NULL) {
+        ReportCase(SUITE, NAME, CHECK_NONE, false, "no scratch left for the vertices");
+        return;
+    }
+    HalfQuad(both, 0, HALF, RED);
+    HalfQuad(both + 6, HALF, TARGET_SIZE, RED);
+    HalfQuad(green, HALF, TARGET_SIZE, GREEN);
+    GpuClear(&r->gpu, 0.0f, 0.0f, 0.0f, 0.0f);
+    GpuBeginPass(&r->gpu);
+    GpuBindVertices(&r->gpu, &r->vertex, &r->flat, vertices, 12u * (uint32_t)sizeof(GpuVertex));
+    dkCmdBufDraw(r->gpu.cmdbuf, DkPrimitive_Triangles, 6, 1, 0, 0);
+    dkCmdBufBarrier(r->gpu.cmdbuf, DkBarrier_Full, 0);
+    dkCmdBufCopyBuffer(r->gpu.cmdbuf, staged, vertices + 6u * sizeof(GpuVertex),
+                       6u * (uint32_t)sizeof(GpuVertex));
+    dkCmdBufBarrier(r->gpu.cmdbuf, DkBarrier_Full, 0);
+    dkCmdBufDraw(r->gpu.cmdbuf, DkPrimitive_Triangles, 6, 1, 6, 0);
+    JudgeHalves(r, NAME, true, RED, GREEN);
+}
+
+static void RewriteCases(void) {
+    static const char *const OPEN = "a device opens for the rewritten programs and vertices";
+    if (!ReportStart(SUITE, OPEN)) {
+        return;
+    }
+    static Rewrites rewrites;
+    Rewrites *const r = &rewrites;
+    memset(r, 0, sizeof(*r));
+    GpuSpec spec;
+    GpuSpecDefaults(&spec, TARGET_SIZE, TARGET_SIZE);
+    spec.code_size = 32u * 1024u;
+    spec.data_size = 64u * 1024u;
+    bool ok = GpuOpenSpec(&r->gpu, &spec);
+    uint32_t red_again = 0;
+    DkShader second_red;
+    // The two programs must differ in their code alone, or writing one's code over the other's
+    // proves nothing: the same control section and as many bytes of code.
+    uint32_t header[6];
+    memcpy(header, ShaderData(SHADER_CONST_RED_FRAG), sizeof(header));
+    const uint32_t control = header[2];
+    const bool twins = ShaderSize(SHADER_CONST_RED_FRAG) == ShaderSize(SHADER_CONST_GREEN_FRAG) &&
+                       CodeSize(SHADER_CONST_RED_FRAG) == CodeSize(SHADER_CONST_GREEN_FRAG) &&
+                       memcmp(ShaderData(SHADER_CONST_RED_FRAG),
+                              ShaderData(SHADER_CONST_GREEN_FRAG), control) == 0;
+    ok = ok && twins &&
+         GpuLoadShader(&r->gpu, &r->vertex, ShaderData(SHADER_COMMON_VERT),
+                       ShaderSize(SHADER_COMMON_VERT)) &&
+         GpuLoadShader(&r->gpu, &r->flat, ShaderData(SHADER_FLAT_FRAG),
+                       ShaderSize(SHADER_FLAT_FRAG)) &&
+         LoadAt(r, &r->red, SHADER_CONST_RED_FRAG, &r->red_at) &&
+         LoadAt(r, &r->green, SHADER_CONST_GREEN_FRAG, &r->green_at) &&
+         LoadAt(r, &second_red, SHADER_CONST_RED_FRAG, &red_again);
+    r->code_size = CodeSize(SHADER_CONST_RED_FRAG);
+    CHECK_TRUE(SUITE, OPEN, CHECK_NONE, ok, "%s",
+               !twins ? "const_red and const_green differ beyond their code"
+                      : r->gpu.failure);
+    if (!ok) {
+        GpuClose(&r->gpu);
+        return;
+    }
+    ProcessorRewrite(r);
+    // The copy engine's case on a red program of its own, the first one being green now.
+    r->red = second_red;
+    r->red_at = red_again;
+    CopyRewrite(r);
+    CopiedVertices(r);
+    GpuClose(&r->gpu);
+}
+
+void RunCoherence(void) {
+    Caches();
+    RewriteCases();
 }
