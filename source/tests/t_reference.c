@@ -2387,4 +2387,5 @@ void RunReference(void) {
     RunReferenceCopy();
     RunReferenceVertex();
     RunReferenceSvc();
+    RunReferenceCpuFp();
 }

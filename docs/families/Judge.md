@@ -40,7 +40,7 @@ family reports can be believed without them.
   its cases skipped as asked, the next step run, and a name no case came up for said; and the same
   run with a runner's `timeout` after the first launch: the case skipped as timeout with the
   runner's two numbers, off the crash list, and started again by the next run.
-- **reference**, four hundred and thirty cases, no hardware involved either: the other half
+- **reference**, four hundred and thirty four cases, no hardware involved either: the other half
   of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -99,6 +99,11 @@ family reports can be believed without them.
     the stride and a per instance element read;
   - two on the svc suite's result codes, `source/svcref.c`: six kernel results against the codes
     switchbrew's error page gives, and a line's name for a known code, success and an unknown one;
+  - four on the cpu suite's floating point rules, `source/cpufpref.c`, against values worked out
+    by hand from the Arm ARM's pseudocode: the estimate tables at their ends and the unsigned
+    estimates; FRECPE, FRSQRTE and FRECPX of one, two, four, the edges, noughts, infinities,
+    negative values and NaNs, with their flags; half precision under AHP and DN; and the order
+    the minimum and maximum put NaNs and noughts in;
   - twenty three on the astc suite's answers: the ASTC reference decoder, `source/astcref.c`, held
     block by block to hashes of what ARM's decoder (astcenc) makes of the same sixteen blocks, its
     weight table to values worked out by hand from the bit replication rule, one value whose

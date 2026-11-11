@@ -25,6 +25,7 @@ source/coherref.c
 source/formatref.c
 source/netref.c
 source/cpuref.c
+source/cpufpref.c
 source/perf.c
 source/settle.c
 source/rawref.c
@@ -92,4 +93,5 @@ source/tests/t_topologyref.c
 source/tests/t_copyref.c
 source/tests/t_vertexref.c
 source/tests/t_svcref.c
+source/tests/t_cpufpref.c
 source/tests/t_libc.c
