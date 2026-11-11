@@ -17,6 +17,12 @@ void CpuGapRoundingShifts(const uint64_t value[4][2], const uint64_t shift[4][2]
 void CpuGapDoublingMultiplies(const uint64_t a[2], const uint64_t b[2], const uint64_t acc[2],
                               uint64_t out[26][2], uint64_t fpsr[26]);
 void CpuGapRoundingNarrows(const uint64_t value[3][2], uint64_t out[18][2], uint64_t fpsr[18]);
+void CpuGapPlainShifts(const uint64_t value[4][2], const uint64_t shift[4][2], const uint64_t value64[2][2],
+                  const uint64_t shift64[2][2], uint64_t out[18][2], uint64_t fpsr[18]);
+void CpuGapRoundShifts(const uint64_t value[4][2], const uint64_t shift[4][2], const uint64_t value64[2][2],
+                  const uint64_t shift64[2][2], uint64_t out[18][2], uint64_t fpsr[18]);
+void CpuGapSaturatingShifts(const uint64_t value[4][2], const uint64_t shift[4][2], const uint64_t value64[2][2],
+                       const uint64_t shift64[2][2], uint64_t out[24][2], uint64_t fpsr[24]);
 #endif
 
 #ifdef __cplusplus

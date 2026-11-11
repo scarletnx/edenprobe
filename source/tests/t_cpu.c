@@ -239,7 +239,10 @@ static unsigned CompileBlocks(uint64_t *first_ns, uint64_t *second_ns, unsigned 
 /// The sources and accumulator each NEON gap form starts from, as cpuref.h describes them.
 static void GapInputs(const CpuGapForm *form, uint64_t v0[2], uint64_t v1[2], uint64_t v2[2]) {
     v0[0] = v0[1] = v1[0] = v1[1] = v2[0] = v2[1] = 0;
-    if (form->kind == CPU_GAP_KIND_RSHL) {
+    if (form->kind == CPU_GAP_KIND_SHL && form->input >= 4u) {
+        memcpy(v0, CPU_SHL64_VALUE[form->input - 4u], 16);
+        memcpy(v1, CPU_SHL64_SHIFT[form->input - 4u], 16);
+    } else if (form->kind == CPU_GAP_KIND_RSHL || form->kind == CPU_GAP_KIND_SHL) {
         memcpy(v0, CPU_RSHL_VALUE[form->input], 16);
         memcpy(v1, CPU_RSHL_SHIFT[form->input], 16);
     } else if (form->kind == CPU_GAP_KIND_DMUL) {
@@ -576,6 +579,587 @@ static void FpCases(void) {
     }
 }
 
+// ---- the register shifts, CRC32, rounding, fused multiply-add, compares, stores, pairs
+//
+// What ScarletNX's translator tests hold its code for these instructions to, asked of the
+// processor: each against cpuref.c's or cpufpref.c's reference, worked out in integer arithmetic,
+// or, for the fused multiply-adds and the compares, against answers worked out by hand from the
+// Arm ARM's FPMulAdd, FPProcessNaNs3 and FPCompare (and Unicorn agreed with every one).
+
+static const char *const SHL_PLAIN = "sshl and ushl shift lanes of every width by a signed byte";
+static const char *const SHL_ROUND = "srshl and urshl round lanes of every width shifted right";
+static const char *const SHL_SAT = "sqshl and uqshl by a register saturate every width and set QC";
+static const char *const CRC = "crc32b, h, w and x update four accumulators bit for bit";
+static const char *const CRCC = "crc32cb, h, w and x update four accumulators with the "
+                                "Castagnoli polynomial";
+static const char *const ROUND_FIXED = "frintn, frintp, frintm, frintz and frinta round sixteen "
+                                       "singles each their own way";
+static const char *const ROUND_I = "frinti rounds by each of FPCR's four modes and raises nothing";
+static const char *const ROUND_X = "frintx rounds by each of FPCR's four modes and raises inexact "
+                                   "where it rounds";
+static const char *const FMA = "fmadd and fmsub round once, keep exact results exact and do not "
+                               "overflow midway";
+static const char *const FMA_NAN = "fmadd gives the default NaN for nought times infinity plus a "
+                                   "quiet NaN";
+static const char *const COMPARE = "fcmeq, fcmge and fcmgt mask NaN lanes false and raise invalid "
+                                   "as each compare must";
+static const char *const STORE = "a NaN stored from a b, h, s, d or q register keeps its bits and "
+                                 "touches no other byte";
+static const char *const PAIR = "ldxp and stxp swap a 128-bit pair";
+static const char *const PAIR_CLREX = "stxp after clrex fails and leaves the pair";
+static const char *const LANES = "fadd, fsub, fmul and fdiv keep NaN payloads and nought's sign "
+                                 "lane by lane and raise their flags";
+static const char *const TICK = "cntfrq_el0 says 19.2 MHz and 100 ms asleep counts at that rate";
+
+/// The system counter's frequency and the virtual count either side of a 100 ms sleep.
+static void TickCase(void) {
+    if (!ReportStart(SUITE, TICK)) {
+        return;
+    }
+    uint64_t frequency = 0, before = 0, after = 0;
+    __asm__ volatile("mrs %[f], cntfrq_el0\n"
+                     "isb\n"
+                     "mrs %[b], cntvct_el0\n"
+                     : [f] "=r"(frequency), [b] "=r"(before));
+    svcSleepThread(100000000);
+    __asm__ volatile("isb\n"
+                     "mrs %[a], cntvct_el0\n"
+                     : [a] "=r"(after));
+    // At least the sleep's 1.92 million ticks, and less than ten times them: a wake up to a
+    // second late still passes, a count at another rate does not.
+    const uint64_t counted = after - before;
+    CHECK_TRUE(SUITE, TICK, CHECK_POSITION,
+               frequency == 19200000u && counted >= 1920000u && counted < 19200000u,
+               "cntfrq_el0 reads %llu; 100 ms asleep counted %llu ticks, at least 1920000 and under "
+               "19200000 at 19.2 MHz",
+               (unsigned long long)frequency, (unsigned long long)counted);
+}
+
+static void ShiftCase(const char *name, unsigned first, unsigned count,
+                      void (*run)(const uint64_t[4][2], const uint64_t[4][2], const uint64_t[2][2],
+                                  const uint64_t[2][2], uint64_t[][2], uint64_t *)) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    static uint64_t out[24][2];
+    static uint64_t fpsr[24];
+    char detail[200] = "";
+    memset(out, 0, sizeof(out));
+    run(CPU_RSHL_VALUE, CPU_RSHL_SHIFT, CPU_SHL64_VALUE, CPU_SHL64_SHIFT, out, fpsr);
+    const unsigned wrong = GapCheck(CPU_GAP_SHL + first, count, out, fpsr, detail, sizeof(detail));
+    CHECK_TRUE(SUITE, name, CHECK_EXACT, wrong == 0, "%u of %u wrong, first: %s", wrong, count,
+               detail);
+}
+
+/// CRC32B to CRC32X, or CRC32CB to CRC32CX, each over the four accumulators and data words.
+static void Crc32(bool castagnoli, uint32_t out[16]) {
+    for (int i = 0; i < 4; ++i) {
+        const uint32_t *const acc = &CPU_CRC_ACC[i];
+        const uint64_t *const data = &CPU_CRC_DATA[i];
+        uint32_t *const o = out + 4 * i;
+        if (castagnoli) {
+            __asm__ volatile("ldr w9, [%[acc]]\n"
+                             "ldr x10, [%[data]]\n"
+                             "crc32cb w11, w9, w10\n"
+                             "crc32ch w12, w9, w10\n"
+                             "crc32cw w13, w9, w10\n"
+                             "crc32cx w14, w9, x10\n"
+                             "stp w11, w12, [%[o]]\n"
+                             "stp w13, w14, [%[o], #8]\n"
+                             :
+                             : [acc] "r"(acc), [data] "r"(data), [o] "r"(o)
+                             : "x9", "x10", "x11", "x12", "x13", "x14", "memory");
+        } else {
+            __asm__ volatile("ldr w9, [%[acc]]\n"
+                             "ldr x10, [%[data]]\n"
+                             "crc32b w11, w9, w10\n"
+                             "crc32h w12, w9, w10\n"
+                             "crc32w w13, w9, w10\n"
+                             "crc32x w14, w9, x10\n"
+                             "stp w11, w12, [%[o]]\n"
+                             "stp w13, w14, [%[o], #8]\n"
+                             :
+                             : [acc] "r"(acc), [data] "r"(data), [o] "r"(o)
+                             : "x9", "x10", "x11", "x12", "x13", "x14", "memory");
+        }
+    }
+}
+
+static void CrcCase(const char *name, bool castagnoli) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    uint32_t out[16];
+    Crc32(castagnoli, out);
+    static const unsigned BYTES[4] = { 1, 2, 4, 8 };
+    unsigned wrong = 0, first = 0;
+    uint32_t want_first = 0;
+    for (unsigned i = 0; i < 16u; ++i) {
+        const uint32_t want =
+            CpuRefCrc32(CPU_CRC_ACC[i / 4u], CPU_CRC_DATA[i / 4u], BYTES[i % 4u], castagnoli);
+        if (out[i] != want && wrong++ == 0u) {
+            first = i;
+            want_first = want;
+        }
+    }
+    CHECK_TRUE(SUITE, name, CHECK_EXACT, wrong == 0,
+               "%u of 16 wrong; the first, %u bytes of data word %u, gave 0x%08x, expected 0x%08x",
+               wrong, BYTES[first % 4u], first / 4u, (unsigned)out[first], (unsigned)want_first);
+}
+
+static void RoundFixed(const char *instruction, const uint32_t in[16], uint32_t out[16],
+                       uint64_t fpsr[4]) {
+    const uint64_t fpcr = 0;
+    if (strcmp(instruction, "frintn") == 0) {
+        FOUR_REGISTERS("frintn");
+    } else if (strcmp(instruction, "frintp") == 0) {
+        FOUR_REGISTERS("frintp");
+    } else if (strcmp(instruction, "frintm") == 0) {
+        FOUR_REGISTERS("frintm");
+    } else if (strcmp(instruction, "frintz") == 0) {
+        FOUR_REGISTERS("frintz");
+    } else {
+        FOUR_REGISTERS("frinta");
+    }
+}
+
+static void RoundByFpcr(bool exact, uint64_t fpcr, const uint32_t in[16], uint32_t out[16],
+                        uint64_t fpsr[4]) {
+    if (exact) {
+        FOUR_REGISTERS("frintx");
+    } else {
+        FOUR_REGISTERS("frinti");
+    }
+}
+
+/// Holds sixteen rounded singles and four registers' flags to the reference for @p mode.
+static unsigned RoundCheck(const uint32_t out[16], const uint64_t fpsr[4], unsigned mode,
+                           bool exact, char *detail, size_t size, const char *what) {
+    unsigned wrong = 0;
+    for (unsigned r = 0; r < 4u; ++r) {
+        uint32_t flags = 0;
+        for (unsigned l = 0; l < 4u; ++l) {
+            const unsigned i = r * 4u + l;
+            const uint32_t want = CpuRefRoundSingle(CPU_ROUND_INPUT[i], mode, exact, &flags);
+            if (out[i] != want && wrong++ == 0u) {
+                snprintf(detail, size, "%s of 0x%08x gave 0x%08x, expected 0x%08x", what,
+                         (unsigned)CPU_ROUND_INPUT[i], (unsigned)out[i], (unsigned)want);
+            }
+        }
+        if ((fpsr[r] & FP_FLAGS) != flags && wrong++ == 0u) {
+            snprintf(detail, size, "%s raised flags 0x%02x over register %u, expected 0x%02x", what,
+                     (unsigned)(fpsr[r] & FP_FLAGS), r, (unsigned)flags);
+        }
+    }
+    return wrong;
+}
+
+static void RoundCases(void) {
+    uint32_t out[16];
+    uint64_t fpsr[4];
+    char detail[200] = "";
+    if (ReportStart(SUITE, ROUND_FIXED)) {
+        static const struct {
+            const char *instruction;
+            unsigned mode;
+        } FIXED[5] = { { "frintn", CPU_ROUND_NEAREST }, { "frintp", CPU_ROUND_PLUS },
+                       { "frintm", CPU_ROUND_MINUS },   { "frintz", CPU_ROUND_ZERO },
+                       { "frinta", CPU_ROUND_AWAY } };
+        unsigned wrong = 0;
+        for (unsigned k = 0; k < 5u; ++k) {
+            memset(out, 0, sizeof(out));
+            RoundFixed(FIXED[k].instruction, CPU_ROUND_INPUT, out, fpsr);
+            wrong += RoundCheck(out, fpsr, FIXED[k].mode, false, wrong == 0 ? detail : NULL,
+                                wrong == 0 ? sizeof(detail) : 0, FIXED[k].instruction);
+        }
+        CHECK_TRUE(SUITE, ROUND_FIXED, CHECK_EXACT, wrong == 0, "%u wrong, first: %s", wrong,
+                   detail);
+    }
+    for (int x = 0; x < 2; ++x) {
+        const char *const name = x ? ROUND_X : ROUND_I;
+        if (!ReportStart(SUITE, name)) {
+            continue;
+        }
+        unsigned wrong = 0;
+        detail[0] = '\0';
+        for (unsigned mode = 0; mode < 4u; ++mode) {
+            memset(out, 0, sizeof(out));
+            RoundByFpcr(x != 0, (uint64_t)mode << 22, CPU_ROUND_INPUT, out, fpsr);
+            char what[32];
+            snprintf(what, sizeof(what), "%s under RMode %u", x ? "frintx" : "frinti", mode);
+            wrong += RoundCheck(out, fpsr, mode, x != 0, wrong == 0 ? detail : NULL,
+                                wrong == 0 ? sizeof(detail) : 0, what);
+        }
+        CHECK_TRUE(SUITE, name, CHECK_EXACT, wrong == 0, "%u wrong, first: %s", wrong, detail);
+    }
+}
+
+/// One fused multiply-add of singles, FPCR clear and FPSR cleared before it: FMADD's @p a + n * m,
+/// or with @p subtract FMSUB's a - n * m. Hands back the result and FPSR's flags.
+static uint32_t Fused(bool subtract, uint32_t n, uint32_t m, uint32_t a, uint64_t *fpsr) {
+    const uint32_t in[3] = { n, m, a };
+    uint32_t out = 0;
+    if (subtract) {
+        __asm__ volatile("mrs x9, fpcr\n"
+                         "msr fpcr, xzr\n"
+                         "ldp s0, s1, [%[in]]\n"
+                         "ldr s2, [%[in], #8]\n"
+                         "msr fpsr, xzr\n"
+                         "fmsub s3, s0, s1, s2\n"
+                         "mrs %[fpsr], fpsr\n"
+                         "msr fpcr, x9\n"
+                         "str s3, [%[out]]\n"
+                         : [fpsr] "=&r"(*fpsr)
+                         : [in] "r"(in), [out] "r"(&out)
+                         : "x9", "v0", "v1", "v2", "v3", "memory");
+    } else {
+        __asm__ volatile("mrs x9, fpcr\n"
+                         "msr fpcr, xzr\n"
+                         "ldp s0, s1, [%[in]]\n"
+                         "ldr s2, [%[in], #8]\n"
+                         "msr fpsr, xzr\n"
+                         "fmadd s3, s0, s1, s2\n"
+                         "mrs %[fpsr], fpsr\n"
+                         "msr fpcr, x9\n"
+                         "str s3, [%[out]]\n"
+                         : [fpsr] "=&r"(*fpsr)
+                         : [in] "r"(in), [out] "r"(&out)
+                         : "x9", "v0", "v1", "v2", "v3", "memory");
+    }
+    return out;
+}
+
+typedef struct {
+    bool subtract;
+    uint32_t n, m, a;
+    uint32_t want;
+    uint32_t flags;
+} FusedByHand;
+
+static void FusedCase(const char *name, const FusedByHand *rows, unsigned count) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    unsigned wrong = 0, first = 0;
+    uint32_t got_first = 0;
+    uint64_t flags_first = 0;
+    for (unsigned i = 0; i < count; ++i) {
+        uint64_t fpsr = 0;
+        const uint32_t got = Fused(rows[i].subtract, rows[i].n, rows[i].m, rows[i].a, &fpsr);
+        if ((got != rows[i].want || (fpsr & FP_FLAGS) != rows[i].flags) && wrong++ == 0u) {
+            first = i;
+            got_first = got;
+            flags_first = fpsr & FP_FLAGS;
+        }
+    }
+    const FusedByHand *const r = &rows[first];
+    CHECK_TRUE(SUITE, name, CHECK_EXACT, wrong == 0,
+               "%u of %u wrong; %s of 0x%08x, 0x%08x and 0x%08x gave 0x%08x flags 0x%02x, expected "
+               "0x%08x flags 0x%02x",
+               wrong, count, r->subtract ? "fmsub" : "fmadd", (unsigned)r->n, (unsigned)r->m,
+               (unsigned)r->a, (unsigned)got_first, (unsigned)flags_first, (unsigned)r->want,
+               (unsigned)r->flags);
+}
+
+/// By hand from FPMulAdd: the product exact, one rounding at the end.
+static const FusedByHand FUSED[] = {
+    // (1 + 2^-23)(1 - 2^-24) - 1 = 2^-24 - 2^-47, exact in a single: 2^-25 times 1 and 22 ones.
+    // Rounding the product first would give 1, and nought after the subtraction.
+    { false, 0x3f800001u, 0x3f7fffffu, 0xbf800000u, 0x337ffffeu, 0 },
+    // (1 + 2^-23)^2 = 1 + 2^-22 + 2^-46: rounds to 1 + 2^-22, inexact.
+    { false, 0x3f800001u, 0x3f800001u, 0x00000000u, 0x3f800002u, CPU_FPSR_IXC },
+    // 2 * max - max is max, no overflow: the doubled product never rounds to infinity.
+    { false, 0x7f7fffffu, 0x40000000u, 0xff7fffffu, 0x7f7fffffu, 0 },
+    // +0 * -1 + +0 is +0 under round to nearest.
+    { false, 0x00000000u, 0xbf800000u, 0x00000000u, 0x00000000u, 0 },
+    // -0 - (+0 * +1) is -0 + -0, -0.
+    { true, 0x00000000u, 0x3f800000u, 0x80000000u, 0x80000000u, 0 },
+    // 3 - 2 * 1.5 is +0 exactly, under round to nearest +0.
+    { true, 0x40000000u, 0x3fc00000u, 0x40400000u, 0x00000000u, 0 },
+};
+
+/// By hand from FPProcessNaNs3 and FPMulAdd's own rule.
+static const FusedByHand FUSED_NAN[] = {
+    // A quiet NaN addend with nought times infinity: the default NaN, and invalid.
+    { false, 0x00000000u, 0x7f800000u, 0x7fc00abcu, 0x7fc00000u, CPU_FPSR_IOC },
+    // The same with the infinity first.
+    { false, 0xff800000u, 0x00000000u, 0x7fc00abcu, 0x7fc00000u, CPU_FPSR_IOC },
+    // A signalling addend before a quiet multiplicand: the addend, quieted, and invalid.
+    { false, 0x7fc00001u, 0x3f800000u, 0x7f800002u, 0x7fc00002u, CPU_FPSR_IOC },
+    // A quiet addend before a quiet multiplicand: the addend, nothing raised.
+    { false, 0x7fc00001u, 0x3f800000u, 0x7fc00003u, 0x7fc00003u, 0 },
+    // No NaN: nought times infinity plus one is the default NaN, invalid.
+    { false, 0x00000000u, 0x7f800000u, 0x3f800000u, 0x7fc00000u, CPU_FPSR_IOC },
+};
+
+/// FCMEQ, FCMGE and FCMGT of two registers of four singles against two more, each with FPSR
+/// cleared before it: the six masks in order, and each instruction's two registers' flags.
+static void Compares(const uint32_t a[8], const uint32_t b[8], uint32_t out[24], uint64_t fpsr[6]) {
+    __asm__ volatile("mrs x9, fpcr\n"
+                     "msr fpcr, xzr\n"
+                     "ldp q0, q1, [%[a]]\n"
+                     "ldp q2, q3, [%[b]]\n"
+                     "msr fpsr, xzr\n"
+                     "fcmeq v4.4s, v0.4s, v2.4s\n"
+                     "mrs x10, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fcmeq v5.4s, v1.4s, v3.4s\n"
+                     "mrs x11, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fcmge v6.4s, v0.4s, v2.4s\n"
+                     "mrs x12, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fcmge v7.4s, v1.4s, v3.4s\n"
+                     "mrs x13, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fcmgt v16.4s, v0.4s, v2.4s\n"
+                     "mrs x14, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fcmgt v17.4s, v1.4s, v3.4s\n"
+                     "mrs x15, fpsr\n"
+                     "msr fpcr, x9\n"
+                     "stp q4, q5, [%[out]]\n"
+                     "stp q6, q7, [%[out], #32]\n"
+                     "stp q16, q17, [%[out], #64]\n"
+                     "stp x10, x11, [%[fpsr]]\n"
+                     "stp x12, x13, [%[fpsr], #16]\n"
+                     "stp x14, x15, [%[fpsr], #32]\n"
+                     :
+                     : [a] "r"(a), [b] "r"(b), [out] "r"(out), [fpsr] "r"(fpsr)
+                     : "x9", "x10", "x11", "x12", "x13", "x14", "x15", "v0", "v1", "v2", "v3",
+                       "v4", "v5", "v6", "v7", "v16", "v17", "memory");
+}
+
+static void CompareCase(void) {
+    if (!ReportStart(SUITE, COMPARE)) {
+        return;
+    }
+    // The first register's lanes hold a quiet and a signalling NaN; the second's only numbers.
+    static const uint32_t A[8] = { 0x3f800000u, 0x00000000u, 0x7fc00000u, 0x3f800000u,
+                                   0x40000000u, 0x3f800000u, 0xff800000u, 0x7f800000u };
+    static const uint32_t B[8] = { 0x3f800000u, 0x80000000u, 0x3f800000u, 0x7f800001u,
+                                   0x3f800000u, 0x40000000u, 0xff800000u, 0x7f7fffffu };
+    // By hand from FPCompareEQ, GE and GT: 1 = 1, +0 = -0, a NaN unordered; 2 > 1, 1 < 2,
+    // -inf = -inf, +inf > max. Equality raises invalid for a signalling NaN only, the ordered
+    // compares for any NaN.
+    static const uint32_t T = 0xffffffffu;
+    static const uint32_t WANT[24] = {
+        T, T, 0, 0, 0, 0, T, 0, // fcmeq
+        T, T, 0, 0, T, 0, T, T, // fcmge
+        0, 0, 0, 0, T, 0, 0, T, // fcmgt
+    };
+    static const uint32_t FLAGS[6] = { CPU_FPSR_IOC, 0, CPU_FPSR_IOC, 0, CPU_FPSR_IOC, 0 };
+    uint32_t out[24];
+    uint64_t fpsr[6];
+    memset(out, 0xa5, sizeof(out));
+    Compares(A, B, out, fpsr);
+    unsigned wrong = 0, first = 0;
+    for (unsigned i = 0; i < 24u; ++i) {
+        if (out[i] != WANT[i] && wrong++ == 0u) {
+            first = i;
+        }
+    }
+    unsigned flags_wrong = 0, first_flags = 0;
+    for (unsigned r = 0; r < 6u; ++r) {
+        if ((fpsr[r] & FP_FLAGS) != FLAGS[r] && flags_wrong++ == 0u) {
+            first_flags = r;
+        }
+    }
+    static const char *const NAMES[3] = { "fcmeq", "fcmge", "fcmgt" };
+    CHECK_TRUE(SUITE, COMPARE, CHECK_EXACT, wrong == 0 && flags_wrong == 0,
+               "%u of 24 lanes wrong, the first lane %u of %s 0x%08x where 0x%08x belongs; %u of 6 "
+               "registers' flags wrong, the first %s's register %u 0x%02x where 0x%02x belongs",
+               wrong, first % 8u, NAMES[first / 8u], (unsigned)out[first], (unsigned)WANT[first],
+               flags_wrong, NAMES[first_flags / 2u], first_flags % 2u,
+               (unsigned)(fpsr[first_flags] & FP_FLAGS), (unsigned)FLAGS[first_flags]);
+}
+
+/// FADD, FSUB, FMUL and FDIV of one register of four singles by another, FPCR clear and FPSR
+/// cleared before each: the four results in order, and each one's flags.
+static void Lanes(const uint32_t a[4], const uint32_t b[4], uint32_t out[16], uint64_t fpsr[4]) {
+    __asm__ volatile("mrs x9, fpcr\n"
+                     "msr fpcr, xzr\n"
+                     "ldr q0, [%[a]]\n"
+                     "ldr q1, [%[b]]\n"
+                     "msr fpsr, xzr\n"
+                     "fadd v2.4s, v0.4s, v1.4s\n"
+                     "mrs x10, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fsub v3.4s, v0.4s, v1.4s\n"
+                     "mrs x11, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fmul v4.4s, v0.4s, v1.4s\n"
+                     "mrs x12, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fdiv v5.4s, v0.4s, v1.4s\n"
+                     "mrs x13, fpsr\n"
+                     "msr fpcr, x9\n"
+                     "stp q2, q3, [%[out]]\n"
+                     "stp q4, q5, [%[out], #32]\n"
+                     "stp x10, x11, [%[fpsr]]\n"
+                     "stp x12, x13, [%[fpsr], #16]\n"
+                     :
+                     : [a] "r"(a), [b] "r"(b), [out] "r"(out), [fpsr] "r"(fpsr)
+                     : "x9", "x10", "x11", "x12", "x13", "v0", "v1", "v2", "v3", "v4", "v5",
+                       "memory");
+}
+
+static void LanesCase(void) {
+    if (!ReportStart(SUITE, LANES)) {
+        return;
+    }
+    // One, a quiet NaN with a payload, a signalling one, -0; against 2^-24, one, one, -0.
+    static const uint32_t A[4] = { 0x3f800000u, 0x7fc00123u, 0x7f800001u, 0x80000000u };
+    static const uint32_t B[4] = { 0x33800000u, 0x3f800000u, 0x3f800000u, 0x80000000u };
+    // By hand from FPAdd, FPSub, FPMul, FPDiv and FPProcessNaNs: 1 + 2^-24 is a tie, to the even
+    // 1, inexact; 1 - 2^-24 and 1 * 2^-24 and 1 / 2^-24 are exact; the quiet NaN comes back as it
+    // is; the signalling one quieted, invalid; -0 + -0 is -0, -0 - -0 and -0 * -0 are +0, and
+    // -0 / -0 is the default NaN, invalid.
+    static const uint32_t WANT[16] = {
+        0x3f800000u, 0x7fc00123u, 0x7fc00001u, 0x80000000u, // fadd
+        0x3f7fffffu, 0x7fc00123u, 0x7fc00001u, 0x00000000u, // fsub
+        0x33800000u, 0x7fc00123u, 0x7fc00001u, 0x00000000u, // fmul
+        0x4b800000u, 0x7fc00123u, 0x7fc00001u, 0x7fc00000u, // fdiv
+    };
+    static const uint32_t FLAGS[4] = { CPU_FPSR_IOC | CPU_FPSR_IXC, CPU_FPSR_IOC, CPU_FPSR_IOC,
+                                       CPU_FPSR_IOC };
+    uint32_t out[16];
+    uint64_t fpsr[4];
+    memset(out, 0xa5, sizeof(out));
+    Lanes(A, B, out, fpsr);
+    unsigned wrong = 0, first = 0, flags_wrong = 0, first_flags = 0;
+    for (unsigned i = 0; i < 16u; ++i) {
+        if (out[i] != WANT[i] && wrong++ == 0u) {
+            first = i;
+        }
+    }
+    for (unsigned k = 0; k < 4u; ++k) {
+        if ((fpsr[k] & FP_FLAGS) != FLAGS[k] && flags_wrong++ == 0u) {
+            first_flags = k;
+        }
+    }
+    static const char *const NAMES[4] = { "fadd", "fsub", "fmul", "fdiv" };
+    CHECK_TRUE(SUITE, LANES, CHECK_EXACT, wrong == 0 && flags_wrong == 0,
+               "%u of 16 lanes wrong, the first lane %u of %s 0x%08x where 0x%08x belongs; %u of 4 "
+               "instructions' flags wrong, the first %s's 0x%02x where 0x%02x belongs",
+               wrong, first % 4u, NAMES[first / 4u], (unsigned)out[first], (unsigned)WANT[first],
+               flags_wrong, NAMES[first_flags], (unsigned)(fpsr[first_flags] & FP_FLAGS),
+               (unsigned)FLAGS[first_flags]);
+}
+
+/// Loads q0 from @p in and stores b0, h0, s0, d0 and q0 at @p out, 8 bytes past it, 24, 40 and
+/// 56: each store its own place in a buffer of 0xee.
+static void FpStores(const uint8_t in[16], uint8_t out[96]) {
+    __asm__ volatile("ldr q0, [%[in]]\n"
+                     "str b0, [%[out]]\n"
+                     "str h0, [%[out], #8]\n"
+                     "str s0, [%[out], #24]\n"
+                     "str d0, [%[out], #40]\n"
+                     "str q0, [%[out], #56]\n"
+                     :
+                     : [in] "r"(in), [out] "r"(out)
+                     : "v0", "memory");
+}
+
+static void StoreCase(void) {
+    if (!ReportStart(SUITE, STORE)) {
+        return;
+    }
+    // A signalling single NaN with a payload in the low word, a signalling double NaN over the
+    // whole first half, and a half NaN in the second half's top bytes: no store may quiet any.
+    static const uint8_t IN[16] = { 0x01, 0x00, 0x81, 0x7f, 0x02, 0x00, 0xf0, 0x7f,
+                                    0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x01, 0x7c };
+    static const unsigned AT[5] = { 0, 8, 24, 40, 56 };
+    static const unsigned SIZE[5] = { 1, 2, 4, 8, 16 };
+    uint8_t out[96];
+    memset(out, 0xee, sizeof(out));
+    FpStores(IN, out);
+    uint8_t want[96];
+    memset(want, 0xee, sizeof(want));
+    for (unsigned k = 0; k < 5u; ++k) {
+        memcpy(want + AT[k], IN, SIZE[k]);
+    }
+    unsigned wrong = 0, first = 0;
+    for (unsigned i = 0; i < 96u; ++i) {
+        if (out[i] != want[i] && wrong++ == 0u) {
+            first = i;
+        }
+    }
+    CHECK_TRUE(SUITE, STORE, CHECK_EXACT, wrong == 0,
+               "%u of 96 bytes wrong; the first, byte %u, holds 0x%02x, expected 0x%02x", wrong,
+               first, out[first], want[first]);
+}
+
+/// LDXP of the pair at @p pair, then STXP of @p next, retried while the store fails (as the
+/// architecture lets it fail for no reason), at most 1000 times; with @p clear a CLREX between
+/// the two and one try. Hands back what was loaded in @p old and the last status.
+static uint32_t ExclusivePair(uint64_t pair[2], const uint64_t next[2], uint64_t old[2],
+                              bool clear) {
+    uint32_t status = 1;
+    for (int tries = 0; tries < (clear ? 1 : 1000) && status != 0u; ++tries) {
+        if (clear) {
+            __asm__ volatile("ldxp x9, x10, [%[pair]]\n"
+                             "clrex\n"
+                             "ldp x11, x12, [%[next]]\n"
+                             "stxp w13, x11, x12, [%[pair]]\n"
+                             "stp x9, x10, [%[old]]\n"
+                             "mov %w[status], w13\n"
+                             : [status] "=r"(status)
+                             : [pair] "r"(pair), [next] "r"(next), [old] "r"(old)
+                             : "x9", "x10", "x11", "x12", "x13", "memory");
+        } else {
+            __asm__ volatile("ldxp x9, x10, [%[pair]]\n"
+                             "ldp x11, x12, [%[next]]\n"
+                             "stxp w13, x11, x12, [%[pair]]\n"
+                             "stp x9, x10, [%[old]]\n"
+                             "mov %w[status], w13\n"
+                             : [status] "=r"(status)
+                             : [pair] "r"(pair), [next] "r"(next), [old] "r"(old)
+                             : "x9", "x10", "x11", "x12", "x13", "memory");
+        }
+    }
+    return status;
+}
+
+static void PairCases(void) {
+    static const uint64_t FIRST[2] = { 0x0123456789abcdefull, 0xfedcba9876543210ull };
+    static const uint64_t NEXT[2] = { 0x5a5a5a5aa5a5a5a5ull, 0xc3c3c3c33c3c3c3cull };
+    _Alignas(16) uint64_t pair[2];
+    uint64_t old[2];
+    if (ReportStart(SUITE, PAIR)) {
+        memcpy(pair, FIRST, sizeof(pair));
+        const uint32_t status = ExclusivePair(pair, NEXT, old, false);
+        CHECK_TRUE(SUITE, PAIR, CHECK_EXACT,
+                   status == 0u && memcmp(old, FIRST, 16) == 0 && memcmp(pair, NEXT, 16) == 0,
+                   "status %u, loaded %016llx %016llx, the pair now %016llx %016llx",
+                   (unsigned)status, (unsigned long long)old[0], (unsigned long long)old[1],
+                   (unsigned long long)pair[0], (unsigned long long)pair[1]);
+    }
+    if (ReportStart(SUITE, PAIR_CLREX)) {
+        memcpy(pair, FIRST, sizeof(pair));
+        const uint32_t status = ExclusivePair(pair, NEXT, old, true);
+        CHECK_TRUE(SUITE, PAIR_CLREX, CHECK_EXACT, status == 1u && memcmp(pair, FIRST, 16) == 0,
+                   "status %u, the pair now %016llx %016llx", (unsigned)status,
+                   (unsigned long long)pair[0], (unsigned long long)pair[1]);
+    }
+}
+
+static void MoreCases(void) {
+    ShiftCase(SHL_PLAIN, 0, 18, CpuGapPlainShifts);
+    ShiftCase(SHL_ROUND, 18, 18, CpuGapRoundShifts);
+    ShiftCase(SHL_SAT, 36, 24, CpuGapSaturatingShifts);
+    CrcCase(CRC, false);
+    CrcCase(CRCC, true);
+    RoundCases();
+    FusedCase(FMA, FUSED, (unsigned)(sizeof(FUSED) / sizeof(FUSED[0])));
+    FusedCase(FMA_NAN, FUSED_NAN, (unsigned)(sizeof(FUSED_NAN) / sizeof(FUSED_NAN[0])));
+    CompareCase();
+    LanesCase();
+    StoreCase();
+    PairCases();
+    TickCase();
+}
+
 void RunCpu(void) {
     char seen[160];
     size_t used;
@@ -776,6 +1360,7 @@ void RunCpu(void) {
     // instructions, which differ: estimates, the reciprocal exponent, half precision under AHP and
     // DN, and the NaN and nought order of the minimum and maximum.
     FpCases();
+    MoreCases();
 
     // System registers a game may reach from EL0 that dynarmic does not model: its translator
     // hits UNREACHABLE and the emulator ends. On the console they say whether Horizon lets EL0

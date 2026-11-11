@@ -68,6 +68,25 @@ uint64_t CpuRefFcvtzFixed64(uint64_t bits, bool is_unsigned);
 uint64_t CpuRefRoundingShiftLane(uint64_t value, int shift, unsigned esize, bool is_unsigned,
                                  bool *saturated);
 
+/// The register shifts' operation bits for CpuRefShiftLane: SSHL is none of them, USHL unsigned,
+/// SRSHL and URSHL rounding, SQSHL and UQSHL saturating.
+#define CPU_SHL_UNSIGNED 1u
+#define CPU_SHL_ROUNDING 2u
+#define CPU_SHL_SATURATING 4u
+
+/// One lane of SSHL, USHL, SRSHL, URSHL, SQSHL or UQSHL (Arm ARM, each instruction's pseudocode
+/// and SatQ): the @p esize bit lane @p value shifted by @p shift, the signed low byte of the shift
+/// operand's lane: left when positive, every bit gone once it reaches the lane's width; right when
+/// negative, toward minus infinity, with half of the last bit shifted out added first when
+/// rounding; then saturated to the lane when saturating, which sets @p saturated, or cut to it.
+uint64_t CpuRefShiftLane(uint64_t value, int shift, unsigned esize, unsigned op, bool *saturated);
+
+/// CRC32B, H, W and X (@p castagnoli false: the polynomial 0x04c11db7) or CRC32CB to CX
+/// (0x1edc6f41): @p crc updated with the low @p bytes bytes of @p data, least significant first,
+/// bit by bit with the polynomial reflected and no inversion before or after, as the instructions
+/// define it.
+uint32_t CpuRefCrc32(uint32_t crc, uint64_t data, unsigned bytes, bool castagnoli);
+
 /// One lane of SQDMULL (@p accumulate 0), SQDMLAL (1) or SQDMLSL (-1): twice the product of the
 /// signed @p esize bit lanes @p a and @p b, saturated to 2 * esize bits, then added to or taken
 /// from the signed 2 * esize bit @p acc and saturated again.
@@ -100,12 +119,19 @@ extern const uint64_t CPU_RNARROW_VALUE[3][2];
 /// One instruction of the NEON gap cases, in the order the case's assembly runs them: what the
 /// reference needs to work out its answer. v0 and v1 are the sources and v2 the destination,
 /// which holds the accumulator first for SQDMLAL and SQDMLSL.
-typedef enum { CPU_GAP_KIND_RSHL, CPU_GAP_KIND_DMUL, CPU_GAP_KIND_RNARROW } CpuGapKind;
+typedef enum {
+    CPU_GAP_KIND_RSHL,
+    CPU_GAP_KIND_DMUL,
+    CPU_GAP_KIND_RNARROW,
+    /// SSHL to UQSHL: op is CPU_SHL_* bits; inputs 0 to 3 are CPU_RSHL_VALUE's rows, 4 and 5
+    /// CPU_SHL64_VALUE's.
+    CPU_GAP_KIND_SHL,
+} CpuGapKind;
 typedef struct {
     const char *text;   ///< the instruction as written in the case
     CpuGapKind kind;
     int op;             ///< RSHL: 1 unsigned; DMUL: 1 add, -1 subtract, 0 multiply only;
-                        ///< RNARROW: 0 SQRSHRN, 1 UQRSHRN, 2 SQRSHRUN
+                        ///< RNARROW: 0 SQRSHRN, 1 UQRSHRN, 2 SQRSHRUN; SHL: CPU_SHL_* bits
     unsigned esize;     ///< source lane bits (the narrow side for DMUL and RNARROW)
     unsigned upper;     ///< the "2" forms: sources from the upper half
     int index;          ///< DMUL by element: the element of v1, else -1
@@ -117,9 +143,24 @@ typedef struct {
 #define CPU_GAP_RSHL_FORMS 16u
 #define CPU_GAP_DMUL_FORMS 26u
 #define CPU_GAP_RNARROW_FORMS 18u
+/// SSHL and USHL, SRSHL and URSHL, SQSHL and UQSHL, eighteen, eighteen and twenty four forms in
+/// that order: every vector width, the 64-bit lanes three times over, and the scalars.
+#define CPU_GAP_SHL_FORMS 60u
 extern const CpuGapForm CPU_GAP_RSHL[CPU_GAP_RSHL_FORMS];
 extern const CpuGapForm CPU_GAP_DMUL[CPU_GAP_DMUL_FORMS];
 extern const CpuGapForm CPU_GAP_RNARROW[CPU_GAP_RNARROW_FORMS];
+extern const CpuGapForm CPU_GAP_SHL[CPU_GAP_SHL_FORMS];
+
+/// Two more rows of 64-bit values and shifts for the register shifts, whose two lanes a register
+/// cannot give the counts the narrower lanes get: 64 and -64, then 127 and -128, with bits above
+/// the low byte that must count for nothing.
+extern const uint64_t CPU_SHL64_VALUE[2][2];
+extern const uint64_t CPU_SHL64_SHIFT[2][2];
+
+/// The CRC case's inputs: four accumulators and four data words, which CRC32B to CRC32X and
+/// CRC32CB to CRC32CX each take, lane by lane.
+extern const uint32_t CPU_CRC_ACC[4];
+extern const uint64_t CPU_CRC_DATA[4];
 
 /// What @p form leaves in v2, as low and high halves, from sources @p v0 and @p v1 and v2's
 /// previous value @p v2; @p qc says whether it saturated.

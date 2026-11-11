@@ -133,7 +133,42 @@ static void MinMax(void) {
                "a pair disagrees with the Arm ARM's FPMax, FPMin or their Num forms");
 }
 
+// By hand from FPRoundInt: a single, a mode, FRINTX or not, the answer and its flags.
+typedef struct {
+    uint32_t in;
+    unsigned mode;
+    bool exact;
+    uint32_t out;
+    uint32_t fpsr;
+} RoundByHand;
+static const RoundByHand ROUND_BY_HAND[] = {
+    {0x40200000u, CPU_ROUND_NEAREST, false, 0x40000000u, 0},            // 2.5 to the even 2
+    {0x40200000u, CPU_ROUND_AWAY, false, 0x40400000u, 0},               // 2.5 away to 3
+    {0xbf000000u, CPU_ROUND_NEAREST, false, 0x80000000u, 0},            // -0.5 to -0
+    {0xbe800000u, CPU_ROUND_PLUS, false, 0x80000000u, 0},               // -0.25 up to -0
+    {0xbe800000u, CPU_ROUND_MINUS, true, 0xbf800000u, CPU_FPSR_IXC},    // -0.25 down to -1
+    {0x4affffffu, CPU_ROUND_ZERO, true, 0x4afffffeu, CPU_FPSR_IXC},     // 2^23 - 0.5 to 2^23 - 1
+    {0x4affffffu, CPU_ROUND_NEAREST, false, 0x4b000000u, 0},            // to the even 2^23
+    {0x00000001u, CPU_ROUND_PLUS, true, 0x3f800000u, CPU_FPSR_IXC},     // a denormal up to 1
+    {0x7f812345u, CPU_ROUND_NEAREST, false, 0x7fc12345u, CPU_FPSR_IOC}, // quieted, invalid
+    {0x4b000001u, CPU_ROUND_MINUS, true, 0x4b000001u, 0},               // an integer as it is
+};
+
+static void Rounding(void) {
+    int at = -1;
+    for (int i = 0; i < (int)(sizeof(ROUND_BY_HAND) / sizeof(ROUND_BY_HAND[0])) && at < 0; ++i) {
+        const RoundByHand *h = &ROUND_BY_HAND[i];
+        uint32_t fpsr = 0;
+        if (CpuRefRoundSingle(h->in, h->mode, h->exact, &fpsr) != h->out || fpsr != h->fpsr) {
+            at = i;
+        }
+    }
+    CHECK_TRUE(SUITE, "frint's roundings of a single worked out by hand", CHECK_NONE, at < 0,
+               "row %d differs from its value by hand", at);
+}
+
 void RunReferenceCpuFp(void) {
+    Rounding();
     Tables();
     Estimates();
     Halves();

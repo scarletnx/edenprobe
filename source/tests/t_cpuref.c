@@ -44,6 +44,31 @@ static const RshlByHand RSHL_BY_HAND[] = {
     {0xfffe, 2, 16, false, 0xfff8, false},            // -2 << 2 = -8
 };
 
+// By hand, from the Arm ARM's SSHL, USHL, SRSHL, URSHL, SQSHL and UQSHL: the lane, the signed
+// count, the operation bits, and the answer with its QC.
+typedef struct {
+    uint64_t value;
+    int shift;
+    unsigned esize;
+    unsigned op;
+    uint64_t result;
+    bool saturated;
+} ShlByHand;
+static const ShlByHand SHL_BY_HAND[] = {
+    {0x81, -1, 8, 0, 0xc0, false},                       // -127 >> 1 = -63.5, floored to -64
+    {0x81, -1, 8, CPU_SHL_UNSIGNED, 0x40, false},        // 129 >> 1 = 64
+    {0x81, -1, 8, CPU_SHL_ROUNDING, 0xc1, false},        // (-127 + 1) >> 1 = -63
+    {0x81, 1, 8, 0, 0x02, false},                        // -127 << 1 = -254, cut to 0x02
+    {0x81, 1, 8, CPU_SHL_SATURATING, 0x80, true},        // -254 saturates to -128
+    {0x40, 8, 8, 0, 0x00, false},                        // shifted out of the lane
+    {0x80, -128, 8, 0, 0xff, false},                     // only the sign is left
+    {0x80, -128, 8, CPU_SHL_UNSIGNED, 0x00, false},
+    {0xffffffffffffffffull, -64, 64, CPU_SHL_UNSIGNED | CPU_SHL_ROUNDING, 1, false}, // rounds up
+    {0x3, 127, 64, CPU_SHL_UNSIGNED | CPU_SHL_SATURATING, ~0ull, true},
+    {0x8000000000000001ull, 64, 64, 0, 0, false},
+    {0xfffe, 2, 16, CPU_SHL_SATURATING, 0xfff8, false},  // -2 << 2 = -8 fits
+};
+
 typedef struct {
     uint64_t acc, a, b;
     unsigned esize;
@@ -242,4 +267,36 @@ void RunReferenceCpu(void) {
     }
     CHECK_TRUE(SUITE, "sqrshrn, uqrshrn and sqrshrun scalars worked out by hand", CHECK_NONE,
                at < 0, "row %d differs from its value by hand", at);
+
+    at = -1;
+    for (int i = 0; i < (int)(sizeof(SHL_BY_HAND) / sizeof(SHL_BY_HAND[0])) && at < 0; ++i) {
+        const ShlByHand *h = &SHL_BY_HAND[i];
+        bool sat;
+        if (CpuRefShiftLane(h->value, h->shift, h->esize, h->op, &sat) != h->result ||
+            sat != h->saturated) {
+            at = i;
+        }
+    }
+    CHECK_TRUE(SUITE, "sshl to uqshl lanes worked out by hand", CHECK_NONE, at < 0,
+               "row %d differs from its value by hand", at);
+
+    // The standard check value: "123456789" from all ones, inverted after, is 0xcbf43926 for
+    // CRC-32 and 0xe3069283 for CRC-32C; the instructions invert nothing, so the case does.
+    static const char CHECK[] = "123456789";
+    uint32_t crc = 0xffffffffu, crcc = 0xffffffffu;
+    for (int i = 0; i < 9; ++i) {
+        crc = CpuRefCrc32(crc, (uint8_t)CHECK[i], 1, false);
+        crcc = CpuRefCrc32(crcc, (uint8_t)CHECK[i], 1, true);
+    }
+    // And a word at a time agrees with a byte at a time: "12345678" as one doubleword.
+    uint32_t bytewise = 0xffffffffu;
+    for (int i = 0; i < 8; ++i) {
+        bytewise = CpuRefCrc32(bytewise, (uint8_t)CHECK[i], 1, false);
+    }
+    const uint32_t wordwise = CpuRefCrc32(0xffffffffu, 0x3837363534333231ull, 8, false);
+    CHECK_TRUE(SUITE, "crc32 and crc32c give the standard check values", CHECK_NONE,
+               ~crc == 0xcbf43926u && ~crcc == 0xe3069283u && bytewise == wordwise,
+               "crc32 0x%08x, crc32c 0x%08x (0xcbf43926, 0xe3069283); 8 bytes one by one 0x%08x, "
+               "as a doubleword 0x%08x",
+               (unsigned)~crc, (unsigned)~crcc, (unsigned)bytewise, (unsigned)wordwise);
 }

@@ -76,7 +76,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | mii | 4 | the console's six default Miis a game lists with the player's, and the database's state (`hle/service/mii/mii_manager.cpp`) |
 | am-mode | 2 | the state getter's modes: VR mode turned on and off, the boot mode, the controller update section (`hle/service/am/service/common_state_getter.cpp`) |
 | bsd-local | 4 | bsd:u with no network: a raw socket, a timeout out of range or short, an address into a short buffer (`hle/service/sockets/bsd.cpp`) |
-| ipc | 3 | what every session answers: its pointer buffer, a clone, a Close (`hle/service/sm/sm_controller.cpp`, `hle/service/service.cpp`) |
+| ipc | 5 | what every session answers: its pointer buffer, a clone, a Close (`hle/service/sm/sm_controller.cpp`, `hle/service/service.cpp`); and sm's refusal of a name that is none (`hle/service/sm/sm.cpp`, `PopServiceName`) |
 | hid | 1 | the npad LIFOs of hid's shared memory, which every game reads its controllers from (`hid_core/resources/ring_lifo.h`) |
 | time-snap | 2 | the clock snapshot a game dates a save or times a wait across a sleep with, and the span between two (`hle/service/psc/time/static.cpp`) |
 | vi | 3 | the application display service every game opens first: the displays listed, the scaling modes converted, an indirect layer's memory (`hle/service/vi/application_display_service.cpp`) |
@@ -630,6 +630,14 @@ smGetServiceOriginal, outside of libnx's own session to it.
 | a session of set has a pointer buffer | QueryPointerBufferSize | it succeeds with a size above nought | exact |
 | a clone of a session answers as the session does | CloneCurrentObject, GetLanguageCode (0) on both | all succeed, the clone is a handle, and the two codes are the same and not nought | exact |
 | a Close is answered SessionClosed, and so is the next request | a Close (cmifMakeCloseRequest) with svcSendSyncRequest, then GetLanguageCode on the handle | 0xF601 for both | exact |
+| sm refuses an empty service name as InvalidServiceName | GetServiceHandle (smGetServiceOriginal) of eight NULs | 0xC15 and no session | exact |
+| sm refuses a name with a byte past its first NUL as InvalidServiceName | GetServiceHandle of `s e \0 t` | 0xC15 and no session | exact |
+
+The last two hold sm to the name rule of the sm the consoles edenprobe runs on carry (Atmosphere's,
+`ValidateServiceName`): one to eight bytes, NUL padded, nothing past the first NUL; ScarletNX's sm
+test holds its sm to the same. reden keeps only the printable bytes of a name and so takes
+`se\0t` for `set` and hands a session back; the case closes any session it is given. This is the
+one answer in the family not held to reden's.
 
 Every handle is closed before the suite returns.
 
@@ -969,6 +977,13 @@ account suite opens it; both cases are skipped as `unavailable` when it does not
   Ryujinx refuses past eight, and libnx says one to eight; no case asks it.
 - **Q48.** How long a console's Scan takes with nothing near, and whether it takes fewer than
   eight entries of GetNetworkInfoLatestUpdate (libnx says eight).
+- **Q49.** What a console's nvdrv answers an ioctl, a Close or a QueryEvent on an fd that was
+  never opened (7, 0xFFFF, or nought), which ScarletNX's nvdrv test and reden disagree on: reden
+  answers NotImplemented (1) for an fd it does not find and InvalidState (8) for a negative one
+  (`hle/service/nvdrv/nvdrv.cpp`, `Ioctl1`, `QueryEvent`), ScarletNX answers InvalidState (8) for
+  all three. No case asks it until a console has.
+- **Q50.** What a console's mm:u answers Get after SetAndWait: the clock rate the module runs at,
+  which no emulator models (reden keeps the minimum it was given, ScarletNX's test holds its own).
 
 ## The judge, pinned
 
@@ -1053,7 +1068,8 @@ range taken or refused as EINVAL, a short timeout taken, the whole length said f
 and a write past the buffer.
 ipc passes the controller's answers and a Close, and fails no pointer buffer, a clone that
 answers otherwise or gives no handle, a Close answered as a success, and a session alive after
-it.
+it. sm's refusal of a bad name passes 0xC15 with no session, and fails a session handed back and
+another refusal.
 hid passes npad entries doubled and one apart, and fails an entry numbered as its state, states
 not one apart, and no LIFO to read.
 time-snap passes a snapshot of the user clock and its span, and fails another user time,

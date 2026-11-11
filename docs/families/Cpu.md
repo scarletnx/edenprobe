@@ -1,6 +1,6 @@
 # The processor
 
-- **cpu**, twenty two cases, on the processor and in every mode, since it needs no device. Three count
+- **cpu**, thirty eight cases, on the processor and in every mode, since it needs no device. Three count
   leading zeros over the sixteen 8-bit, eight 16-bit and four 32-bit lanes of one vector register,
   loaded from memory so a translator cannot fold the answer away, and compared exactly with the
   reference. The 16-bit case is there because a translator that widened the lanes to count them
@@ -67,6 +67,31 @@
   the normal register, which the pseudocode never does (`common/fp/op/FPRSqrtEstimate.cpp`, or the
   host's own estimate behind it), and FCVTN of a signalling NaN to half leaves Invalid clear
   (`common/fp/op/FPConvert.cpp`).
+
+  Sixteen more are what ScarletNX's translator tests hold its code to, asked of the processor.
+  SSHL and USHL, SRSHL and URSHL, SQSHL and UQSHL by a register, every lane width as vectors and
+  the scalars each has, sixty forms in three cases, on the gap cases' inputs and on two more rows
+  of 64-bit lanes shifted by 64 and -64, 127 and -128, bits above the low byte that count for
+  nothing; against `CpuRefShiftLane` in `source/cpuref.c`, QC included. CRC32B to CRC32X and
+  CRC32CB to CRC32CX on four accumulators and data words, against the bit by bit definition
+  (`CpuRefCrc32`), which the judge holds to the standard check values. FRINTN, FRINTP, FRINTM,
+  FRINTZ and FRINTA on sixteen singles (halves either side of an even and an odd integer both
+  ways, noughts under a half of both signs, which keep their sign, 2^23 - 0.5 and 2^23 + 1, the
+  least denormal, infinity, NaNs quiet and signalling with payloads), then FRINTI and FRINTX under
+  each of FPCR's four rounding modes, FRINTX alone raising Inexact (`CpuRefRoundSingle` in
+  `source/cpufpref.c`). FMADD and FMSUB on rows worked out by hand from FPMulAdd: a product exact
+  only when fused ((1 + 2^-23)(1 - 2^-24) - 1 is 2^-24 - 2^-47, where rounding the product first
+  gives nought), an inexact one, 2 max - max with no overflow midway, and the signs of nought; and
+  the NaN rules, where nought times infinity plus a quiet NaN is the default NaN with Invalid, not
+  the quiet NaN, and a signalling addend wins over a quiet multiplicand. FCMEQ, FCMGE and FCMGT
+  with NaN lanes false and Invalid raised by a signalling NaN alone for equality and by any NaN
+  for the ordered compares. FADD, FSUB, FMUL and FDIV on four lanes at once, one a tie that rounds to
+  even with Inexact, one a quiet NaN that keeps its payload, one a signalling NaN quieted with
+  Invalid, one -0 against -0 (-0, +0, +0 and the default NaN). A signalling NaN stored from b, h, s, d and q registers keeps its
+  bits and touches no byte past it. LDXP and STXP swap a 128-bit pair, and STXP after CLREX fails
+  and leaves the pair. And CNTFRQ_EL0 says 19.2 MHz while 100 ms asleep counts at that rate, a
+  wake up to a second late allowed. The shift, CRC and rounding references, the fused rows and
+  the compares agreed with Unicorn's AArch64 on every input the cases use and on thousands more.
 
   The last two read system registers a game may reach from EL0: CNTVCT_EL0, the virtual count,
   which has to move forward with the physical one, and DAIF, which holds nothing outside its four

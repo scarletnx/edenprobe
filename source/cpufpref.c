@@ -343,6 +343,69 @@ const uint32_t CPU_UESTIMATE_INPUT[8] = {
     0x3fffffffu, 0x40000000u, 0x12345678u, 0x9abcdef0u,
 };
 
+uint32_t CpuRefRoundSingle(uint32_t x, unsigned mode, bool exact, uint32_t *fpsr) {
+    if (IsNan32(x)) {
+        return ProcessNan32(x, fpsr);
+    }
+    const uint32_t sign = x & SIGN32;
+    const uint32_t exponent = EXP32(x);
+    // Infinities, noughts and everything from 2^23 up are integers already.
+    if (exponent == 0xFFu || (x & ~SIGN32) == 0u || exponent >= 150u) {
+        return x;
+    }
+    // The magnitude is mantissa * 2^-shift, shift at least one.
+    const uint64_t mantissa = exponent == 0u ? FRAC32(x) : (FRAC32(x) | 0x800000u);
+    const uint32_t shift = exponent == 0u ? 149u : 150u - exponent;
+    uint64_t whole = shift >= 64u ? 0u : mantissa >> shift;
+    const uint64_t rest = shift >= 64u ? mantissa : mantissa & ((1ull << shift) - 1u);
+    // Compare the part cut off with a half without forming 2^(shift-1) past 64 bits: a mantissa
+    // under 2^24 never reaches a half of 2^25 or more.
+    const int above_half = shift > 25u ? -1
+                           : rest > (1ull << (shift - 1u)) ? 1
+                           : rest == (1ull << (shift - 1u)) ? 0
+                                                              : -1;
+    bool up = false;
+    switch (mode) {
+    case CPU_ROUND_NEAREST:
+        up = above_half > 0 || (above_half == 0 && (whole & 1u) != 0u);
+        break;
+    case CPU_ROUND_AWAY:
+        up = above_half >= 0;
+        break;
+    case CPU_ROUND_PLUS:
+        up = rest != 0u && sign == 0u;
+        break;
+    case CPU_ROUND_MINUS:
+        up = rest != 0u && sign != 0u;
+        break;
+    default:
+        break;
+    }
+    whole += up ? 1u : 0u;
+    if (exact && rest != 0u) {
+        *fpsr |= FPSR_IXC;
+    }
+    if (whole == 0u) {
+        return sign;
+    }
+    // An integer of at most 2^23, exactly a single.
+    uint32_t top = 0;
+    while ((whole >> (top + 1u)) != 0u) {
+        ++top;
+    }
+    return sign | (127u + top) << 23 | (uint32_t)((whole << (23u - top)) & 0x7FFFFFu);
+}
+
+// Halves either side of an even and an odd integer, both signs; nought below a half, both signs;
+// 2^23 - 0.5 and 2^23 + 1; the least denormal and the greatest below one; infinity; NaNs quiet and
+// signalling, both signs, with payloads.
+const uint32_t CPU_ROUND_INPUT[16] = {
+    0x3f000000u, 0x3fc00000u, 0x40200000u, 0xbf000000u, // 0.5, 1.5, 2.5, -0.5
+    0xbfc00000u, 0xc0200000u, 0x80000000u, 0xbe800000u, // -1.5, -2.5, -0, -0.25
+    0xbf400000u, 0x4affffffu, 0x4b000001u, 0x00000001u, // -0.75, 2^23 - 0.5, 2^23 + 1, 2^-149
+    0x3f7fffffu, 0xff800000u, 0x7fc12345u, 0xff812345u, // under one, -inf, a quiet, a signalling NaN
+};
+
 const uint32_t CPU_FRECPX_INPUT[8] = {
     0x3f800000u, 0xc0600000u, 0x00000001u, 0x00000000u, // 1, -3.5, the least denormal, +0
     0x80000000u, 0x7f800000u, 0x7fc00000u, 0x7f800001u, // -0, +inf, a quiet and a signalling NaN
