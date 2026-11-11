@@ -56,6 +56,7 @@ source/lodref.c
 source/topologyref.c
 source/copyref.c
 source/vertexref.c
+source/svcref.c
 source/tests/t_selfcheck.c
 source/tests/t_support.c
 source/tests/t_screens.c
@@ -90,4 +91,5 @@ source/tests/t_lodref.c
 source/tests/t_topologyref.c
 source/tests/t_copyref.c
 source/tests/t_vertexref.c
+source/tests/t_svcref.c
 source/tests/t_libc.c

@@ -7,12 +7,13 @@
 * [The open questions](#the-open-questions)
 * [What Eden does](#what-eden-does)
 * [The judge, pinned](#the-judge-pinned)
+* [svc](#svc)
 
-The kernel's scheduler as a program sees it: threads of chosen priorities on one core, a mutex of
-the kernel's between them, and a thread in a loop with no supervisor call holding the core. Only
-the word `kernel` runs it (see [The mode file](../ModeFile.md)), since no console has yet shown
-that its cases never hang; the start screen has no row for it, and a file that names it keeps it
-whatever the screen changes.
+Two suites. The first, sched, is the kernel's scheduler as a program sees it: threads of chosen
+priorities on one core, a mutex of the kernel's between them, and a thread in a loop with no
+supervisor call holding the core. Only the word `kernel` runs it (see [The mode
+file](../ModeFile.md)), since no console has yet shown that its cases never hang; the start screen
+has no row for it, and a file that names it keeps it whatever the screen changes.
 
 - **sched**, seven cases. One says threads start on the core and at the priority asked (none
   tier); the six after it each run a handful of threads and judge the order they ran in
@@ -130,3 +131,54 @@ back, the thread of 46 waiting behind the spinner, `svcSleepThread(0)` moving th
 from the cores and priorities read, a case that could not set up, and the note. Mutations of the
 order test, the owner's drop back, the yield check, the migrated core and the Q3 answer each fail
 it.
+
+## svc
+
+Twenty two cases, after sched, in the same family and under the same word. The kernel's answers to
+the supervisor calls a game makes around its handles, its events and its memory, where the console's
+kernel decides each result and an emulator's kernel can return another. Every case compares the
+result code, and where there is one the index or the memory state, with the console kernel's answer,
+which Atmosphere's mesosphere follows result for result and libnx's notes give: exact. A line names
+the code it got and the one it wanted (`TimedOut (0xea01)`), by `source/svcref.c`, pinned by the
+reference suite. The first case makes two events, each a writable and a readable end, and a third
+whose readable end it closes (none tier); if it fails, the rest do not run.
+
+| case | the call | expected |
+|---|---|---|
+| no handles, 5 ms | `svcWaitSynchronization(&i, NULL, 0, 5 ms)` | TimedOut, after 4.5 ms or more |
+| no handles, 0 | the same with a timeout of 0 | TimedOut |
+| 65 handles | 65 copies of a readable event's handle | OutOfRange (the most is 64) |
+| a closed handle | a readable event and a handle closed before | InvalidHandle, the whole wait |
+| the writable end | a readable event and another's writable end | InvalidHandle: no object to wait on |
+| the thread's pseudo-handle | a readable event and 0xffff8000 | InvalidHandle: a wait resolves no pseudo-handle |
+| two signaled | both events signaled | index 0, the lowest |
+| the second signaled | only the second | index 1 |
+| a pending cancel, 0 | `svcCancelSynchronization` of the thread's own handle, then a wait with a timeout of 0 | TimedOut, the cancel left pending |
+| the cancel used | a wait of 1 s, then one of 1 ms | Cancelled at once (under 0.5 s), then TimedOut |
+| `svcResetSignal` | of a signaled readable end, then a wait, then again | success, TimedOut, then InvalidState |
+| `svcClearEvent` | of a signaled event's writable end, then a wait | success, then TimedOut |
+| `svcSignalEvent` of the readable end | | InvalidHandle |
+| a handle closed twice | `svcCloseHandle` of a readable end, twice | success, then InvalidHandle |
+| the process's pseudo-handle | `svcCloseHandle(0xffff8001)` | InvalidHandle |
+| the heap | `svcQueryMemory` at the heap region's start | heap (5), read and write, no attribute |
+| the code | at this suite's own function | read and execute |
+| the read-only data | at a constant string | read only |
+| the heap's step | `svcSetHeapSize` to the heap plus a page | InvalidSize: the heap goes in steps of 2 MiB |
+| `svcMapMemory` | two heap pages onto a place `virtmemFindStack` gives | the source heap with no permission and locked (libnx's borrowed), the view stack memory (0xb) to read and write, reading the source's words |
+| what the view wrote | every word written through the view, then `svcUnmapMemory` | every word in the source, which reads and writes again with no attribute |
+
+The code and data cases check the permission alone: the console's loader maps a homebrew program as
+a module (types 8 and 9) and an emulator as the program (3), and both are right. The heap step case
+asks for more than the heap has, so a kernel that took the size would grow the heap or run out of
+memory rather than take pages from under the program. The source pages are never touched while they
+are mapped, since the console gives them no permission.
+
+In an emulator a failure points at the supervisor call's checks (Eden's `hle/kernel/svc/`:
+`svc_synchronization.cpp`, `svc_event.cpp`, `svc_memory.cpp`, `svc_query_memory.cpp`), the
+handle table's lookups (`k_handle_table.h`, `GetMultipleObjects`, which resolves no pseudo-handle),
+the wait's order of checks (`k_synchronization_object.cpp`: a signaled object, then a timeout of
+0, then a pending cancel), and the page table's states (`k_page_table_base.cpp`, `MapMemory`).
+
+The reference suite holds two cases on `source/svcref.c`: six kernel results against the codes
+switchbrew's error page gives (module 1, the description from bit 9), and a line's name for a known
+code, for success and for a code it does not know.

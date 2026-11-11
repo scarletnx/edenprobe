@@ -15,7 +15,8 @@ points at. A case that ends the program costs that case, not the rest of the run
 - **[Graphics](./Graphics.md)** - the thirty eight drawing suites, clear to copy ([blit2d](./Blit2d.md)), and tex8k
 - **[nvn](./Nvn.md)** - the clear suite's question through the program's NVN, which ScarletNX takes as a game's
 - **[fs](./Fs.md)** - reads through the file system service
-- **[Kernel](./Kernel.md)** - the scheduler: priority inheritance, preemption and migration
+- **[Kernel](./Kernel.md)** - the scheduler: priority inheritance, preemption and migration; and the kernel's
+  answers to waits, events, handles and memory calls ([svc](./Kernel.md#svc))
 - **[Display](./Display.md)** - the buffer producer's history, on a layer of its own
 - **[Video](./Video.md)** - the video image compositor, and the decoder on VP9 jobs ([nvdec](./Nvdec.md))
 - **[Audio](./Audio.md)** - the audio renderer, and the listening sequence

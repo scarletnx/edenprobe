@@ -567,6 +567,7 @@ static const struct {
     { "blit2d", UI_FAMILY_GRAPHICS }, { "copy", UI_FAMILY_GRAPHICS },
     { "tex8k", UI_FAMILY_GRAPHICS },
     { "fs", UI_FAMILY_FS },           { "sched", UI_FAMILY_KERNEL },
+    { "svc", UI_FAMILY_KERNEL },
     { "binder", UI_FAMILY_DISPLAY },
     { "vic", UI_FAMILY_VIDEO },       { "nvdec", UI_FAMILY_VIDEO },
     { "audio", UI_FAMILY_AUDIO },
