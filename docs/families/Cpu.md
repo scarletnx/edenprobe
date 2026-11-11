@@ -93,6 +93,10 @@
   count libnx reads, a wake up to a second late allowed. The shift, CRC and rounding references, the
   fused rows, the compares and the lanes agreed with Unicorn's AArch64 on 98,161 checks, every input
   the cases use among them.
+  ScarletNX 9bef605 passes all sixteen. Under Eden 6a9235c22d fourteen pass: FRINTN, FRINTP, FRINTM,
+  FRINTZ, FRINTA and FRINTI raise Inexact where they round, which only FRINTX does (dynarmic's
+  `backend/x64/emit_x64_floating_point.cpp`, `EmitFPRound`, takes ROUNDSS or ROUNDSD for every
+  rounding but FRINTX's, read at reden 44395ac49c, and the host's precision flag reaches FPSR).
 
   The last two read system registers a game may reach from EL0: CNTVCT_EL0, the virtual count,
   which has to move forward with the physical one, and DAIF, which holds nothing outside its four
