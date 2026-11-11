@@ -1515,18 +1515,18 @@ static void RenderTarget(const RtTarget *t) {
 #define VOLUME_SIDE 1024u
 #define VOLUME_SLICES 513u
 
-/// The volume's first block, a texel a pixel, repeated over a 16x16 target. BC1, red 0xf800 above blue 0x001f
-/// (four colours), every row's texels at indices 3, 2, 1 and 0: two thirds blue, two thirds red,
-/// blue and red, which every decoder gives exactly.
+/// The volume's first block, a texel a pixel, repeated over a 16x16 target. BC1, red 0xf800 above
+/// blue 0x001f, every row's texels at indices 0, 1, 0 and 1: the two endpoints, which every
+/// decoder gives exactly, where the interpolated thirds differ by a step between GPUs.
 static void BigVolume(void) {
     static const char *const NAME =
         "a BC1 volume of 1024x1024x513, past 512 Mi texels, samples its first block";
     if (!Room(NAME) || !ReportStart(SUITE, NAME)) {
         return;
     }
-    static const uint8_t BLOCK[8] = { 0x00, 0xF8, 0x1F, 0x00, 0x1B, 0x1B, 0x1B, 0x1B };
+    static const uint8_t BLOCK[8] = { 0x00, 0xF8, 0x1F, 0x00, 0x44, 0x44, 0x44, 0x44 };
     static const uint8_t ROW[4][4] = {
-        { 85, 0, 170, 255 }, { 170, 0, 85, 255 }, { 0, 0, 255, 255 }, { 255, 0, 0, 255 }
+        { 255, 0, 0, 255 }, { 0, 0, 255, 255 }, { 255, 0, 0, 255 }, { 0, 0, 255, 255 }
     };
     const uint64_t bytes = (uint64_t)(VOLUME_SIDE / 4u) * (VOLUME_SIDE / 4u) * 8u * VOLUME_SLICES;
     GpuSpec spec;

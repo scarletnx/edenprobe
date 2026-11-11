@@ -1143,7 +1143,7 @@ allocation's cap.
 The last case is a volume past 512 Mi texels: BC1 1024x1024x513, 257 MiB, in memory the processor
 writes, of which it fills the first block alone, as a game's light volume is made by the graphics
 unit and sampled where it was written. Its sixteen texels fetched must give the block's colours
-(two thirds blue, two thirds red, blue and red, which every decoder gives exactly); a host that
+(its two endpoints, red and blue, which every decoder gives exactly); a host that
 takes a volume that large for no texture reads zeros (ScarletNX's big volume test). It skips as
 unavailable where `vram=` says the machine is short, as the textures do.
 
