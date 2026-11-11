@@ -42,6 +42,10 @@ static const char *const SUITE = "nvn";
 #define POOL_PAGE 0x1000u
 // What the readback holds until the copy writes it: no clear colour of this suite is it.
 #define READ_PRESET 0xa5u
+/// The row stride the strided copy case sets: a 64 texel row's 256 bytes and 32 more.
+#define STRIDE 288u
+/// The readback pool holds the strided copy's rows.
+#define READ_POOL_BYTES ((STRIDE * TARGET_SIZE + POOL_PAGE - 1u) / POOL_PAGE * POOL_PAGE)
 
 // Everything NVN's objects need, in one place that outlives a case: NVN objects are large (the
 // device alone is 12 KiB) and must sit on an eight byte boundary, which nvn/nvn.h does not ask
@@ -59,6 +63,16 @@ static struct {
     _Alignas(8) NVNmemoryPool read_pool;
     _Alignas(8) NVNcommandBuffer command;
     _Alignas(8) NVNtexture target;
+    _Alignas(8) NVNmemoryPool copy_pool;
+    _Alignas(8) NVNmemoryPool stage_pool;
+    _Alignas(8) NVNtexture copy_a;
+    _Alignas(8) NVNtexture copy_b;
+    bool copy_pool_up;
+    bool stage_pool_up;
+    bool copy_a_up;
+    bool copy_b_up;
+    void *copy_storage;
+    void *stage_storage;
     bool command_pool_up;
     bool target_pool_up;
     bool read_pool_up;
@@ -135,7 +149,7 @@ static bool BringUp(char *why, size_t why_size) {
         return false;
     }
     nvn.read_pool_up =
-        MakePool(&nvn.read_pool, &nvn.read_storage, RoundUp(TARGET_BYTES, POOL_PAGE),
+        MakePool(&nvn.read_pool, &nvn.read_storage, READ_POOL_BYTES,
                  NVN_MEMORY_POOL_FLAGS_CPU_UNCACHED | NVN_MEMORY_POOL_FLAGS_GPU_CACHED);
     if (!nvn.read_pool_up) {
         snprintf(why, why_size, "the readback pool: %s", Why("no memory, or false"));
@@ -183,6 +197,16 @@ static void TearDown(void) {
     if (nvn.queue_up) {
         nvn.nvn.nvnQueueFinish(&nvn.queue);
     }
+    if (nvn.copy_a_up) {
+        nvn.nvn.nvnTextureFinalize(&nvn.copy_a);
+        nvn.copy_a_up = false;
+    }
+    if (nvn.copy_b_up) {
+        nvn.nvn.nvnTextureFinalize(&nvn.copy_b);
+        nvn.copy_b_up = false;
+    }
+    DropPool(&nvn.copy_pool, &nvn.copy_storage, &nvn.copy_pool_up);
+    DropPool(&nvn.stage_pool, &nvn.stage_storage, &nvn.stage_pool_up);
     if (nvn.command_up) {
         nvn.nvn.nvnCommandBufferFinalize(&nvn.command);
         nvn.command_up = false;
@@ -377,6 +401,172 @@ static bool Present(char *why, size_t why_size) {
     return ok;
 }
 
+// ---- copies
+
+// The copies a game's NVN makes between textures and buffers, each through the layer's deko3d
+// copies on the console and in Eden, and through ScarletNX's own NVN copies there: a picture of
+// 64x64 texels, every texel four bytes of its own, staged in a processor-visible pool, put in a
+// texture and read back through the readback pool, which is first filled with a byte no texel
+// holds. Every byte is judged, the strided copy's padding included.
+
+/// Texel (x, y)'s four bytes: red and green name the place, blue mixes them, alpha is never zero.
+static void Pattern(uint32_t x, uint32_t y, uint8_t out[4]) {
+    out[0] = (uint8_t)(x * 4u + 1u);
+    out[1] = (uint8_t)(y * 4u + 3u);
+    out[2] = (uint8_t)(x ^ (y * 7u));
+    out[3] = (uint8_t)(0x80u | ((x + y) & 0x7fu));
+}
+
+/// The two copy textures in a pool of their own and the staging pool, the picture staged in its
+/// first half; false with the step in @p why.
+static bool BringCopies(char *why, size_t why_size) {
+    _Alignas(8) NVNtextureBuilder builder;
+    memset(&builder, 0, sizeof(builder));
+    TextureBuilder(&builder, TARGET_SIZE, TARGET_SIZE, 0);
+    const size_t size = RoundUp(nvn.nvn.nvnTextureBuilderGetStorageSize(&builder), POOL_PAGE);
+    nvn.copy_pool_up =
+        size != 0u && MakePool(&nvn.copy_pool, &nvn.copy_storage, 2u * size,
+                               NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS | NVN_MEMORY_POOL_FLAGS_GPU_CACHED);
+    nvn.stage_pool_up =
+        MakePool(&nvn.stage_pool, &nvn.stage_storage, 2u * TARGET_BYTES,
+                 NVN_MEMORY_POOL_FLAGS_CPU_UNCACHED | NVN_MEMORY_POOL_FLAGS_GPU_CACHED);
+    if (!nvn.copy_pool_up || !nvn.stage_pool_up) {
+        snprintf(why, why_size, "the copy pools: %s", Why("no memory, or false"));
+        return false;
+    }
+    nvn.nvn.nvnTextureBuilderSetStorage(&builder, &nvn.copy_pool, 0);
+    nvn.copy_a_up = nvn.nvn.nvnTextureInitialize(&nvn.copy_a, &builder);
+    nvn.nvn.nvnTextureBuilderSetStorage(&builder, &nvn.copy_pool, (ptrdiff_t)size);
+    nvn.copy_b_up = nvn.nvn.nvnTextureInitialize(&nvn.copy_b, &builder);
+    if (!nvn.copy_a_up || !nvn.copy_b_up) {
+        snprintf(why, why_size, "nvnTextureInitialize of the copy textures: %s", Why("false"));
+        return false;
+    }
+    uint8_t *const stage = nvn.nvn.nvnMemoryPoolMap(&nvn.stage_pool);
+    if (stage == NULL) {
+        snprintf(why, why_size, "nvnMemoryPoolMap gave no address for the staging pool: %s",
+                 Why("NULL"));
+        return false;
+    }
+    for (uint32_t y = 0; y < TARGET_SIZE; ++y) {
+        for (uint32_t x = 0; x < TARGET_SIZE; ++x) {
+            Pattern(x, y, stage + ((size_t)y * TARGET_SIZE + x) * 4u);
+        }
+    }
+    memset(stage + TARGET_BYTES, READ_PRESET, TARGET_BYTES);
+    return true;
+}
+
+typedef enum {
+    COPY_ROUND_TRIP,
+    COPY_TEXTURE,
+    COPY_BUFFER,
+    COPY_MIRROR_Y,
+    COPY_MIRROR_X,
+    COPY_STRIDE,
+} CopyKind;
+
+/// Records @p kind's copies, runs them and hands back the bytes it reads back, or NULL with the
+/// reason in @p why.
+static const uint8_t *RunCopies(CopyKind kind, char *why, size_t why_size) {
+    uint8_t *const read = nvn.nvn.nvnMemoryPoolMap(&nvn.read_pool);
+    uint8_t *const stage = nvn.nvn.nvnMemoryPoolMap(&nvn.stage_pool);
+    if (read == NULL || stage == NULL) {
+        snprintf(why, why_size, "nvnMemoryPoolMap gave no address: %s", Why("NULL"));
+        return NULL;
+    }
+    memset(read, READ_PRESET, READ_POOL_BYTES);
+    memset(stage + TARGET_BYTES, READ_PRESET, TARGET_BYTES);
+    const NVNbufferAddress picture = nvn.nvn.nvnMemoryPoolGetBufferAddress(&nvn.stage_pool);
+    const NVNbufferAddress readback = nvn.nvn.nvnMemoryPoolGetBufferAddress(&nvn.read_pool);
+    const NVNcopyRegion whole = { 0, 0, 0, TARGET_SIZE, TARGET_SIZE, 1 };
+    const int order = NVN_BARRIER_ORDER_PRIMITIVES_BIT | NVN_BARRIER_INVALIDATE_TEXTURE_BIT;
+    NVNcommandBuffer *const cmd = &nvn.command;
+    nvn.nvn.nvnCommandBufferBeginRecording(cmd);
+    nvn.nvn.nvnCommandBufferSetCopyRowStride(cmd, 0);
+    if (kind == COPY_BUFFER) {
+        nvn.nvn.nvnCommandBufferCopyBufferToBuffer(cmd, picture, readback, TARGET_BYTES,
+                                                   NVN_COPY_FLAGS_NONE);
+    } else {
+        nvn.nvn.nvnCommandBufferCopyBufferToTexture(cmd, picture, &nvn.copy_a, NULL, &whole,
+                                                    NVN_COPY_FLAGS_NONE);
+        nvn.nvn.nvnCommandBufferBarrier(cmd, order);
+        const NVNtexture *read_from = &nvn.copy_a;
+        int read_flags = NVN_COPY_FLAGS_NONE;
+        if (kind == COPY_TEXTURE || kind == COPY_MIRROR_X) {
+            nvn.nvn.nvnCommandBufferCopyTextureToTexture(
+                cmd, &nvn.copy_a, NULL, &whole, &nvn.copy_b, NULL, &whole,
+                kind == COPY_MIRROR_X ? NVN_COPY_FLAGS_MIRROR_X_BIT : NVN_COPY_FLAGS_NONE);
+            nvn.nvn.nvnCommandBufferBarrier(cmd, order);
+            read_from = &nvn.copy_b;
+        }
+        if (kind == COPY_MIRROR_Y) {
+            read_flags = NVN_COPY_FLAGS_MIRROR_Y_BIT;
+        }
+        if (kind == COPY_STRIDE) {
+            nvn.nvn.nvnCommandBufferSetCopyRowStride(cmd, (ptrdiff_t)STRIDE);
+        }
+        nvn.nvn.nvnCommandBufferCopyTextureToBuffer(cmd, read_from, NULL, &whole, readback,
+                                                    read_flags);
+        nvn.nvn.nvnCommandBufferSetCopyRowStride(cmd, 0);
+    }
+    const NVNcommandHandle list = nvn.nvn.nvnCommandBufferEndRecording(cmd);
+    if (list == 0u) {
+        snprintf(why, why_size, "nvnCommandBufferEndRecording gave no list: %s", Why("0"));
+        return NULL;
+    }
+    nvn.nvn.nvnQueueSubmitCommands(&nvn.queue, 1, &list);
+    nvn.nvn.nvnQueueFinish(&nvn.queue);
+    if (NvnLayerError()[0] != '\0') {
+        snprintf(why, why_size, "%s", NvnLayerError());
+        return NULL;
+    }
+    return read;
+}
+
+/// One copy case: what @p kind reads back must be the picture as the copy moves it, every byte
+/// past it the preset.
+static void CopyCase(const char *name, CopyKind kind) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    NvnLayerClearError();
+    char why[256];
+    const uint8_t *const got = RunCopies(kind, why, sizeof(why));
+    if (got == NULL) {
+        ReportCase(SUITE, name, CHECK_NONE, false, why);
+        return;
+    }
+    const uint32_t row = kind == COPY_STRIDE ? STRIDE : TARGET_SIZE * 4u;
+    uint32_t wrong = 0, first = 0;
+    uint8_t want_first = 0;
+    for (uint32_t at = 0; at < READ_POOL_BYTES; ++at) {
+        const uint32_t y = at / row, in_row = at % row;
+        uint8_t want = READ_PRESET;
+        if (y < TARGET_SIZE && in_row < TARGET_SIZE * 4u) {
+            uint32_t x = in_row / 4u, ty = y;
+            if (kind == COPY_MIRROR_X) {
+                x = TARGET_SIZE - 1u - x;
+            }
+            if (kind == COPY_MIRROR_Y) {
+                ty = TARGET_SIZE - 1u - y;
+            }
+            uint8_t texel[4];
+            Pattern(x, ty, texel);
+            want = texel[in_row % 4u];
+        }
+        if (got[at] != want && wrong++ == 0u) {
+            first = at;
+            want_first = want;
+        }
+    }
+    CHECK_TRUE(SUITE, name, CHECK_EXACT, wrong == 0u,
+               "%u of %u bytes wrong; the first, byte %u (row %u, byte %u of it), is 0x%02x, "
+               "expected 0x%02x (0x%02x is a byte nothing copied)",
+               (unsigned)wrong, (unsigned)READ_POOL_BYTES, (unsigned)first, (unsigned)(first / row),
+               (unsigned)(first % row), got[first], want_first, READ_PRESET);
+}
+
 void RunNvn(void) {
     static const char *const RESOLVE = "the program's NVN functions resolve";
     static const char *const DEVICE = "the device initializes";
@@ -385,7 +575,17 @@ void RunNvn(void) {
     static const char *const RED = "clear to opaque red";
     static const char *const MID = "clear to a mid channel value";
     static const char *const WINDOW = "a window acquires and presents both its textures";
-    const char *const AFTER_DEVICE[] = { VERSION, TARGET, RED, MID, WINDOW };
+    static const char *const COPIES = "two copy textures and a staging pool come up";
+    static const char *const ROUND_TRIP = "a picture copied into a texture and back keeps every texel";
+    static const char *const TEXTURE = "a texture copied into another keeps every texel";
+    static const char *const BUFFER = "a buffer copied into another keeps every byte";
+    static const char *const MIRROR_Y = "a texture copied to a buffer with MIRROR_Y lands upside down";
+    static const char *const MIRROR_X = "a texture copied into another with MIRROR_X lands mirrored";
+    static const char *const STRIDED = "a copy to a buffer with a row stride of 288 keeps the bytes "
+                                       "between rows";
+    const char *const AFTER_DEVICE[] = { VERSION,  TARGET,   RED,      MID,     COPIES,
+                                         ROUND_TRIP, TEXTURE, BUFFER, MIRROR_Y, MIRROR_X,
+                                         STRIDED,  WINDOW };
     const size_t after_count = sizeof(AFTER_DEVICE) / sizeof(AFTER_DEVICE[0]);
 
     memset(&nvn, 0, sizeof(nvn));
@@ -460,6 +660,26 @@ void RunNvn(void) {
     static const uint8_t mid_bytes[4] = { 0x80, 0x00, 0x00, 0xff };
     ClearCase(RED, red, red_bytes);
     ClearCase(MID, mid, mid_bytes);
+
+    if (ReportStart(SUITE, COPIES)) {
+        NvnLayerClearError();
+        const bool copies = BringCopies(why, sizeof(why));
+        CHECK_TRUE(SUITE, COPIES, CHECK_NONE, copies, "%s", why);
+        if (copies) {
+            CopyCase(ROUND_TRIP, COPY_ROUND_TRIP);
+            CopyCase(TEXTURE, COPY_TEXTURE);
+            CopyCase(BUFFER, COPY_BUFFER);
+            CopyCase(MIRROR_Y, COPY_MIRROR_Y);
+            CopyCase(MIRROR_X, COPY_MIRROR_X);
+            CopyCase(STRIDED, COPY_STRIDE);
+        } else {
+            const char *const after[] = { ROUND_TRIP, TEXTURE, BUFFER, MIRROR_Y, MIRROR_X, STRIDED };
+            for (size_t i = 0; i < sizeof(after) / sizeof(after[0]); ++i) {
+                ReportSkip(SUITE, after[i], REPORT_REASON_DEPENDS,
+                           "the copy textures or the staging pool did not come up");
+            }
+        }
+    }
 
     if (ViewerScreenUp()) {
         // The program's own screen holds the default window, and a swapchain made on it after
