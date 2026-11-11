@@ -18,6 +18,7 @@
 * [order](#order)
 * [index](#index-1)
 * [topology](#topology)
+* [vertex](#vertex)
 * [instance](#instance)
 * [geometry](#geometry)
 * [bindless](#bindless)
@@ -42,7 +43,7 @@
 * [What a console run settles](#what-a-console-run-settles)
 * [Where reden falls short](#where-reden-falls-short)
 
-The thirty six drawing suites, clear to copy, in the order they run, and tex8k after them.
+The thirty seven drawing suites, clear to copy, in the order they run, and tex8k after them.
 
 ## clear
 
@@ -535,6 +536,39 @@ and `maxwell_to_vk.cpp`, `PrimitiveTopology`; the quad and restart index passes,
 `vk_compute_pass.cpp`, `QuadArrayPass` and `QuadIndexedPass`, and `vk_buffer_cache.cpp` for 8-bit
 indices), the restart index (`vk_graphics_pipeline.cpp`, `primitiveRestartEnable`), the
 provoking vertex mode (`VK_EXT_provoking_vertex`), and the polygon mode (`fillModeNonSolid`).
+
+## vertex
+
+Twelve cases and a note. How the 3D class fetches a vertex attribute where Vulkan asks more of the
+layout than the guest's driver did, so an emulator restrides, repacks or splits the stream. Each
+case draws one point per vertex, at the pixel the vertex's own number names (vertex_value.vert.glsl:
+the number plus eight per instance, row by row), carrying the attribute as fetched, on a 16 by 16
+RGBA32F target: every component judged bit for bit, every pixel the draw does not reach held to the
+clear. What an attribute gives from its bytes is `source/vertexref.c`'s, pinned by the reference
+suite. The bytes around every vertex are 0xff, a NaN in any float a wrong fetch reads.
+
+- **Strides and offsets.** RGBA32F vertices 69 bytes apart, so seven in eight of them start on no
+  multiple of four, which Vulkan's attribute alignment does not allow; 48 bytes apart with the
+  attribute at offset 8; and 32 bytes apart with the attribute at offset 40, past the stride, so
+  each vertex reads from where the next one starts.
+- **The components a format lacks.** RGB32F reads one in w, RG32F nought and one in z and w, R32F
+  nought, nought and one: OpenGL's and Vulkan's rule for a vector the format leaves short.
+- **Formats.** Four unsigned normalised bytes in BGRA order, red from the third byte (each byte
+  nought or full, exact in any conversion); four 16-bit signed scaled values from -32768 to 32767,
+  whole numbers as floats; four 8-bit unsigned scaled ones to 255; and 10_10_10_2 unsigned
+  normalised, each field nought or full and the 2-bit one nought or three.
+- **A per instance attribute** with divisor 3: one vertex drawn nine times, each instance reading
+  the element its number divided by three names.
+
+The note, which no machine is held to: what a fixed attribute gives a shader, the state deko3d
+leaves every attribute it was not given (`IsFixed`, 1x32 float): OpenGL's default `0 0 0 1`, or a
+constant of nought in every component, which the note says in bits.
+
+In an emulator a failure points at the vertex buffer's binding (`buffer_cache/buffer_cache.h`,
+`UpdateVertexBuffers`; a stride or an offset the host refuses, made into a copy), the attribute
+format's host mapping and its BGRA and scaled forms (`maxwell_to_vk.cpp`, `VertexFormat`;
+`vk_graphics_pipeline.cpp`), the components a short format leaves to the shader, and the
+instance divisor (`VK_EXT_vertex_attribute_divisor`).
 
 ## instance
 

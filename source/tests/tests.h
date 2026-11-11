@@ -158,6 +158,11 @@ void RunTopology(void);
 /// and keep sRGB bytes.
 void RunCopy(void);
 
+/// Vertex attributes fetched as the 3D class fetches them: strides that are no multiple of four,
+/// poison between vertices, offsets past the stride, missing components, BGRA, scaled and packed
+/// formats, and a per instance divisor.
+void RunVertex(void);
+
 /// The 3D class's instanced vertex array draws, sent as raw methods: each draws when it arrives,
 /// with the state it arrived under, as the instance it is.
 void RunInstance(void);
@@ -385,6 +390,10 @@ void RunReferenceTopology(void);
 /// The copy suite's pictures, conversions and texel places, against answers worked out by hand:
 /// part of the reference suite.
 void RunReferenceCopy(void);
+
+/// The vertex suite's layouts and places, against values worked out by hand: part of the
+/// reference suite.
+void RunReferenceVertex(void);
 
 #ifdef __cplusplus
 }

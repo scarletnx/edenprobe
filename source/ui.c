@@ -551,6 +551,7 @@ static const struct {
     { "texture", UI_FAMILY_GRAPHICS }, { "coherence", UI_FAMILY_GRAPHICS },
     { "fmath", UI_FAMILY_GRAPHICS },  { "order", UI_FAMILY_GRAPHICS },
     { "index", UI_FAMILY_GRAPHICS },  { "topology", UI_FAMILY_GRAPHICS },
+    { "vertex", UI_FAMILY_GRAPHICS },
     { "instance", UI_FAMILY_GRAPHICS },
     { "bindless", UI_FAMILY_GRAPHICS }, { "astc", UI_FAMILY_GRAPHICS },
     { "astcimage", UI_FAMILY_GRAPHICS },
