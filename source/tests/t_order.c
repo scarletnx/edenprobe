@@ -34,11 +34,13 @@
 // Vulkan subpasses"), each pixel reading back only its own word, with the shader cache
 // invalidation and no image cache one (which an emulator may answer with a wait for idle).
 //
-// Last, three things a compute or drawing launch does that ScarletNX's runtime tests hold it to:
+// Last, four things a compute or drawing launch does that ScarletNX's runtime tests hold it to:
 // an indirect dispatch whose grid the processor wrote as nought groups runs none; a draw with no
 // target bound at all, colour or depth, still runs its fragments, whose only effect is the words
 // they store; and a block of 64 invocations uses all 48 KiB of shared memory a block of the
-// console's GPU is given, every word written by one invocation and read by another.
+// console's GPU is given, each invocation reading back the words it wrote, then the same past a
+// barrier, each reading the words another wrote: the barrier as uam compiles it, BAR.SYNC with RZ
+// for its barrier and its count.
 
 static const char *const SUITE = "order";
 
@@ -80,6 +82,7 @@ typedef struct {
     DkShader load_ssbo;
     DkShader common_vert;
     DkShader shared_reach;
+    DkShader shared_swap;
 } OrderContext;
 
 /// A buffer in scratch, the processor's pointer and the graphics unit's address of it.
@@ -500,10 +503,10 @@ static void CaseTargetless(OrderContext *o) {
                o->gpu.failure[0] != '\0' ? o->gpu.failure : "the draw was not recorded");
 }
 
-/// One block of 64 over 48 KiB of shared memory (shared_reach.comp.glsl): every invocation's sum
-/// of the 192 words the opposite one wrote, folded in order, as the processor folds them.
-static void CaseSharedReach(OrderContext *o) {
-    const char *const name = "a block of 64 uses all 48 KiB of its shared memory";
+/// One block of 64 over 48 KiB of shared memory: every invocation's sum of the 192 words it wrote
+/// (shared_reach.comp.glsl) or, past a barrier, of the ones the opposite invocation wrote
+/// (shared_swap.comp.glsl), folded in order, as the processor folds them.
+static void CaseShared(OrderContext *o, const char *name, const DkShader *shader, bool swapped) {
     if (!ReportStart(SUITE, name)) {
         return;
     }
@@ -514,7 +517,7 @@ static void CaseSharedReach(OrderContext *o) {
         return;
     }
     memset(out.cpu, 0, 64u * 4u);
-    const DkShader *const shaders[] = { &o->shared_reach };
+    const DkShader *const shaders[] = { shader };
     dkCmdBufBindShaders(o->gpu.cmdbuf, DkStageFlag_Compute, shaders, 1);
     dkCmdBufBindStorageBuffer(o->gpu.cmdbuf, DkStage_Compute, 0, out.gpu, 64u * 4u);
     dkCmdBufDispatchCompute(o->gpu.cmdbuf, 1, 1, 1);
@@ -524,7 +527,7 @@ static void CaseSharedReach(OrderContext *o) {
     for (uint32_t t = 0; t < 64u; ++t) {
         uint32_t sum = 0;
         for (uint32_t i = 0; i < 192u; ++i) {
-            const uint32_t at = i * 64u + (63u - t);
+            const uint32_t at = i * 64u + (swapped ? 63u - t : t);
             sum = sum * 31u + (at * 2654435761u + 12345u);
         }
         want[t] = sum;
@@ -796,6 +799,8 @@ void RunOrder(void) {
                       ShaderSize(SHADER_LOAD_SSBO_FRAG)) &&
         GpuLoadShader(&o.gpu, &o.shared_reach, ShaderData(SHADER_SHARED_REACH_COMP),
                       ShaderSize(SHADER_SHARED_REACH_COMP)) &&
+        GpuLoadShader(&o.gpu, &o.shared_swap, ShaderData(SHADER_SHARED_SWAP_COMP),
+                      ShaderSize(SHADER_SHARED_SWAP_COMP)) &&
         GpuLoadShader(&o.gpu, &o.common_vert, ShaderData(SHADER_COMMON_VERT),
                       ShaderSize(SHADER_COMMON_VERT));
     CHECK_TRUE(SUITE, "the compute and drawing shaders load", CHECK_NONE, loaded, "%s",
@@ -839,7 +844,9 @@ void RunOrder(void) {
     DrawsCase(&o, false);
     CaseZeroGrid(&o);
     CaseTargetless(&o);
-    CaseSharedReach(&o);
+    CaseShared(&o, "a block of 64 uses all 48 KiB of its shared memory", &o.shared_reach, false);
+    CaseShared(&o, "a barrier hands each of 64 invocations the shared words another wrote",
+               &o.shared_swap, true);
 
     GpuClose(&o.gpu);
 }

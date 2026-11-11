@@ -82,6 +82,7 @@ static const ShaderBlob BLOBS[SHADER_COUNT] = {
     [SHADER_SAMPLE_AT_FRAG] = { sample_at_frag_dksh, (uint32_t)sample_at_frag_dksh_size },
     [SHADER_FETCH_VOLUME_FRAG] = { fetch_volume_frag_dksh, (uint32_t)fetch_volume_frag_dksh_size },
     [SHADER_SHARED_REACH_COMP] = { shared_reach_comp_dksh, (uint32_t)shared_reach_comp_dksh_size },
+    [SHADER_SHARED_SWAP_COMP] = { shared_swap_comp_dksh, (uint32_t)shared_swap_comp_dksh_size },
     [SHADER_SATURATE_FRAG] = { saturate_frag_dksh, (uint32_t)saturate_frag_dksh_size },
     [SHADER_BUFFER_READ_VERT] = { buffer_read_vert_dksh, (uint32_t)buffer_read_vert_dksh_size },
     [SHADER_BUFFER_STORE_GEOM] = { buffer_store_geom_dksh, (uint32_t)buffer_store_geom_dksh_size },

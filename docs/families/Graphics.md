@@ -501,7 +501,7 @@ clamp gives.
 
 ## order
 
-Twenty two cases, on the graphics unit with a compute queue. A dispatch writes a buffer,
+Twenty three cases, on the graphics unit with a compute queue. A dispatch writes a buffer,
 a wait for idle follows (`DkBarrier_Primitives`, the library's "completes the processing of all
 previous primitives and compute jobs", emitted as the 3D engine's WaitForIdle, the pattern
 deko3d's own compute example uses between generating vertices and drawing them), and the next
@@ -528,14 +528,17 @@ only its own word, with the shader cache invalidation and no image cache one; in
 failure points at `FragmentBarrier` and `TiledCacheBarrier` (`renderer_vulkan/vk_rasterizer.cpp`).
 The tiles case holds the library to its documentation and has not been run on a console yet.
 
-Then three a launch answers on its own, which ScarletNX's runtime tests hold it to: an indirect
+Then four a launch answers on its own, which ScarletNX's runtime tests hold it to: an indirect
 dispatch whose grid the processor wrote as nought groups runs none, every slot keeping its
 nought; a draw with no target bound at all, colour or depth, still runs its fragments, whose only
 effect is the words they store (`store_ssbo.frag.glsl`, sixteen words and none past them); and a
 block of 64 invocations uses all 48 KiB of shared memory a block of the console's GPU is given
-(`shared_reach.comp.glsl`), each invocation folding in order the 192 words the one at the other
-end wrote. In an emulator these point at a dispatch of nothing turned into one of something, a
-draw skipped for having no target, and shared memory a host gives a block less of.
+(`shared_reach.comp.glsl`), each invocation folding in order the 192 words it wrote, through the
+last; then the same past a barrier (`shared_swap.comp.glsl`), each folding the words the one at
+the other end wrote, the barrier as uam compiles one (BAR.SYNC with RZ for its barrier and its
+count, which neither ScarletNX nor Eden takes: both leave the dispatch out). In an emulator these
+point at a dispatch of nothing turned into one of something, a draw skipped for having no target,
+shared memory a host gives a block less of, and a barrier form its translator refuses.
 
 ## queue
 
