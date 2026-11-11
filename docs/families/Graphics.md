@@ -1201,6 +1201,18 @@ whether the machine does.
   shader: Eden gives OpenGL's `0 0 0 1`. And do the eleven cases hold? Eden passes all but BGRA.
 - **Q16, queue.** Do the waits hold and wake as written? ScarletNX passes all five; Eden runs the
   waiting list at once and releases the other queue's wait before that queue's copy lands.
+- **Q17, zeta.** What a cleared Z24S8, Z24X8 and ZF32_X24S8 target holds in memory, and what a
+  stencil view of Z24S8 and ZF32_X24S8 samples: the cases expect the stencil in the low byte under
+  0xbfffff (deko3d's S8Z24Unorm surface) and the stencil byte after ZF32_X24S8's float, and the
+  stencil in all four channels of a view. No emulator passes them: ScarletNX writes no depth target
+  back to memory at all (scarletnx/ScarletNX#1737) and samples the stencil views as other bits (0x45ba4144 for 0x5a); Eden
+  writes 0x5a5a5a5a for Z24S8 and both words of ZF32_X24S8, nothing for Z24X8, and samples the
+  stencil views as nought. Z16, ZF32 and S8 Eden writes back as expected.
+- **Q18, bcn.** Do the BCn blocks decode with the interpolants the cases expect, NVIDIA's as
+  ScarletNX's decoder has them (BC1's thirds 170 and 85, its midpoint 127, BC3's six-value index 2
+  48, BC4's index 2 56355 of 65535)? Both emulators sample BCn on the host GPU (an RX 6700 XT here)
+  and give its interpolants, alike in every case: 171 and 84, 128, 52, 56320. BC5, BC6H and BC7 and
+  the endpoints pass on both.
 
 The blit2d suite asks two questions of its own, which texel each origin samples when the copy
 scales and how a fraction in the scale is stepped; they are on [its page](Blit2d.md), as its Q1
@@ -1278,3 +1290,20 @@ Read in reden at 75c12299a6; each gap is a case here that fails, and the new cas
   its copy made while the word is short, and another queue's release reaches it before that queue's
   own copy has landed (`engines/puller.cpp`, `ProcessSemaphoreAcquire`): three of the queue suite's
   five cases fail. ScarletNX passes all five.
+
+What the image cases found, read at 44395ac49c:
+
+- **A multisampled target's samples are elsewhere than the 2x2 layout puts them.** The triangle's
+  samples come back with sample 1 of the pixels on its edge green, where the standard positions
+  leave it blue, the resolve averages the wrong samples, and a 4x texture the processor wrote is
+  fetched sample by sample from other places (48 of 64): the msaa suite's first, second and fourth
+  cases fail. Its 4x depth clear and the conservative triangle pass. ScarletNX passes all but the
+  depth clear, which it never writes back (scarletnx/ScarletNX#1737).
+- **A rectangle view's texel coordinates are taken as normalised.** The lookup at (3.5, 0.5) reads
+  texel (2, 2), where the descriptor's coordinates are off; reden reads the bit
+  (`shader_environment.cpp:48`, `texture_cache/image_view_info.cpp:73`) and the lookup still
+  repeats. ScarletNX passes.
+- **A copy into a volume's slices, and out of them, puts them elsewhere.** The storage suite's
+  volume fills slice by slice through the copy engine and reads its slice 0 back as slice 2's bytes;
+  the two volume cases fail and the arrays' pass. ScarletNX passes all eighteen.
+- **A packed depth target written back holds its stencil everywhere** (Q17).
