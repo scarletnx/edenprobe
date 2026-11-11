@@ -17,6 +17,7 @@
 * [fmath](#fmath)
 * [order](#order)
 * [index](#index-1)
+* [topology](#topology)
 * [instance](#instance)
 * [geometry](#geometry)
 * [bindless](#bindless)
@@ -40,7 +41,7 @@
 * [What a console run settles](#what-a-console-run-settles)
 * [Where reden falls short](#where-reden-falls-short)
 
-The thirty four drawing suites, clear to blit2d, in the order they run, and tex8k after them.
+The thirty five drawing suites, clear to blit2d, in the order they run, and tex8k after them.
 
 ## clear
 
@@ -466,6 +467,73 @@ triangles over the target, so reading the limit as one past the end loses half t
 8, 16 and 32 bit indices, a long draw, and one that starts four indices in; one control with
 the library's open limit. In an emulator a failure points at the size the index buffer is bound
 with (`buffer_cache/buffer_cache.h`, `UpdateIndexBuffer`).
+
+## topology
+
+Twenty eight cases and two notes. The primitive types the 3D class draws and Vulkan does not
+(quads, quad strips, polygons, line loops), an index list that restarts at any index, quads and
+polygons drawn as lines, and which vertex a flat colour comes from in each. An emulator remakes
+each of them out of triangle lists, strips and the all-ones restart, often with an index buffer
+of its own. Every case draws flat colours on a 64 by 64 RGBA8 target, deko3d's default
+rasteriser with no culling and the last vertex provoking unless it says otherwise, and reads all
+4096 pixels back: exact. The shapes have their corners on whole pixel corners and their diagonals
+at slopes that keep every pixel centre a twentieth of a pixel or more from an edge where the
+colour changes (two rows down for one column across, two across for one down, three for two), so
+no case leans on a fill rule. The rules are `source/topologyref.c`'s, from OpenGL's section 10.1
+and table 10.2, pinned by the reference suite. In the order they run:
+
+- **Quads.** Two rectangles of four vertices each in one draw, wound around their edge: each
+  covered, nothing else. Then each vertex its own colour: a quad takes its fourth vertex's, so a
+  split into two triangles that keeps the last vertex of each gives half the quad its third
+  vertex's colour, and one that keeps the first gives it the first's. Then from 8, 16 and 32-bit
+  indices, the second quad's first (three cases); from 16-bit indices that start three in, with
+  a vertex offset of two over two vertices of padding; and six vertices drawn as quads, which draw
+  one: the buffer holds the two that would finish a second, so an emulator that rounds the count
+  up draws it.
+- **A quad strip** of eight vertices, its pairs top then bottom: three quads covered, then each
+  in its last vertex's colour (vertices 3, 5 and 7).
+- **A polygon** of six corners around a rectangle, two of them on its sides: the rectangle and
+  nothing else. Taken as a triangle strip or a list it leaves part of the rectangle out.
+- **A triangle fan** of four triangles around a hub: the rectangle covered, then each triangle
+  in its last vertex's colour; and a strip of four triangles, each in its last vertex's colour.
+  The last vertex provokes on the console's default and Vulkan's is the first: an emulator needs
+  VK_EXT_provoking_vertex's last vertex mode, or to rotate each triangle. Then the first vertex
+  convention, set by the list: a strip's triangles take their first vertex's colour, a fan's the
+  first of their rim vertices', not the hub's, as both OpenGL and Vulkan have it.
+- **Restart.** Two strips of two triangles with the restart index between them, and a ninth
+  vertex far to the right that every bridge a missed restart makes reaches for: restart index 8
+  with 16, 8 and 32-bit indices, which Vulkan cannot restart at (it restarts at the all-ones value
+  of the index's width alone); 0xff with 8-bit indices, which an emulator that widens 8-bit
+  indices to 16 has to turn into 0xffff; and with restart off, index 8 a vertex like any other,
+  which draws the bridges and shows where they land. Then two fans, each with a hub of its own
+  after the restart, and two quads from 16-bit indices with the restart index between them.
+- **Lines.** A line loop of a rectangle's four corners, on pixel centres, draws its fourth side
+  from the last vertex back to the first; a line strip of the same four leaves that side clear. A
+  quad of the same corners drawn as lines (the polygon mode Line, both faces) shows its four sides
+  and no diagonal, as does a polygon of them: an emulator that draws them as triangles in line mode
+  shows the diagonal the two triangles share. Two triangles drawn as lines show that diagonal,
+  the control. A line case judges a pixel drawn when its centre is within a quarter of a pixel of
+  a line and a pixel or more from its ends, and clear when it is over a pixel from every line,
+  which the diamond exit rule, Bresenham's and rectangular lines all agree on; the rest is not
+  judged.
+
+A case that tells vertices apart names, on a failure, whose colour the first wrong pixel holds
+and whose it should.
+
+The notes, which no machine is held to, since a console run is what says which answer is right:
+
+- **A polygon's flat colour.** OpenGL takes a polygon's from its first vertex under either
+  convention. The six corners each their own colour: the note counts the rectangle's pixels by
+  the vertex whose colour they hold.
+- **Quads under the first vertex convention.** OpenGL takes a quad's from its first vertex when
+  QUADS_FOLLOW_PROVOKING_VERTEX_CONVENTION is true and from its fourth when it is false, and
+  either is allowed. The note counts each quad's pixels the same way.
+
+In an emulator a failure points at the topology's remaking (`renderer_vulkan/vk_rasterizer.cpp`
+and `maxwell_to_vk.cpp`, `PrimitiveTopology`; the quad and restart index passes,
+`vk_compute_pass.cpp`, `QuadArrayPass` and `QuadIndexedPass`, and `vk_buffer_cache.cpp` for 8-bit
+indices), the restart index (`vk_graphics_pipeline.cpp`, `primitiveRestartEnable`), the
+provoking vertex mode (`VK_EXT_provoking_vertex`), and the polygon mode (`fillModeNonSolid`).
 
 ## instance
 
@@ -902,6 +970,11 @@ whether the machine does.
   a one sample integer target, the split each position pattern gives, the grid's odd columns, the
   modulation and its table, and 0xa after the depth test? Expected yes; no emulator passes most of
   them yet, so a console run is the first that says the cases are right.
+- **Q13, topology.** Which vertex's colour a polygon takes (OpenGL: its first, under either
+  convention), and a quad under the first vertex convention (OpenGL: its first or its fourth);
+  the two notes count the pixels by vertex. And do the cases OpenGL's tables decide come out as
+  written on the 3D class: a quad strip's last vertex, a fan's rim vertex under the first vertex
+  convention, a quad and a polygon drawn as lines with no diagonal? Expected yes.
 
 The blit2d suite asks two questions of its own, which texel each origin samples when the copy
 scales and how a fraction in the scale is stepped; they are on [its page](Blit2d.md), as its Q1

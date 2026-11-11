@@ -149,6 +149,10 @@ void RunOrder(void);
 /// methods: the last index must still be used.
 void RunIndex(void);
 
+/// Quads, quad strips, polygons, line loops, restart indices and the vertex a flat colour comes
+/// from: the primitive types and restarts the 3D class draws and Vulkan does not.
+void RunTopology(void);
+
 /// The 3D class's instanced vertex array draws, sent as raw methods: each draws when it arrives,
 /// with the state it arrived under, as the instance it is.
 void RunInstance(void);
@@ -368,6 +372,10 @@ void RunReferenceTex8k(void);
 /// The fixed suite's compares, bounds, window depths, point squares, projected rectangles and
 /// faces, against answers worked out by hand: part of the reference suite.
 void RunReferenceFixed(void);
+
+/// The topology suite's triangles, segments, provoking vertices, restart runs, coverage and
+/// margins, against answers worked out by hand: part of the reference suite.
+void RunReferenceTopology(void);
 
 #ifdef __cplusplus
 }
