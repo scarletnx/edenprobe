@@ -62,6 +62,8 @@ static const RunnerStep STEPS[] = {
     { "coherence", RunCoherence, MODE_FAMILY_GRAPHICS, true, true },
     { "fmath", RunFmath, MODE_FAMILY_GRAPHICS, true, true },
     { "order", RunOrder, MODE_FAMILY_GRAPHICS, true, true },
+    // After order: the same question between two queues, by a word in memory.
+    { "queue", RunQueue, MODE_FAMILY_GRAPHICS, true, true },
     { "index", RunIndex, MODE_FAMILY_GRAPHICS, true, true },
     // After index, whose indexed draws the restart and indexed quad cases lean on.
     { "topology", RunTopology, MODE_FAMILY_GRAPHICS, true, true },
