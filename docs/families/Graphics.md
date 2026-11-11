@@ -749,7 +749,8 @@ The last case binds one storage buffer to both stages before the fragment one:
 reads word 32 for the colour. Every pixel must be the colour and the buffer must hold the
 sixteen stores and its other words as they were. ScarletNX's draw storage test holds its
 renderer to the geometry stage's writes aliasing the vertex stage's reads; a host that gives the
-geometry stage none of the draw's global memory loses the stores.
+geometry stage none of the draw's global memory loses the stores. Eden passes; ScarletNX skips the
+draw, refusing a vertex program that reads a storage buffer (scarletnx/ScarletNX#1738).
 
 ## xfb
 
@@ -1273,6 +1274,13 @@ whether the machine does.
   48, BC4's index 2 56355 of 65535)? Both emulators sample BCn on the host GPU (an RX 6700 XT here)
   and give its interpolants, alike in every case: 171 and 84, 128, 52, 56320. BC5, BC6H and BC7 and
   the endpoints pass on both.
+- **Q19, order.** Does a compute program's barrier as uam compiles it (BAR.SYNC with RZ for its
+  barrier and its count) hold 64 invocations until all have written their shared words? Neither
+  emulator runs the dispatch: ScarletNX says `BAR f0a803800ff7ff00` is not translated, and Eden
+  leaves every word as it was. The same 48 KiB without a barrier passes on both.
+- **Q20, xfb.** What the primitives written counter reads after one captured triangle: the case
+  expects 1. ScarletNX, which captures the positions, reads 1000; Eden, which captures nothing,
+  reads nought.
 
 The blit2d suite asks two questions of its own, which texel each origin samples when the copy
 scales and how a fraction in the scale is stepped; they are on [its page](Blit2d.md), as its Q1
@@ -1367,3 +1375,12 @@ What the image cases found, read at 44395ac49c:
   volume fills slice by slice through the copy engine and reads its slice 0 back as slice 2's bytes;
   the two volume cases fail and the arrays' pass. ScarletNX passes all eighteen.
 - **A packed depth target written back holds its stencil everywhere** (Q17).
+
+What the launch cases found, at the same commit:
+
+- **A fragment program the copy engine rewrites in the middle of a list keeps its old code.** The
+  draw after the copy, a full barrier and the shader cache's invalidation draws red where the new
+  program draws green; the processor's rewrite between two lists passes. ScarletNX passes both.
+- **Transform feedback set by the 3D class's registers captures nothing.** The buffer keeps every
+  byte it held (`vk_rasterizer.cpp`, `HandleTransformFeedback`, which the registers reach); the
+  counter reads nought (Q20). ScarletNX captures the three positions.
