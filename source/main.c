@@ -65,6 +65,7 @@ static const RunnerStep STEPS[] = {
     { "index", RunIndex, MODE_FAMILY_GRAPHICS, true, true },
     // After index, whose indexed draws the restart and indexed quad cases lean on.
     { "topology", RunTopology, MODE_FAMILY_GRAPHICS, true, true },
+    { "vertex", RunVertex, MODE_FAMILY_GRAPHICS, true, true },
     { "instance", RunInstance, MODE_FAMILY_GRAPHICS, true, true },
     { "geometry", RunGeometry, MODE_FAMILY_GRAPHICS, true, true },
     { "bindless", RunBindless, MODE_FAMILY_GRAPHICS, true, true },

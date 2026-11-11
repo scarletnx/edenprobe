@@ -70,6 +70,7 @@ static const ShaderBlob BLOBS[SHADER_COUNT] = {
     [SHADER_STORE_TESE] = { store_tese_dksh, (uint32_t)store_tese_dksh_size },
     [SHADER_STORE_VERT] = { store_vert_dksh, (uint32_t)store_vert_dksh_size },
     [SHADER_FETCH_TEXEL_FRAG] = { fetch_texel_frag_dksh, (uint32_t)fetch_texel_frag_dksh_size },
+    [SHADER_VERTEX_VALUE_VERT] = { vertex_value_vert_dksh, (uint32_t)vertex_value_vert_dksh_size },
 };
 
 const void *ShaderData(ShaderId id) {
