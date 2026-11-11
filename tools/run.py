@@ -21,7 +21,8 @@ for the ban list (docs/Crashes.md): --machine's, or the one the emulator's name 
 its version with --version, ryujinx with none; WORDS that name a machine already keep theirs, and
 an emulator of another name gets no machine word, which is said. After it goes vram=MiB, the
 graphics memory this machine's card says it has of its own (the largest mem_info_vram_total under
-/sys/class/drm, a file amdgpu writes): with less than the tex8k suite's textures want, the program
+/sys/class/drm, a file amdgpu writes, else the largest memory.total nvidia-smi gives, since NVIDIA's
+own driver writes no such file): with less than the tex8k suite's textures want, the program
 does not try them and says both numbers (docs/families/Graphics.md), since a host that runs out
 there can lose its graphics device. WORDS that say vram= keep theirs, and a machine whose driver
 says no such number gets no word, which is said: its textures are tried. The program names the folder it
@@ -506,6 +507,8 @@ def machine_word(emulator, xdg, mode, machine):
 DRM = "/sys/class/drm"
 # The most vram= takes (source/mode.h, MODE_VRAM_MAX).
 VRAM_MAX = 1048576
+# NVIDIA's tool, which says its cards' memory where its driver writes no mem_info_vram_total.
+NVIDIA_SMI = "nvidia-smi"
 
 
 def graphics_memory():
@@ -529,9 +532,28 @@ def graphics_memory():
         if size >= 1024 * 1024:
             found.append((min(size // (1024 * 1024), VRAM_MAX), path))
     if not found:
-        return None
+        return nvidia_memory()
     mib, path = max(found)
     return mib, path, len(found)
+
+
+def nvidia_memory():
+    """The memory nvidia-smi says its cards have, as graphics_memory() gives it, the tool's command
+    standing for the file; None when there is no such tool, it fails or it says no number. In MiB
+    already: memory.total with nounits."""
+    command = [NVIDIA_SMI, "--query-gpu=memory.total", "--format=csv,noheader,nounits"]
+    try:
+        done = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                              timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    sizes = [int(line.strip()) for line in done.stdout.splitlines() if line.strip().isdigit()]
+    sizes = [size for size in sizes if size > 0]
+    if not sizes:
+        return None
+    return min(max(sizes), VRAM_MAX), " ".join(command), len(sizes)
 
 
 def vram_word(mode):
@@ -544,8 +566,8 @@ def vram_word(mode):
     memory = graphics_memory()
     if memory is None:
         return None, ("no vram= word: no card under %s says its memory in mem_info_vram_total, "
-                      "amdgpu's file, so tex8k's textures are tried whatever this machine has; "
-                      "vram=<MiB> among MODE's words says it" % DRM)
+                      "amdgpu's file, and %s says none, so tex8k's textures are tried whatever "
+                      "this machine has; vram=<MiB> among MODE's words says it" % (DRM, NVIDIA_SMI))
     mib, path, cards = memory
     return "vram=%d" % mib, "vram=%d, the MiB %s says%s; vram=<MiB> among MODE's words says another" % (
         mib, path, ", the largest of %d cards" % cards if cards > 1 else "")

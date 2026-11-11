@@ -106,9 +106,10 @@ counting down ten seconds. Beside `MODE` it writes the machine for the [ban list
 Ryujinx; `MACHINE=<name>[@<version>]` names another, and an emulator of another name gets none, which `make run` says.
 
 After the machine it writes `vram=<MiB>`, the graphics memory this computer's card says it has of its own: the largest
-`mem_info_vram_total` under `/sys/class/drm`, a file the amdgpu driver writes. With less than 4096 the program does not
+`mem_info_vram_total` under `/sys/class/drm`, a file the amdgpu driver writes, and where no card writes one, the largest
+`memory.total` `nvidia-smi` gives, since NVIDIA's own driver writes no such file. With less than 4096 the program does not
 try [tex8k](families/Graphics.md#tex8k)'s 8192x8192 textures, which on a handheld took the graphics device and the
-display with it. `MODE="quick vram=8192"` says another number and is kept; where no card says one (another driver,
+display with it. `MODE="quick vram=8192"` says another number and is kept; where neither says one (another driver,
 another system), no word is written, `make run` says so, and the textures are tried.
 
 **Several rounds, for the times.** `make run ROUNDS=5` makes the whole run five times and prints how far apart each
