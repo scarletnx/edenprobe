@@ -637,7 +637,8 @@ The last two hold sm to the name rule of the sm the consoles edenprobe runs on c
 `ValidateServiceName`): one to eight bytes, NUL padded, nothing past the first NUL; ScarletNX's sm
 test holds its sm to the same. reden keeps only the printable bytes of a name and so takes
 `se\0t` for `set` and hands a session back; the case closes any session it is given. This is the
-one answer in the family not held to reden's.
+one answer in the family not held to reden's. ScarletNX 9bef605 passes both; Eden 6a9235c22d passes the
+empty name and hands back a session of set for `se\0t`.
 
 Every handle is closed before the suite returns.
 
