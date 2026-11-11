@@ -406,6 +406,10 @@ void RunReferenceVertex(void);
 /// The svc suite's result codes and how its lines name them: part of the reference suite.
 void RunReferenceSvc(void);
 
+/// The cpu suite's floating point rules, against values worked out by hand: part of the reference
+/// suite.
+void RunReferenceCpuFp(void);
+
 #ifdef __cplusplus
 }
 #endif

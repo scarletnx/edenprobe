@@ -1,6 +1,6 @@
 # The processor
 
-- **cpu**, fifteen cases, on the processor and in every mode, since it needs no device. Three count
+- **cpu**, twenty two cases, on the processor and in every mode, since it needs no device. Three count
   leading zeros over the sixteen 8-bit, eight 16-bit and four 32-bit lanes of one vector register,
   loaded from memory so a translator cannot fold the answer away, and compared exactly with the
   reference. The 16-bit case is there because a translator that widened the lanes to count them
@@ -46,6 +46,23 @@
   rather than end the program. The instructions sit in `source/cpugaps.c`, apart from the case,
   so their machine code can be run on Unicorn against the same references before a console sees
   them.
+
+  Seven hold the floating point rules a translator emulates in software or hands to a host whose
+  own instructions differ, each lane against the Arm ARM's pseudocode worked out in integer
+  arithmetic (`source/cpufpref.c`, Armv8.0 as the Cortex-A57 has it), and FPSR's five cumulative
+  flags read after every register, so a lane that raised the wrong one is told apart:
+  FRECPE and FRSQRTE on four registers of singles, normal, at the edges of the exponent (2^127
+  and 2^126, whose estimates are denormal; denormals under and over 2^-128, where FRECPE overflows
+  to an infinity), noughts, infinities, negative values and NaNs quiet and signalling; URECPE
+  and URSQRTE, all ones below their ranges; FRECPX, which has only a scalar form, the largest
+  exponent for noughts and denormals; FCVTN and FCVTL with FPCR.AHP set, where exponent 31 is a
+  number (0x7c00 is 65536), a value past 131008 or an infinity saturates to 0x7fff with Invalid and
+  no Inexact, and a NaN becomes nought; FCVTN of four NaNs with DN clear, keeping each payload's
+  top nine bits, and set, giving 0x7e00; and FMAX, FMIN, FMAXNM and FMINNM on eight pairs: a quiet
+  NaN against a number either way round, a signalling NaN against a quiet one either way (the
+  signalling one wins, quieted, even second), the two noughts both ways (+0 the maximum, -0 the
+  minimum), denormals of either sign and an infinity. The references agreed with Unicorn's
+  AArch64 on 122,510 inputs, flags included, before a console saw them.
 
   The last two read system registers a game may reach from EL0: CNTVCT_EL0, the virtual count,
   which has to move forward with the physical one, and DAIF, which holds nothing outside its four

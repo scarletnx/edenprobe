@@ -9,6 +9,7 @@
 #include <switch.h>
 
 #include "../check.h"
+#include "../cpufpref.h"
 #include "../cpugaps.h"
 #include "../cpuref.h"
 #include "../jitblocks.h"
@@ -179,6 +180,20 @@ static const char *const GAP_RNARROW = "sqrshrn, uqrshrn and sqrshrun round and 
 static const char *const CNTVCT =
     "mrs cntvct_el0 reads a virtual count that moves with the physical one";
 static const char *const DAIF = "mrs daif reads nothing outside the four interrupt mask bits";
+static const char *const FRECPE =
+    "frecpe gives the Arm ARM's reciprocal estimate of singles of every class, flags too";
+static const char *const FRSQRTE =
+    "frsqrte gives the reciprocal square root estimate of singles of every class, flags too";
+static const char *const UESTIMATE =
+    "urecpe and ursqrte give the unsigned estimates, and all ones below their range";
+static const char *const FRECPX_CASE =
+    "frecpx gives the reciprocal exponent, the largest for noughts and denormals";
+static const char *const AHP_CASE =
+    "fcvtn and fcvtl with AHP take exponent 31 as a number and saturate past 131008";
+static const char *const DN_CASE =
+    "fcvtn keeps a NaN's payload's top bits, and gives the default NaN with DN set";
+static const char *const MINMAX =
+    "fmax, fmin, fmaxnm and fminnm order NaNs, noughts and denormals as the Arm ARM does";
 
 /// Calls each block twice from JIT_INITIAL: the first call is the one a translator compiles on,
 /// the second only runs. The state after each call is checked against JIT_EXPECTED; the time
@@ -280,6 +295,285 @@ static uint64_t ReadDaif(void) {
     uint64_t daif;
     __asm__ volatile("mrs %[daif], daif\n" : [daif] "=r"(daif));
     return daif;
+}
+
+// ---- floating point rules (cpufpref.c)
+
+/// FPSR's five cumulative flags, which these cases compare.
+#define FP_FLAGS CPU_FPSR_FLAGS
+
+// One vector instruction over four registers of four singles, FPCR set to @p fpcr for it and put
+// back after, FPSR cleared before each register and read after it, so each register owns its
+// flags.
+#define FOUR_REGISTERS(INSTRUCTION)                                                                \
+    __asm__ volatile("mrs x9, fpcr\n"                                                             \
+                     "msr fpcr, %[fpcr]\n"                                                        \
+                     "ldp q0, q1, [%[in]]\n"                                                      \
+                     "ldp q2, q3, [%[in], #32]\n"                                                 \
+                     "msr fpsr, xzr\n" INSTRUCTION " v4.4s, v0.4s\n"                              \
+                     "mrs x10, fpsr\n"                                                            \
+                     "msr fpsr, xzr\n" INSTRUCTION " v5.4s, v1.4s\n"                              \
+                     "mrs x11, fpsr\n"                                                            \
+                     "msr fpsr, xzr\n" INSTRUCTION " v6.4s, v2.4s\n"                              \
+                     "mrs x12, fpsr\n"                                                            \
+                     "msr fpsr, xzr\n" INSTRUCTION " v7.4s, v3.4s\n"                              \
+                     "mrs x13, fpsr\n"                                                            \
+                     "msr fpcr, x9\n"                                                             \
+                     "stp q4, q5, [%[out]]\n"                                                     \
+                     "stp q6, q7, [%[out], #32]\n"                                                \
+                     "stp x10, x11, [%[fpsr]]\n"                                                  \
+                     "stp x12, x13, [%[fpsr], #16]\n"                                             \
+                     :                                                                            \
+                     : [in] "r"(in), [out] "r"(out), [fpsr] "r"(fpsr), [fpcr] "r"(fpcr)           \
+                     : "x9", "x10", "x11", "x12", "x13", "v0", "v1", "v2", "v3", "v4", "v5",      \
+                       "v6", "v7", "memory")
+
+static void Frecpe(const uint32_t in[16], uint32_t out[16], uint64_t fpsr[4], uint64_t fpcr) {
+    FOUR_REGISTERS("frecpe");
+}
+
+static void Frsqrte(const uint32_t in[16], uint32_t out[16], uint64_t fpsr[4], uint64_t fpcr) {
+    FOUR_REGISTERS("frsqrte");
+}
+
+static void Urecpe(const uint32_t in[16], uint32_t out[16], uint64_t fpsr[4], uint64_t fpcr) {
+    FOUR_REGISTERS("urecpe");
+}
+
+static void Ursqrte(const uint32_t in[16], uint32_t out[16], uint64_t fpsr[4], uint64_t fpcr) {
+    FOUR_REGISTERS("ursqrte");
+}
+
+/// FRECPX, which has only a scalar form: eight singles, FPSR cleared before each and read after.
+static void Frecpx(const uint32_t in[8], uint32_t out[8], uint64_t fpsr[8]) {
+    for (int i = 0; i < 8; ++i) {
+        __asm__ volatile("mrs x9, fpcr\n"
+                         "msr fpcr, xzr\n"
+                         "ldr s0, [%[in]]\n"
+                         "msr fpsr, xzr\n"
+                         "frecpx s1, s0\n"
+                         "mrs x10, fpsr\n"
+                         "msr fpcr, x9\n"
+                         "str s1, [%[out]]\n"
+                         "str x10, [%[fpsr]]\n"
+                         :
+                         : [in] "r"(in + i), [out] "r"(out + i), [fpsr] "r"(fpsr + i)
+                         : "x9", "x10", "v0", "v1", "memory");
+    }
+}
+
+/// FCVTN and FCVTN2 of eight singles into eight halves, and FCVTL and FCVTL2 of eight halves
+/// into eight singles, FPCR set to @p fpcr; FPSR read after each instruction.
+static void Narrow(const uint32_t in[8], uint16_t out[8], uint64_t fpsr[2], uint64_t fpcr) {
+    __asm__ volatile("mrs x9, fpcr\n"
+                     "msr fpcr, %[fpcr]\n"
+                     "ldp q0, q1, [%[in]]\n"
+                     "msr fpsr, xzr\n"
+                     "fcvtn v2.4h, v0.4s\n"
+                     "mrs x10, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fcvtn2 v2.8h, v1.4s\n"
+                     "mrs x11, fpsr\n"
+                     "msr fpcr, x9\n"
+                     "str q2, [%[out]]\n"
+                     "stp x10, x11, [%[fpsr]]\n"
+                     :
+                     : [in] "r"(in), [out] "r"(out), [fpsr] "r"(fpsr), [fpcr] "r"(fpcr)
+                     : "x9", "x10", "x11", "v0", "v1", "v2", "memory");
+}
+
+static void Widen(const uint16_t in[8], uint32_t out[8], uint64_t fpsr[2], uint64_t fpcr) {
+    __asm__ volatile("mrs x9, fpcr\n"
+                     "msr fpcr, %[fpcr]\n"
+                     "ldr q0, [%[in]]\n"
+                     "msr fpsr, xzr\n"
+                     "fcvtl v1.4s, v0.4h\n"
+                     "mrs x10, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fcvtl2 v2.4s, v0.8h\n"
+                     "mrs x11, fpsr\n"
+                     "msr fpcr, x9\n"
+                     "stp q1, q2, [%[out]]\n"
+                     "stp x10, x11, [%[fpsr]]\n"
+                     :
+                     : [in] "r"(in), [out] "r"(out), [fpsr] "r"(fpsr), [fpcr] "r"(fpcr)
+                     : "x9", "x10", "x11", "v0", "v1", "v2", "memory");
+}
+
+/// FMAX, FMIN, FMAXNM and FMINNM of the same two registers of pairs, in that order, FPCR clear;
+/// FPSR read after each instruction on each register.
+static void MinMax(const uint32_t a[8], const uint32_t b[8], uint32_t out[32], uint64_t fpsr[8]) {
+    __asm__ volatile("mrs x9, fpcr\n"
+                     "msr fpcr, xzr\n"
+                     "ldp q0, q1, [%[a]]\n"
+                     "ldp q2, q3, [%[b]]\n"
+                     "msr fpsr, xzr\n"
+                     "fmax v4.4s, v0.4s, v2.4s\n"
+                     "mrs x10, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fmax v5.4s, v1.4s, v3.4s\n"
+                     "mrs x11, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fmin v6.4s, v0.4s, v2.4s\n"
+                     "mrs x12, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fmin v7.4s, v1.4s, v3.4s\n"
+                     "mrs x13, fpsr\n"
+                     "stp q4, q5, [%[out]]\n"
+                     "stp q6, q7, [%[out], #32]\n"
+                     "stp x10, x11, [%[fpsr]]\n"
+                     "stp x12, x13, [%[fpsr], #16]\n"
+                     "msr fpsr, xzr\n"
+                     "fmaxnm v4.4s, v0.4s, v2.4s\n"
+                     "mrs x10, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fmaxnm v5.4s, v1.4s, v3.4s\n"
+                     "mrs x11, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fminnm v6.4s, v0.4s, v2.4s\n"
+                     "mrs x12, fpsr\n"
+                     "msr fpsr, xzr\n"
+                     "fminnm v7.4s, v1.4s, v3.4s\n"
+                     "mrs x13, fpsr\n"
+                     "msr fpcr, x9\n"
+                     "stp q4, q5, [%[out], #64]\n"
+                     "stp q6, q7, [%[out], #96]\n"
+                     "stp x10, x11, [%[fpsr], #32]\n"
+                     "stp x12, x13, [%[fpsr], #48]\n"
+                     :
+                     : [a] "r"(a), [b] "r"(b), [out] "r"(out), [fpsr] "r"(fpsr)
+                     : "x9", "x10", "x11", "x12", "x13", "v0", "v1", "v2", "v3", "v4", "v5", "v6",
+                       "v7", "memory");
+}
+
+/// Holds @p count lanes at @p got, four to a register, against @p want and each register's flags
+/// against the lanes' ORed; the line names the first wrong lane or register.
+static void JudgeLanes(const char *name, const uint32_t *got, const uint32_t *want,
+                       const uint64_t *fpsr, const uint32_t *want_flags, uint32_t count,
+                       uint32_t lanes_per_flag, const uint32_t *inputs) {
+    uint32_t wrong = 0, first = 0, flags_wrong = 0, first_flags = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        if (got[i] != want[i]) {
+            first = wrong == 0u ? i : first;
+            ++wrong;
+        }
+    }
+    for (uint32_t r = 0; r < count / lanes_per_flag; ++r) {
+        if ((fpsr[r] & FP_FLAGS) != want_flags[r]) {
+            first_flags = flags_wrong == 0u ? r : first_flags;
+            ++flags_wrong;
+        }
+    }
+    CHECK_TRUE(SUITE, name, CHECK_EXACT, wrong == 0u && flags_wrong == 0u,
+               "%u of %u lanes wrong, the first of %08x gave %08x, expected %08x; %u of %u flag "
+               "sets wrong, the first %02x, expected %02x",
+               (unsigned)wrong, (unsigned)count, (unsigned)inputs[first], (unsigned)got[first],
+               (unsigned)want[first], (unsigned)flags_wrong, (unsigned)(count / lanes_per_flag),
+               (unsigned)(fpsr[first_flags] & FP_FLAGS), (unsigned)want_flags[first_flags]);
+}
+
+/// A four register estimate case: @p run on @p in, each lane against @p ref.
+static void EstimateCase(const char *name, void (*run)(const uint32_t *, uint32_t *, uint64_t *,
+                                                         uint64_t),
+                         const uint32_t in[16], uint32_t (*ref)(uint32_t, uint32_t *),
+                         uint32_t (*plain)(uint32_t)) {
+    if (!ReportStart(SUITE, name)) {
+        return;
+    }
+    uint32_t out[16], want[16], want_flags[4] = { 0, 0, 0, 0 };
+    uint64_t fpsr[4];
+    run(in, out, fpsr, 0);
+    for (uint32_t i = 0; i < 16u; ++i) {
+        uint32_t flags = 0;
+        want[i] = ref != NULL ? ref(in[i], &flags) : plain(in[i]);
+        want_flags[i / 4u] |= flags;
+    }
+    JudgeLanes(name, out, want, fpsr, want_flags, 16u, 4u, in);
+}
+
+static void FpCases(void) {
+    EstimateCase(FRECPE, Frecpe, CPU_FRECPE_INPUT, CpuRefFrecpe, NULL);
+    EstimateCase(FRSQRTE, Frsqrte, CPU_FRSQRTE_INPUT, CpuRefFrsqrte, NULL);
+
+    if (ReportStart(SUITE, UESTIMATE)) {
+        // URECPE on the first two registers and URSQRTE on the same lanes, as the second two.
+        uint32_t in[16], out[16], want[16], want_flags[4] = { 0, 0, 0, 0 };
+        uint64_t fpsr[4], fpsr2[4];
+        memcpy(in, CPU_UESTIMATE_INPUT, sizeof(CPU_UESTIMATE_INPUT));
+        memcpy(in + 8, CPU_UESTIMATE_INPUT, sizeof(CPU_UESTIMATE_INPUT));
+        uint32_t ursqrte[16];
+        Urecpe(in, out, fpsr, 0);
+        Ursqrte(in, ursqrte, fpsr2, 0);
+        memcpy(out + 8, ursqrte + 8, 8u * sizeof(uint32_t));
+        fpsr[2] = fpsr2[2];
+        fpsr[3] = fpsr2[3];
+        for (uint32_t i = 0; i < 16u; ++i) {
+            want[i] = i < 8u ? CpuRefUrecpe(in[i]) : CpuRefUrsqrte(in[i]);
+        }
+        JudgeLanes(UESTIMATE, out, want, fpsr, want_flags, 16u, 4u, in);
+    }
+
+    if (ReportStart(SUITE, FRECPX_CASE)) {
+        uint32_t out[8], want[8], want_flags[8];
+        uint64_t fpsr[8];
+        Frecpx(CPU_FRECPX_INPUT, out, fpsr);
+        for (uint32_t i = 0; i < 8u; ++i) {
+            want_flags[i] = 0;
+            want[i] = CpuRefFrecpx(CPU_FRECPX_INPUT[i], &want_flags[i]);
+        }
+        JudgeLanes(FRECPX_CASE, out, want, fpsr, want_flags, 8u, 1u, CPU_FRECPX_INPUT);
+    }
+
+    if (ReportStart(SUITE, AHP_CASE)) {
+        // Narrowed and widened under AHP: the halves as the low half of each word to judge.
+        uint16_t narrowed[8];
+        uint32_t widened[8], got[16], want[16], inputs[16], want_flags[4] = { 0, 0, 0, 0 };
+        uint64_t fpsr[4];
+        Narrow(CPU_AHP_SINGLES, narrowed, fpsr, CPU_FPCR_AHP);
+        Widen(CPU_AHP_HALVES, widened, fpsr + 2, CPU_FPCR_AHP);
+        for (uint32_t i = 0; i < 8u; ++i) {
+            got[i] = narrowed[i];
+            inputs[i] = CPU_AHP_SINGLES[i];
+            want[i] = CpuRefToHalf(CPU_AHP_SINGLES[i], CPU_FPCR_AHP, &want_flags[i / 4u]);
+            got[8u + i] = widened[i];
+            inputs[8u + i] = CPU_AHP_HALVES[i];
+            want[8u + i] =
+                CpuRefFromHalf(CPU_AHP_HALVES[i], CPU_FPCR_AHP, &want_flags[2u + i / 4u]);
+        }
+        JudgeLanes(AHP_CASE, got, want, fpsr, want_flags, 16u, 4u, inputs);
+    }
+
+    if (ReportStart(SUITE, DN_CASE)) {
+        // The same four NaNs narrowed with DN clear, then set.
+        uint32_t in[8];
+        memcpy(in, CPU_DN_NANS, sizeof(CPU_DN_NANS));
+        memcpy(in + 4, CPU_DN_NANS, sizeof(CPU_DN_NANS));
+        uint16_t clear[8], set[8];
+        uint32_t got[8], want[8], want_flags[2] = { 0, 0 };
+        uint64_t fpsr_clear[2], fpsr_set[2], fpsr[2];
+        Narrow(in, clear, fpsr_clear, 0);
+        Narrow(in, set, fpsr_set, CPU_FPCR_DN);
+        fpsr[0] = fpsr_clear[0];
+        fpsr[1] = fpsr_set[1];
+        for (uint32_t i = 0; i < 8u; ++i) {
+            got[i] = i < 4u ? clear[i] : set[i];
+            want[i] = CpuRefToHalf(in[i], i < 4u ? 0u : CPU_FPCR_DN, &want_flags[i / 4u]);
+        }
+        JudgeLanes(DN_CASE, got, want, fpsr, want_flags, 8u, 4u, in);
+    }
+
+    if (ReportStart(SUITE, MINMAX)) {
+        uint32_t out[32], want[32], inputs[32], want_flags[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+        uint64_t fpsr[8];
+        MinMax(CPU_MINMAX_A, CPU_MINMAX_B, out, fpsr);
+        for (uint32_t i = 0; i < 32u; ++i) {
+            const uint32_t op = i / 8u, lane = i % 8u;
+            inputs[i] = CPU_MINMAX_A[lane];
+            want[i] = CpuRefMinMax(CPU_MINMAX_A[lane], CPU_MINMAX_B[lane], op == 0u || op == 2u,
+                                   op >= 2u, &want_flags[i / 4u]);
+        }
+        JudgeLanes(MINMAX, out, want, fpsr, want_flags, 32u, 4u, inputs);
+    }
 }
 
 void RunCpu(void) {
@@ -477,6 +771,11 @@ void RunCpu(void) {
         CHECK_TRUE(SUITE, GAP_RNARROW, CHECK_EXACT, gap_wrong == 0, "%u of %u wrong, first: %s",
                    gap_wrong, CPU_GAP_RNARROW_FORMS, gap_detail);
     }
+
+    // The floating point rules a translator emulates in software or maps to a host's own
+    // instructions, which differ: estimates, the reciprocal exponent, half precision under AHP and
+    // DN, and the NaN and nought order of the minimum and maximum.
+    FpCases();
 
     // System registers a game may reach from EL0 that dynarmic does not model: its translator
     // hits UNREACHABLE and the emulator ends. On the console they say whether Horizon lets EL0
