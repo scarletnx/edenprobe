@@ -40,7 +40,7 @@ family reports can be believed without them.
   its cases skipped as asked, the next step run, and a name no case came up for said; and the same
   run with a runner's `timeout` after the first launch: the case skipped as timeout with the
   runner's two numbers, off the crash list, and started again by the next run.
-- **reference**, four hundred and seventeen cases, no hardware involved either: the other half
+- **reference**, four hundred and twenty four cases, no hardware involved either: the other half
   of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -83,6 +83,13 @@ family reports can be believed without them.
     and on a lower left device, the window depth of each z from minus one, the depth bounds with
     both ends included, and the eight alpha tests told apart by an alpha of 0.5 at three
     references, against answers worked out by hand;
+  - seven on the topology suite's rules, `source/topologyref.c`: the triangles, segments and
+    provoking vertices each primitive type makes of a few vertices under either convention, from
+    OpenGL's table; where an index list restarts and what the vertex offset adds; the pixels the
+    suite's quads, quad strip, polygon and fans cover, and that a polygon taken as a strip misses
+    some; that every edge where the suite's colour changes keeps a twentieth of a pixel from
+    every pixel centre; which line pixels are judged drawn, clear or neither, a quad's diagonal
+    among the clear; and that a missed restart draws pixels the cases judge clear;
   - twenty three on the astc suite's answers: the ASTC reference decoder, `source/astcref.c`, held
     block by block to hashes of what ARM's decoder (astcenc) makes of the same sixteen blocks, its
     weight table to values worked out by hand from the bit replication rule, one value whose
