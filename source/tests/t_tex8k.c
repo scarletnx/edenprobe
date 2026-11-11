@@ -1515,7 +1515,7 @@ static void RenderTarget(const RtTarget *t) {
 #define VOLUME_SIDE 1024u
 #define VOLUME_SLICES 513u
 
-/// The volume's first block, a texel a pixel on a 4x4 target. BC1, red 0xf800 above blue 0x001f
+/// The volume's first block, a texel a pixel, repeated over a 16x16 target. BC1, red 0xf800 above blue 0x001f
 /// (four colours), every row's texels at indices 3, 2, 1 and 0: two thirds blue, two thirds red,
 /// blue and red, which every decoder gives exactly.
 static void BigVolume(void) {
@@ -1530,7 +1530,9 @@ static void BigVolume(void) {
     };
     const uint64_t bytes = (uint64_t)(VOLUME_SIDE / 4u) * (VOLUME_SIDE / 4u) * 8u * VOLUME_SLICES;
     GpuSpec spec;
-    GpuSpecDefaults(&spec, 4, 4);
+    // 16x16, the narrowest target whose rows a 2D engine copy can step through; the block's 4x4
+    // texels repeat over it.
+    GpuSpecDefaults(&spec, 16, 16);
     spec.code_size = 32u * 1024u;
     spec.data_size = 64u * 1024u;
     spec.cpu_image_size = (uint32_t)(bytes + IMAGE_SLACK);
@@ -1614,7 +1616,7 @@ static void BigVolume(void) {
         return;
     }
     uint32_t wrong = 0, first = 0;
-    for (uint32_t i = 0; i < 16u; ++i) {
+    for (uint32_t i = 0; i < 256u; ++i) {
         if (memcmp(pixels + i * 4u, ROW[i % 4u], 4) != 0 && wrong++ == 0u) {
             first = i;
         }
@@ -1623,10 +1625,11 @@ static void BigVolume(void) {
     if (wrong != 0u) {
         const uint8_t *const got = pixels + first * 4u;
         snprintf(detail, sizeof(detail),
-                 "%u of 16 texels wrong; texel %u,%u reads %02x %02x %02x %02x, the block holds "
-                 "%02x %02x %02x %02x",
-                 (unsigned)wrong, (unsigned)(first % 4u), (unsigned)(first / 4u), got[0], got[1],
-                 got[2], got[3], ROW[first % 4u][0], ROW[first % 4u][1], ROW[first % 4u][2],
+                 "%u of 256 pixels wrong; pixel %u,%u, texel %u,%u, reads %02x %02x %02x %02x, the "
+                 "block holds %02x %02x %02x %02x",
+                 (unsigned)wrong, (unsigned)(first % 16u), (unsigned)(first / 16u),
+                 (unsigned)(first % 4u), (unsigned)(first / 16u % 4u), got[0], got[1], got[2],
+                 got[3], ROW[first % 4u][0], ROW[first % 4u][1], ROW[first % 4u][2],
                  ROW[first % 4u][3]);
     }
     End(NAME, CHECK_EXACT, wrong == 0u, detail, work);
