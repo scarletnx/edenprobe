@@ -273,6 +273,10 @@ void RunFs(void);
 /// chosen priorities on one core with a watchdog on another, judged by schedref.c.
 void RunSched(void);
 
+/// The kernel's answers to waits, events, handles and memory calls, held to the console's
+/// kernel's: only when the word kernel names the family.
+void RunSvc(void);
+
 /// The display family: the buffer producer of a layer of its own, asked for its buffer history
 /// after a number of frames, the raw reply judged by binderref.c.
 void RunBinder(void);
@@ -398,6 +402,9 @@ void RunReferenceCopy(void);
 /// The vertex suite's layouts and places, against values worked out by hand: part of the
 /// reference suite.
 void RunReferenceVertex(void);
+
+/// The svc suite's result codes and how its lines name them: part of the reference suite.
+void RunReferenceSvc(void);
 
 #ifdef __cplusplus
 }

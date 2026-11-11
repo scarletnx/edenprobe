@@ -2386,4 +2386,5 @@ void RunReference(void) {
     RunReferenceTopology();
     RunReferenceCopy();
     RunReferenceVertex();
+    RunReferenceSvc();
 }

@@ -123,7 +123,7 @@ Rules every screen shares:
   that also moves the cursor, A turns nothing (on begin the run it still begins). An edge with A and a direction does
   nothing on the resume screen.
 - Every list comes round at either end. A held direction repeats after twenty frames, then every four:
-  the reference suite's four hundred and twenty eight cases do not take a press each.
+  the reference suite's four hundred and thirty cases do not take a press each.
 - Going back lands on the group or case that was open; the picture view chosen with X stays from one case to the next.
 - A frame is composed only when something moved or the countdown ticked.
 
