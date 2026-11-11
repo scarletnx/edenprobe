@@ -37,11 +37,12 @@
 * [query](#query)
 * [dma](#dma)
 * [blit2d](#blit2d)
+* [copy](#copy)
 * [tex8k](#tex8k)
 * [What a console run settles](#what-a-console-run-settles)
 * [Where reden falls short](#where-reden-falls-short)
 
-The thirty five drawing suites, clear to blit2d, in the order they run, and tex8k after them.
+The thirty six drawing suites, clear to copy, in the order they run, and tex8k after them.
 
 ## clear
 
@@ -826,6 +827,58 @@ whose rows start and end inside a gob's 16 byte runs. Every pixel is judged twic
 bytes the processor reads and in a copy to buffer, against the image each answer to two open
 questions gives. See [The blit2d suite](Blit2d.md).
 
+## copy
+
+Nineteen cases and three notes. The copies a game's driver makes between images and buffers,
+through the library's own calls, which send them to the copy engine (bytes, and a pitch it can
+step backwards) or the 2D engine (formats, mirrors, scales): what an emulator remakes in its
+texture cache or its DMA path. Every image is 16 by 16 and every texel a value of its own
+(`CopyTexel`: x, y and the layer in its channels), put in and read out by the copy engine with
+no flags, every byte read back judged: exact. The rules are `source/copyref.c`'s, pinned by the
+reference suite. In the order they run:
+
+- **A round trip.** A picture copied into an image and back, no flags: every texel. Every case
+  after it puts its pictures in and reads them out this way.
+- **Flips by the copy engine and the 2D engine.** From a buffer with FlipY: the library sends
+  the copy engine through the buffer from its last row with a negative pitch, so the image holds
+  the picture upside down; to a buffer with FlipY, the same the other way. With FlipX the library
+  takes the 2D engine instead, its source stepped from the right: each row mirrored, from and to a
+  buffer, and both flips together from one. Five cases.
+- **Padded buffers.** To a buffer whose rows are 96 bytes apart for 64 bytes of texels, over a
+  fill of 0xee: every byte judged, the 32 between rows left as they were; and from such a buffer,
+  0xee between its rows, each row taken from its own place.
+- **Between images.** An 8 by 8 rectangle from (3, 5) of one picture to (6, 2) of another, the
+  rest of the second untouched; an R32 float image copied whole into an RGBA8 one keeps every
+  byte, among them a signalling NaN with a payload, a negative NaN of all ones, the smallest
+  denormal and negative nought, which a copy through a float view changes; and four layers of an
+  array copied with FlipZ, the last first.
+- **Blits that convert.** Channels of nought and full (`CopyFullTexel`: every combination in
+  every 4 by 4 square), which every format holds exactly whatever a converter rounds, blitted 1:1
+  and nearest from RGBA8 into BGRA8 (red and blue swapped in memory), RGB565 (alpha dropped, each
+  field all ones or all noughts) and RGBA16F (one is 0x3c00), and from RGBA16F back into RGBA8.
+  Four cases.
+- **Blits that move texels.** FlipX and FlipY together turn the picture around; a 16 by 16
+  picture onto 32 by 32, nearest, puts each texel over two by two pixels (the centre of pixel x
+  falls on texel x / 2); and a blit between two sRGB images keeps the bytes, where a blit through
+  a linear view of either side would decode or encode them a second time.
+
+The notes, which no machine is held to, since a console run is what says which answer is right:
+
+- **sRGB into linear.** 0x80 in each colour channel blitted from an sRGB image into an RGBA8 one:
+  0x37 if the 2D engine decodes the source, 0x80 if it moves the bytes.
+- **A half of a quarter into eight bits.** 63.75: 0x3f truncated, 0x40 rounded to nearest.
+- **The 2D engine's blend.** A source of ff 00 00 at alpha 0x80 blitted with the library's
+  ModeAlphaBlend (the 2D engine's BLEND operation) over a destination of 00 00 ff ff: what it
+  mixes, if it mixes. The library never sets the factor that operation reads, and Eden leaves any
+  operation but a plain copy unimplemented.
+
+In an emulator a failure points at the copy engine's pitch and its sign (`engines/maxwell_dma.cpp`,
+`CopyBlockLinearToPitch`, `CopyPitchToBlockLinear`), the 2D engine's source step and format
+conversion (`engines/fermi_2d.cpp`, `Blit`; `texture_cache/texture_cache.h`, `BlitImage`; a
+negative du/dx), a copy between images of two formats of one size made as a conversion rather
+than a byte copy (`texture_cache/util.cpp`), the layers of a FlipZ copy, and sRGB views in a
+blit (`vk_texture_cache.cpp`, `BlitImage`).
+
 ## tex8k
 
 Fifty five cases, on textures as large as a game's largest: 8192x8192, which the texture unit
@@ -975,6 +1028,10 @@ whether the machine does.
   the two notes count the pixels by vertex. And do the cases OpenGL's tables decide come out as
   written on the 3D class: a quad strip's last vertex, a fan's rim vertex under the first vertex
   convention, a quad and a polygon drawn as lines with no diagonal? Expected yes.
+- **Q14, copy.** What a blit from sRGB to linear gives 0x80 (0x37 decoded or 0x80 kept), what
+  a half of a quarter becomes in eight bits (0x3f or 0x40), and what the 2D engine's BLEND
+  operation makes of a half transparent source; the three notes give each. Expected yes for the
+  cases, which follow the library and the formats.
 
 The blit2d suite asks two questions of its own, which texel each origin samples when the copy
 scales and how a fraction in the scale is stepped; they are on [its page](Blit2d.md), as its Q1
