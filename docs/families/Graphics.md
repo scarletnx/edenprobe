@@ -16,6 +16,7 @@
 * [coherence](#coherence)
 * [fmath](#fmath)
 * [order](#order)
+* [queue](#queue)
 * [index](#index-1)
 * [topology](#topology)
 * [vertex](#vertex)
@@ -43,7 +44,7 @@
 * [What a console run settles](#what-a-console-run-settles)
 * [Where reden falls short](#where-reden-falls-short)
 
-The thirty seven drawing suites, clear to copy, in the order they run, and tex8k after them.
+The thirty eight drawing suites, clear to copy, in the order they run, and tex8k after them.
 
 ## clear
 
@@ -458,6 +459,33 @@ only its own word, with the shader cache invalidation and no image cache one; in
 failure points at `FragmentBarrier` and `TiledCacheBarrier` (`renderer_vulkan/vk_rasterizer.cpp`).
 The tiles case holds the library to its documentation and has not been run on a console yet.
 
+
+## queue
+
+Five cases. A list that waits on a word in memory until another queue, or the processor, writes
+it: the semaphore acquire a game's driver orders its queues with (deko3d's `dkCmdBufWaitVariable`,
+the GPFIFO's ACQUIRE and ACQ_GEQ), which an emulator runs on threads of its own or one queue after
+the other. Each list waits, then copies a buffer by the copy engine and signals a fence; the
+processor looks 50 ms after the submit whether the copy was made, releases the word, and waits for
+the fence. A copy made while the word was short is a wait not kept; no fence after the release is a
+wait never woken.
+
+- **The processor's write.** A wait for 1 or more holds at 0 and goes on at 1; a wait for exactly 2
+  holds at 1 and goes on at 2.
+- **Another queue's signal.** The first queue's list waits for 1 and then copies a middle buffer
+  out; the second queue copies a pattern into that buffer, waits for the copy (a full barrier) and
+  sets the word from its 3D engine (`dkCmdBufSignalVariable`, after the pipeline): the first
+  list's copy must hold the pattern, not what the middle held before.
+- **A wait already met.** The word at 5, a wait for 3 or more: the list runs at once.
+- **The device opens** with a second queue, a command list of its own, and the word in a block
+  uncached on both sides, as the library wants a variable.
+
+No case can hang the run: the processor waits for a fence a second at most, and when the release
+it expected never came writes the word itself and waits again. A machine whose list never comes
+back even then fails the case, skips the rest as `depends` and leaves the device open, since
+closing it would wait for that list, and a note says so. In an emulator a failure points at the
+puller's semaphore acquire (`engines/puller.cpp`, `ProcessSemaphoreAcquire`) and at how its
+queues run: one after the other, a wait cannot be released by the queue behind it.
 ## index
 
 Eight cases. Indexed draws whose index limit register holds the last byte of the

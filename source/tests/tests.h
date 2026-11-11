@@ -163,6 +163,10 @@ void RunCopy(void);
 /// formats, and a per instance divisor.
 void RunVertex(void);
 
+/// A list that waits on a word in memory until the processor or another queue writes it: held
+/// until then, and going on after, with what the other queue wrote.
+void RunQueue(void);
+
 /// The 3D class's instanced vertex array draws, sent as raw methods: each draws when it arrives,
 /// with the state it arrived under, as the instance it is.
 void RunInstance(void);
