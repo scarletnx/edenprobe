@@ -173,6 +173,19 @@ class Fixture:
         os.makedirs(self.drm)
         self.real_drm = run.DRM
         run.DRM = self.drm
+        # No NVIDIA tool either, unless a test makes one.
+        self.real_smi = run.NVIDIA_SMI
+        run.NVIDIA_SMI = os.path.join(self.dir, "no-nvidia-smi")
+
+    def nvidia_smi(self, output, status=0):
+        """An nvidia-smi that prints @output for the memory query and exits with @status."""
+        path = os.path.join(self.dir, "nvidia-smi")
+        with open(path, "w") as f:
+            f.write("#!/bin/sh\n[ \"$1\" = --query-gpu=memory.total ] || exit 9\nprintf '%s'\nexit %d\n"
+                    % (output.replace("'", ""), status))
+        os.chmod(path, 0o755)
+        run.NVIDIA_SMI = path
+        return path
 
     def card_with(self, name, size):
         """A card as a driver shows it under /sys/class/drm, saying @size bytes of memory."""
@@ -206,6 +219,7 @@ class Fixture:
 
     def close(self):
         run.DRM = self.real_drm
+        run.NVIDIA_SMI = self.real_smi
         self.tmp.cleanup()
 
 
@@ -654,8 +668,27 @@ class Vram(unittest.TestCase):
         mode, said = self.mode_after()
         self.assertEqual(mode, "quick machine=eden@0123abcdef")
         self.assertIn("no vram= word: no card under %s says its memory in mem_info_vram_total, "
-                      "amdgpu's file, so tex8k's textures are tried whatever this machine has; "
-                      "vram=<MiB> among MODE's words says it" % self.f.drm, said)
+                      "amdgpu's file, and %s says none, so tex8k's textures are tried whatever "
+                      "this machine has; vram=<MiB> among MODE's words says it"
+                      % (self.f.drm, run.NVIDIA_SMI), said)
+
+    def test_nvidia_smi_where_no_card_writes_the_file(self):
+        smi = self.f.nvidia_smi("8188\n24564\n")
+        mode, said = self.mode_after()
+        self.assertEqual(mode, "quick machine=eden@0123abcdef vram=24564")
+        self.assertIn("vram=24564, the MiB %s --query-gpu=memory.total --format=csv,noheader,nounits "
+                      "says, the largest of 2 cards" % smi, said)
+
+    def test_the_file_before_nvidia_smi(self):
+        self.f.card_with("card0", 1073741824)
+        self.f.nvidia_smi("24564\n")
+        mode, said = self.mode_after()
+        self.assertEqual(mode, "quick machine=eden@0123abcdef vram=1024")
+
+    def test_nvidia_smi_that_fails_or_says_no_number(self):
+        for output, status in (("24564\n", 6), ("[N/A]\n", 0), ("", 0), ("0\n", 0)):
+            self.f.nvidia_smi(output, status)
+            self.assertIsNone(run.graphics_memory(), (output, status))
 
     def test_a_mode_that_says_it_keeps_its_own(self):
         self.f.card_with("card0", 1073741824)
