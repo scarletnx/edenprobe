@@ -104,6 +104,18 @@ typedef void (*NvnGenericProc)(void);
     X(void, nvnCommandBufferCopyTextureToBuffer,                                                  \
       (NVNcommandBuffer * cmd, const NVNtexture *texture, const NVNtextureView *view,             \
        const NVNcopyRegion *region, NVNbufferAddress buffer, int flags))                          \
+    X(void, nvnCommandBufferCopyBufferToTexture,                                                  \
+      (NVNcommandBuffer * cmd, NVNbufferAddress buffer, const NVNtexture *texture,                \
+       const NVNtextureView *view, const NVNcopyRegion *region, int flags))                       \
+    X(void, nvnCommandBufferCopyTextureToTexture,                                                 \
+      (NVNcommandBuffer * cmd, const NVNtexture *source, const NVNtextureView *source_view,       \
+       const NVNcopyRegion *source_region, const NVNtexture *destination,                         \
+       const NVNtextureView *destination_view, const NVNcopyRegion *destination_region,           \
+       int flags))                                                                                \
+    X(void, nvnCommandBufferCopyBufferToBuffer,                                                   \
+      (NVNcommandBuffer * cmd, NVNbufferAddress source, NVNbufferAddress destination,             \
+       size_t size, int flags))                                                                   \
+    X(void, nvnCommandBufferSetCopyRowStride, (NVNcommandBuffer * cmd, ptrdiff_t stride))         \
     X(void, nvnWindowBuilderSetDefaults, (NVNwindowBuilder * builder))                            \
     X(void, nvnWindowBuilderSetDevice, (NVNwindowBuilder * builder, NVNdevice *device))           \
     X(void, nvnWindowBuilderSetNativeWindow,                                                      \

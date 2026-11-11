@@ -42,7 +42,7 @@ The reference is the graphics unit running what the layer recorded, never the of
 
 ## The cases
 
-- **the program's NVN functions resolve** (none tier): the lookup gives every function the suite uses.
+- **the program's NVN functions resolve** (none tier): the lookup gives every function the suite uses, sixty one with `nvnDeviceGetInteger`.
 - **the device initializes** (none tier): `nvnDeviceInitialize` with no flags. If it fails, the rest are skipped as
   `depends`.
 - **the device answers the layer's API version** (exact): items 0 and 1 of `nvnDeviceGetInteger` are 55 and 8.
@@ -52,6 +52,22 @@ The reference is the graphics unit running what the layer recorded, never the of
   `nvnCommandBufferClearColor`, ordered before `nvnCommandBufferCopyTextureToBuffer` by a barrier, copied to the
   readback pool and compared pixel by pixel, after the pool is filled with a byte no clear here makes. The clear
   suite's colours.
+- **two copy textures and a staging pool come up** (none tier): two 64x64 RGBA8 textures in a pool of their own,
+  and a processor-visible pool holding a picture of 64x64 texels, every texel four bytes of its own.
+- **a picture copied into a texture and back keeps every texel**, **a texture copied into another keeps every
+  texel**, **a buffer copied into another keeps every byte** (exact): `nvnCommandBufferCopyBufferToTexture`,
+  `CopyTextureToTexture`, `CopyTextureToBuffer` and `CopyBufferToBuffer`, a barrier between each two, every byte of
+  the readback pool judged after it is filled with a byte no texel holds.
+- **a texture copied to a buffer with MIRROR_Y lands upside down**, **a texture copied into another with MIRROR_X
+  lands mirrored** (exact): the copy flags a game mirrors with, which the layer gives deko3d as FlipY (the copy
+  engine stepping the buffer backwards, the copy suite's FlipY) and FlipX (the 2D engine).
+- **a copy to a buffer with a row stride of 288 keeps the bytes between rows** (exact):
+  `nvnCommandBufferSetCopyRowStride`, rows 288 bytes apart and the 32 between them untouched.
+
+  These are ScarletNX's NVN copy tests (`nvn_copy_formats.c`, `vulkan_nvn_copy_flags.inc`,
+  `vulkan_nvn_compat.inc`) as far as the layer reaches: the same textures, flags and strides through the program's
+  NVN, so ScarletNX answers with `nvn_copy.c`, the path a game's copies take, and the console and Eden with what
+  deko3d sends the copy and 2D engines for them.
 - **a window acquires and presents both its textures** (none tier): two 1280x720 textures on the default window,
   each acquired with `nvnQueueAcquireTexture`, cleared and presented once. Nothing is read back. Skipped as
   `unavailable` while the program's screen holds the window, which a run begun on the start screen keeps up to its

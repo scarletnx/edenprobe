@@ -110,6 +110,8 @@ typedef struct {
 typedef struct {
     uint32_t magic;
     DkCmdBuf cmdbuf;
+    /// nvnCommandBufferSetCopyRowStride's, nought for rows packed tight, NVN's default.
+    uint32_t copy_row_stride;
 } LayerCommandBuffer;
 
 typedef struct {
@@ -739,8 +741,9 @@ static bool LayoutOf(const LayerTextureBuilder *builder, DkImageLayout *layout, 
     dkImageLayoutMakerDefaults(&maker, device->device);
     maker.type = DkImageType_2D;
     maker.format = format;
-    // Any NVN texture of a colour format can be drawn into, so every one here says so.
-    maker.flags = DkImageFlags_UsageRender;
+    // Any NVN texture of a colour format can be drawn into and copied by either engine, so
+    // every one here says so: the 2D engine is where a mirrored copy goes.
+    maker.flags = DkImageFlags_UsageRender | DkImageFlags_Usage2DEngine;
     if ((builder->flags & NVN_TEXTURE_FLAGS_DISPLAY) != 0) {
         maker.flags |= DkImageFlags_UsagePresent;
     }
@@ -961,6 +964,34 @@ static void Nvnl_nvnCommandBufferBarrier(NVNcommandBuffer *cmd, int bits) {
                     invalidate);
 }
 
+/// deko3d's rectangle for an NVN copy region.
+static DkImageRect RectOf(const NVNcopyRegion *region) {
+    const DkImageRect rect = { (uint32_t)region->xoffset, (uint32_t)region->yoffset,
+                               (uint32_t)region->zoffset, (uint32_t)region->width,
+                               (uint32_t)region->height, (uint32_t)region->depth };
+    return rect;
+}
+
+/// deko3d's flags for NVN's copy @p flags, of which @p mirrors are the mirror bits the copy can
+/// take: false with a complaint for a view, or a flag the layer does not take there yet.
+static bool CopyFlags(const char *what, const NVNtextureView *view, int flags, int mirrors,
+                      uint32_t *blit) {
+    *blit = 0;
+    if (view != NULL || (flags & ~mirrors) != 0) {
+        Complain("%s: %s view and copy flags 0x%x, and the layer takes no view and of the flags "
+                 "only 0x%x here",
+                 what, view != NULL ? "a" : "no", (unsigned)flags, (unsigned)mirrors);
+        return false;
+    }
+    if ((flags & NVN_COPY_FLAGS_MIRROR_X_BIT) != 0) {
+        *blit |= DkBlitFlag_FlipX;
+    }
+    if ((flags & NVN_COPY_FLAGS_MIRROR_Y_BIT) != 0) {
+        *blit |= DkBlitFlag_FlipY;
+    }
+    return true;
+}
+
 static void Nvnl_nvnCommandBufferCopyTextureToBuffer(NVNcommandBuffer *cmd,
                                                      const NVNtexture *texture,
                                                      const NVNtextureView *view,
@@ -971,21 +1002,98 @@ static void Nvnl_nvnCommandBufferCopyTextureToBuffer(NVNcommandBuffer *cmd,
     if (record == NULL || source == NULL) {
         return;
     }
-    if (view != NULL || flags != NVN_COPY_FLAGS_NONE) {
-        Complain("nvnCommandBufferCopyTextureToBuffer: %s view and copy flags 0x%x, and the "
-                 "layer takes no view and no flags yet",
-                 view != NULL ? "a" : "no", (unsigned)flags);
+    // deko3d mirrors a copy to a buffer in y alone (the copy engine stepping backwards); x is
+    // the 2D engine's, between images.
+    uint32_t blit = 0;
+    if (!CopyFlags("nvnCommandBufferCopyTextureToBuffer", view, flags, NVN_COPY_FLAGS_MIRROR_Y_BIT,
+                   &blit)) {
         return;
     }
     DkImageView from;
     dkImageViewDefaults(&from, &source->image);
-    const DkImageRect rect = { (uint32_t)region->xoffset, (uint32_t)region->yoffset,
-                               (uint32_t)region->zoffset, (uint32_t)region->width,
-                               (uint32_t)region->height, (uint32_t)region->depth };
-    // Rows tightly packed, NVN's default until nvnCommandBufferSetCopyRowStride, which the layer
-    // does not have yet.
-    const DkCopyBuf to = { buffer, 0, 0 };
-    dkCmdBufCopyImageToBuffer(record->cmdbuf, &from, &rect, &to, 0);
+    const DkImageRect rect = RectOf(region);
+    const DkCopyBuf to = { buffer, record->copy_row_stride, 0 };
+    dkCmdBufCopyImageToBuffer(record->cmdbuf, &from, &rect, &to, blit);
+}
+
+static void Nvnl_nvnCommandBufferCopyBufferToTexture(NVNcommandBuffer *cmd, NVNbufferAddress buffer,
+                                                     const NVNtexture *texture,
+                                                     const NVNtextureView *view,
+                                                     const NVNcopyRegion *region, int flags) {
+    LayerCommandBuffer *const record = CmdOf(cmd, "nvnCommandBufferCopyBufferToTexture");
+    const LayerTexture *const target = TextureOf(texture, "nvnCommandBufferCopyBufferToTexture");
+    uint32_t blit = 0;
+    if (record == NULL || target == NULL ||
+        !CopyFlags("nvnCommandBufferCopyBufferToTexture", view, flags,
+                   NVN_COPY_FLAGS_MIRROR_X_BIT | NVN_COPY_FLAGS_MIRROR_Y_BIT, &blit)) {
+        return;
+    }
+    DkImageView to;
+    dkImageViewDefaults(&to, &target->image);
+    const DkImageRect rect = RectOf(region);
+    const DkCopyBuf from = { buffer, record->copy_row_stride, 0 };
+    dkCmdBufCopyBufferToImage(record->cmdbuf, &from, &to, &rect, blit);
+}
+
+static void Nvnl_nvnCommandBufferCopyTextureToTexture(
+    NVNcommandBuffer *cmd, const NVNtexture *source, const NVNtextureView *source_view,
+    const NVNcopyRegion *source_region, const NVNtexture *destination,
+    const NVNtextureView *destination_view, const NVNcopyRegion *destination_region, int flags) {
+    static const char *const WHAT = "nvnCommandBufferCopyTextureToTexture";
+    LayerCommandBuffer *const record = CmdOf(cmd, WHAT);
+    const LayerTexture *const from = TextureOf(source, WHAT);
+    const LayerTexture *const to = TextureOf(destination, WHAT);
+    uint32_t blit = 0;
+    if (record == NULL || from == NULL || to == NULL ||
+        !CopyFlags(WHAT, source_view != NULL ? source_view : destination_view, flags,
+                   NVN_COPY_FLAGS_MIRROR_X_BIT | NVN_COPY_FLAGS_MIRROR_Y_BIT, &blit)) {
+        return;
+    }
+    if (source_region->width != destination_region->width ||
+        source_region->height != destination_region->height ||
+        source_region->depth != destination_region->depth) {
+        Complain("%s: a %dx%dx%d region into a %dx%dx%d one, and the layer copies without "
+                 "scaling only",
+                 WHAT, source_region->width, source_region->height, source_region->depth,
+                 destination_region->width, destination_region->height, destination_region->depth);
+        return;
+    }
+    DkImageView src, dst;
+    dkImageViewDefaults(&src, &from->image);
+    dkImageViewDefaults(&dst, &to->image);
+    const DkImageRect src_rect = RectOf(source_region);
+    const DkImageRect dst_rect = RectOf(destination_region);
+    dkCmdBufCopyImage(record->cmdbuf, &src, &src_rect, &dst, &dst_rect, blit);
+}
+
+static void Nvnl_nvnCommandBufferCopyBufferToBuffer(NVNcommandBuffer *cmd, NVNbufferAddress source,
+                                                    NVNbufferAddress destination, size_t size,
+                                                    int flags) {
+    LayerCommandBuffer *const record = CmdOf(cmd, "nvnCommandBufferCopyBufferToBuffer");
+    if (record == NULL) {
+        return;
+    }
+    if (flags != NVN_COPY_FLAGS_NONE || size > UINT32_MAX) {
+        Complain("nvnCommandBufferCopyBufferToBuffer: copy flags 0x%x over 0x%llx bytes, and the "
+                 "layer takes no flags and at most 4 GiB",
+                 (unsigned)flags, (unsigned long long)size);
+        return;
+    }
+    dkCmdBufCopyBuffer(record->cmdbuf, source, destination, (uint32_t)size);
+}
+
+static void Nvnl_nvnCommandBufferSetCopyRowStride(NVNcommandBuffer *cmd, ptrdiff_t stride) {
+    LayerCommandBuffer *const record = CmdOf(cmd, "nvnCommandBufferSetCopyRowStride");
+    if (record == NULL) {
+        return;
+    }
+    if (stride < 0 || stride > (ptrdiff_t)UINT32_MAX) {
+        Complain("nvnCommandBufferSetCopyRowStride: a stride of %lld, and the layer takes nought "
+                 "to 4 GiB",
+                 (long long)stride);
+        return;
+    }
+    record->copy_row_stride = (uint32_t)stride;
 }
 
 // ---- windows
