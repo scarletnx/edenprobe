@@ -611,7 +611,8 @@ static const char *const LANES = "fadd, fsub, fmul and fdiv keep NaN payloads an
                                  "lane by lane and raise their flags";
 static const char *const TICK = "cntfrq_el0 says 19.2 MHz and 100 ms asleep counts at that rate";
 
-/// The system counter's frequency and the virtual count either side of a 100 ms sleep.
+/// The system counter's frequency and the physical count either side of a 100 ms sleep: the count
+/// libnx's armGetSystemTick reads, which every emulator gives EL0 (dynarmic has no CNTVCT_EL0).
 static void TickCase(void) {
     if (!ReportStart(SUITE, TICK)) {
         return;
@@ -619,11 +620,11 @@ static void TickCase(void) {
     uint64_t frequency = 0, before = 0, after = 0;
     __asm__ volatile("mrs %[f], cntfrq_el0\n"
                      "isb\n"
-                     "mrs %[b], cntvct_el0\n"
+                     "mrs %[b], cntpct_el0\n"
                      : [f] "=r"(frequency), [b] "=r"(before));
     svcSleepThread(100000000);
     __asm__ volatile("isb\n"
-                     "mrs %[a], cntvct_el0\n"
+                     "mrs %[a], cntpct_el0\n"
                      : [a] "=r"(after));
     // At least the sleep's 1.92 million ticks, and less than ten times them: a wake up to a
     // second late still passes, a count at another rate does not.
