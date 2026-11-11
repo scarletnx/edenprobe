@@ -276,6 +276,8 @@ typedef enum {
     SERVICE_IPC_POINTER, ///< ipc: a session's pointer buffer has room
     SERVICE_IPC_CLONE,   ///< ipc: a clone of a session answers as the session
     SERVICE_IPC_CLOSE,   ///< ipc: a Close is answered SessionClosed, and so is what follows
+    SERVICE_IPC_SM_EMPTY, ///< ipc: sm refuses an empty name as InvalidServiceName
+    SERVICE_IPC_SM_NUL,   ///< ipc: sm refuses a name with a byte past its NUL the same way
     SERVICE_HID_SAMPLING, ///< hid: npad LIFO entries number twice their state, states one apart
     SERVICE_SNAP_COHERENT, ///< time-snap: a snapshot holds the user clock and the location
     SERVICE_SNAP_SPAN,     ///< time-snap: the span between snapshots is their steady difference
@@ -1028,6 +1030,16 @@ bool ServiceJudgeSessionClone(const ServiceSessionClone *seen, char *out, size_t
 /// client so (28ab4a1a01).
 bool ServiceJudgeSessionClose(uint32_t open_rc, uint32_t close_rc, uint32_t after_rc, char *out,
                               size_t out_size);
+
+/// sm's InvalidServiceName, module 21 description 6.
+#define SERVICE_SM_INVALID_NAME 0xC15u
+
+/// GetServiceHandle (sm 1) of a name sm must refuse, @p rc what it answered and @p handed whether a
+/// session came back: InvalidServiceName and no session. A name is one to eight bytes padded with
+/// NULs; empty, or a byte past the first NUL, is no name (Atmosphere's sm, ValidateServiceName,
+/// the sm the consoles edenprobe runs on carry; reden keeps only the printable bytes and so takes
+/// "se\0t" for "set").
+bool ServiceJudgeBadName(uint32_t rc, bool handed, char *out, size_t out_size);
 
 /// The npad LIFOs of hid's shared memory (ten npads, seven LIFOs each) that hold two entries or
 /// more: how many there are, in how many the newest entry's storage number is twice its state's

@@ -136,6 +136,9 @@ static const struct {
                                  "getsockname into 8 bytes writes 8 and says 8" },
     [SERVICE_IPC_POINTER] = { "ipc", "a session of set has a pointer buffer" },
     [SERVICE_IPC_CLONE] = { "ipc", "a clone of a session answers as the session does" },
+    [SERVICE_IPC_SM_EMPTY] = { "ipc", "sm refuses an empty service name as InvalidServiceName" },
+    [SERVICE_IPC_SM_NUL] = { "ipc", "sm refuses a name with a byte past its first NUL as "
+                                    "InvalidServiceName" },
     [SERVICE_IPC_CLOSE] = { "ipc",
                             "a Close is answered SessionClosed, and so is the next request" },
     [SERVICE_HID_SAMPLING] = { "hid",
@@ -1715,6 +1718,14 @@ bool ServiceJudgePointerBuffer(uint32_t open_rc, uint32_t rc, uint32_t size, cha
              : passed      ? "room in it"
                            : "no room",
              (unsigned)open_rc, (unsigned)rc, (unsigned)size);
+    return passed;
+}
+
+bool ServiceJudgeBadName(uint32_t rc, bool handed, char *out, size_t out_size) {
+    const bool passed = rc == SERVICE_SM_INVALID_NAME && !handed;
+    snprintf(out, out_size, "%s: sm answered 0x%x%s, InvalidServiceName is 0x%x",
+             passed ? "refused" : rc == 0u ? "taken as a name" : "refused otherwise", (unsigned)rc,
+             handed ? " with a session" : "", (unsigned)SERVICE_SM_INVALID_NAME);
     return passed;
 }
 

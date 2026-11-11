@@ -188,6 +188,52 @@ uint64_t CpuRefRoundingShiftLane(uint64_t value, int shift, unsigned esize, bool
     return Saturate(shifted, esize, is_unsigned, saturated);
 }
 
+uint64_t CpuRefShiftLane(uint64_t value, int shift, unsigned esize, unsigned op, bool *saturated) {
+    const bool is_unsigned = (op & CPU_SHL_UNSIGNED) != 0u;
+    const bool saturating = (op & CPU_SHL_SATURATING) != 0u;
+    *saturated = false;
+    const __int128 x = is_unsigned ? (__int128)(value & LaneMask(esize)) : SignedLane(value, esize);
+    __int128 shifted;
+    if (shift >= 0) {
+        if (x == 0) {
+            shifted = 0;
+        } else if (shift >= (int)esize) {
+            // Every bit has left the lane: nought, or, saturating, past either end.
+            if (!saturating) {
+                return 0;
+            }
+            shifted = x < 0 ? -((__int128)1 << 100) : ((__int128)1 << 100);
+        } else {
+            shifted = x * ((__int128)1 << shift);
+        }
+    } else {
+        const unsigned n = (unsigned)-shift;
+        if ((op & CPU_SHL_ROUNDING) != 0u) {
+            // (x + 2^(n-1)) >> n is nought for every lane once n passes the lane's width.
+            shifted = n > esize ? 0 : (x + ((__int128)1 << (n - 1u))) >> n;
+        } else {
+            // Toward minus infinity; past the lane's width only the sign is left.
+            shifted = x >> (n > 127u ? 127u : n);
+        }
+    }
+    if (saturating) {
+        return Saturate(shifted, esize, is_unsigned, saturated);
+    }
+    return (uint64_t)shifted & LaneMask(esize);
+}
+
+uint32_t CpuRefCrc32(uint32_t crc, uint64_t data, unsigned bytes, bool castagnoli) {
+    // The polynomials bit reversed, as the instructions' BitReverse(Poly32Mod2(...)) amounts to.
+    const uint32_t poly = castagnoli ? 0x82f63b78u : 0xedb88320u;
+    for (unsigned b = 0; b < bytes; ++b) {
+        crc ^= (uint32_t)(data >> (8u * b)) & 0xffu;
+        for (unsigned bit = 0; bit < 8u; ++bit) {
+            crc = (crc >> 1) ^ ((crc & 1u) != 0u ? poly : 0u);
+        }
+    }
+    return crc;
+}
+
 uint64_t CpuRefDoublingMultiplyLane(uint64_t acc, uint64_t a, uint64_t b, unsigned esize,
                                     int accumulate, bool *saturated) {
     bool product_saturated = false;
@@ -225,6 +271,17 @@ const uint64_t CPU_RSHL_SHIFT[4][2] = {
     {0x00000001ffffffe1ull, 0x00000020ffffffc0ull},
     {0x0000000000000001ull, 0xffffffffffffffc1ull},
 };
+const uint64_t CPU_SHL64_VALUE[2][2] = {
+    {0x8000000000000001ull, 0x7fffffffffffffffull},
+    {0xffffffffffffffffull, 0x0000000000000003ull},
+};
+const uint64_t CPU_SHL64_SHIFT[2][2] = {
+    {0x123456789abcde40ull, 0x00000000000000c0ull},
+    {0xff0000000000007full, 0xabcdef0000000080ull},
+};
+const uint32_t CPU_CRC_ACC[4] = {0xffffffffu, 0x00000000u, 0x12345678u, 0x89abcdefu};
+const uint64_t CPU_CRC_DATA[4] = {0x3837363534333231ull, 0xffffffffffffffffull,
+                                  0x0000000000000000ull, 0xdeadbeefcafef00dull};
 const uint64_t CPU_DMUL_A[2] = {0x8000800012347fffull, 0x80000000fffffffbull};
 const uint64_t CPU_DMUL_B[2] = {0x8000ffff56788000ull, 0x8000000000000007ull};
 const uint64_t CPU_DMUL_ACC[2] = {0x7ffffffe00000001ull, 0x8000000000000005ull};
@@ -301,6 +358,69 @@ const CpuGapForm CPU_GAP_RNARROW[CPU_GAP_RNARROW_FORMS] = {
     {"sqrshrun s2, d0, #32", CPU_GAP_KIND_RNARROW, 2, 32u, 0u, -1, 1u, 32u, 5u},
 };
 
+const CpuGapForm CPU_GAP_SHL[CPU_GAP_SHL_FORMS] = {
+    {"sshl v2.16b, v0.16b, v1.16b", CPU_GAP_KIND_SHL, 0, 8u, 0u, -1, 0u, 0u, 0u},
+    {"sshl v2.8h, v0.8h, v1.8h", CPU_GAP_KIND_SHL, 0, 16u, 0u, -1, 0u, 0u, 1u},
+    {"sshl v2.4s, v0.4s, v1.4s", CPU_GAP_KIND_SHL, 0, 32u, 0u, -1, 0u, 0u, 2u},
+    {"sshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 0, 64u, 0u, -1, 0u, 0u, 3u},
+    {"sshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 0, 64u, 0u, -1, 0u, 0u, 4u},
+    {"sshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 0, 64u, 0u, -1, 0u, 0u, 5u},
+    {"sshl d2, d0, d1", CPU_GAP_KIND_SHL, 0, 64u, 0u, -1, 1u, 0u, 3u},
+    {"sshl d2, d0, d1", CPU_GAP_KIND_SHL, 0, 64u, 0u, -1, 1u, 0u, 4u},
+    {"sshl d2, d0, d1", CPU_GAP_KIND_SHL, 0, 64u, 0u, -1, 1u, 0u, 5u},
+    {"ushl v2.16b, v0.16b, v1.16b", CPU_GAP_KIND_SHL, 1, 8u, 0u, -1, 0u, 0u, 0u},
+    {"ushl v2.8h, v0.8h, v1.8h", CPU_GAP_KIND_SHL, 1, 16u, 0u, -1, 0u, 0u, 1u},
+    {"ushl v2.4s, v0.4s, v1.4s", CPU_GAP_KIND_SHL, 1, 32u, 0u, -1, 0u, 0u, 2u},
+    {"ushl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 1, 64u, 0u, -1, 0u, 0u, 3u},
+    {"ushl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 1, 64u, 0u, -1, 0u, 0u, 4u},
+    {"ushl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 1, 64u, 0u, -1, 0u, 0u, 5u},
+    {"ushl d2, d0, d1", CPU_GAP_KIND_SHL, 1, 64u, 0u, -1, 1u, 0u, 3u},
+    {"ushl d2, d0, d1", CPU_GAP_KIND_SHL, 1, 64u, 0u, -1, 1u, 0u, 4u},
+    {"ushl d2, d0, d1", CPU_GAP_KIND_SHL, 1, 64u, 0u, -1, 1u, 0u, 5u},
+    {"srshl v2.16b, v0.16b, v1.16b", CPU_GAP_KIND_SHL, 2, 8u, 0u, -1, 0u, 0u, 0u},
+    {"srshl v2.8h, v0.8h, v1.8h", CPU_GAP_KIND_SHL, 2, 16u, 0u, -1, 0u, 0u, 1u},
+    {"srshl v2.4s, v0.4s, v1.4s", CPU_GAP_KIND_SHL, 2, 32u, 0u, -1, 0u, 0u, 2u},
+    {"srshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 2, 64u, 0u, -1, 0u, 0u, 3u},
+    {"srshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 2, 64u, 0u, -1, 0u, 0u, 4u},
+    {"srshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 2, 64u, 0u, -1, 0u, 0u, 5u},
+    {"srshl d2, d0, d1", CPU_GAP_KIND_SHL, 2, 64u, 0u, -1, 1u, 0u, 3u},
+    {"srshl d2, d0, d1", CPU_GAP_KIND_SHL, 2, 64u, 0u, -1, 1u, 0u, 4u},
+    {"srshl d2, d0, d1", CPU_GAP_KIND_SHL, 2, 64u, 0u, -1, 1u, 0u, 5u},
+    {"urshl v2.16b, v0.16b, v1.16b", CPU_GAP_KIND_SHL, 3, 8u, 0u, -1, 0u, 0u, 0u},
+    {"urshl v2.8h, v0.8h, v1.8h", CPU_GAP_KIND_SHL, 3, 16u, 0u, -1, 0u, 0u, 1u},
+    {"urshl v2.4s, v0.4s, v1.4s", CPU_GAP_KIND_SHL, 3, 32u, 0u, -1, 0u, 0u, 2u},
+    {"urshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 3, 64u, 0u, -1, 0u, 0u, 3u},
+    {"urshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 3, 64u, 0u, -1, 0u, 0u, 4u},
+    {"urshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 3, 64u, 0u, -1, 0u, 0u, 5u},
+    {"urshl d2, d0, d1", CPU_GAP_KIND_SHL, 3, 64u, 0u, -1, 1u, 0u, 3u},
+    {"urshl d2, d0, d1", CPU_GAP_KIND_SHL, 3, 64u, 0u, -1, 1u, 0u, 4u},
+    {"urshl d2, d0, d1", CPU_GAP_KIND_SHL, 3, 64u, 0u, -1, 1u, 0u, 5u},
+    {"sqshl v2.16b, v0.16b, v1.16b", CPU_GAP_KIND_SHL, 4, 8u, 0u, -1, 0u, 0u, 0u},
+    {"sqshl v2.8h, v0.8h, v1.8h", CPU_GAP_KIND_SHL, 4, 16u, 0u, -1, 0u, 0u, 1u},
+    {"sqshl v2.4s, v0.4s, v1.4s", CPU_GAP_KIND_SHL, 4, 32u, 0u, -1, 0u, 0u, 2u},
+    {"sqshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 4, 64u, 0u, -1, 0u, 0u, 3u},
+    {"sqshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 4, 64u, 0u, -1, 0u, 0u, 4u},
+    {"sqshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 4, 64u, 0u, -1, 0u, 0u, 5u},
+    {"sqshl b2, b0, b1", CPU_GAP_KIND_SHL, 4, 8u, 0u, -1, 1u, 0u, 0u},
+    {"sqshl h2, h0, h1", CPU_GAP_KIND_SHL, 4, 16u, 0u, -1, 1u, 0u, 1u},
+    {"sqshl s2, s0, s1", CPU_GAP_KIND_SHL, 4, 32u, 0u, -1, 1u, 0u, 2u},
+    {"sqshl d2, d0, d1", CPU_GAP_KIND_SHL, 4, 64u, 0u, -1, 1u, 0u, 3u},
+    {"sqshl d2, d0, d1", CPU_GAP_KIND_SHL, 4, 64u, 0u, -1, 1u, 0u, 4u},
+    {"sqshl d2, d0, d1", CPU_GAP_KIND_SHL, 4, 64u, 0u, -1, 1u, 0u, 5u},
+    {"uqshl v2.16b, v0.16b, v1.16b", CPU_GAP_KIND_SHL, 5, 8u, 0u, -1, 0u, 0u, 0u},
+    {"uqshl v2.8h, v0.8h, v1.8h", CPU_GAP_KIND_SHL, 5, 16u, 0u, -1, 0u, 0u, 1u},
+    {"uqshl v2.4s, v0.4s, v1.4s", CPU_GAP_KIND_SHL, 5, 32u, 0u, -1, 0u, 0u, 2u},
+    {"uqshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 5, 64u, 0u, -1, 0u, 0u, 3u},
+    {"uqshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 5, 64u, 0u, -1, 0u, 0u, 4u},
+    {"uqshl v2.2d, v0.2d, v1.2d", CPU_GAP_KIND_SHL, 5, 64u, 0u, -1, 0u, 0u, 5u},
+    {"uqshl b2, b0, b1", CPU_GAP_KIND_SHL, 5, 8u, 0u, -1, 1u, 0u, 0u},
+    {"uqshl h2, h0, h1", CPU_GAP_KIND_SHL, 5, 16u, 0u, -1, 1u, 0u, 1u},
+    {"uqshl s2, s0, s1", CPU_GAP_KIND_SHL, 5, 32u, 0u, -1, 1u, 0u, 2u},
+    {"uqshl d2, d0, d1", CPU_GAP_KIND_SHL, 5, 64u, 0u, -1, 1u, 0u, 3u},
+    {"uqshl d2, d0, d1", CPU_GAP_KIND_SHL, 5, 64u, 0u, -1, 1u, 0u, 4u},
+    {"uqshl d2, d0, d1", CPU_GAP_KIND_SHL, 5, 64u, 0u, -1, 1u, 0u, 5u},
+};
+
 static uint64_t GapLane(const uint64_t v[2], unsigned bits, unsigned i) {
     const unsigned at = i * bits;
     return (v[at / 64u] >> (at % 64u)) & LaneMask(bits);
@@ -318,7 +438,14 @@ void CpuRefGapExpected(const CpuGapForm *form, const uint64_t v0[2], const uint6
     out[0] = 0;
     out[1] = 0;
     *qc = false;
-    if (form->kind == CPU_GAP_KIND_RSHL) {
+    if (form->kind == CPU_GAP_KIND_SHL) {
+        const unsigned lanes = form->scalar ? 1u : 128u / e;
+        for (unsigned i = 0; i < lanes; ++i) {
+            const int shift = (int8_t)(GapLane(v1, e, i) & 0xffu);
+            GapSetLane(out, e, i, CpuRefShiftLane(GapLane(v0, e, i), shift, e, (unsigned)form->op, &saturated));
+            *qc = *qc || saturated;
+        }
+    } else if (form->kind == CPU_GAP_KIND_RSHL) {
         const unsigned lanes = form->scalar ? 1u : 128u / e;
         for (unsigned i = 0; i < lanes; ++i) {
             const int shift = (int8_t)(GapLane(v1, e, i) & 0xffu);

@@ -53,6 +53,26 @@ uint32_t CpuRefFromHalf(uint16_t h, uint32_t fpcr, uint32_t *fpsr);
 /// FMAX (@p max) or FMIN, or with @p number FMAXNM or FMINNM, of two singles.
 uint32_t CpuRefMinMax(uint32_t a, uint32_t b, bool max, bool number, uint32_t *fpsr);
 
+/// FPCR.RMode's four rounding modes, in its encoding, and ties away from zero, which only FRINTA
+/// takes.
+#define CPU_ROUND_NEAREST 0u
+#define CPU_ROUND_PLUS 1u
+#define CPU_ROUND_MINUS 2u
+#define CPU_ROUND_ZERO 3u
+#define CPU_ROUND_AWAY 4u
+
+/// FRINTN, FRINTP, FRINTM, FRINTZ, FRINTA, and FRINTI and FRINTX under FPCR's mode, on one single
+/// (FPRoundInt, FPCR otherwise clear): @p mode one of the CPU_ROUND_* above, @p exact for
+/// FRINTX, which alone raises Inexact when it changes a value. A NaN is quieted, Invalid for a
+/// signalling one; a nought, an infinity and an integer come back as they went; a result of nought
+/// keeps the input's sign.
+uint32_t CpuRefRoundSingle(uint32_t x, unsigned mode, bool exact, uint32_t *fpsr);
+
+/// The rounding cases' sixteen singles, four registers: halves and their neighbours both ways,
+/// nought below a half of both signs, the last fraction below 2^23 and an integer above it, the
+/// least denormal, an infinity, and NaNs quiet and signalling with payloads.
+extern const uint32_t CPU_ROUND_INPUT[16];
+
 /// What the estimate cases feed each instruction: four registers of four singles, each register
 /// one class of input so its flags say which lanes raised them.
 extern const uint32_t CPU_FRECPE_INPUT[16];

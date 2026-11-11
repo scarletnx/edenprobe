@@ -1749,6 +1749,14 @@ static void CheckIpc(void) {
     const bool alive =
         !ServiceJudgeSessionClose(0u, SERVICE_SESSION_CLOSED, 0u, said, sizeof(said)) &&
         strstr(said, "the session answered after its Close") == said;
+    const bool refused = ServiceJudgeBadName(0xC15u, false, said, sizeof(said)) &&
+                         strstr(said, "refused: sm answered 0xc15") == said;
+    const bool taken = !ServiceJudgeBadName(0u, true, said, sizeof(said)) &&
+                       strstr(said, "taken as a name: sm answered 0x0 with a session") == said;
+    const bool otherwise = !ServiceJudgeBadName(0xE15u, false, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: sm's refusal of a bad name passes 0xc15 alone", CHECK_NONE,
+               refused && taken && otherwise, "refused %d, taken %d, another refusal %d", refused,
+               taken, otherwise);
     CHECK_TRUE(SUITE, "service: ipc passes the controller's answers and a Close", CHECK_NONE,
                room && none && same && other && handleless && closed && success && alive,
                "room %d \"%.160s\", none %d, same %d, another %d, no handle %d, closed %d, a "

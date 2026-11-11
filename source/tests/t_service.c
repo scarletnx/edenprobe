@@ -2424,6 +2424,28 @@ static void RunIpc(void) {
             ServiceJudgeSessionClose(open_rc, close_rc, after_rc, detail, sizeof(detail));
         Report(SERVICE_IPC_CLOSE, CHECK_EXACT, passed, detail);
     }
+    // Two names sm must refuse: nothing at all, and "set" with a NUL after its "se". A session
+    // that comes back anyway is closed.
+    static const struct {
+        ServiceCaseId id;
+        char bytes[8];
+    } BAD_NAMES[2] = { { SERVICE_IPC_SM_EMPTY, { 0 } },
+                       { SERVICE_IPC_SM_NUL, { 's', 'e', 0, 't', 0, 0, 0, 0 } } };
+    for (size_t i = 0; i < 2u; ++i) {
+        if (!Start(BAD_NAMES[i].id)) {
+            continue;
+        }
+        SmServiceName name;
+        memcpy(name.name, BAD_NAMES[i].bytes, sizeof(name.name));
+        Handle h = 0;
+        const uint32_t rc = smGetServiceOriginal(&h, name);
+        const bool handed = rc == 0u && h != 0u;
+        if (handed) {
+            svcCloseHandle(h);
+        }
+        const bool passed = ServiceJudgeBadName(rc, handed, detail, sizeof(detail));
+        Report(BAD_NAMES[i].id, CHECK_EXACT, passed, detail);
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
