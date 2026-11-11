@@ -153,6 +153,11 @@ void RunIndex(void);
 /// from: the primitive types and restarts the 3D class draws and Vulkan does not.
 void RunTopology(void);
 
+/// Copies between images and buffers through the library's calls, as a game's driver makes them:
+/// flipped, padded, between rectangles, formats and layers, and blits that convert, mirror, scale
+/// and keep sRGB bytes.
+void RunCopy(void);
+
 /// The 3D class's instanced vertex array draws, sent as raw methods: each draws when it arrives,
 /// with the state it arrived under, as the instance it is.
 void RunInstance(void);
@@ -376,6 +381,10 @@ void RunReferenceFixed(void);
 /// The topology suite's triangles, segments, provoking vertices, restart runs, coverage and
 /// margins, against answers worked out by hand: part of the reference suite.
 void RunReferenceTopology(void);
+
+/// The copy suite's pictures, conversions and texel places, against answers worked out by hand:
+/// part of the reference suite.
+void RunReferenceCopy(void);
 
 #ifdef __cplusplus
 }

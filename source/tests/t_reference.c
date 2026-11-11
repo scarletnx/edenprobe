@@ -2384,4 +2384,5 @@ void RunReference(void) {
     RunReferenceStencil();
     RunReferenceLod();
     RunReferenceTopology();
+    RunReferenceCopy();
 }

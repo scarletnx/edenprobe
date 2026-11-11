@@ -84,6 +84,8 @@ static const RunnerStep STEPS[] = {
     { "query", RunQuery, MODE_FAMILY_GRAPHICS, true, true },
     { "dma", RunDma, MODE_FAMILY_GRAPHICS, true, true },
     { "blit2d", RunBlit2d, MODE_FAMILY_GRAPHICS, true, true },
+    // After dma and blit2d, whose engines its copies go through by the library's own calls.
+    { "copy", RunCopy, MODE_FAMILY_GRAPHICS, true, true },
     // Last of the family, since a machine that runs out of memory on a texture this large may
     // take the launch down with it. Untimed by the passes: one pass makes the uploads a game
     // makes once, and each case times its own work.

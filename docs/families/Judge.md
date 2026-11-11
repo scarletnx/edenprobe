@@ -40,7 +40,7 @@ family reports can be believed without them.
   its cases skipped as asked, the next step run, and a name no case came up for said; and the same
   run with a runner's `timeout` after the first launch: the case skipped as timeout with the
   runner's two numbers, off the crash list, and started again by the next run.
-- **reference**, four hundred and twenty four cases, no hardware involved either: the other half
+- **reference**, four hundred and twenty seven cases, no hardware involved either: the other half
   of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -90,6 +90,10 @@ family reports can be believed without them.
     some; that every edge where the suite's colour changes keeps a twentieth of a pixel from
     every pixel centre; which line pixels are judged drawn, clear or neither, a quad's diagonal
     among the clear; and that a missed restart draws pixels the cases judge clear;
+  - three on the copy suite's rules, `source/copyref.c`: every texel of its pictures a value of
+    its own and every combination of nought and full in its conversion picture; the bytes a
+    channel of nought or full becomes in BGRA8, RGB565, RGBA16F and RGBA8; and where a flipped,
+    layered, scaled or padded copy puts a texel, against answers worked out by hand;
   - twenty three on the astc suite's answers: the ASTC reference decoder, `source/astcref.c`, held
     block by block to hashes of what ARM's decoder (astcenc) makes of the same sixteen blocks, its
     weight table to values worked out by hand from the bit replication rule, one value whose

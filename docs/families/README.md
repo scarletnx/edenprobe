@@ -12,7 +12,7 @@ points at. A case that ends the program costs that case, not the rest of the run
 - **[The judge](./Judge.md)** - selfcheck, support and reference, no hardware involved
 - **[The processor](./Cpu.md)** - cpu
 - **[Pad](./Pad.md)** - a controller in a person's hands, and the touch screen ([touch](./Touch.md))
-- **[Graphics](./Graphics.md)** - the thirty five drawing suites, clear to blit2d ([blit2d](./Blit2d.md)), and tex8k
+- **[Graphics](./Graphics.md)** - the thirty six drawing suites, clear to copy ([blit2d](./Blit2d.md)), and tex8k
 - **[nvn](./Nvn.md)** - the clear suite's question through the program's NVN, which ScarletNX takes as a game's
 - **[fs](./Fs.md)** - reads through the file system service
 - **[Kernel](./Kernel.md)** - the scheduler: priority inheritance, preemption and migration
