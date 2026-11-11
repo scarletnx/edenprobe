@@ -173,6 +173,9 @@ asks for more than the heap has, so a kernel that took the size would grow the h
 memory rather than take pages from under the program. The source pages are never touched while they
 are mapped, since the console gives them no permission.
 
+Eden 6a9235c22d and ScarletNX fa431b5 pass all twenty two, one run each: what is left to say is the
+console's own answer, which every expectation here already is in mesosphere.
+
 In an emulator a failure points at the supervisor call's checks (Eden's `hle/kernel/svc/`:
 `svc_synchronization.cpp`, `svc_event.cpp`, `svc_memory.cpp`, `svc_query_memory.cpp`), the
 handle table's lookups (`k_handle_table.h`, `GetMultipleObjects`, which resolves no pseudo-handle),
