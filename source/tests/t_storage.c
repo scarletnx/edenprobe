@@ -126,7 +126,8 @@ static bool Make(Storage *s, DkImageType type, DkImageFormat format, uint32_t by
         dkImageViewDefaults(&view, &s->image);
         view.mipLevelOffset = (uint8_t)level;
         view.mipLevelCount = 1;
-        const DkCopyBuf source = { address, w * bytes, h };
+        // The copy's image height is the bytes from one layer or slice to the next.
+        const DkCopyBuf source = { address, w * bytes, w * h * bytes };
         const DkImageRect rect = { 0, 0, 0, w, h, d };
         dkCmdBufCopyBufferToImage(context.gpu.cmdbuf, &source, &view, &rect, 0);
     }
@@ -199,7 +200,7 @@ static bool Download(const Storage *s, uint8_t *got[LEVELS]) {
         dkImageViewDefaults(&view, &s->image);
         view.mipLevelOffset = (uint8_t)level;
         view.mipLevelCount = 1;
-        const DkCopyBuf destination = { address, w * s->bytes, h };
+        const DkCopyBuf destination = { address, w * s->bytes, w * h * s->bytes };
         const DkImageRect rect = { 0, 0, 0, w, h, d };
         dkCmdBufCopyImageToBuffer(context.gpu.cmdbuf, &view, &rect, &destination, 0);
     }
@@ -326,7 +327,7 @@ static void LoadCase(void) {
     memcpy(texel, TEXEL, 4);
     DkImageView view;
     dkImageViewDefaults(&view, &s->image);
-    const DkCopyBuf source = { texel_address, 4u, 1u };
+    const DkCopyBuf source = { texel_address, 4u, 4u };
     const DkImageRect rect = { AT_X, AT_Y, 0, 1, 1, 1 };
     dkCmdBufCopyBufferToImage(context.gpu.cmdbuf, &source, &view, &rect, 0);
     dkCmdBufBarrier(context.gpu.cmdbuf, DkBarrier_Full, DkInvalidateFlags_Image);
@@ -375,7 +376,7 @@ static void CopyCase(const char *name, DkImageType type, DkImageFormat format,
     dkImageViewDefaults(&view, &from->image);
     view.mipLevelOffset = (uint8_t)level;
     view.mipLevelCount = 1;
-    const DkCopyBuf source = { texel_address, 4u, 1u };
+    const DkCopyBuf source = { texel_address, 4u, 4u };
     const DkImageRect rect = { AT_X, AT_Y, AT_Z, 1, 1, 1 };
     dkCmdBufCopyBufferToImage(context.gpu.cmdbuf, &source, &view, &rect, 0);
     dkCmdBufBarrier(context.gpu.cmdbuf, DkBarrier_Full, DkInvalidateFlags_Image);
