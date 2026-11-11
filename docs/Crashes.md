@@ -61,8 +61,9 @@ Every line ends in a tab before its newline. A last line that ends in its tab bu
 ## A launch stopped at its time limit
 
 A runner that stops a launch because its time is up says so in the journal, `timeout <limit> <quiet>` after the case's
-start: `make run` does, at `TIMEOUT` ([Under an emulator](Emulator.md)), and `android/tools/run-scarletnx.sh`, at
-`--stall` or `--timeout`. The launch after skips that case with the
+start: `make run` does, at `TIMEOUT` ([Under an emulator](Emulator.md)), and `android/tools/run-scarletnx.sh` and
+`android/tools/run-adb.sh`, at `--stall` or `--timeout`; `run-adb.sh` appends the line to the journal on the device,
+the seconds by the device's clock. The launch after skips that case with the
 reason `timeout`, not `crashed`, and the two numbers in its detail: the limit, which is the launch's and not the
 case's, and how long the journal had gone without a record, which is how long the case had run. A case stopped 58
 seconds in hung or is that slow; one stopped 2 seconds in was only the one running when the launch's time ran out.

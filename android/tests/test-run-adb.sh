@@ -2,8 +2,9 @@
 # SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 # android/tests/test-run-adb.sh: android/tools/run-adb.sh on a fake device (fake-adb): a whole run, a launch that dies,
-# one that hangs, a run that never ends whole, and a device that already has the package. Each leaves the device as
-# it was: the package uninstalled, or never installed.
+# one that hangs (said in the journal as a timeout, on a line of its own after a cut record too), a run that never
+# ends whole, and a device that already has the package. Each leaves the device as it was: the package uninstalled,
+# or never installed.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 tmp=$(mktemp -d)
@@ -46,6 +47,23 @@ scenario dies die-once
 scenario hangs stall --stall 3
 [ $rc = 0 ] && [ "$(calls hangs 'am force-stop')" -ge 1 ] && [ "$(cat "$tmp/hangs/dev/launches")" = 2 ] &&
     ok "hangs: stopped after 3 s silent and launched again" || bad "hangs: exit $rc, $(cat "$tmp/hangs/log")"
+journal=$tmp/hangs/dev/device$root/runs/fixture/journal
+# the launch's line, the timeout at the stall's 3 s with the seconds since the journal's last write, the next launch
+if [ "$(sed -n 2p "$journal" | grep -cP '^timeout 3 [0-9]+\t$')" = 1 ] && [ "$(sed -n 3p "$journal")" = launch ]; then
+    ok "hangs: the journal says timeout 3 and the seconds it had been quiet"
+else
+    bad "hangs: journal $(od -c "$journal" | head -5)"
+fi
+grep -q "launch 1: the journal says timeout 3 [0-9]*, so the case under way is skipped as timeout, not as crashed" \
+    "$tmp/hangs/log" && ok "hangs: and the script says so" || bad "hangs: $(cat "$tmp/hangs/log")"
+
+scenario cut stall-cut --stall 3
+journal=$tmp/cut/dev/device$root/runs/fixture/journal
+if [ "$(sed -n 1p "$journal")" = launch ] && [ "$(sed -n 2p "$journal" | grep -cP '^timeout 3 [0-9]+\t$')" = 1 ]; then
+    ok "cut: a record cut before its newline keeps its line, and the timeout takes the next"
+else
+    bad "cut: journal $(od -c "$journal" | head -5)"
+fi
 
 scenario nostorage nostorage-once --stall 60
 [ $rc = 0 ] && [ "$(cat "$tmp/nostorage/dev/launches")" = 2 ] && ok "nostorage: launched again at once, exit 0" ||
