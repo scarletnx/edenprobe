@@ -146,11 +146,8 @@ static void Cancels(void) {
     static const char *const NEXT =
         "the pending cancel ends the next wait at once with Cancelled and is used up";
     if (!ReportStart(SUITE, ZERO)) {
-        if (ReportStart(SUITE, NEXT)) {
-            ReportSkip(SUITE, NEXT, REPORT_REASON_DEPENDS,
-                       "the case before it, which sets up the "
-                       "cancel, did not run");
-        }
+        ReportSkip(SUITE, NEXT, REPORT_REASON_DEPENDS,
+                   "the case before it, which sets up the cancel, did not run");
         return;
     }
     const Result cancel = svcCancelSynchronization(threadGetCurHandle());
@@ -339,9 +336,7 @@ static void MapMemory(void) {
             Expect(LOCKED, mapped, SVC_SUCCESS, false, "svcMapMemory of two heap pages refused");
         }
         free(source);
-        if (ReportStart(SUITE, BACK)) {
-            ReportSkip(SUITE, BACK, REPORT_REASON_DEPENDS, "svcMapMemory refused the mapping");
-        }
+        ReportSkip(SUITE, BACK, REPORT_REASON_DEPENDS, "svcMapMemory refused the mapping");
         return;
     }
     MemoryInfo from, to;
