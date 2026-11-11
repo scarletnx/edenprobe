@@ -63,6 +63,10 @@
   signalling one wins, quieted, even second), the two noughts both ways (+0 the maximum, -0 the
   minimum), denormals of either sign and an infinity. The references agreed with Unicorn's
   AArch64 on 122,510 inputs, flags included, before a console saw them.
+  ScarletNX fa431b5 passes all seven. Under Eden 6a9235c22d five pass: FRSQRTE raises Inexact on
+  the normal register, which the pseudocode never does (`common/fp/op/FPRSqrtEstimate.cpp`, or the
+  host's own estimate behind it), and FCVTN of a signalling NaN to half leaves Invalid clear
+  (`common/fp/op/FPConvert.cpp`).
 
   The last two read system registers a game may reach from EL0: CNTVCT_EL0, the virtual count,
   which has to move forward with the physical one, and DAIF, which holds nothing outside its four
