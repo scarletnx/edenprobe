@@ -13,10 +13,13 @@
 * [texture](#texture)
 * [lod](#lod)
 * [coverage](#coverage)
+* [msaa](#msaa)
+* [sampling](#sampling)
 * [coherence](#coherence)
 * [fmath](#fmath)
 * [order](#order)
 * [queue](#queue)
+* [storage](#storage)
 * [index](#index-1)
 * [topology](#topology)
 * [vertex](#vertex)
@@ -44,7 +47,7 @@
 * [What a console run settles](#what-a-console-run-settles)
 * [Where reden falls short](#where-reden-falls-short)
 
-The thirty eight drawing suites, clear to copy, in the order they run, and tex8k after them.
+The forty one drawing suites, clear to copy, in the order they run, and tex8k after them.
 
 ## clear
 
@@ -342,6 +345,45 @@ target, which the last case leans on; then coverage to color on that image after
 first, so samples 1 and 3 pass and each must hold 0xa, the coverage left after the test, where 0xf
 would be the coverage before it.
 
+## msaa
+
+Seven cases. Multisampled targets as memory holds them, where a game finds them when it copies
+one, samples one it rendered or loads one it wrote: a 4x4 target of four samples is an 8x8 image,
+sample i of pixel (x, y) at (2x + i % 2, 2y + i / 2), the 3D class's 2x2 layout (deko3d's
+DkMsMode_4x), which ScarletNX's multisample tests hold its renderer to in guest memory. Each
+target is cleared to a blue of 128 and drawn with a green of 128 over the triangle (0, 0), (4, 0),
+(0, 4) at the standard positions, (6, 2), (14, 6), (2, 10) and (10, 14) in sixteenths: a sample is
+green where 16 (x + y) and its two sixteenths make less than 64, which no sample ties, so the
+pixels where x + y is 3 have samples 0 and 2 green and 1 and 3 blue. The cases: the samples read
+from processor-visible memory after the level two cache is written back; a resolve into a 4x4
+image of one sample, every pixel the average of its four (128 makes it exact: 0, 32, 64, 96 or
+128); a 4x ZF32 target cleared to 0.75 holding the float at all 64 samples; each sample of a 4x
+RGBA8_Uint texture the processor wrote fetched onto its own pixel (`msfetch.frag.glsl`); and a
+conservative triangle, every sample of each pixel it crosses green and none of a pixel it misses,
+the pixels its edge touches only at a corner left unjudged. Exact. In an emulator a failure points
+at the layout it writes a multisampled image back in and reads one from (the resolve's average,
+the sample order, a target never written back), or at conservative rasterisation it does not pass
+on.
+
+## sampling
+
+Twenty one cases. What the sampler hands a shader, onto a 4x4 target of 32-bit floats so it
+arrives unrounded. Thirteen formats, every texel of a 4x4 texture one word the processor wrote:
+R8, RG8 and the defaults of the channels each lacks (nought, and one for alpha: deko3d's format
+table); RGBX8, whose alpha is one whatever memory holds; BGRA8's blue in its first byte; R8 snorm
+0x80 clamped to -1; RGB565 and BGR565, red or blue in the low five bits; RGB5A1's alpha in the top
+bit; RGBA4's red in the low nibble; RGB10A2; R16F, RG11B10F and E5BGR9's shared exponent, each a
+value the format holds exactly. Then the sampler's reduction (its word 1, bits 10 and 11): a
+linear lookup of a 2x1 R32F texture of nought and one at the edge the two share, which averages
+them, the minimum reduction the lesser and the maximum the greater; a reduction of 3, which names
+no mode, goes into a note (ScarletNX's sampler test holds it to the average). Then a rectangle
+view (the descriptor's normalised coordinates off, as NVN writes its RECTANGLE target) reads
+texel (3, 0) at (3.5, 0.5), which a normalised view reads at (0.875, 0.125), and a normalised
+view repeats (3.5, 0.5) to the middle, texel (2, 2). Exact, as each value is one every
+conversion lands on. In an emulator a failure points at its format table (`texture_cache/format_lookup_table.cpp`,
+`renderer_vulkan/maxwell_to_vk.cpp`), the sampler's reduction (`textures/texture.h`,
+`vk_texture_cache.cpp`, `Sampler`) or a descriptor's coordinate mode left unread.
+
 ## coherence
 
 Twenty one cases, five of them the none tier (the device, the shaders, the images
@@ -486,6 +528,25 @@ back even then fails the case, skips the rest as `depends` and leaves the device
 closing it would wait for that list, and a note says so. In an emulator a failure points at the
 puller's semaphore acquire (`engines/puller.cpp`, `ProcessSemaphoreAcquire`) and at how its
 queues run: one after the other, a wait cannot be released by the queue behind it.
+## storage
+
+Eighteen cases. Compute programs that store into and load from images, as a game's programs make
+the levels of a texture, fill a volume or keep masks in an array. A store converts by the format
+of the image its descriptor names, the shader declaring none: ten formats, each value one that
+lands on a single encoding under any legal rounding (Vulkan's texel output conversion: unsigned
+normalised clamped at both ends, signed normalised -1 to 0x81 and below it too, floats every
+narrower float holds exactly, integers in range): RGBA8, RGBA8 snorm, RGB10A2, RG11B10F,
+RGBA16F, R32F, RGBA32F, R32, RGBA8 and RGBA16 integers. A store to level 1 of three, to layer 1
+of a three layer array and to slice 1 of a volume writes that texel and no other. Every image is
+filled first through the copy engine, every level, layer and slice with bytes of its own, read
+back the same way after the dispatch and judged byte for byte. Then a formatted load of RGBA8
+00 80 ff 40 gives 0, 128/255, 1 and 64/255 rounded to the nearest float (0x3f008081 and
+0x3e808081), and a load and a store keep a texel's bits: an R32F array's layer 1 at level 1, and an
+RGBA8 sint volume's slice 1. Exact. ScarletNX's storage tests hold its runtime to these against
+guest memory. In an emulator a failure points at the storage image's view (a level, a layer or a
+slice taken as another), a format it stores with its own conversion, or a store it never writes
+back.
+
 ## index
 
 Eight cases. Indexed draws whose index limit register holds the last byte of the
@@ -737,7 +798,7 @@ that every block's bytes read that way and that no block's colours do.
 
 ## bcn
 
-Five cases. BC4 arrays whose levels or layers do not end on a block boundary: six
+Twenty one cases. BC4 arrays whose levels or layers do not end on a block boundary: six
 layers with levels down to 1x1, the shape of every mipmapped cube map; two layers six texels
 tall; and a 4x16 texture whose second level is two texels wide and two blocks tall. Every block
 is one value unique to its layer, level and position, written by the processor where
@@ -748,9 +809,23 @@ layers of a level (`texture_cache/decode_bc.cpp`, `DecompressBlocks`). The three
 Eden, and the fork before ECFE-2026-1163, inside the pipeline cache: the array fetching shader
 compiles to a PRET; the launch after goes on past each.
 
+Then one block of every BCn format, built a field at a time from the Khronos Data Format
+Specification's S3TC, RGTC and BPTC chapters and fetched texel by texel onto a target of 32-bit
+floats: BC1's four and three colour modes, BC2's four bit alphas, BC3's eight and six alpha modes,
+BC4 and BC5 unsigned and signed, BC6H mode 11 unsigned and signed and a reserved mode (opaque
+black), BC7 modes 6 and 5 (with the rotation that swaps alpha and red) and a block with no mode
+(transparent black). The interpolants are the ones NVIDIA's GPUs decode, which ScarletNX's BCn
+decoder test holds its decoder to, and which differ from the specification's fractions where a
+case can tell: BC1's two thirds of 31 and 0 are 170 and 85 and its midpoint 127, BC3's six-value
+alpha at index 2 is 48 (a fifth of 255 is 51), BC4's index 2 between 255 and 0 is 56355 of 65535
+(six sevenths is 56172), BC6H's index 8 in mode 11 is the half 0x41df. A channel times 255, 65535
+or 32767, rounded, must be the decoded integer; a BC6H channel must be the half exactly. A host
+that samples BCn natively answers with its own GPU's interpolants, which is the question these
+ask of it.
+
 ## zeta
 
-Six cases. Depth textures the processor writes, sampled texel by texel: Z16 and ZF32
+Seventeen cases. Depth textures the processor writes, sampled texel by texel: Z16 and ZF32
 as controls, then Z24S8 twice, once with a word that reads the same whichever way its depth and
 stencil are split and once with depth 0x00ff00 over stencil 0x5a, whose low 24 bits would give
 254 where the depth gives 1. Exact tier: each depth is a whole number of 255ths or a quarter
@@ -758,6 +833,22 @@ away from a half. In an emulator a failure points at the upload of a depth textu
 without D24_UNORM_S8_UINT that copies the words into a 32-bit float depth image, or a copy that
 takes the depth from the low 24 bits (`renderer_vulkan/vk_texture_cache.cpp`,
 `TransformBufferImageCopies`).
+
+Three more sample through a view of the stencil or of ZF32_X24S8: the stencil of Z24S8 from the
+low byte (deko3d's view puts it in all four channels, fetched as unsigned, `swizzle.frag.glsl`),
+ZF32_X24S8's depth from its float and its stencil from the low byte of the next word, with 0xc3
+in the byte above it to catch a host that takes the wrong one. Then depth targets the graphics
+unit clears and the processor reads in memory after the level two cache is written back, the
+bytes a game finds when it copies a depth buffer through memory (ScarletNX's depth write-back
+test): each cleared to 0.75, which is 0xbfffff in 24 bits and 0xbfff in 16 under either rounding,
+and stencil 0x5a. Z24S8 holds 0xbfffff5a (deko3d's surface format S8Z24Unorm, 0x14: the stencil in
+the low byte), Z24X8 0xbfffff above its low byte, Z16 0xbfff, ZF32 its float, ZF32_X24S8 the float
+then 0x5a, S8 0x5a. What the low byte of Z24X8 and the 24 bits above ZF32_X24S8's stencil hold, no
+format says, so a note gives it. Last, a three layer target cleared a layer at a time through a
+view of one layer, to 0.2, 0.4 and 0.6: as ZF32 each layer copied out holds its float, and as
+Z24S8 each layer sampled holds 51, 102 and 153 of 255 (ScarletNX's depth array test). In an
+emulator these point at a depth target it never writes back to memory, or writes back in its
+host's layout, and at a layered depth target cleared or kept as one layer.
 
 ## swizzle
 
@@ -943,7 +1034,7 @@ blit (`vk_texture_cache.cpp`, `BlitImage`).
 
 ## tex8k
 
-Fifty five cases, on textures as large as a game's largest: 8192x8192, which the texture unit
+Fifty six cases, on textures as large as a game's largest: 8192x8192, which the texture unit
 takes (its limit is 16384), in RGBA8, BC1, BC7, ASTC 4x4 and ASTC 8x8, and one BC1 at 16384x16384.
 The question is what each costs, so the suite runs once, not ten times: the uploads are the ones a
 game makes once, and a run stays seconds long on a console. Each case times its own work on the
@@ -1048,6 +1139,13 @@ one allocation, whole on every change or by the region that changed, which block
 at a page or a level's edge, a compressed format decoded or encoded again past BC7's loss, staging
 handed back and taken again, and how a render target or a 2D engine copy reaches memory past an
 allocation's cap.
+
+The last case is a volume past 512 Mi texels: BC1 1024x1024x513, 257 MiB, in memory the processor
+writes, of which it fills the first block alone, as a game's light volume is made by the graphics
+unit and sampled where it was written. Its sixteen texels fetched must give the block's colours
+(two thirds blue, two thirds red, blue and red, which every decoder gives exactly); a host that
+takes a volume that large for no texture reads zeros (ScarletNX's big volume test). It skips as
+unavailable where `vram=` says the machine is short, as the textures do.
 
 ## What a console run settles
 

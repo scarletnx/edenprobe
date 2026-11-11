@@ -1078,6 +1078,32 @@ bool GpuCreateArrayImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout, D
     return true;
 }
 
+bool GpuCreateFromMaker(GpuContext *gpu, DkImage *out, DkImageLayout *layout,
+                        DkImageLayoutMaker *maker, uint8_t **cpu_bytes) {
+    if (gpu == NULL || !gpu->ready || maker == NULL) {
+        return false;
+    }
+    DkMemBlock block = cpu_bytes != NULL ? gpu->cpu_image_memory : gpu->extra_image_memory;
+    uint32_t *used = cpu_bytes != NULL ? &gpu->cpu_image_used : &gpu->extra_image_used;
+    if (block == NULL) {
+        return Complain(gpu, cpu_bytes != NULL
+                                 ? "an image the processor reads, and the spec asked for no "
+                                   "processor-visible image memory"
+                                 : "an image, and the spec asked for no image memory");
+    }
+    maker->device = gpu->device;
+    dkImageLayoutInitialize(layout, maker);
+    uint32_t offset = 0;
+    const char *problem = PlaceLaidOut(out, layout, block, used, &offset);
+    if (problem != NULL) {
+        return Complain(gpu, problem);
+    }
+    if (cpu_bytes != NULL) {
+        *cpu_bytes = (uint8_t *)dkMemBlockGetCpuAddr(block) + offset;
+    }
+    return true;
+}
+
 bool GpuCreateCachedLinearImage(GpuContext *gpu, DkImage *out, DkImageLayout *layout,
                                 DkImageFormat format, uint32_t width, uint32_t height,
                                 uint8_t **cpu_bytes, uint32_t *stride) {
