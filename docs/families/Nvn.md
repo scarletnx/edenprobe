@@ -67,7 +67,9 @@ The reference is the graphics unit running what the layer recorded, never the of
   These are ScarletNX's NVN copy tests (`nvn_copy_formats.c`, `vulkan_nvn_copy_flags.inc`,
   `vulkan_nvn_compat.inc`) as far as the layer reaches: the same textures, flags and strides through the program's
   NVN, so ScarletNX answers with `nvn_copy.c`, the path a game's copies take, and the console and Eden with what
-  deko3d sends the copy and 2D engines for them.
+  deko3d sends the copy and 2D engines for them. ScarletNX 9bef605 passes all seven; Eden 6a9235c22d passes five
+  and fails the two mirrors, the copy suite's FlipY to a buffer (nothing lands) and the 2D engine's FlipX between
+  images (the texels copied unmirrored), where ScarletNX's NVN copy does both.
 - **a window acquires and presents both its textures** (none tier): two 1280x720 textures on the default window,
   each acquired with `nvnQueueAcquireTexture`, cleared and presented once. Nothing is read back. Skipped as
   `unavailable` while the program's screen holds the window, which a run begun on the start screen keeps up to its
