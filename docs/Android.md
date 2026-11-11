@@ -44,6 +44,9 @@ list](Crashes.md#the-ban-list), unless the words name a machine, watches logcat,
 uninstalls it, also when it fails. It sends no input. A launch that ends before `EDENPROBE DONE`, goes silent, or says
 the run did not start (a launch right after a boot can, before the app has its storage) is launched again, and the
 engine goes on after the case it ended inside, as on the console ([When the program ends in the middle](Crashes.md)).
+One it stopped for going silent (`--stall`) or running past `--timeout` is said in the run's journal on the device,
+so that case is skipped as a timeout rather than a crash ([A launch stopped at its time
+limit](Crashes.md#a-launch-stopped-at-its-time-limit)).
 
 By hand: `adb shell am start -n org.scarletnx.edenprobe/.ProbeActivity --es mode "quick libc"` launches it with
 those words, which the app writes to its mode file first (adb's shell cannot write the app's folder before the app

@@ -10,7 +10,8 @@
 # the install on), meminfo.txt, for each launch that died its exit-info-N.txt, and the run's report.jsonl and journal.
 # A launch that ends before EDENPROBE DONE, says the run did not start (as one right after a boot can, before the app
 # has its storage), logs no edenprobe line for --stall seconds (60), or runs past --timeout seconds (600), is stopped
-# and launched again: the engine reports the case it ended inside as crashed and goes on, up to --launches (5). ADB
+# and launched again: the engine reports the case it ended inside as crashed and goes on, up to --launches (5); one
+# this script stopped is said in the journal, `timeout <limit> <quiet>`, so that case is a timeout instead. ADB
 # names adb (adb on PATH when not set). Exit 0 with a whole report, 1 a run that did not end whole, 2 refused (usage),
 # 3 the package is already on the device.
 set -u
@@ -94,6 +95,29 @@ installed=1
 adb install -t "$apk" > "$out/install.txt" 2>&1 || { cat "$out/install.txt"; exit 1; }
 log "mode: $mode"
 
+# Says in the journal of the folder last-run names that the launch was stopped at LIMIT seconds, as
+# run-scarletnx.sh does: the engine then skips the case under way as timeout. The journal is on the device, where the
+# app's folder takes adb's shell once the app has run; how long it had gone without a record is the device's clock
+# against its last write. Nothing when the run has no journal yet; said when its time cannot be read.
+mark_timeout() { # LIMIT
+    local folder journal written now lead=
+    folder=$(adb shell cat "$root/last-run" 2> /dev/null | tr -d '\r')
+    case $folder in runs/?*) ;; *) return ;; esac
+    journal=$root/$folder/journal
+    written=$(adb shell stat -c %Y "$journal" 2> /dev/null | tr -d '\r')
+    now=$(adb shell date +%s 2> /dev/null | tr -d '\r')
+    case "$written:$now" in
+    *[!0-9:]* | :* | *:)
+        log "launch $launch: the journal's last write (\"$written\") or the device's clock (\"$now\") is no number: the case under way stays a crash"
+        return
+        ;;
+    esac
+    # a record the stop cut short keeps its line: the timeout goes on one of its own
+    [ -z "$(adb shell tail -c 1 "$journal" 2> /dev/null | tr -d '\r')" ] || lead='\n'
+    adb shell "printf '${lead}timeout %s %s\\t\\n' $1 $((now - written)) >> $journal"
+    log "launch $launch: the journal says timeout $1 $((now - written)), so the case under way is skipped as timeout, not as crashed"
+}
+
 done_line=
 for launch in $(seq 1 "$launches"); do
     log "launch $launch"
@@ -125,6 +149,7 @@ for launch in $(seq 1 "$launches"); do
             log "launch $launch: no progress for $((now - last_move)) s ($((now - start)) s in all): stopping it"
             adb shell dumpsys activity exit-info "$pkg" > "$out/exit-info-$launch.txt" 2>&1
             adb shell am force-stop "$pkg"
+            if [ $((now - last_move)) -ge "$stall" ]; then mark_timeout "$stall"; else mark_timeout "$timeout"; fi
             break
         fi
     done

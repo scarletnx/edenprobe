@@ -3,8 +3,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # A device for test-run-adb.sh: its state in FAKE_ADB (a folder, the device's files under FAKE_ADB/device), its
 # behaviour at each launch in FAKE_SCENARIO: ok (the run ends whole), die-once (launch 1 ends the process mid-run),
-# stall (launch 1 hangs silent), never (every launch ends the process), nostorage-once (launch 1 says the run did not
-# start, and stays up, as an app with no storage yet does). Each call is appended to FAKE_ADB/calls.
+# stall (launch 1 hangs silent), stall-cut (the same, its journal's last record cut before its newline), never (every
+# launch ends the process), nostorage-once (launch 1 says the run did not start, and stays up, as an app with no
+# storage yet does). The shell's stat, date, tail and an append under the app's folder act on the device's files. Each
+# call is appended to FAKE_ADB/calls.
 d=$FAKE_ADB
 pkg=org.scarletnx.edenprobe
 root=/storage/emulated/0/Android/data/$pkg/files/edenprobe
@@ -26,6 +28,10 @@ shell)
     getprop*) echo fake ;;
     "cat $root/last-run") cat "$d/device$root/last-run" 2> /dev/null ;;
     "dumpsys meminfo $pkg") echo "meminfo of $pkg" ;;
+    "stat -c %Y $root/"*) line=$*; stat -c %Y "$d/device${line#stat -c %Y }" ;;
+    "date +%s") date +%s ;;
+    "tail -c 1 $root/"*) line=$*; tail -c 1 "$d/device${line#tail -c 1 }" ;;
+    "printf "*" >> $root/"*) line=$*; eval "${line%% >> *}" >> "$d/device${line##* >> }" ;;
     "pidof $pkg") [ -f "$d/running" ] && echo 4242 ;;
     "dumpsys activity exit-info $pkg") echo "exit-info of $pkg" ;;
     "am force-stop $pkg") rm -f "$d/running" ;;
@@ -38,11 +44,15 @@ shell)
         echo $n > "$d/launches"
         mkdir -p "$d/device$run"
         echo "runs/fixture" > "$d/device$root/last-run"
-        printf 'launch\n' >> "$d/device$run/journal"
+        if [ "$FAKE_SCENARIO" = stall-cut ] && [ $n = 1 ]; then
+            printf 'launch' >> "$d/device$run/journal"
+        else
+            printf 'launch\n' >> "$d/device$run/journal"
+        fi
         if [ "$FAKE_SCENARIO" = never ] || { [ "$FAKE_SCENARIO" = die-once ] && [ $n = 1 ]; }; then
             head -n 4 "$FAKE_REPORT" > "$d/device$run/report.jsonl"
             logline "$(sed -n 4p "$FAKE_REPORT")"
-        elif [ "$FAKE_SCENARIO" = stall ] && [ $n = 1 ]; then
+        elif { [ "$FAKE_SCENARIO" = stall ] || [ "$FAKE_SCENARIO" = stall-cut ]; } && [ $n = 1 ]; then
             touch "$d/running"
         elif [ "$FAKE_SCENARIO" = nostorage-once ] && [ $n = 1 ]; then
             touch "$d/running"
