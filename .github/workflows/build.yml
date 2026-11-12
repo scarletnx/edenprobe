@@ -75,6 +75,9 @@ jobs:
                 { echo "::error::the build calls itself $build, a tag not on $SHA"; exit 1; } ;;
             *) echo "::error::the build calls itself \"$build\", not from a version tag or $hash"; exit 1 ;;
           esac
+      # A machine that answers a game's SDK functions itself takes the program's by these symbols (docs/Hooks.md)
+      - name: Check the NRO exports the SDK functions sdk.h declares
+        run: python3 tools/sdk-exports.py edenprobe.elf
       - name: Name the NRO after its commit
         run: cp edenprobe.nro "edenprobe-${{ steps.commit.outputs.short }}.nro"
       # Not zipped: the artifact is the NRO itself, named after it
