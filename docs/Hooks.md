@@ -143,4 +143,9 @@ The fsp case needs the launch before to have left its marker: #1658's run took f
 - A tail call: #1658 takes `bl` and a call through a pointer, and a `b` to a hooked function's entry runs the
   function's own code; a game's code makes such branches.
 
+With the SDK label the program carries since, and ScarletNX's native nnSdk carried onto its main with its fixes
+(ScarletNX#1779 to #1783, at b879c23), `quick notime fs service net sdk hooks` ends in one launch with no case
+crashed: nn::ngc's two cases, nsd's environment and the tail call pass, and of the table's cases only the file's time
+stamp still fails, nn::fs::GetFileTimeStampForDebug having no hook there.
+
 The game family's six cases pass on every column.
