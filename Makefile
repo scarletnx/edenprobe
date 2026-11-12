@@ -132,6 +132,12 @@ FORCE:
 .PHONY: FORCE
 $(BUILD)/source/main.o: $(BUILD)/version.h
 
+# The volume layer reaches the SDK's functions with calls, never a tail branch: a machine that takes
+# a function by its symbol may see only calls (the sdk suite asks a tail call on purpose), and a
+# case must not depend on where the compiler turned its last call into a branch. sdk-exports.py
+# checks the program has no other.
+$(BUILD)/source/volume.o: CFLAGS += -fno-optimize-sibling-calls
+
 $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@

@@ -40,6 +40,7 @@
 * [audout](#audout)
 * [fs-file](#fs-file)
 * [acc-app](#acc-app)
+* [sdk](#sdk)
 * [The open questions](#the-open-questions)
 * [The judge, pinned](#the-judge-pinned)
 
@@ -89,6 +90,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | audout | 3 | the plain PCM output: one output listed and opened as asked, its volume kept, buffers held while stopped and given back when it stops (`audio_core/out/audio_out_system.cpp`) |
 | fs-file | 5 | a game's own files on the memory card, as a save writer handles them: resized, renamed into place, a directory cleaned, a file's time stamp, the free space (`hle/service/filesystem/fsp/fs_i_file.cpp`, `fs_i_filesystem.cpp`, `filesystem.cpp`) |
 | acc-app | 2 | acc:u0 as a game's save code asks it: the users it may pick, and the thumbnail it stores with a save (`hle/service/acc/acc.cpp`, `ListQualifiedUsers`, `StoreSaveDataThumbnail`) |
+| sdk | 1 | the SDK functions the program exports (`source/sdk.h`): one reached by a tail call as by a call, on a machine that takes a game's SDK functions by their symbols ([The hooks mode](../Hooks.md)) |
 
 In [hooks mode](../Hooks.md) the fsp, fsdir, fs-file, time, time-snap, time-zone, time-perm, pl and
 ngc suites ask the SDK's functions instead of the services, with the same expectations; that page
@@ -870,6 +872,23 @@ InvalidUserId (`0x287C`) and another size InvalidArrayLength (`0x407C`).
 
 The user is GetLastOpenedUser's, else the first ListAllUsers lists, with acc:u0 opened as the
 account suite opens it; both cases are skipped as `unavailable` when it does not open.
+
+## sdk
+
+A game reaches an SDK function by a call, and by a tail call, a branch to its entry, where it returns
+that function's answer. A machine that runs a game's SDK functions itself and takes each by its
+symbol (ScarletNX's native nnSdk) has to take it both ways. The suite asks nn::time::IsInitialized,
+which changes nothing and whose own code opens no service, both ways, and counts how many times the
+function's own code ran for each (`source/sdk.h`, SdkOwnCalls). No reference is needed: the two
+answers have to be one machine's.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| a tail call to an SDK function reaches what a call reaches | nn::time::IsInitialized by a call, then by SdkTailIsInitialized, a `b` to its entry written in assembly | the same answer, and its own code ran as many times for each | exact |
+
+The tail call is the program's only one into those functions: `tools/sdk-exports.py` refuses any
+other, so every other case reaches them by a call. It runs in both modes; in IPC mode, and on a
+machine that takes none of them, both run the function's own code.
 
 ## The open questions
 

@@ -314,6 +314,7 @@ typedef enum {
     SERVICE_FILE_SPACE,  ///< fs-file: the memory card's free space is within its total
     SERVICE_ACC_QUALIFIED, ///< acc-app: the qualified users are the users there are
     SERVICE_ACC_THUMBNAIL, ///< acc-app: a save thumbnail is taken at its size, for a user
+    SERVICE_SDK_TAIL,      ///< sdk: a tail call to an SDK function reaches what a call reaches
     SERVICE_CASES
 } ServiceCaseId;
 
@@ -1426,6 +1427,17 @@ typedef struct {
     uint32_t user_rc, stored_rc, short_rc, nobody_rc;
 } ServiceAccThumbnail;
 bool ServiceJudgeAccThumbnail(const ServiceAccThumbnail *seen, char *out, size_t out_size);
+
+/// nn::time::IsInitialized, one of the SDK functions the program exports (hooks.h), asked by a call
+/// and by a tail call, a branch to its entry, as a game's code reaches a function it returns the
+/// answer of: each answer, and how many times the function's own code ran for it. Passes when the
+/// two answers and the two counts are the same: a machine that takes the function takes it however
+/// it is reached, and on one that takes none both run its own code.
+typedef struct {
+    bool call, tail;
+    uint32_t call_own, tail_own;
+} ServiceSdkTail;
+bool ServiceJudgeSdkTail(const ServiceSdkTail *seen, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

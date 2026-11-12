@@ -195,6 +195,7 @@ static const struct {
     [SERVICE_ACC_QUALIFIED] = { "acc-app", "the qualified users are the users there are" },
     [SERVICE_ACC_THUMBNAIL] = { "acc-app",
                                 "a save thumbnail is taken at its size for a user, and only so" },
+    [SERVICE_SDK_TAIL] = { "sdk", "a tail call to an SDK function reaches what a call reaches" },
 };
 
 const char *ServiceCaseSuite(ServiceCaseId id) {
@@ -2417,6 +2418,17 @@ bool ServiceJudgeAccQualified(const ServiceAccQualified *seen, char *out, size_t
     return passed;
 }
 
+bool ServiceJudgeSdkTail(const ServiceSdkTail *seen, char *out, size_t out_size) {
+    const bool same = seen->call == seen->tail;
+    const bool both = seen->call_own == seen->tail_own;
+    snprintf(out, out_size,
+             "%s: nn::time::IsInitialized by a call %s, its own code %u times; by a tail call %s, "
+             "its own code %u times",
+             !both ? "the tail call ran other code" : !same ? "another answer" : "the same code",
+             seen->call ? "true" : "false", (unsigned)seen->call_own, seen->tail ? "true" : "false",
+             (unsigned)seen->tail_own);
+    return same && both;
+}
 bool ServiceJudgeAccThumbnail(const ServiceAccThumbnail *seen, char *out, size_t out_size) {
     const bool stored = seen->user_rc == 0u && seen->stored_rc == 0u;
     const bool checked = seen->short_rc == SERVICE_ACC_INVALID_LENGTH &&

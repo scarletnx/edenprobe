@@ -2222,6 +2222,30 @@ static void CheckTimePerm(void) {
                denied, denied_said, taken, other, moved, kept, located, none, code);
 }
 
+/// The sdk suite: a tail call that reaches what a call does, and one that runs the function's own
+/// code where the call ran the machine's.
+static void CheckSdkTail(void) {
+    ServiceSdkTail seen = { true, true, 0u, 0u };
+    const bool taken =
+        ServiceJudgeSdkTail(&seen, said, sizeof(said)) &&
+        strcmp(said, "the same code: nn::time::IsInitialized by a call true, its own code 0 "
+                     "times; by a tail call true, its own code 0 times") == 0;
+    char taken_said[480];
+    memcpy(taken_said, said, sizeof(said));
+    seen = (ServiceSdkTail){ false, false, 1u, 1u };
+    const bool own = ServiceJudgeSdkTail(&seen, said, sizeof(said));
+    seen = (ServiceSdkTail){ true, false, 0u, 1u };
+    const bool missed = !ServiceJudgeSdkTail(&seen, said, sizeof(said)) &&
+                        strstr(said, "the tail call ran other code") == said;
+    seen = (ServiceSdkTail){ true, false, 0u, 0u };
+    const bool other = !ServiceJudgeSdkTail(&seen, said, sizeof(said)) &&
+                       strstr(said, "another answer") == said;
+    CHECK_TRUE(SUITE, "service: sdk passes a tail call that reaches what a call reaches",
+               CHECK_NONE, taken && own && missed && other,
+               "taken %d \"%.160s\", both own %d, the tail missed %d, another answer %d", taken,
+               taken_said, own, missed, other);
+}
+
 /// The clocks in hooks mode: the three setters an application links, each refused by reden's
 /// time:u, and what a machine that takes one, or asks fewer, would leave.
 static void CheckTimePermSdk(void) {
@@ -2522,5 +2546,6 @@ void RunReferenceService(void) {
     CheckAudout();
     CheckFsFile();
     CheckAccApp();
+    CheckSdkTail();
     CheckRendererState();
 }

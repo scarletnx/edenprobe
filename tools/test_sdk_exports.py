@@ -61,6 +61,21 @@ class Exports(unittest.TestCase):
         self.assertIn("declared twice: _ZN2nn2fs11MountSdCardEPKc",
                       sdk_exports.problems(self.symbols + self.symbols[:1], self.table))
 
+    def test_a_tail_branch_from_another_function_is_named(self):
+        code = """
+0000000000050500 <VolumeFileSetSize>:
+   506ec:\t17ff9389 \tb\t35510 <_ZN2nn2fs11MountSdCardEPKc>
+0000000000035510 <_ZN2nn2fs11MountSdCardEPKc>:
+   35520:\t17fffffc \tb\t35510 <_ZN2nn2fs11MountSdCardEPKc>
+   35524:\t17fffffb \tb\t35518 <_ZN2nn2fs11MountSdCardEPKc+0x8>
+0000000000035600 <SdkTailIsInitialized>:
+   35600:\t17fffffc \tb\t35510 <_ZN2nn2fs11MountSdCardEPKc>
+0000000000035700 <Caller>:
+   35700:\t94000000 \tbl\t35510 <_ZN2nn2fs11MountSdCardEPKc>
+"""
+        self.assertEqual(sdk_exports.tail_branches(code, self.symbols),
+                         ["a tail branch to _ZN2nn2fs11MountSdCardEPKc in VolumeFileSetSize at 506ec"])
+
     def test_the_header_declares_each_once(self):
         with open(sdk_exports.SDK_H, encoding="utf-8") as f:
             symbols = sdk_exports.declared(f.read())
