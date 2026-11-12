@@ -14,16 +14,20 @@ extern "C" {
 #endif
 
 /// The SDK's functions for the services a machine may answer in a game's own code (hooks mode,
-/// docs/ModeFile.md): nn::fs, nn::time, nn::pl, nn::ngc and nn::nsd, under the names and with the
-/// arguments a game's SDK exports them with. The program exports each by that name (the
-/// Makefile's --export-dynamic-symbol), so a machine that takes a game's function by its symbol
-/// takes this one the same way, and none of the code below runs. Where nothing takes it, its own
-/// code runs: the request to the service that the IPC mode sends, through libnx, with the layouts
-/// the SDK's caller sees. The own code is not the SDK's: it answers what the probe's cases ask,
-/// and a request it does not know how to send answers SDK_OWN_UNSUPPORTED.
+/// docs/ModeFile.md): nn::fs, nn::time, nn::pl, nn::ngc, nn::nsd, nn::pctl, nn::audio and
+/// nn::codec, under the names and with the arguments a game's SDK exports them with. The program
+/// exports each by that name (the Makefile's --export-dynamic-symbol), so a machine that takes a
+/// game's function by its symbol takes this one the same way, and none of the code below runs.
+/// Where nothing takes it, its own code runs: the request to the service that the IPC mode sends,
+/// through libnx, with the layouts the SDK's caller sees. The own code is not the SDK's: it
+/// answers what the probe's cases ask, and a request it does not know how to send answers
+/// SDK_OWN_UNSUPPORTED.
 ///
 /// Every function here counts the calls its own code answered (SdkOwnCalls), so a run says which
-/// of them the machine took and which it left to the program.
+/// of them the machine took and which it left to the program. The functions a machine calls back
+/// instead, as a game's SDK has them for it (the audio renderer's managers and
+/// nn::os::AttachReadableHandleToSystemEvent), are the program's code on every machine and count
+/// nothing.
 
 /// Each exported function's name in C, its symbol, and attributes no compiler may see through:
 /// a call from a case stays a call to the symbol, which is where a machine's hook takes it.
@@ -283,6 +287,334 @@ uint32_t NnNsdResolveEx(NnNsdFqdn *out, const NnNsdFqdn *in)
 void NnNsdGetEnvironmentIdentifier(NnNsdEnvironmentIdentifier *out)
     SDK_EXPORT("_ZN2nn3nsd24GetEnvironmentIdentifierEPNS0_21EnvironmentIdentifierE");
 
+// ------------------------------------------------------------------------------------ nn::pctl
+
+/// nn::pctl, the parental controls a game asks before it lets a player talk to others: Initialize,
+/// which the SDK's start calls, whether a restriction is set, whether free communication is
+/// permitted (@p show_error: whether the SDK shows the system's error when it is not), and the
+/// safety level.
+uint32_t NnPctlInitialize(void) SDK_EXPORT("_ZN2nn4pctl10InitializeEv");
+bool NnPctlIsRestrictionEnabled(void) SDK_EXPORT("_ZN2nn4pctl20IsRestrictionEnabledEv");
+bool NnPctlCheckFreeCommunicationPermission(bool show_error)
+    SDK_EXPORT("_ZN2nn4pctl32CheckFreeCommunicationPermissionEb");
+uint32_t NnPctlGetSafetyLevel(void) SDK_EXPORT("_ZN2nn4pctl14GetSafetyLevelEv");
+
+// ------------------------------------------------------------------------------------- nn::os
+
+/// nn::os::SystemEvent as the program keeps it: the readable handle attached to it and how it
+/// clears. The SDK's functions that hand a game an event attach a handle to the game's
+/// SystemEvent through nn::os::AttachReadableHandleToSystemEvent, which a machine that answers
+/// them calls in the game's module by its symbol: this program's, below. Nothing else reads the
+/// fields, so they are the program's own, in the room the SDK's SystemEventType takes.
+#define NN_OS_SYSTEM_EVENT_SIZE 0x28u
+#define NN_OS_CLEAR_AUTO 1
+typedef struct {
+    uint32_t handle;
+    uint8_t attached;
+    uint8_t managed;    ///< the event closes the handle when it is let go
+    uint8_t clear_mode; ///< nn::os::EventClearMode: NN_OS_CLEAR_AUTO clears it as a wait ends
+    uint8_t reserved[NN_OS_SYSTEM_EVENT_SIZE - 7u];
+} __attribute__((aligned(8))) NnOsSystemEvent;
+
+void NnOsAttachReadableHandleToSystemEvent(NnOsSystemEvent *event, uint32_t handle, bool managed,
+                                           int32_t clear_mode)
+    SDK_EXPORT("_ZN2nn2os33AttachReadableHandleToSystemEventEPNS0_15SystemEventTypeEjbNS0_"
+               "14EventClearModeE");
+
+/// Waits up to @p ns for @p event's handle, clearing it after the wait when it clears by itself;
+/// false when nothing is attached or the wait timed out. The program's, not the SDK's.
+bool SdkEventWait(NnOsSystemEvent *event, uint64_t ns);
+/// Clears @p event's handle, so the next wait waits for a signal after this.
+void SdkEventClear(NnOsSystemEvent *event);
+/// Lets @p event's handle go, closing it when the event manages it.
+void SdkEventClose(NnOsSystemEvent *event);
+
+// ---------------------------------------------------------------------------------- nn::audio
+
+/// nn::audio's names: an AudioDeviceName, AudioOutInfo and AudioInInfo are each a name in 0x100
+/// bytes.
+#define NN_AUDIO_NAME 0x100u
+typedef struct {
+    char name[NN_AUDIO_NAME];
+} NnAudioName;
+
+/// nn::audio::AudioOutParameter: the rate, which an out ignores (it plays at 48 kHz), and the
+/// channels in its first 16 bits; the SDK's InitializeAudioOutParameter writes a word after them
+/// that a machine reads nothing of.
+typedef struct {
+    int32_t sample_rate;
+    uint16_t channel_count;
+    uint16_t reserved;
+    uint32_t magic;
+} NnAudioOutParameter;
+
+/// nn::audio::AudioOut as every SDK from 0.12 to 20.5 lays out what its own accessors read: the
+/// rate, channels, sample format and state OpenAudioOut writes, and the out's name. The program's
+/// own code keeps its IAudioOut session after them.
+typedef struct {
+    uint32_t sample_rate;
+    uint32_t channel_count;
+    uint32_t sample_format;
+    uint32_t state;
+    char name[NN_AUDIO_NAME];
+    Service own;
+} NnAudioOut;
+_Static_assert(offsetof(NnAudioOut, state) == 0xC && offsetof(NnAudioOut, own) == 0x110,
+               "the AudioOut's fields are where the SDK has them");
+/// nn::audio::AudioOutState: started, stopped.
+#define NN_AUDIO_OUT_STARTED 0u
+#define NN_AUDIO_OUT_STOPPED 1u
+
+/// nn::audio::AudioOutBuffer: the next one, the samples, their capacity and size and the offset
+/// into them, 8 bytes each: libnx's AudioOutBuffer, which the session takes whole.
+typedef AudioOutBuffer NnAudioOutBuffer;
+_Static_assert(sizeof(NnAudioOutBuffer) == 0x28, "an AudioOutBuffer is 0x28 bytes");
+
+uint32_t NnAudioOpenAudioOut(NnAudioOut *out, const char *name, const NnAudioOutParameter *param)
+    SDK_EXPORT("_ZN2nn5audio12OpenAudioOutEPNS0_8AudioOutEPKcRKNS0_17AudioOutParameterE");
+uint32_t NnAudioOpenDefaultAudioOut(NnAudioOut *out, const NnAudioOutParameter *param)
+    SDK_EXPORT("_ZN2nn5audio19OpenDefaultAudioOutEPNS0_8AudioOutERKNS0_17AudioOutParameterE");
+void NnAudioCloseAudioOut(NnAudioOut *out)
+    SDK_EXPORT("_ZN2nn5audio13CloseAudioOutEPNS0_8AudioOutE");
+uint32_t NnAudioGetAudioOutState(const NnAudioOut *out)
+    SDK_EXPORT("_ZN2nn5audio16GetAudioOutStateEPKNS0_8AudioOutE");
+uint32_t NnAudioStartAudioOut(NnAudioOut *out)
+    SDK_EXPORT("_ZN2nn5audio13StartAudioOutEPNS0_8AudioOutE");
+void NnAudioStopAudioOut(NnAudioOut *out) SDK_EXPORT("_ZN2nn5audio12StopAudioOutEPNS0_8AudioOutE");
+bool NnAudioAppendAudioOutBuffer(NnAudioOut *out, NnAudioOutBuffer *buffer)
+    SDK_EXPORT("_ZN2nn5audio20AppendAudioOutBufferEPNS0_8AudioOutEPNS0_14AudioOutBufferE");
+NnAudioOutBuffer *NnAudioGetReleasedAudioOutBuffer(NnAudioOut *out)
+    SDK_EXPORT("_ZN2nn5audio25GetReleasedAudioOutBufferEPNS0_8AudioOutE");
+bool NnAudioContainsAudioOutBuffer(const NnAudioOut *out, const NnAudioOutBuffer *buffer)
+    SDK_EXPORT("_ZN2nn5audio22ContainsAudioOutBufferEPKNS0_8AudioOutEPKNS0_14AudioOutBufferE");
+int32_t NnAudioGetAudioOutBufferCount(const NnAudioOut *out)
+    SDK_EXPORT("_ZN2nn5audio22GetAudioOutBufferCountEPKNS0_8AudioOutE");
+bool NnAudioFlushAudioOutBuffers(NnAudioOut *out)
+    SDK_EXPORT("_ZN2nn5audio20FlushAudioOutBuffersEPNS0_8AudioOutE");
+void NnAudioSetAudioOutVolume(NnAudioOut *out, float volume)
+    SDK_EXPORT("_ZN2nn5audio17SetAudioOutVolumeEPNS0_8AudioOutEf");
+float NnAudioGetAudioOutVolume(const NnAudioOut *out)
+    SDK_EXPORT("_ZN2nn5audio17GetAudioOutVolumeEPKNS0_8AudioOutE");
+int32_t NnAudioListAudioOuts(NnAudioName *infos, int32_t count)
+    SDK_EXPORT("_ZN2nn5audio13ListAudioOutsEPNS0_12AudioOutInfoEi");
+
+/// The audio device: the outputs by name, the active one, and an output's volume.
+int32_t NnAudioListAudioDeviceName(NnAudioName *names, int32_t count)
+    SDK_EXPORT("_ZN2nn5audio19ListAudioDeviceNameEPNS0_15AudioDeviceNameEi");
+void NnAudioGetActiveAudioDeviceName(NnAudioName *name)
+    SDK_EXPORT("_ZN2nn5audio24GetActiveAudioDeviceNameEPNS0_15AudioDeviceNameE");
+void NnAudioSetAudioDeviceOutputVolume(const NnAudioName *name, float volume)
+    SDK_EXPORT("_ZN2nn5audio26SetAudioDeviceOutputVolumeEPKNS0_15AudioDeviceNameEf");
+float NnAudioGetAudioDeviceOutputVolume(const NnAudioName *name)
+    SDK_EXPORT("_ZN2nn5audio26GetAudioDeviceOutputVolumeEPKNS0_15AudioDeviceNameE");
+
+/// The audio ins: their names.
+int32_t NnAudioListAudioIns(NnAudioName *infos, int32_t count)
+    SDK_EXPORT("_ZN2nn5audio12ListAudioInsEPNS0_11AudioInInfoEi");
+
+/// The result of the own code's last request for a function whose SDK signature carries none (a
+/// device's volume, an out's count, a renderer's rate, pctl's flags), so a case can say what
+/// refused it: nought when it was answered. Reading it clears it, and a call a machine took writes
+/// none.
+uint32_t SdkOwnResult(void);
+/// Keeps @p rc as the own code's last request's result (SdkOwnResult).
+void SdkOwnNote(Result rc);
+
+/// nn::audio::AudioRendererParameter as the SDK from 9.0.0 lays it out (0x38 bytes): the counts,
+/// the voice drop flag, the splitters, the rendering device and execution mode a word each, and
+/// the revision last.
+typedef struct {
+    uint32_t sample_rate;
+    uint32_t sample_count;
+    uint32_t mix_buffer_count;
+    uint32_t sub_mix_count;
+    uint32_t voice_count;
+    uint32_t sink_count;
+    uint32_t effect_count;
+    uint32_t performance_frame_count;
+    uint8_t voice_drop;
+    uint8_t reserved[3];
+    uint32_t splitter_count;
+    uint32_t splitter_send_channel_count;
+    uint32_t rendering_device;
+    uint32_t execution_mode;
+    uint32_t revision;
+} NnAudioRendererParameter;
+_Static_assert(sizeof(NnAudioRendererParameter) == 0x38 &&
+                   offsetof(NnAudioRendererParameter, revision) == 0x34,
+               "the AudioRendererParameter's fields are where the SDK has them");
+
+/// nn::audio::AudioRendererHandle: two words, passed in two registers. The own code's session is
+/// the first.
+typedef struct {
+    void *session;
+    void *context;
+} NnAudioRendererHandle;
+
+/// One of the renderer's managers, as the program's managers below take it: the sections it writes
+/// into an update (the voice manager's channel resources first, then its voices), the answer's
+/// section it reads, and for the behaviour manager the revision. A machine never reads one: it
+/// hands it back to the manager's functions.
+typedef struct {
+    const void *in;
+    size_t in_size;
+    const void *first;
+    size_t first_size;
+    size_t out_size;
+    uint32_t revision;
+} NnAudioManager;
+
+/// nn::audio::AudioRendererConfig as the SDK from 9.0.0 lays it out (0x68 bytes): its eight
+/// managers, where an update leaves the frames rendered so far, and the update's two buffers.
+/// RequestUpdateAudioRenderer writes the update's header and runs each manager on the first, hands
+/// it to the renderer, and runs the managers on its answer in the second.
+typedef struct {
+    NnAudioManager *voices;
+    NnAudioManager *mixes;
+    NnAudioManager *effects;
+    NnAudioManager *sinks;
+    NnAudioManager *performance;
+    NnAudioManager *pools;
+    NnAudioManager *behaviour;
+    NnAudioManager *splitters;
+    uint64_t *frames;
+    void *in;
+    uint64_t in_size;
+    void *out;
+    uint64_t out_size;
+} NnAudioRendererConfig;
+_Static_assert(sizeof(NnAudioRendererConfig) == 0x68 &&
+                   offsetof(NnAudioRendererConfig, frames) == 0x40 &&
+                   offsetof(NnAudioRendererConfig, in) == 0x48 &&
+                   offsetof(NnAudioRendererConfig, out_size) == 0x60,
+               "the AudioRendererConfig's fields are where the SDK has them");
+/// An update's header and the size of each section in it, as the renderer reads them.
+#define NN_AUDIO_UPDATE_HEADER 0x40u
+/// The renderer's revision 5, "REV5": the first whose answer ends with the frames rendered so far,
+/// which RequestUpdateAudioRenderer of an SDK from 6.0.0 reads back into the config.
+#define NN_AUDIO_REVISION_5 0x35564552u
+
+size_t NnAudioGetAudioRendererWorkBufferSize(const NnAudioRendererParameter *param)
+    SDK_EXPORT("_ZN2nn5audio30GetAudioRendererWorkBufferSizeERKNS0_22AudioRendererParameterE");
+uint32_t NnAudioOpenAudioRenderer(NnAudioRendererHandle *handle, NnOsSystemEvent *event,
+                                  const NnAudioRendererParameter *param, void *work, size_t size)
+    SDK_EXPORT("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleEPNS_2os11SystemEvent"
+               "ERKNS0_22AudioRendererParameterEPvm");
+void NnAudioCloseAudioRenderer(NnAudioRendererHandle handle)
+    SDK_EXPORT("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE");
+uint32_t NnAudioStartAudioRenderer(NnAudioRendererHandle handle)
+    SDK_EXPORT("_ZN2nn5audio18StartAudioRendererENS0_19AudioRendererHandleE");
+void NnAudioStopAudioRenderer(NnAudioRendererHandle handle)
+    SDK_EXPORT("_ZN2nn5audio17StopAudioRendererENS0_19AudioRendererHandleE");
+uint32_t NnAudioGetAudioRendererState(NnAudioRendererHandle handle)
+    SDK_EXPORT("_ZN2nn5audio21GetAudioRendererStateENS0_19AudioRendererHandleE");
+int32_t NnAudioGetAudioRendererSampleRate(NnAudioRendererHandle handle)
+    SDK_EXPORT("_ZN2nn5audio26GetAudioRendererSampleRateENS0_19AudioRendererHandleE");
+int32_t NnAudioGetAudioRendererSampleCount(NnAudioRendererHandle handle)
+    SDK_EXPORT("_ZN2nn5audio27GetAudioRendererSampleCountENS0_19AudioRendererHandleE");
+int32_t NnAudioGetAudioRendererMixBufferCount(NnAudioRendererHandle handle)
+    SDK_EXPORT("_ZN2nn5audio30GetAudioRendererMixBufferCountENS0_19AudioRendererHandleE");
+void NnAudioSetAudioRendererRenderingTimeLimit(NnAudioRendererHandle handle, int32_t percent)
+    SDK_EXPORT("_ZN2nn5audio34SetAudioRendererRenderingTimeLimitENS0_19AudioRendererHandleEi");
+int32_t NnAudioGetAudioRendererRenderingTimeLimit(NnAudioRendererHandle handle)
+    SDK_EXPORT("_ZN2nn5audio34GetAudioRendererRenderingTimeLimitENS0_19AudioRendererHandleE");
+void NnAudioSetAudioRendererVoiceDropParameter(NnAudioRendererHandle handle, float parameter)
+    SDK_EXPORT("_ZN2nn5audio34SetAudioRendererVoiceDropParameterENS0_19AudioRendererHandleEf");
+float NnAudioGetAudioRendererVoiceDropParameter(NnAudioRendererHandle handle)
+    SDK_EXPORT("_ZN2nn5audio34GetAudioRendererVoiceDropParameterENS0_19AudioRendererHandleE");
+uint32_t NnAudioRequestUpdateAudioRenderer(NnAudioRendererHandle handle,
+                                           const NnAudioRendererConfig *config)
+    SDK_EXPORT("_ZN2nn5audio26RequestUpdateAudioRendererENS0_19AudioRendererHandleEPKNS0_"
+               "19AudioRendererConfigE");
+
+/// The managers' functions RequestUpdateAudioRenderer runs, under SDK 20.5's symbols: each that
+/// writes a section copies its manager's into the update and gives its size; each that reads one
+/// gives the size of its manager's; the voice manager writes its channel resources, then its
+/// voices, and gives each size through a pointer.
+size_t NnAudioBehaviourUpdateIn(const NnAudioManager *m, void *at)
+    SDK_EXPORT("_ZNK2nn5audio15BehaviorManager17UpdateInParameterEPNS0_8renderer3ipc8Behavior10"
+               "UpdateDataILi0EEE");
+uint32_t NnAudioBehaviourGetRevision(const NnAudioManager *m)
+    SDK_EXPORT("_ZNK2nn5audio15BehaviorManager11GetRevisionEv");
+uint32_t NnAudioBehaviourCheckErrors(NnAudioManager *m)
+    SDK_EXPORT("_ZN2nn5audio15BehaviorManager11CheckErrorsEv");
+size_t NnAudioBehaviourUpdateOut(NnAudioManager *m, const void *at)
+    SDK_EXPORT("_ZN2nn5audio15BehaviorManager15UpdateOutStatusEPKNS0_8renderer3ipc8Behavior10"
+               "StatusDataILi0EEE");
+size_t NnAudioPoolUpdateIn(NnAudioManager *m, void *at)
+    SDK_EXPORT("_ZN2nn5audio17MemoryPoolManager17UpdateInParameterEPNS0_8renderer3ipc10MemoryPool10"
+               "UpdateDataILi0EEE");
+size_t NnAudioPoolUpdateOut(NnAudioManager *m, const void *at)
+    SDK_EXPORT("_ZN2nn5audio17MemoryPoolManager15UpdateOutStatusEPKNS0_8renderer3ipc10MemoryPool10"
+               "StatusDataILi0EEE");
+size_t NnAudioVoiceUpdateIn(NnAudioManager *m, void *at, size_t *voices, size_t *resources)
+    SDK_EXPORT("_ZN2nn5audio16VoiceInfoManager28UpdateVoiceRelatedParametersEPvPmS3_");
+size_t NnAudioVoiceUpdateOut(NnAudioManager *m, const void *at)
+    SDK_EXPORT("_ZN2nn5audio16VoiceInfoManager20UpdateVoiceOutStatusEPKNS0_8renderer3ipc5Voice10"
+               "StatusDataILi0EEE");
+size_t NnAudioEffectUpdateIn(NnAudioManager *m, void *at)
+    SDK_EXPORT("_ZN2nn5audio13EffectManager24UpdateEffectsInParameterEPNS0_8renderer3ipc6Effect10"
+               "UpdateDataILi2EEE");
+size_t NnAudioEffectUpdateOut(NnAudioManager *m, const void *at)
+    SDK_EXPORT("_ZN2nn5audio13EffectManager21UpdateEffectOutStatusEPKNS0_8renderer3ipc6Effect10"
+               "StatusDataILi1EEE");
+size_t NnAudioSplitterUpdateIn(NnAudioManager *m, void *at)
+    SDK_EXPORT("_ZN2nn5audio19SplitterInfoManager17UpdateInParameterEPv");
+size_t NnAudioMixUpdateIn(NnAudioManager *m, void *at)
+    SDK_EXPORT("_ZN2nn5audio10MixManager20UpdateMixInParameterEPv");
+size_t NnAudioSinkUpdateIn(NnAudioManager *m, void *at)
+    SDK_EXPORT("_ZN2nn5audio11SinkManager21UpdateSinkInParameterEPNS0_8renderer3ipc4Sink10"
+               "UpdateDataILi0EEE");
+size_t NnAudioSinkUpdateOut(NnAudioManager *m, const void *at)
+    SDK_EXPORT("_ZN2nn5audio11SinkManager19UpdateSinkOutStatusEPKNS0_8renderer3ipc4Sink10"
+               "StatusDataILi0EEE");
+size_t NnAudioPerformanceUpdateIn(NnAudioManager *m, void *at)
+    SDK_EXPORT("_ZN2nn5audio24PerformanceBufferManager17UpdateInParameterEPNS0_8renderer3ipc18"
+               "PerformanceMetrics10UpdateDataILi0EEE");
+size_t NnAudioPerformanceUpdateOut(NnAudioManager *m, const void *at)
+    SDK_EXPORT("_ZN2nn5audio24PerformanceBufferManager15UpdateOutStatusEPKNS0_8renderer3ipc18"
+               "PerformanceMetrics10StatusDataILi0EEE");
+
+// ---------------------------------------------------------------------------------- nn::codec
+
+/// nn::codec::HardwareOpusDecoderType as the SDK from 6.0.0 lays out what its own accessors read:
+/// the session's object, the rate and the channels, the last decode's time in microseconds, and
+/// the flag ResetHardwareOpusDecoder sets for the next decode. The program's own code keeps its
+/// hwopus decoder after them.
+typedef struct {
+    uint64_t session;
+    uint8_t reserved0[0x10];
+    int32_t sample_rate;
+    int32_t channel_count;
+    int64_t decode_us;
+    uint8_t reset;
+    uint8_t reserved1[7];
+    HwopusDecoder own;
+} NnCodecOpusDecoder;
+_Static_assert(offsetof(NnCodecOpusDecoder, sample_rate) == 0x18 &&
+                   offsetof(NnCodecOpusDecoder, reset) == 0x28,
+               "the HardwareOpusDecoderType's fields are where the SDK has them");
+/// nn::codec::OpusResult, which the decoder's functions give where other SDK functions give an
+/// nn::Result: success, a packet the decoder refuses, an input shorter than its header says, an
+/// output with no room for the packet, and no decoder left.
+#define NN_CODEC_OPUS_OK 0
+#define NN_CODEC_OPUS_BROKEN_DATA 4
+#define NN_CODEC_OPUS_SHORT_INPUT 6
+#define NN_CODEC_OPUS_SHORT_OUTPUT 7
+#define NN_CODEC_OPUS_OUT_OF_RESOURCE 8
+
+size_t NnCodecGetOpusWorkBufferSize(int32_t rate, int32_t channels, int32_t option)
+    SDK_EXPORT("_ZN2nn5codec36GetHardwareOpusDecoderWorkBufferSizeEiii");
+int32_t NnCodecInitializeOpusDecoder(NnCodecOpusDecoder *decoder, int32_t rate, int32_t channels,
+                                     void *work, size_t size, int32_t option)
+    SDK_EXPORT("_ZN2nn5codec29InitializeHardwareOpusDecoderEPNS0_23HardwareOpusDecoderTypeEiiPvmi");
+int32_t NnCodecDecodeOpus(NnCodecOpusDecoder *decoder, size_t *consumed, int32_t *samples,
+                          int16_t *out, size_t out_size, const void *in, size_t in_size)
+    SDK_EXPORT("_ZN2nn5codec33DecodeOpusInterleavedWithHardwareEPNS0_23HardwareOpusDecoderTypeEPmPi"
+               "PsmPKvm");
+void NnCodecFinalizeOpusDecoder(NnCodecOpusDecoder *decoder)
+    SDK_EXPORT("_ZN2nn5codec27FinalizeHardwareOpusDecoderEPNS0_23HardwareOpusDecoderTypeE");
+
 // ------------------------------------------------------------------------ what the own code did
 
 /// Every exported function, for the count of the calls its own code answered.
@@ -348,7 +680,48 @@ void NnNsdGetEnvironmentIdentifier(NnNsdEnvironmentIdentifier *out)
     X(NGC_MASK, "nn::ngc::ProfanityFilter::MaskProfanityWordsInText")                             \
     X(NSD_RESOLVE, "nn::nsd::Resolve")                                                            \
     X(NSD_RESOLVE_EX, "nn::nsd::ResolveEx")                                                       \
-    X(NSD_ENVIRONMENT, "nn::nsd::GetEnvironmentIdentifier")
+    X(NSD_ENVIRONMENT, "nn::nsd::GetEnvironmentIdentifier")                                       \
+    X(PCTL_INITIALIZE, "nn::pctl::Initialize")                                                    \
+    X(PCTL_RESTRICTION, "nn::pctl::IsRestrictionEnabled")                                         \
+    X(PCTL_FREE_COMMUNICATION, "nn::pctl::CheckFreeCommunicationPermission")                      \
+    X(PCTL_SAFETY_LEVEL, "nn::pctl::GetSafetyLevel")                                              \
+    X(AUDIO_OPEN_OUT, "nn::audio::OpenAudioOut")                                                  \
+    X(AUDIO_OPEN_DEFAULT_OUT, "nn::audio::OpenDefaultAudioOut")                                   \
+    X(AUDIO_CLOSE_OUT, "nn::audio::CloseAudioOut")                                                \
+    X(AUDIO_OUT_STATE, "nn::audio::GetAudioOutState")                                             \
+    X(AUDIO_START_OUT, "nn::audio::StartAudioOut")                                                \
+    X(AUDIO_STOP_OUT, "nn::audio::StopAudioOut")                                                  \
+    X(AUDIO_APPEND_OUT, "nn::audio::AppendAudioOutBuffer")                                        \
+    X(AUDIO_RELEASED_OUT, "nn::audio::GetReleasedAudioOutBuffer")                                 \
+    X(AUDIO_CONTAINS_OUT, "nn::audio::ContainsAudioOutBuffer")                                    \
+    X(AUDIO_OUT_COUNT, "nn::audio::GetAudioOutBufferCount")                                       \
+    X(AUDIO_FLUSH_OUT, "nn::audio::FlushAudioOutBuffers")                                         \
+    X(AUDIO_SET_OUT_VOLUME, "nn::audio::SetAudioOutVolume")                                       \
+    X(AUDIO_OUT_VOLUME, "nn::audio::GetAudioOutVolume")                                           \
+    X(AUDIO_LIST_OUTS, "nn::audio::ListAudioOuts")                                                \
+    X(AUDIO_LIST_DEVICES, "nn::audio::ListAudioDeviceName")                                       \
+    X(AUDIO_ACTIVE_DEVICE, "nn::audio::GetActiveAudioDeviceName")                                 \
+    X(AUDIO_SET_DEVICE_VOLUME, "nn::audio::SetAudioDeviceOutputVolume")                           \
+    X(AUDIO_DEVICE_VOLUME, "nn::audio::GetAudioDeviceOutputVolume")                               \
+    X(AUDIO_LIST_INS, "nn::audio::ListAudioIns")                                                  \
+    X(AUDIO_RENDERER_WORK, "nn::audio::GetAudioRendererWorkBufferSize")                           \
+    X(AUDIO_OPEN_RENDERER, "nn::audio::OpenAudioRenderer")                                        \
+    X(AUDIO_CLOSE_RENDERER, "nn::audio::CloseAudioRenderer")                                      \
+    X(AUDIO_START_RENDERER, "nn::audio::StartAudioRenderer")                                      \
+    X(AUDIO_STOP_RENDERER, "nn::audio::StopAudioRenderer")                                        \
+    X(AUDIO_RENDERER_STATE, "nn::audio::GetAudioRendererState")                                   \
+    X(AUDIO_RENDERER_RATE, "nn::audio::GetAudioRendererSampleRate")                               \
+    X(AUDIO_RENDERER_COUNT, "nn::audio::GetAudioRendererSampleCount")                             \
+    X(AUDIO_RENDERER_MIX, "nn::audio::GetAudioRendererMixBufferCount")                            \
+    X(AUDIO_SET_RENDERER_LIMIT, "nn::audio::SetAudioRendererRenderingTimeLimit")                  \
+    X(AUDIO_RENDERER_LIMIT, "nn::audio::GetAudioRendererRenderingTimeLimit")                      \
+    X(AUDIO_SET_RENDERER_DROP, "nn::audio::SetAudioRendererVoiceDropParameter")                   \
+    X(AUDIO_RENDERER_DROP, "nn::audio::GetAudioRendererVoiceDropParameter")                       \
+    X(AUDIO_UPDATE_RENDERER, "nn::audio::RequestUpdateAudioRenderer")                             \
+    X(CODEC_OPUS_WORK, "nn::codec::GetHardwareOpusDecoderWorkBufferSize")                         \
+    X(CODEC_OPUS_INITIALIZE, "nn::codec::InitializeHardwareOpusDecoder")                          \
+    X(CODEC_OPUS_DECODE, "nn::codec::DecodeOpusInterleavedWithHardware")                          \
+    X(CODEC_OPUS_FINALIZE, "nn::codec::FinalizeHardwareOpusDecoder")
 
 typedef enum {
 #define SDK_ENUM(id, name) SDK_##id,

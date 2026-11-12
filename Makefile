@@ -47,12 +47,14 @@ CFLAGS   := $(ARCH) -g -O2 -ffunction-sections -fdata-sections -MMD -MP \
 # graphics library answers a failed constructor by calling the runtime's abort, which never comes
 # back. gpu.c arms the wrapper only while the device is being brought up. nvnBootstrapLoader is
 # how a runtime that runs a game's NVN calls itself (ScarletNX) finds the program's NVN, as it
-# finds a game's driver (nvnlayer.h); the SDK's functions under nn:: are how a machine that answers
-# a game's SDK functions itself takes the program's (sdk.h, the hooks mode), and edenprobe_sdk_label
+# finds a game's driver (nvnlayer.h); the SDK's functions under nn:: (and its const methods, _ZNK)
+# are how a machine that answers a game's SDK functions itself takes the program's, or calls it
+# back (sdk.h, the hooks mode), and edenprobe_sdk_label
 # is the SDK version such a machine reads for them, which nothing in the program reads.
 LDFLAGS  := $(ARCH) -specs=$(LIBNX)/switch.specs -Wl,--gc-sections -g \
             -Wl,--wrap=diagAbortWithResult -Wl,--export-dynamic-symbol=nvnBootstrapLoader \
-            -Wl,--export-dynamic-symbol='_ZN2nn*' -Wl,--undefined=edenprobe_sdk_label
+            -Wl,--export-dynamic-symbol='_ZN2nn*' -Wl,--export-dynamic-symbol='_ZNK2nn*' \
+            -Wl,--undefined=edenprobe_sdk_label
 # Order matters: the graphics library leans on the C runtime and on the maths library after it.
 # The maths one is not decoration, since building a sampler descriptor calls powf.
 LIBS     := -L$(LIBNX)/lib -ldeko3d -lnx -lm

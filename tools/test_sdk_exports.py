@@ -57,6 +57,11 @@ class Exports(unittest.TestCase):
         self.assertEqual(sdk_exports.problems(self.symbols, self.table),
                          ["exported and not declared in sdk.h: _ZN2nn2fs7UnmountEPKc"])
 
+    def test_a_const_method_under_nn_not_declared_is_named(self):
+        self.table["_ZNK2nn5audio15BehaviorManager11GetRevisionEv"] = ("FUNC", "GLOBAL", "DEFAULT", "1")
+        self.assertEqual(sdk_exports.problems(self.symbols, self.table),
+                         ["exported and not declared in sdk.h: _ZNK2nn5audio15BehaviorManager11GetRevisionEv"])
+
     def test_one_declared_twice_is_named(self):
         self.assertIn("declared twice: _ZN2nn2fs11MountSdCardEPKc",
                       sdk_exports.problems(self.symbols + self.symbols[:1], self.table))
@@ -81,7 +86,7 @@ class Exports(unittest.TestCase):
             symbols = sdk_exports.declared(f.read())
         self.assertGreater(len(symbols), 0)
         self.assertEqual(len(symbols), len(set(symbols)))
-        self.assertTrue(all(s.startswith("_ZN2nn") for s in symbols))
+        self.assertTrue(all(s.startswith(sdk_exports.NN_PREFIXES) for s in symbols))
 
 
 

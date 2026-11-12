@@ -14,6 +14,17 @@
 
 static uint32_t own_calls[SDK_FUNCTION_COUNT];
 
+/// The own code's last request's result for a function with none in its signature (sdk.h).
+static uint32_t own_result;
+
+uint32_t SdkOwnResult(void) {
+    return __atomic_exchange_n(&own_result, 0u, __ATOMIC_RELAXED);
+}
+
+void SdkOwnNote(Result rc) {
+    __atomic_store_n(&own_result, (uint32_t)rc, __ATOMIC_RELAXED);
+}
+
 void SdkOwnCall(SdkFunction function) {
     __atomic_add_fetch(&own_calls[function], 1u, __ATOMIC_RELAXED);
 }
