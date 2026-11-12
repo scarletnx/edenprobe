@@ -6,9 +6,10 @@
 
 #include "sdk.h"
 
-// nn::pl, nn::ngc and nn::nsd's exported functions (sdk.h) and their own code: the requests to
-// pl:u, ngc:u and nsd:u the IPC mode's cases send. The SDK's pl and nsd functions keep no session
-// a caller sees, so the own code opens one at its first call and keeps it for the run.
+// nn::pl, nn::ngc, nn::nsd and nn::pctl's exported functions (sdk.h) and their own code: the
+// requests to pl:u, ngc:u, nsd:u and pctl the IPC mode's cases send. The SDK's pl, nsd and pctl
+// functions keep no session a caller sees, so the own code opens one at its first call and keeps
+// it for the run.
 
 /// The label in the program's read-only data (sdk.h). Nothing here reads it: the Makefile's
 /// --undefined keeps it through the linker's section collection.
@@ -258,4 +259,75 @@ SDK_FUNCTION void NnNsdGetEnvironmentIdentifier(NnNsdEnvironmentIdentifier *out)
                               .buffer_attrs = { SfBufferAttr_HipcAutoSelect | SfBufferAttr_Out },
                               .buffers = { { out->name, sizeof(out->name) } }, );
     }
+}
+
+// ------------------------------------------------------------------------------------ nn::pctl
+
+/// The parental control service a game's SDK asks: "pctl", the name an application has, and the
+/// IParentalControlService its CreateService (0) makes for the process, opened at the first call
+/// and kept for the run.
+static Mutex pctl_lock;
+static Service pctl_session;
+
+static Service *Pctl(Result *rc) {
+    mutexLock(&pctl_lock);
+    *rc = 0;
+    if (!serviceIsActive(&pctl_session)) {
+        Service factory;
+        *rc = smGetService(&factory, "pctl");
+        if (R_SUCCEEDED(*rc)) {
+            const u64 pid = 0;
+            *rc = serviceDispatchIn(&factory, 0, pid, .in_send_pid = true, .out_num_objects = 1,
+                                   .out_objects = &pctl_session, );
+            serviceClose(&factory);
+        }
+    }
+    mutexUnlock(&pctl_lock);
+    return R_SUCCEEDED(*rc) ? &pctl_session : NULL;
+}
+
+SDK_FUNCTION uint32_t NnPctlInitialize(void) {
+    SdkOwnCall(SDK_PCTL_INITIALIZE);
+    Result rc;
+    Pctl(&rc);
+    return rc;
+}
+
+/// IsRestrictionEnabled (1031): false when it was refused.
+SDK_FUNCTION bool NnPctlIsRestrictionEnabled(void) {
+    SdkOwnCall(SDK_PCTL_RESTRICTION);
+    Result rc;
+    Service *const pctl = Pctl(&rc);
+    u8 enabled = 0;
+    if (pctl != NULL) {
+        rc = serviceDispatchOut(pctl, 1031, enabled);
+    }
+    SdkOwnNote(rc);
+    return R_SUCCEEDED(rc) && enabled != 0u;
+}
+
+/// CheckFreeCommunicationPermission (1001): whether it succeeded. The own code shows no error.
+SDK_FUNCTION bool NnPctlCheckFreeCommunicationPermission(bool show_error) {
+    SdkOwnCall(SDK_PCTL_FREE_COMMUNICATION);
+    (void)show_error;
+    Result rc;
+    Service *const pctl = Pctl(&rc);
+    if (pctl != NULL) {
+        rc = serviceDispatch(pctl, 1001);
+    }
+    SdkOwnNote(rc);
+    return R_SUCCEEDED(rc);
+}
+
+/// GetSafetyLevel (1032): nought when it was refused.
+SDK_FUNCTION uint32_t NnPctlGetSafetyLevel(void) {
+    SdkOwnCall(SDK_PCTL_SAFETY_LEVEL);
+    Result rc;
+    Service *const pctl = Pctl(&rc);
+    u32 level = 0;
+    if (pctl != NULL) {
+        rc = serviceDispatchOut(pctl, 1032, level);
+    }
+    SdkOwnNote(rc);
+    return R_SUCCEEDED(rc) ? level : 0u;
 }

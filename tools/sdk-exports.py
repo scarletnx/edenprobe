@@ -10,7 +10,7 @@ A machine that answers a game's SDK functions itself takes the program's by the 
 holds (docs/Hooks.md): one the table lacks is a function no machine takes, whose own code then sends its request.
 Reads the SDK_EXPORT symbols of source/sdk.h and the dynamic symbols of ELF (`readelf --dyn-syms -W`, the toolchain's
 by default), and exits 1 naming each declared symbol that is not a defined global function there, and each `_ZN2nn`
-one there that sdk.h does not declare. Then, in ELF's code (`objdump -d`), each tail branch, a `b` to such a
+or `_ZNK2nn` (a const method's) one there that sdk.h does not declare. Then, in ELF's code (`objdump -d`), each tail branch, a `b` to such a
 function's entry from another function, but the one the sdk suite asks on purpose (TAIL_ON_PURPOSE): a machine may
 take a function only where it is called, so a case that reached one by a branch would depend on the compiler. Last,
 whether ELF holds sdk.h's SDK_LABEL, the SDK version a machine reads for the functions it takes only for some."""
@@ -26,6 +26,8 @@ SDK_H = os.path.join(ROOT, "source", "sdk.h")
 BIN = os.path.join(os.environ.get("DEVKITPRO", "/opt/devkitpro"), "devkitA64", "bin")
 READELF = os.path.join(BIN, "aarch64-none-elf-readelf")
 OBJDUMP = os.path.join(BIN, "aarch64-none-elf-objdump")
+# the symbols under nn::, a const method's among them, which the Makefile exports
+NN_PREFIXES = ("_ZN2nn", "_ZNK2nn")
 # source/sdk.h's SdkTailIsInitialized, the sdk suite's tail call
 TAIL_ON_PURPOSE = {"SdkTailIsInitialized"}
 
@@ -60,7 +62,7 @@ def problems(symbols, table):
         elif entry[0] != "FUNC" or entry[1] != "GLOBAL" or entry[2] != "DEFAULT" or entry[3] == "UND":
             out.append("exported as %s %s %s in %s, not a defined global function: %s" % (entry + (s,)))
     out.extend("exported and not declared in sdk.h: %s" % s for s in sorted(table)
-               if s.startswith("_ZN2nn") and s not in symbols)
+               if s.startswith(NN_PREFIXES) and s not in symbols)
     return out
 
 
