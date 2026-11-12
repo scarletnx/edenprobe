@@ -6,6 +6,7 @@
 * [What the program exports](#what-the-program-exports)
 * [Where nothing takes a function](#where-nothing-takes-a-function)
 * [The start](#the-start)
+* [The cases in hooks mode](#the-cases-in-hooks-mode)
 * [What a run says](#what-a-run-says)
 
 The word `hooks` in [the mode file](ModeFile.md) asks the console's services that a machine may answer in a game's own
@@ -68,6 +69,24 @@ edenprobe: the machine answered nn::fs::MountSdCard itself and the mode file has
 
 The C library's `time()` and `gettimeofday()` have no clock in hooks mode: libnx's answer to them is time:u's, which
 the program does not open. No case asks them.
+
+## The cases in hooks mode
+
+The suites that ask those services ask the SDK's functions instead, with the same names and the same expectations,
+reden's; a case says in its line which way it went where the two differ.
+
+| family | suites | in hooks mode |
+|---|---|---|
+| fs | fs | the card mounted as `edenprobe-fs`, every read nn::fs::ReadFile |
+| service | fsp, fsdir, fs-file | the temporary storage mounted as `edenprobe-temp`, the card as the start mounted it; a file written to is flushed before it is closed, which the SDK asks of a writer and fsp-srv does itself |
+| service | time, time-snap, time-zone | nn::time's functions; Initialize stands for time:u and its objects, and a function the SDK declares void answers nought where the IPC mode puts its command's result; CalculateSpanBetween's false is `0xffffffff` there |
+| service | time-perm | the clocks through the three setters an application links, held to `ServiceJudgeTimeSdkClocks`; the settings case is skipped, since their setters answer nothing and stop the program on a refusal |
+| service | pl | the fonts by their addresses: each offset counts from 8 bytes before the lowest font, the memory's start in the IPC mode's layout, since the SDK gives no base |
+| service | ngc | a ProfanityFilter on a 128 KiB work buffer, checked and masked through the SDK, held to `ServiceJudgeNgcSdkCheck` and `ServiceJudgeNgcSdkMask`; the ngct case is skipped, as the program exports no function over ngct:u |
+| net | dns | nsd's Resolve and GetEnvironmentIdentifier through nn::nsd |
+| game | game | the card's file read through nn::fs, the steady clock through nn::time |
+
+Every other suite is the same in both modes.
 
 ## What a run says
 

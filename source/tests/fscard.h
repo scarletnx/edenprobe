@@ -8,6 +8,8 @@
 
 #include <switch.h>
 
+#include "../volume.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -17,7 +19,7 @@ extern "C" {
 
 /// Makes the fs family's 64 MiB file and its 256 small ones on @p fs unless they are there with
 /// the right sizes, as the fs suite does before its first read. False with the reason in @p why.
-bool FsPrepareCard(FsFileSystem *fs, char *why, size_t why_size);
+bool FsPrepareCard(Volume *fs, char *why, size_t why_size);
 
 #ifdef __cplusplus
 }

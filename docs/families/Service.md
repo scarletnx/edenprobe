@@ -90,6 +90,10 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | fs-file | 5 | a game's own files on the memory card, as a save writer handles them: resized, renamed into place, a directory cleaned, a file's time stamp, the free space (`hle/service/filesystem/fsp/fs_i_file.cpp`, `fs_i_filesystem.cpp`, `filesystem.cpp`) |
 | acc-app | 2 | acc:u0 as a game's save code asks it: the users it may pick, and the thumbnail it stores with a save (`hle/service/acc/acc.cpp`, `ListQualifiedUsers`, `StoreSaveDataThumbnail`) |
 
+In [hooks mode](../Hooks.md) the fsp, fsdir, fs-file, time, time-snap, time-zone, time-perm, pl and
+ngc suites ask the SDK's functions instead of the services, with the same expectations; that page
+says how each one's asking differs.
+
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
 is skipped as `depends` when that one did not leave what it needs. The tier is exact wherever a

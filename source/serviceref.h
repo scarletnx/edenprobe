@@ -164,6 +164,9 @@ extern "C" {
 /// time refusing a write a session may not make: PermissionDenied, Time (116) 1 (reden
 /// `psc/time/errors.h`).
 #define SERVICE_TIME_DENIED SERVICE_RESULT(116, 1)
+/// What a case in hooks mode (hooks.h) puts where the IPC mode puts a command's result, for an SDK
+/// function that answers false instead: no result has every bit set.
+#define SERVICE_SDK_FALSE 0xFFFFFFFFu
 /// The writes each time-perm case asks of time:u, in the order its line names them.
 #define SERVICE_TIME_CLOCK_WRITES 4u
 #define SERVICE_TIME_SETTING_WRITES 3u
@@ -1146,6 +1149,21 @@ typedef struct {
 /// Mask (2) and Mask2 (5) of the clean name TEXT. Passes when both succeed, mask no word and give
 /// the text and its terminator back byte for byte: reden writes the text it was sent into the
 /// buffer it hands back.
+/// The ngc suite in hooks mode (hooks.h): nn::ngc::ProfanityFilter's Initialize, GetContentVersion
+/// and CheckProfanityWords of the clean name as one word, with what each answered. Passes as
+/// ServiceJudgeNgcCheck does: both succeed, the version is above nought and the word has no flag.
+typedef struct {
+    uint32_t initialize_rc, check_rc;
+    uint32_t version, found;
+} ServiceNgcSdkCheck;
+bool ServiceJudgeNgcSdkCheck(const ServiceNgcSdkCheck *seen, char *out, size_t out_size);
+
+/// MaskProfanityWordsInText of the clean name TEXT, in place in a buffer of SERVICE_NGC_SIZE.
+/// Passes as ServiceJudgeNgcMask does: it succeeds, masks no word and leaves the text and its
+/// terminator as they were.
+bool ServiceJudgeNgcSdkMask(const char *text, const ServiceNgcText *mask, char *out,
+                            size_t out_size);
+
 bool ServiceJudgeNgcMask(const char *text, const ServiceNgcText *mask, const ServiceNgcText *mask2,
                          char *out, size_t out_size);
 
@@ -1285,6 +1303,14 @@ bool ServiceJudgeTimeClocks(const ServiceTimeWrites *seen, char *out, size_t out
 /// The settings: SetStandardUserSystemClockAutomaticCorrectionEnabled (101),
 /// SetStandardSteadyClockInternalOffset (50) and the time zone service's SetDeviceLocationName (1).
 bool ServiceJudgeTimeSettings(const ServiceTimeWrites *seen, char *out, size_t out_size);
+
+/// The clocks in hooks mode (hooks.h), through the SDK's setters an application links:
+/// SetStandardLocalSystemClockCurrentTime, SetStandardLocalSystemClockContext and
+/// SetStandardNetworkSystemClockCurrentTime, each asked for what is there already. Passes as
+/// ServiceJudgeTimeClocks does: each one refused as SERVICE_TIME_DENIED, the result the SDK hands
+/// back from time:u, and the clock the same after.
+#define SERVICE_TIME_SDK_CLOCK_WRITES 3u
+bool ServiceJudgeTimeSdkClocks(const ServiceTimeWrites *seen, char *out, size_t out_size);
 
 /// audout:u and the out libnx's audoutInitialize opened: ListAudioOuts (0), an OpenAudioOutAuto
 /// (3) with a name it does not have, what the open gave (rate, channels, PCM format, state), and

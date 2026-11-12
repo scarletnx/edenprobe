@@ -1917,6 +1917,50 @@ static void CheckNgc(void) {
                masked, filtered, matched, emptied);
 }
 
+/// The ngc suite's hooks mode: reden's ngc:u through the SDK's calls, and what a filter that is not
+/// reden's would leave there.
+static void CheckNgcSdk(void) {
+    ServiceNgcSdkCheck check = { 0u, 0u, 1u, 0u };
+    const bool clean = ServiceJudgeNgcSdkCheck(&check, said, sizeof(said)) &&
+                       strcmp(said, "nothing found: Initialize 0x0, GetContentVersion 1, "
+                                    "CheckProfanityWords 0x0 flags 0x0") == 0;
+    char clean_said[480];
+    memcpy(clean_said, said, sizeof(said));
+    // No version, a flag on the word, and an Initialize refused (ngc 146-1, not initialized).
+    check.version = 0u;
+    const bool unversioned = !ServiceJudgeNgcSdkCheck(&check, said, sizeof(said)) &&
+                             strstr(said, "no version") == said;
+    check = (ServiceNgcSdkCheck){ 0u, 0u, 1u, 2u };
+    const bool found = !ServiceJudgeNgcSdkCheck(&check, said, sizeof(said)) &&
+                       strstr(said, "a word found") == said;
+    check = (ServiceNgcSdkCheck){ SERVICE_RESULT(146, 1), 0u, 1u, 0u };
+    const bool refused = !ServiceJudgeNgcSdkCheck(&check, said, sizeof(said)) &&
+                         strstr(said, "refused") == said;
+    static const char text[] = "abc";
+    ServiceNgcText mask;
+    memset(&mask, 0, sizeof(mask));
+    memcpy(mask.back, text, sizeof(text));
+    const bool back = ServiceJudgeNgcSdkMask(text, &mask, said, sizeof(said)) &&
+                      strcmp(said, "the text back as sent: sent \"abc\"; MaskProfanityWordsInText "
+                                   "0x0 masked 0, back \"abc\"") == 0;
+    char back_said[480];
+    memcpy(back_said, said, sizeof(said));
+    mask.back[1] = '*';
+    const bool changed = !ServiceJudgeNgcSdkMask(text, &mask, said, sizeof(said)) &&
+                         strstr(said, "another text back") == said;
+    mask.back[1] = 'b';
+    mask.count = 1u;
+    const bool masked = !ServiceJudgeNgcSdkMask(text, &mask, said, sizeof(said)) &&
+                        strstr(said, "a word masked") == said;
+    CHECK_TRUE(SUITE, "service: ngc in hooks mode passes a clean name found clean and left as it "
+                      "was",
+               CHECK_NONE,
+               clean && unversioned && found && refused && back && changed && masked,
+               "clean %d \"%.120s\", no version %d, a word %d, refused %d, back %d \"%.120s\", "
+               "changed %d, masked %d",
+               clean, clean_said, unversioned, found, refused, back, back_said, changed, masked);
+}
+
 static void CheckApm(void) {
     ServiceApmConfig seen = { 0u, 0u, 0u, 0u, SERVICE_APM_CONFIG7, SERVICE_APM_CONFIG7,
                               SERVICE_APM_CONFIG1, SERVICE_APM_CONFIG1, SERVICE_APM_CONFIG7 };
@@ -2178,6 +2222,37 @@ static void CheckTimePerm(void) {
                denied, denied_said, taken, other, moved, kept, located, none, code);
 }
 
+/// The clocks in hooks mode: the three setters an application links, each refused by reden's
+/// time:u, and what a machine that takes one, or asks fewer, would leave.
+static void CheckTimePermSdk(void) {
+    ServiceTimeWrites clocks = { SERVICE_TIME_SDK_CLOCK_WRITES,
+                                 { SERVICE_TIME_DENIED, SERVICE_TIME_DENIED, SERVICE_TIME_DENIED,
+                                   0u },
+                                 true };
+    const bool denied = ServiceJudgeTimeSdkClocks(&clocks, said, sizeof(said)) &&
+                        strcmp(said, "every write refused, nothing changed: "
+                                     "SetStandardLocalSystemClockCurrentTime 0x274, "
+                                     "SetStandardLocalSystemClockContext 0x274, "
+                                     "SetStandardNetworkSystemClockCurrentTime 0x274; the same "
+                                     "after") == 0;
+    char denied_said[480];
+    memcpy(denied_said, said, sizeof(said));
+    clocks.rc[1] = 0u;
+    const bool taken = !ServiceJudgeTimeSdkClocks(&clocks, said, sizeof(said)) &&
+                       strstr(said, "a write not refused as PermissionDenied") == said;
+    clocks.rc[1] = SERVICE_TIME_DENIED;
+    clocks.same = false;
+    const bool moved = !ServiceJudgeTimeSdkClocks(&clocks, said, sizeof(said)) &&
+                       strstr(said, "refused, and changed") == said;
+    clocks.same = true;
+    clocks.count = 2u;
+    const bool fewer = !ServiceJudgeTimeSdkClocks(&clocks, said, sizeof(said));
+    CHECK_TRUE(SUITE, "service: time-perm in hooks mode passes the SDK's clock setters refused",
+               CHECK_NONE, denied && taken && moved && fewer,
+               "denied %d \"%.200s\", a write taken %d, moved %d, fewer asked %d", denied,
+               denied_said, taken, moved, fewer);
+}
+
 static void CheckAudout(void) {
     ServiceAudoutOpen open = { 0u, SERVICE_AUDIO_NOT_FOUND, 0u, 0u, 0u, 1u, "DeviceOut",
                                48000u, 2u, 2u, 1u, 1000, 500 };
@@ -2437,11 +2512,13 @@ void RunReferenceService(void) {
     CheckVi();
     CheckRenderer();
     CheckNgc();
+    CheckNgcSdk();
     CheckApm();
     CheckAmLock();
     CheckSetSys();
     CheckTimeZone();
     CheckTimePerm();
+    CheckTimePermSdk();
     CheckAudout();
     CheckFsFile();
     CheckAccApp();
