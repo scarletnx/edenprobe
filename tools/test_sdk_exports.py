@@ -84,5 +84,25 @@ class Exports(unittest.TestCase):
         self.assertTrue(all(s.startswith("_ZN2nn") for s in symbols))
 
 
+
+class Label(unittest.TestCase):
+    LABEL = "SDK MW+Nintendo+NintendoSdk_nnSdk-20_5_0"
+
+    def test_the_header_s_label_is_read(self):
+        self.assertEqual(sdk_exports.label('#define SDK_LABEL "%s"\n' % self.LABEL), self.LABEL)
+        self.assertIsNone(sdk_exports.label("// no label\n"))
+
+    def test_a_program_that_holds_it_passes(self):
+        self.assertEqual(sdk_exports.label_problems(self.LABEL, b"\0" + self.LABEL.encode() + b"\0rest"), [])
+
+    def test_a_program_without_it_is_named(self):
+        self.assertEqual(sdk_exports.label_problems(self.LABEL, b"SDK MW+Nintendo+NintendoSdk_nnSdk-20_5\0"),
+                         ["the program does not hold SDK_LABEL (%s)" % self.LABEL])
+
+    def test_a_label_no_machine_would_read_is_named(self):
+        self.assertEqual(len(sdk_exports.label_problems("nnSdk 20.5.0", b"nnSdk 20.5.0\0")), 1)
+        self.assertEqual(sdk_exports.label_problems(None, b""), ["sdk.h defines no SDK_LABEL"])
+
+
 if __name__ == "__main__":
     unittest.main()

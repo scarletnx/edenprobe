@@ -10,6 +10,10 @@
 // pl:u, ngc:u and nsd:u the IPC mode's cases send. The SDK's pl and nsd functions keep no session
 // a caller sees, so the own code opens one at its first call and keeps it for the run.
 
+/// The label in the program's read-only data (sdk.h). Nothing here reads it: the Makefile's
+/// --undefined keeps it through the linker's section collection.
+const char edenprobe_sdk_label[] = SDK_LABEL;
+
 // ------------------------------------------------------------------------------------- nn::pl
 
 static Mutex pl_lock;

@@ -48,8 +48,11 @@ request for, such as a path on a mount it did not make, with libnx's NotFound (`
 an emulator too, its cases asked through the SDK's functions and answered by the IPC mode's commands; and on a
 machine that takes only some of them, the rest send their requests, which such a machine may refuse.
 
-A machine that takes a function only for some SDK versions takes none of these: a homebrew program carries no SDK
-label, and its version is unknown. On ScarletNX's #1658, nn::ngc's functions and nn::prepo's Save are such hooks.
+A machine may take a function only for some SDK versions, reading a module's version from the SDK's label in its
+read-only data, which a homebrew program lacks. So the program carries one (`SDK_LABEL` in `sdk.h`,
+`SDK MW+Nintendo+NintendoSdk_nnSdk-20_5_0`): the SDK whose arguments and objects its functions follow, as
+nn::ngc's ProfanityFilter is laid out from SDK 20. `tools/sdk-exports.py` checks the program holds it. On ScarletNX's
+native nnSdk, nn::ngc's functions and nn::prepo's Save are such hooks.
 
 ## The start
 

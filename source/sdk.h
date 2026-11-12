@@ -30,6 +30,12 @@ extern "C" {
 #define SDK_EXPORT(symbol) __asm__(symbol)
 #define SDK_FUNCTION __attribute__((noipa, used, visibility("default")))
 
+/// The SDK's own label, as a game's SDK module carries it in its read-only data: the SDK version
+/// these functions' arguments and objects follow. A machine that takes a function only for some
+/// SDK versions reads a module's version from this label, and takes none of a module without one.
+#define SDK_LABEL "SDK MW+Nintendo+NintendoSdk_nnSdk-20_5_0"
+extern const char edenprobe_sdk_label[];
+
 /// What the own code answers when it has no request to send for the call: a libnx result, so it
 /// can be told from any service's.
 #define SDK_OWN_UNSUPPORTED MAKERESULT(Module_Libnx, LibnxError_NotFound)
