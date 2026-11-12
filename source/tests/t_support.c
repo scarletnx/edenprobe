@@ -736,6 +736,7 @@ static void CheckVram(void);
 static void CheckMachine(void);
 static void CheckSkipWord(void);
 static void CheckAllWord(void);
+static void CheckHooksWord(void);
 static void CheckWidestMode(void);
 static void CheckFrontendFamilies(void);
 static void CheckRunnerRoot(void);
@@ -1040,6 +1041,7 @@ static void CheckLaunchAndMode(void) {
     CheckMachine();
     CheckSkipWord();
     CheckAllWord();
+    CheckHooksWord();
     CheckWidestMode();
     CheckFrontendFamilies();
     CheckRunnerRoot();
@@ -1602,6 +1604,41 @@ static void CheckAllWord(void) {
                (unsigned)ModeFamiliesToRun(&screen, present), key, said);
 }
 
+/// hooks: the console's services asked through the SDK's functions (hooks.h). A word of the key,
+/// since the services answer through other code, so a launch goes on with a run only in the same
+/// mode; the start screen keeps it when it saves the file and through a choice of its own.
+static void CheckHooksWord(void) {
+    char said[REPORT_NOTE_MAX + 1] = "";
+    char key[MODE_KEY_MAX];
+    char saved[128];
+    const RunMode plain = ModeFromText("quick service");
+    const RunMode hooks = ModeFromText("quick service HOOKS");
+    ModeDescribe(said, sizeof(said), &hooks, MODE_FAMILIES_PRESENT);
+    ModeKey(key, sizeof(key), &hooks);
+    ModeFormat(saved, sizeof(saved), &hooks);
+    const bool read = !plain.hooks && hooks.hooks && hooks.unknown_count == 0u &&
+                      ModeFromText("hookss").unknown_count == 1u &&
+                      !ModeFromText("hookss").hooks;
+    const bool keyed = strcmp(key, "hooks service") == 0;
+    const bool kept = strcmp(saved, "quick hooks service") == 0;
+    const bool described = strstr(said, "; hooks: on the console, fs, time, pl, ngc and nsd asked "
+                                        "through the SDK's functions") != NULL;
+    // The start screen chose other families: the run keeps the file's mode.
+    RunMode chosen = hooks;
+    chosen.families_named = MODE_FAMILY_FS;
+    chosen.chosen_on_screen = true;
+    char words[MODE_KEY_MAX + 16u];
+    ModeChosenWords(words, sizeof(words), &chosen);
+    const RunMode resumed = ModeWithChosen(hooks, words);
+    const bool chose = resumed.hooks && resumed.families_named == MODE_FAMILY_FS;
+    CHECK_TRUE(SUITE, "the word hooks asks the services through the SDK's functions, a word of the "
+                      "key",
+               CHECK_NONE, read && keyed && kept && described && chose,
+               "read %d, key \"%.40s\", saved \"%.40s\", described %d, through a choice %d; said "
+               "\"%.200s\"",
+               (int)read, key, saved, (int)described, (int)chose, said);
+}
+
 _Static_assert(JOURNAL_MODE_MAX >= MODE_KEY_MAX + sizeof("screen  quick") - 1u,
                "a chosen record holds the widest key with the words around it");
 _Static_assert(JOURNAL_LINE_MAX >= sizeof("run   \t\n") + JOURNAL_SUITE_MAX + JOURNAL_NAME_MAX +
@@ -1613,13 +1650,13 @@ _Static_assert(JOURNAL_LINE_MAX >= sizeof("run   \t\n") + JOURNAL_SUITE_MAX + JO
 /// the run in that mode rather than starting over with an empty key.
 static void CheckWidestMode(void) {
     static const char WIDEST[] = "quick all audio cpu display fatal frames=36000 framework fs game "
-                                 "graphics hang images jni kernel libc listen "
+                                 "graphics hang hooks images jni kernel libc listen "
                                  "machine=scarletnx-android@12345678901234567890123456789012 net "
                                  "notime nvn pad retry service skip=abcdefghijklmnop "
                                  "skip=bcdefghijklmnopq skip=cdefghijklmnopqr "
                                  "skip=defghijklmnopqrs stress unban video vram=1048576";
     static const char KEY[] = "all audio cpu display fatal frames=36000 framework fs game graphics "
-                              "hang images jni kernel libc listen "
+                              "hang hooks images jni kernel libc listen "
                               "machine=scarletnx-android@12345678901234567890123456789012 net "
                               "notime nvn pad retry service skip=abcdefghijklmnop "
                               "skip=bcdefghijklmnopq skip=cdefghijklmnopqr skip=defghijklmnopqrs "

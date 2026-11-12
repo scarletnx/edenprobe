@@ -5,6 +5,7 @@
 #include <string.h>
 #include <switch.h>
 
+#include "hooks.h"
 #include "journal.h"
 #include "mode.h"
 #include "picture.h"
@@ -18,11 +19,11 @@
 // frontend; what is the console's own is here: its steps, the screens a person sees around the
 // run, and the settings its suites take from the mode.
 
-// Where the run leaves its report on the machine it ran on. On an emulator this is a plain
-// directory on the host; on the console it is the memory card.
-static const char *const PROBE_DIRECTORY = "sdmc:/edenprobe";
+// Where the run leaves its report on the machine it ran on (hooks.h, PROBE_DIRECTORY): on an
+// emulator a plain directory on the host; on the console the memory card.
 
 static void RunSupportSteps(void) {
+    RunSupportMode();
     RunSupport();
     RunSupportPerf();
     RunSupportSettle();
@@ -298,6 +299,7 @@ int main(int argc, char **argv) {
     }
     RunnerSteps(&runner, families, timing, ViewerProgressStep);
     ViewerProgressEnd();
+    HooksReportOwnCode();
     RunnerFinish(&runner, &mode, timing);
 
     // Last, and only now: the report is written, counted and closed, so nothing a person does

@@ -101,6 +101,10 @@ static void Take(RunMode *mode, const char *word, bool cut) {
             mode->no_progress = true;
             return;
         }
+        if (strcmp(word, "hooks") == 0) {
+            mode->hooks = true;
+            return;
+        }
         if (strcmp(word, "listen") == 0) {
             mode->listen = true;
             return;
@@ -627,6 +631,12 @@ static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t p
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; the cases that hang");
     }
+    if (mode->hooks) {
+        const size_t used = strlen(out);
+        snprintf(out + used, out_size - used,
+                 "; hooks: on the console, fs, time, pl, ngc and nsd asked through the SDK's "
+                 "functions");
+    }
     if (mode->machine[0] != '\0') {
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used, "; machine %s, %s%s", mode->machine,
@@ -829,6 +839,8 @@ size_t ModeKey(char *out, size_t out_size, const RunMode *mode) {
         { (mode->families_named & MODE_FAMILY_GAME) != 0u, "game" },
         { (mode->families_named & MODE_FAMILY_GRAPHICS) != 0u, "graphics" },
         { mode->hang, "hang" },
+        // The services answer through other code in each mode, so it is another run.
+        { mode->hooks, "hooks" },
         { mode->every_case, "images" },
         { (mode->families_named & MODE_FAMILY_JNI) != 0u, "jni" },
         { (mode->families_named & MODE_FAMILY_KERNEL) != 0u, "kernel" },

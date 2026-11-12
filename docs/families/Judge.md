@@ -7,12 +7,14 @@ family reports can be believed without them.
   apart and a zero budget rejects them; that an absolute budget is the same on both sides of the
   expected value; that a NaN equals nothing, itself included, whatever the budget; and that three
   units in the last place reach six representable values below a power of two and three above it.
-- **support**, two hundred and nine cases, no hardware involved: what the program does
-  around a verdict rather than to reach one. The pictures a failing case leaves and the names they
+- **support**, two hundred and eleven cases, no hardware involved: what the program does
+  around a verdict rather than to reach one. First the way the run asks the services a machine may
+  answer in a game's own code, by IPC or through the SDK's functions, and what answered them (see
+  [The hooks mode](../Hooks.md)); then the pictures a failing case leaves and the names they
   get, the detailed mode's store, screens and navigation, the start screen, the screen that asks
   whether to go on with a run, the running screen, the listening screen, the pad screen and the
   touch suite's, a tap on each of them and the touch bar's boxes, the start screen's line on nvn's
-  window case, the mode file and its words, `all` among them, the
+  window case, the mode file and its words, `all` and `hooks` among them, the
   label and the folder it names, the game family's word and the frames it runs, the machine's
   graphics memory and what `vram=` says of it, the widest mode kept
   whole in the journal, the families each frontend runs and the runner's files under its root, the `skip` result, the time a case reports (twenty cases, see [Time per
@@ -26,8 +28,8 @@ family reports can be believed without them.
   [Baselines](../Baseline.md)). One case carries the whole idea: the diff picture is built from what
   the judge decided pixel by pixel, not from comparing two images, so a pixel that differs and was
   allowed to is not painted as a difference. Every line is the none tier, because none of it is a
-  claim about a machine. On a computer (`make -f host.mk host-run`) the suite has ten cases more: a
-  backward seek that drops a buffered line, which needs the C library's own stream buffer; a
+  claim about a machine. On a computer (`make -f host.mk host-run`) the suite has all but the first,
+  which asks the console's services, and ten cases more: a backward seek that drops a buffered line, which needs the C library's own stream buffer; a
   baseline file that is there and cannot be read, which needs the computer's own file errors; a
   case that times itself, with the one that reads its line back off standard output, the debug
   channel only there, to see the time it was given last, the case counted, and a rehearsal of it

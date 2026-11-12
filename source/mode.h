@@ -39,6 +39,10 @@ extern "C" {
 ///             For measuring what the journal costs, and for a card that must not be written.
 ///   noprogress no running screen while the suites run: the window keeps the screen before it,
 ///             as before there was one. For a machine whose window misbehaves while it draws.
+///   hooks     the console's services that a machine may answer in a game's own code (nn::fs,
+///             nn::time, nn::pl, nn::ngc, nn::nsd) asked through the SDK's functions the program
+///             exports, and not by IPC: the program opens neither fsp-srv nor time:u (hooks.h).
+///             Read once, at the program's start, before the card is the C library's.
 ///   all       every family this build has but pad, which waits for a person, and nvn, whose
 ///             window case runs only in a quick run from the file: one word for a run that needs
 ///             nobody. pad and nvn named beside it add theirs.
@@ -176,9 +180,9 @@ typedef enum {
 
 /// Room for every word ModeKey writes with all of them on, `frames=` and `vram=` at their widest,
 /// `machine=` with a name and a version as long as they may be and MODE_SKIPS_MAX `skip=` words at
-/// their longest, 314 characters: the support suite holds the widest to it, and the journal's
+/// their longest, 320 characters: the support suite holds the widest to it, and the journal's
 /// fields are sized from it (journal.h, JOURNAL_MODE_MAX).
-#define MODE_KEY_MAX 320u
+#define MODE_KEY_MAX 328u
 
 /// How many `skip=<suite>` words a mode file may have, and the longest suite name one takes: every
 /// suite edenprobe has fits, the longest today twelve characters.
@@ -257,6 +261,8 @@ typedef struct {
     bool no_journal;
     /// The word `noprogress`: no running screen.
     bool no_progress;
+    /// The word `hooks`: the services asked through the SDK's functions (hooks.h).
+    bool hooks;
     /// The word `listen`: the listening sequence, and the audio family with it.
     bool listen;
     /// The family words in the file, whether or not this build has them.
