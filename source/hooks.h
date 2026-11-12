@@ -32,9 +32,12 @@ bool HooksOn(void);
 /// SDK's functions when it asks through them.
 void RunSupportMode(void);
 
-/// In hooks mode, a report note naming the exported functions whose own code answered a call, with
-/// how many: the ones the machine left to the program. Nothing in IPC mode.
-void HooksReportOwnCode(void);
+/// In hooks mode, a report note naming the exported functions whose own code answered a call since
+/// the last note, with how many: the ones the machine left to the program, in @p step (NULL for the
+/// launch's start, before its first step). Nothing when none did, and nothing in IPC mode. The
+/// console's frontend calls it once the report is open and after each step (RunnerFrontend's
+/// step_done), so a step a case ended runs again and notes its own code once.
+void HooksReportOwnCode(const char *step);
 
 #ifdef __cplusplus
 }

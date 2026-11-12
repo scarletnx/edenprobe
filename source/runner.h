@@ -47,6 +47,9 @@ typedef struct {
     /// mode file names them.
     uint32_t present;
     uint32_t asked;
+    /// Called with a step's name once it has run, before the journal says it is done, so what it
+    /// writes into the report belongs to that step; NULL for nothing.
+    void (*step_done)(const char *name);
 } RunnerFrontend;
 
 #define RUNNER_ROOT_MAX 160u

@@ -1622,6 +1622,11 @@ static void RelaunchSecondStep(void) {
     RelaunchCase("after", "the next step's case");
 }
 
+/// The frontend's note after each step that ran to its end.
+static void RelaunchStepDone(const char *name) {
+    ReportNote("step done: %s", name);
+}
+
 static const RunnerStep RELAUNCH_STEPS[] = {
     { "ending", RelaunchFirstStep, 0, false, true },
     { "after", RelaunchSecondStep, 0, false, true },
@@ -1636,6 +1641,7 @@ static int RelaunchOnce(const char *root) {
     frontend.hash = "relaunch";
     frontend.steps = RELAUNCH_STEPS;
     frontend.step_count = sizeof(RELAUNCH_STEPS) / sizeof(RELAUNCH_STEPS[0]);
+    frontend.step_done = RelaunchStepDone;
     // Nothing of this run's own may be left in a buffer for the launch to write a second time.
     fflush(NULL);
     const pid_t pid = fork();
@@ -1747,7 +1753,9 @@ static void CheckRelaunch(const char *scratch) {
         Occurrences(report, NEXT) == 1u && Occurrences(report, BEFORE) == 1u &&
         strstr(report, "journal: launch 2 resumes the run") != NULL &&
         strstr(report, SUMMARY) != NULL &&
-        strstr(listed, "ending a case that ends the program\n") != NULL;
+        strstr(listed, "ending a case that ends the program\n") != NULL &&
+        Occurrences(report, "step done: ending") == 1u &&
+        Occurrences(report, "step done: after") == 1u;
     const bool new_run = reread && Occurrences(again, LISTED) == 1u &&
                          Occurrences(again, AFTER) == 1u && Occurrences(again, NEXT) == 1u &&
                          strstr(again, SUMMARY) != NULL;

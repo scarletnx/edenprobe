@@ -138,6 +138,7 @@ static const RunnerFrontend FRONTEND = {
     .step_count = sizeof(STEPS) / sizeof(STEPS[0]),
     .present = MODE_FAMILIES_PRESENT,
     .asked = MODE_FAMILIES_ASKED,
+    .step_done = HooksReportOwnCode,
 };
 
 // The run, static: the journal and the crash list it holds are tens of kilobytes.
@@ -262,6 +263,8 @@ int main(int argc, char **argv) {
     }
     const uint32_t families = RunnerFamilies(&runner, &mode);
     RunnerApplyMode(&runner, &mode);
+    // What the SDK's own code answered at the start, the mode file read through it (hooks.h).
+    HooksReportOwnCode(NULL);
     // A step the screens know no family for is shown under other, away from its own. The net
     // and service steps report under their suites' names, which the screens know.
     for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); ++i) {
@@ -299,7 +302,6 @@ int main(int argc, char **argv) {
     }
     RunnerSteps(&runner, families, timing, ViewerProgressStep);
     ViewerProgressEnd();
-    HooksReportOwnCode();
     RunnerFinish(&runner, &mode, timing);
 
     // Last, and only now: the report is written, counted and closed, so nothing a person does

@@ -53,7 +53,8 @@ The rest is the frontend's own code, around the runner's calls (`runner.h`):
 
 - a `RunnerFrontend`: the root folder (the mode file, the crash list, `runs/` and `baseline/` go under it), the
   version, the build and the hash, its steps in their order, the families they make up, and of those the ones that
-  run only when the mode file names them;
+  run only when the mode file names them, and what it writes into the report after each step (the console notes
+  what the SDK's own code answered in it, [The hooks mode](Hooks.md));
 - its own suites: the console's are its processor, deko3d, its services; Android's its Java framework, JNI, GLES and
   bionic's own;
 - its screens, when it has any: the console asks whether to go on with a run left in the middle, shows the start

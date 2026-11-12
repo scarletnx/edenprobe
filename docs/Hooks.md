@@ -96,9 +96,10 @@ machine treats one.
 
 The support suite's first case says which way the run asks, and what answered: in hooks mode whether the machine or
 the program's own code answered MountSdCard and nn::time::Initialize; in IPC mode a failure when the machine answered
-MountSdCard itself, the word `hooks` asking through the SDK instead. Before the summary, a hooks run's report has a
-note of every function whose own code answered a call, with how many: the ones the machine left to the program.
+MountSdCard itself, the word `hooks` asking through the SDK instead. In a hooks run, once the report is open and after
+each step, a note names every function whose own code answered a call since the last one, with how many: the ones
+the machine left to the program. A step a case ended runs again from its start and notes its own code once.
 
 ```json
-{"type":"note","text":"hooks: the program's own code answered nn::fs::GetFileTimeStampForDebug x1, nn::nsd::GetEnvironmentIdentifier x1"}
+{"type":"note","text":"hooks: in step service, the program's own code answered nn::fs::GetFileTimeStampForDebug x1"}
 ```

@@ -575,11 +575,14 @@ void RunSupportMode(void) {
                (unsigned)card_rc, R_SUCCEEDED(card_rc) ? card : "nobody");
 }
 
-void HooksReportOwnCode(void) {
+void HooksReportOwnCode(const char *step) {
+    static uint32_t noted[SDK_FUNCTION_COUNT];
     if (!hooks_on) {
         return;
     }
-    char said[REPORT_NOTE_MAX - 64];
-    SdkOwnDescribe(said, sizeof(said));
-    ReportNote("hooks: the program's own code answered %s", said);
+    char said[REPORT_NOTE_MAX - 96];
+    if (SdkOwnDescribeSince(said, sizeof(said), noted) > 0u) {
+        ReportNote("hooks: %s%s, the program's own code answered %s", step != NULL ? "in step " : "",
+                   step != NULL ? step : "at the start", said);
+    }
 }

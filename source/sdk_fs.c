@@ -22,7 +22,7 @@ uint32_t SdkOwnCalls(SdkFunction function) {
     return __atomic_load_n(&own_calls[function], __ATOMIC_RELAXED);
 }
 
-size_t SdkOwnDescribe(char *out, size_t out_size) {
+size_t SdkOwnDescribeSince(char *out, size_t out_size, uint32_t noted[SDK_FUNCTION_COUNT]) {
     static const char *const NAMES[SDK_FUNCTION_COUNT] = {
 #define SDK_NAME(id, name) name,
         SDK_FUNCTIONS(SDK_NAME)
@@ -33,17 +33,16 @@ size_t SdkOwnDescribe(char *out, size_t out_size) {
     }
     out[0] = '\0';
     size_t used = 0;
-    for (uint32_t i = 0; i < SDK_FUNCTION_COUNT && used < out_size; ++i) {
-        const uint32_t calls = SdkOwnCalls((SdkFunction)i);
-        if (calls == 0u) {
+    for (uint32_t i = 0; i < SDK_FUNCTION_COUNT; ++i) {
+        const uint32_t now = SdkOwnCalls((SdkFunction)i);
+        const uint32_t calls = now - noted[i];
+        noted[i] = now;
+        if (calls == 0u || used >= out_size) {
             continue;
         }
         const int wrote = snprintf(out + used, out_size - used, "%s%s x%u", used > 0u ? ", " : "",
                                    NAMES[i], (unsigned)calls);
         used = wrote < 0 ? out_size : used + (size_t)wrote;
-    }
-    if (out[0] == '\0') {
-        snprintf(out, out_size, "none");
     }
     return strlen(out);
 }
