@@ -1063,11 +1063,15 @@ bool ServiceJudgeHidSampling(const ServiceHidSampling *seen, char *out, size_t o
 /// snapshot's steady time point (both of one source), whether its location is the device's, and its
 /// type. Passes when all succeed and agree: reden builds the snapshot from those
 /// (`psc/time/static.cpp`, GetClockSnapshotImpl).
+/// In hooks mode (hooks.h) the snapshot comes from nn::time's
+/// ClockSnapshot::CreateWithStandardSystemClock, which picks its type itself, and no reference says
+/// which: @p sdk_type puts the type on the line without judging it.
 typedef struct {
     uint32_t snap_rc, context_rc, name_rc;
     bool same_context, same_source, same_name;
     int64_t user_time, offset, steady;
     uint32_t type;
+    bool sdk_type;
 } ServiceSnapshot;
 bool ServiceJudgeSnapshot(const ServiceSnapshot *seen, char *out, size_t out_size);
 

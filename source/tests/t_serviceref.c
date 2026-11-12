@@ -1786,7 +1786,7 @@ static void CheckHid(void) {
 }
 
 static void CheckTimeSnap(void) {
-    ServiceSnapshot seen = { 0u, 0u, 0u, true, true, true, 1760000100, 1760000000, 100, 0u };
+    ServiceSnapshot seen = { 0u, 0u, 0u, true, true, true, 1760000100, 1760000000, 100, 0u, false };
     const bool whole = ServiceJudgeSnapshot(&seen, said, sizeof(said)) &&
                        strstr(said, "the user clock's, at its time, at the device's location") ==
                            said;
@@ -1796,19 +1796,32 @@ static void CheckTimeSnap(void) {
     seen.user_time = 1760000101;
     const bool time = !ServiceJudgeSnapshot(&seen, said, sizeof(said)) &&
                       strstr(said, "another user time") == said;
-    seen = (ServiceSnapshot){ 0u, 0u, 0u, false, true, true, 1760000100, 1760000000, 100, 0u };
+    seen = (ServiceSnapshot){ 0u,         0u,         0u,  false, true, true,
+                              1760000100, 1760000000, 100, 0u,    false };
     const bool context = !ServiceJudgeSnapshot(&seen, said, sizeof(said));
-    seen = (ServiceSnapshot){ 0u, 0u, 0u, true, true, false, 1760000100, 1760000000, 100, 0u };
+    seen = (ServiceSnapshot){ 0u,         0u,         0u,  true, true, false,
+                              1760000100, 1760000000, 100, 0u,   false };
     const bool location = !ServiceJudgeSnapshot(&seen, said, sizeof(said));
     const bool span = ServiceJudgeSnapSpan(0u, 0u, 0, 0u, 5000000000ll, said, sizeof(said));
     // Seconds where nanoseconds belong, and a span to itself above nought.
     const bool seconds = !ServiceJudgeSnapSpan(0u, 0u, 0, 0u, 5, said, sizeof(said));
     const bool itself = !ServiceJudgeSnapSpan(0u, 0u, 1, 0u, 5000000000ll, said, sizeof(said));
+    // Another type: a failure when the probe asked for type 0, said and not judged when the SDK
+    // chose it (hooks mode).
+    seen = (ServiceSnapshot){ 0u, 0u, 0u, true, true, true, 1760000100, 1760000000, 100, 1u,
+                              false };
+    const bool typed = !ServiceJudgeSnapshot(&seen, said, sizeof(said)) &&
+                       strstr(said, "another type") == said;
+    seen.sdk_type = true;
+    const bool sdk = ServiceJudgeSnapshot(&seen, said, sizeof(said)) &&
+                     strstr(said, "ClockSnapshot::CreateWithStandardSystemClock 0x0") != NULL &&
+                     strstr(said, "type 1, the SDK's own choice, not judged") != NULL;
     CHECK_TRUE(SUITE, "service: time-snap passes a snapshot of the user clock and its span",
-               CHECK_NONE, whole && time && context && location && span && seconds && itself,
+               CHECK_NONE,
+               whole && time && context && location && span && seconds && itself && typed && sdk,
                "whole %d \"%.160s\", another time %d, context %d, location %d, span %d, in "
-               "seconds %d, to itself %d",
-               whole, whole_said, time, context, location, span, seconds, itself);
+               "seconds %d, to itself %d, another type %d, the SDK's type %d",
+               whole, whole_said, time, context, location, span, seconds, itself, typed, sdk);
 }
 
 static void CheckVi(void) {

@@ -79,7 +79,7 @@ reden's; a case says in its line which way it went where the two differ.
 |---|---|---|
 | fs | fs | the card mounted as `edenprobe-fs`, every read nn::fs::ReadFile |
 | service | fsp, fsdir, fs-file | the temporary storage mounted as `edenprobe-temp`, the card as the start mounted it; a file written to is flushed before it is closed, which the SDK asks of a writer and fsp-srv does itself |
-| service | time, time-snap, time-zone | nn::time's functions; Initialize stands for time:u and its objects, and a function the SDK declares void answers nought where the IPC mode puts its command's result; CalculateSpanBetween's false is `0xffffffff` there |
+| service | time, time-snap, time-zone | nn::time's functions; Initialize stands for time:u and its objects, and a function the SDK declares void answers nought where the IPC mode puts its command's result; CalculateSpanBetween's false is `0xffffffff` there. The snapshot's type is on the line and not judged: ClockSnapshot::CreateWithStandardSystemClock picks it, and no reference says which |
 | service | time-perm | the clocks through the three setters an application links, held to `ServiceJudgeTimeSdkClocks`; the settings case is skipped, since their setters answer nothing and stop the program on a refusal |
 | service | pl | the fonts by their addresses: each offset counts from 8 bytes before the lowest font, the memory's start in the IPC mode's layout, since the SDK gives no base |
 | service | ngc | a ProfanityFilter on a 128 KiB work buffer, checked and masked through the SDK, held to `ServiceJudgeNgcSdkCheck` and `ServiceJudgeNgcSdkMask`; the ngct case is skipped, as the program exports no function over ngct:u |
