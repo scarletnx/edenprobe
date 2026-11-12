@@ -16,6 +16,7 @@
 | `retry` | the cases on the crash list run again; one that runs to its end leaves the list (see [When the program ends in the middle](Crashes.md)). A case the hang table names stays skipped until `hang` asks too |
 | `nojournal` | no journal between cases, so a crash costs the rest of the run; for measuring what the journal costs |
 | `noprogress` | no running screen while the suites run; for a machine whose window misbehaves while the suites draw |
+| `hooks` | the console's services a machine may answer in a game's own code, nn::fs, nn::time, nn::pl, nn::ngc and nn::nsd, asked through the SDK's functions the program exports, and not by IPC: the program opens neither fsp-srv nor time:u, and its card is nn::fs's. For a recompiler that runs a game's SDK functions itself and serves none of those services; read at the program's start, with no row on the start screen; see [The hooks mode](Hooks.md) |
 | `all` | every family the build has but pad, which waits for a person, and nvn: one word for a run that needs nobody. `pad` or `nvn` beside it adds that family; the mode line lists the families that run |
 | `cpu` | the processor family. It runs in every mode, so naming it alone leaves the graphics, fs and net families out: a few seconds, nothing drawn |
 | `graphics` | the graphics family: the forty two drawing suites, clear to copy, and tex8k; selfcheck, support, reference and cpu always run, whatever family is named |
@@ -65,6 +66,7 @@ for edenprobe's own APK, `files/edenprobe/mode` in its external files ([Android]
 | `quick nvn` | the judge, cpu and the nvn suite, its window case too, then exit |
 | `quick kernel display` | the judge, cpu, the sched and svc suites and the binder suite, then exit |
 | `quick service` | the judge, cpu and the service family's suites, then exit |
+| `quick hooks fs service` | the judge, cpu, the fs suite and the service family, the card, the clocks, the fonts, ngc and nsd asked through the SDK's functions, then exit: a recompiler that answers them in a game's code |
 | `quick baseline=console` | the judge, cpu and the families a file naming none runs, then the run's times added as a sample to the console's baseline: on a console, a few times |
 | `quick compare=console` | the same run, held to the console's baseline: on an emulator, with the console's file copied to its card |
 | `quick game` | the judge, cpu and the game scene's 600 frames, then exit |

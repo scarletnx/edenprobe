@@ -12,6 +12,7 @@ New here? Start with [Build](./Build.md), then [the mode file](./ModeFile.md) an
   - **[Frontends](./Frontends.md)** - one engine for the console, Android and a PC, and how another fits
   - **[On the console](./Console.md)** - the two modes, the screens and the buttons
   - **[The mode file](./ModeFile.md)** - the words that choose what runs
+  - **[The hooks mode](./Hooks.md)** - the services asked through the SDK's functions the program exports
   - **[The validation layer](./Validation.md)** - `make validate`
   - **[An older driver](./OlderDriver.md)** - the masquerade layer
 - Reading a run:
