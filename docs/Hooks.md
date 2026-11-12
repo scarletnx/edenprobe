@@ -8,6 +8,7 @@
 * [The start](#the-start)
 * [The cases in hooks mode](#the-cases-in-hooks-mode)
 * [What a run says](#what-a-run-says)
+* [What the machines answered](#what-the-machines-answered)
 
 The word `hooks` in [the mode file](ModeFile.md) asks the console's services that a machine may answer in a game's own
 code through the SDK's functions, and not by IPC: nn::fs, nn::time, nn::pl, nn::ngc and nn::nsd. Without it the run
@@ -101,5 +102,42 @@ each step, a note names every function whose own code answered a call since the 
 the machine left to the program. A step a case ended runs again from its start and notes its own code once.
 
 ```json
-{"type":"note","text":"hooks: in step service, the program's own code answered nn::fs::GetFileTimeStampForDebug x1"}
+{"type":"note","text":"hooks: in step service, the program's own code answered nn::fs::GetFileTimeStampForDebug x1, nn::time::IsInitialized x1"}
 ```
+
+## What the machines answered
+
+Each machine ran this build once in each mode, `quick notime fs service net` with and without `hooks`, and the game
+family apart, `quick notime game frames=120`: ScarletNX's #1658 at 3acdfd2 (its native nnSdk), ScarletNX main at
+9cc5ec2, both recompiling the program at opt 0 and running it headless, and Eden 6a9235c22d (eden-cli on a display of
+its own). In IPC mode, v0.12.0 and this build give every case they share the same result on ScarletNX main and on
+Eden, and the six cases this build adds pass on both. On #1658 the IPC mode ends at the start, as it should: the
+program says the line above, and sm stops it at time:u.
+
+The cases of the suites that ask those services (fs, fsp, fsdir, fs-file, time, time-snap, time-zone, time-perm, pl,
+ngc, dns) and sdk, where any two columns differ; of their 56 cases, 42 pass on every column and five of dns are skipped
+on every one, as no net file names a backend:
+
+| case | #1658 hooks | main IPC | main hooks | Eden IPC | Eden hooks |
+|---|---|---|---|---|---|
+| fsp: the temporary storage starts each launch empty | pass | skip, depends | skip, depends | skip, depends | skip, depends |
+| ngc: ngc:u has a version and finds no word in a clean name | crashed | pass | pass | pass | pass |
+| ngc: a clean name masked comes back as it was sent | crashed | pass | pass | pass | pass |
+| ngc: ngct:u matches nothing in a clean name and filters it back as sent | skip | pass | skip | pass | skip |
+| time-perm: time:u may not set automatic correction, the steady clock's offset or the device's location | skip | pass | skip | pass | skip |
+| fs-file: a file just written is dated by the clock | fail | pass | pass | pass | pass |
+| sdk: a tail call to an SDK function reaches what a call reaches | fail | pass | pass | pass | pass |
+| dns: nsd names the environment it resolves for | crashed | pass | pass | pass | pass |
+| dns: nsd replaces the placeholder with the environment | skip, depends | pass | pass | fail | fail |
+
+The fsp case needs the launch before to have left its marker: #1658's run took four launches, the others one. What
+#1658 leaves to the program, each its own:
+
+- nn::ngc: its hooks hold for SDK 20 and later, and a homebrew program's SDK version is unknown, so none takes the
+  program's ProfanityFilter; its own code opens ngc:u, and sm stops the program, once for each case.
+- nn::nsd::GetEnvironmentIdentifier and nn::fs::GetFileTimeStampForDebug have no hook: the first opens nsd:u and sm
+  stops the program, the second finds no mount of the program's own and answers `0x1359`.
+- A tail call: #1658 takes `bl` and a call through a pointer, and a `b` to a hooked function's entry runs the
+  function's own code; a game's code makes such branches.
+
+The game family's six cases pass on every column.
