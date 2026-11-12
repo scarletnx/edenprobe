@@ -357,9 +357,10 @@ void SdkOwnCall(SdkFunction function);
 /// The calls each function's own code answered so far.
 uint32_t SdkOwnCalls(SdkFunction function);
 
-/// The functions whose own code answered a call, each with its count, comma separated, in
-/// @p out; "none" when no own code ran. Returns the length.
-size_t SdkOwnDescribe(char *out, size_t out_size);
+/// The functions whose own code answered a call since @p noted's counts, each with its count, comma
+/// separated, in @p out, and @p noted brought up to now. Returns the length: nought, with an empty
+/// string, when none did.
+size_t SdkOwnDescribeSince(char *out, size_t out_size, uint32_t noted[SDK_FUNCTION_COUNT]);
 
 #ifdef __cplusplus
 }

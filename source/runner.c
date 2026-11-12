@@ -329,6 +329,9 @@ void RunnerSteps(Runner *runner, uint32_t families, bool timing, RunnerProgress 
             step->run();
         }
         ReportRequireStarts(false);
+        if (frontend->step_done != NULL) {
+            frontend->step_done(step->name);
+        }
         JournalSimple(JOURNAL_DONE, step->name, 0);
     }
 }
