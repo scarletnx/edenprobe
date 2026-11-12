@@ -1784,8 +1784,8 @@ bool ServiceJudgeHidSampling(const ServiceHidSampling *seen, char *out, size_t o
 bool ServiceJudgeSnapshot(const ServiceSnapshot *seen, char *out, size_t out_size) {
     const bool refused = seen->snap_rc != 0u || seen->context_rc != 0u || seen->name_rc != 0u;
     const bool timed = seen->same_source && seen->user_time == seen->offset + seen->steady;
-    const bool passed =
-        !refused && seen->same_context && timed && seen->same_name && seen->type == 0u;
+    const bool typed = seen->sdk_type || seen->type == 0u;
+    const bool passed = !refused && seen->same_context && timed && seen->same_name && typed;
     const char *verdict = "the user clock's, at its time, at the device's location";
     if (refused) {
         verdict = "refused";
@@ -1799,12 +1799,16 @@ bool ServiceJudgeSnapshot(const ServiceSnapshot *seen, char *out, size_t out_siz
         verdict = "another type";
     }
     snprintf(out, out_size,
-             "%s: GetClockSnapshot(0) 0x%x, the clock's context 0x%x %s, user time %lld against "
-             "%lld + %lld (%s source), location 0x%x %s, type %u",
-             verdict, (unsigned)seen->snap_rc, (unsigned)seen->context_rc,
+             "%s: %s 0x%x, the clock's context 0x%x %s, user time %lld against %lld + %lld (%s "
+             "source), location 0x%x %s, type %u%s",
+             verdict,
+             seen->sdk_type ? "ClockSnapshot::CreateWithStandardSystemClock"
+                            : "GetClockSnapshot(0)",
+             (unsigned)seen->snap_rc, (unsigned)seen->context_rc,
              seen->same_context ? "same" : "other", (long long)seen->user_time,
              (long long)seen->offset, (long long)seen->steady, seen->same_source ? "one" : "two",
-             (unsigned)seen->name_rc, seen->same_name ? "same" : "other", (unsigned)seen->type);
+             (unsigned)seen->name_rc, seen->same_name ? "same" : "other", (unsigned)seen->type,
+             seen->sdk_type ? ", the SDK's own choice, not judged" : "");
     return passed;
 }
 

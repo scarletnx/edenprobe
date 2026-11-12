@@ -2786,6 +2786,7 @@ static void RunTimeSnapHooks(void) {
         seen.same_source = memcmp(bytes + 0x10, bytes + SERVICE_SNAP_STEADY + 8, 16) == 0;
         seen.same_name = memcmp(bytes + SERVICE_SNAP_LOCATION, &name, sizeof(name)) == 0;
         seen.type = bytes[SERVICE_SNAP_TYPE];
+        seen.sdk_type = true;
         const bool passed = ServiceJudgeSnapshot(&seen, detail, sizeof(detail));
         Report(SERVICE_SNAP_COHERENT, CHECK_EXACT, passed, detail);
     }
