@@ -10,6 +10,17 @@
 // sends, on the session timeInitialize opens. The functions the SDK declares void ignore the
 // result, as their callers cannot see one.
 
+// SdkTailIsInitialized (sdk.h): its own section, so the linker keeps it when a case uses it.
+__asm__(".section .text.SdkTailIsInitialized,\"ax\",%progbits\n"
+        ".global SdkTailIsInitialized\n"
+        ".hidden SdkTailIsInitialized\n"
+        ".type SdkTailIsInitialized, %function\n"
+        ".p2align 2\n"
+        "SdkTailIsInitialized:\n"
+        "    b _ZN2nn4time13IsInitializedEv\n"
+        ".size SdkTailIsInitialized, . - SdkTailIsInitialized\n"
+        ".text\n");
+
 /// How many times the own code's Initialize succeeded, for IsInitialized.
 static uint32_t own_initialized;
 

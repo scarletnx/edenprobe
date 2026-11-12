@@ -4071,6 +4071,29 @@ static void RunAccApp(void) {
     AccountClose(&a);
 }
 
+// ---------------------------------------------------------------------------------------------
+// sdk
+
+/// One of the SDK functions the program exports, reached by a call and by a tail call: a machine
+/// that takes it by its symbol (hooks.h) has to take it both ways, as a game's code reaches it both
+/// ways. nn::time::IsInitialized, which changes nothing and whose own code opens no service.
+static void RunSdk(void) {
+    char detail[480];
+    if (!Start(SERVICE_SDK_TAIL)) {
+        return;
+    }
+    ServiceSdkTail seen;
+    memset(&seen, 0, sizeof(seen));
+    uint32_t before = SdkOwnCalls(SDK_TIME_IS_INITIALIZED);
+    seen.call = NnTimeIsInitialized();
+    seen.call_own = SdkOwnCalls(SDK_TIME_IS_INITIALIZED) - before;
+    before = SdkOwnCalls(SDK_TIME_IS_INITIALIZED);
+    seen.tail = SdkTailIsInitialized();
+    seen.tail_own = SdkOwnCalls(SDK_TIME_IS_INITIALIZED) - before;
+    const bool passed = ServiceJudgeSdkTail(&seen, detail, sizeof(detail));
+    Report(SERVICE_SDK_TAIL, CHECK_EXACT, passed, detail);
+}
+
 void RunService(void) {
     RunHwopus();
     RunAm();
@@ -4109,4 +4132,5 @@ void RunService(void) {
     RunAudout();
     RunFsFile();
     RunAccApp();
+    RunSdk();
 }

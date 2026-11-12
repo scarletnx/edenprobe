@@ -86,7 +86,11 @@ reden's; a case says in its line which way it went where the two differ.
 | net | dns | nsd's Resolve and GetEnvironmentIdentifier through nn::nsd |
 | game | game | the card's file read through nn::fs, the steady clock through nn::time |
 
-Every other suite is the same in both modes.
+Every other suite is the same in both modes, and the sdk suite asks the same in both: whether a tail call to an SDK
+function reaches what a call reaches ([sdk](families/Service.md#sdk)). It is the program's one tail call into those
+functions: the volume layer the fs cases go through (`source/volume.c`) is built with no tail calls, and
+`tools/sdk-exports.py`, run by the CI, refuses a tail branch anywhere else, so no other case depends on how a
+machine treats one.
 
 ## What a run says
 

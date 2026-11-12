@@ -121,6 +121,10 @@ uint32_t NnFsGetDirectoryEntryCount(int64_t *count, NnFsDirectoryHandle director
 void NnFsCloseDirectory(NnFsDirectoryHandle directory)
     SDK_EXPORT("_ZN2nn2fs14CloseDirectoryENS0_15DirectoryHandleE");
 
+/// nn::time::IsInitialized reached by a tail call, a branch to its entry, as a game's code reaches
+/// a function whose answer it returns. In assembly, so no compiler setting makes it a call.
+bool SdkTailIsInitialized(void);
+
 /// Whether the program's own code made the mount @p name, which says the machine took
 /// MountSdCard or MountTemporaryStorage when the call that made it succeeded.
 bool SdkFsOwnMount(const char *name);
