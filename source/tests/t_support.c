@@ -1621,8 +1621,9 @@ static void CheckHooksWord(void) {
                       !ModeFromText("hookss").hooks;
     const bool keyed = strcmp(key, "hooks service") == 0;
     const bool kept = strcmp(saved, "quick hooks service") == 0;
-    const bool described = strstr(said, "; hooks: on the console, fs, time, pl, ngc and nsd asked "
-                                        "through the SDK's functions") != NULL;
+    const bool described =
+        strstr(said, "; hooks: on the console, fs, time, pl, ngc, nsd, pctl, audio and codec "
+                     "asked through the SDK's functions") != NULL;
     // The start screen chose other families: the run keeps the file's mode.
     RunMode chosen = hooks;
     chosen.families_named = MODE_FAMILY_FS;

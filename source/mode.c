@@ -634,8 +634,8 @@ static void Describe(char *out, size_t out_size, const RunMode *mode, uint32_t p
     if (mode->hooks) {
         const size_t used = strlen(out);
         snprintf(out + used, out_size - used,
-                 "; hooks: on the console, fs, time, pl, ngc and nsd asked through the SDK's "
-                 "functions");
+                 "; hooks: on the console, fs, time, pl, ngc, nsd, pctl, audio and codec asked "
+                 "through the SDK's functions");
     }
     if (mode->machine[0] != '\0') {
         const size_t used = strlen(out);

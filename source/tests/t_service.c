@@ -3,9 +3,11 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <malloc.h>
 #include <netinet/in.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -51,7 +53,118 @@ static bool Start(ServiceCaseId id) {
 /// Opens decoders of 48 kHz stereo, the way a game's codec library does, until one is refused or
 /// two past reden's limit are open; closes one and opens again; closes them all. Each decoder is
 /// an object of its own, with a work buffer handed over as transfer memory.
+/// Room for the longest packet's samples, 120 ms at 48 kHz, stereo.
+static int16_t g_opus_pcm[2u * 6u * SERVICE_OPUS_FRAME] __attribute__((aligned(0x1000)));
+
+/// The silence packet's samples, as the decode case reads them: how many of the 960 a channel for
+/// both channels are not nought, and the first such.
+static void OpusLoud(ServiceOpusDecode *seen) {
+    seen->loud = 0;
+    seen->first_loud = 0;
+    for (uint32_t i = 0; i < 2u * SERVICE_OPUS_FRAME; ++i) {
+        if (g_opus_pcm[i] != 0) {
+            seen->first_loud = seen->loud == 0u ? g_opus_pcm[i] : seen->first_loud;
+            ++seen->loud;
+        }
+    }
+}
+
+/// The opens, decode, limit and freed cases in hooks mode (hooks.h), through nn::codec's
+/// functions: each decoder on a work buffer of the size the SDK gives, and nn::codec's OpusResult
+/// where hwopus gives a result.
+static void RunHwopusHooks(void) {
+    static NnCodecOpusDecoder decoders[SERVICE_OPUS_TRIES];
+    static void *works[SERVICE_OPUS_TRIES];
+    static int32_t results[SERVICE_OPUS_TRIES];
+    static bool asked[SERVICE_OPUS_TRIES];
+    memset(decoders, 0, sizeof(decoders));
+    memset(works, 0, sizeof(works));
+    memset(results, 0, sizeof(results));
+    memset(asked, 0, sizeof(asked));
+    char detail[480];
+    (void)SdkOwnResult();
+    const size_t size = NnCodecGetOpusWorkBufferSize(48000, 2, 0);
+    const uint32_t size_rc = SdkOwnResult();
+    const size_t room = (size + 0xFFFu) & ~(size_t)0xFFF;
+
+    bool opens = false;
+    if (Start(SERVICE_OPUS_OPENS)) {
+        works[0] = size != 0u ? memalign(0x1000, room) : NULL;
+        asked[0] = true;
+        results[0] = NnCodecInitializeOpusDecoder(&decoders[0], 48000, 2, works[0], room, 0);
+        opens = results[0] == NN_CODEC_OPUS_OK;
+        snprintf(detail, sizeof(detail),
+                 "nn::codec::InitializeHardwareOpusDecoder(48000, 2) gave OpusResult %d, on a work "
+                 "buffer of %zu bytes (GetHardwareOpusDecoderWorkBufferSize, the own code's "
+                 "request 0x%x)",
+                 (int)results[0], size, (unsigned)size_rc);
+        Report(SERVICE_OPUS_OPENS, CHECK_NONE, opens, detail);
+    }
+
+    if (!opens) {
+        Skip(SERVICE_OPUS_DECODES, REPORT_REASON_DEPENDS, "no decoder opened to decode with");
+    } else if (Start(SERVICE_OPUS_DECODES)) {
+        ServiceOpusDecode seen;
+        memset(&seen, 0, sizeof(seen));
+        memset(g_opus_pcm, 0x55, sizeof(g_opus_pcm));
+        seen.sdk = true;
+        size_t consumed = 0;
+        seen.samples = -1;
+        seen.rc = (uint32_t)NnCodecDecodeOpus(&decoders[0], &consumed, &seen.samples, g_opus_pcm,
+                                              sizeof(g_opus_pcm), SERVICE_OPUS_SILENCE,
+                                              SERVICE_OPUS_SILENCE_SIZE);
+        seen.consumed = consumed;
+        OpusLoud(&seen);
+        const bool passed = ServiceJudgeOpusDecode(&seen, detail, sizeof(detail));
+        Report(SERVICE_OPUS_DECODES, CHECK_EXACT, passed, detail);
+    }
+
+    bool refused = false;
+    if (!opens) {
+        Skip(SERVICE_OPUS_LIMITED, REPORT_REASON_DEPENDS, "no decoder opened to count from");
+    } else if (Start(SERVICE_OPUS_LIMITED)) {
+        uint32_t tried = 1;
+        while (tried < SERVICE_OPUS_TRIES) {
+            works[tried] = size != 0u ? memalign(0x1000, room) : NULL;
+            asked[tried] = true;
+            results[tried] =
+                NnCodecInitializeOpusDecoder(&decoders[tried], 48000, 2, works[tried], room, 0);
+            ++tried;
+            if (results[tried - 1u] != NN_CODEC_OPUS_OK) {
+                refused = true;
+                break;
+            }
+        }
+        const bool passed = ServiceJudgeOpusLimitSdk(results, tried, detail, sizeof(detail));
+        Report(SERVICE_OPUS_LIMITED, CHECK_EXACT, passed, detail);
+    }
+
+    if (!refused) {
+        Skip(SERVICE_OPUS_FREED, REPORT_REASON_DEPENDS,
+             "the case above refused no decoder, so there is no room to free");
+    } else if (Start(SERVICE_OPUS_FREED)) {
+        NnCodecFinalizeOpusDecoder(&decoders[0]);
+        const int32_t reopened =
+            NnCodecInitializeOpusDecoder(&decoders[0], 48000, 2, works[0], room, 0);
+        results[0] = reopened;
+        const bool passed = ServiceJudgeOpusFreed((uint32_t)reopened, detail, sizeof(detail));
+        Report(SERVICE_OPUS_FREED, CHECK_EXACT, passed, detail);
+    }
+
+    // Each decoder an open was asked for and opened is finalized, and every work buffer goes.
+    for (uint32_t i = 0; i < SERVICE_OPUS_TRIES; ++i) {
+        if (asked[i] && results[i] == NN_CODEC_OPUS_OK) {
+            NnCodecFinalizeOpusDecoder(&decoders[i]);
+        }
+        free(works[i]);
+    }
+}
+
 static void RunHwopus(void) {
+    if (HooksOn()) {
+        RunHwopusHooks();
+        return;
+    }
     static HwopusDecoder decoders[SERVICE_OPUS_TRIES];
     static uint32_t results[SERVICE_OPUS_TRIES];
     memset(decoders, 0, sizeof(decoders));
@@ -65,6 +178,23 @@ static void RunHwopus(void) {
         snprintf(detail, sizeof(detail), "hwopusDecoderInitialize(48000, 2) returned 0x%x",
                  (unsigned)results[0]);
         Report(SERVICE_OPUS_OPENS, CHECK_NONE, opens, detail);
+    }
+
+    if (!opens) {
+        Skip(SERVICE_OPUS_DECODES, REPORT_REASON_DEPENDS, "no decoder opened to decode with");
+    } else if (Start(SERVICE_OPUS_DECODES)) {
+        ServiceOpusDecode seen;
+        memset(&seen, 0, sizeof(seen));
+        memset(g_opus_pcm, 0x55, sizeof(g_opus_pcm));
+        s32 consumed = -1;
+        seen.samples = -1;
+        seen.rc = hwopusDecodeInterleaved(&decoders[0], &consumed, &seen.samples,
+                                          SERVICE_OPUS_SILENCE, SERVICE_OPUS_SILENCE_SIZE,
+                                          g_opus_pcm, sizeof(g_opus_pcm));
+        seen.consumed = consumed >= 0 ? (uint64_t)consumed : 0u;
+        OpusLoud(&seen);
+        const bool passed = ServiceJudgeOpusDecode(&seen, detail, sizeof(detail));
+        Report(SERVICE_OPUS_DECODES, CHECK_EXACT, passed, detail);
     }
 
     bool refused = false;
@@ -2004,7 +2134,73 @@ static void RunAmFunctions(void) {
 /// The audio device service a game with a renderer asks which output plays and how loud, opened
 /// with libnx's auddevInitialize (audren:u's GetAudioDeviceService, 2, with this program's
 /// applet resource user id).
+/// The audio device's cases in hooks mode (hooks.h), through nn::audio's device functions, which
+/// need nothing opened: the opens case is the list, and each result the own code's request (nought
+/// where a machine took the function).
+static void RunAuddevHooks(void) {
+    char detail[480];
+    static ServiceAudioDevices seen;
+    memset(&seen, 0, sizeof(seen));
+    static NnAudioName names[SERVICE_AUDIO_DEVICES];
+    memset(names, 0, sizeof(names));
+    bool opens = false;
+    if (Start(SERVICE_AUDDEV_OPENS)) {
+        (void)SdkOwnResult();
+        seen.listed = NnAudioListAudioDeviceName(names, SERVICE_AUDIO_DEVICES);
+        seen.list_rc = SdkOwnResult();
+        opens = seen.listed > 0;
+        snprintf(detail, sizeof(detail),
+                 "nn::audio::ListAudioDeviceName listed %d (the own code's request 0x%x)",
+                 (int)seen.listed, (unsigned)seen.list_rc);
+        Report(SERVICE_AUDDEV_OPENS, CHECK_NONE, opens, detail);
+    }
+    if (!opens) {
+        static const char *const WHY = "nn::audio::ListAudioDeviceName listed no device";
+        Skip(SERVICE_AUDDEV_ACTIVE, REPORT_REASON_DEPENDS, "%s", WHY);
+        Skip(SERVICE_AUDDEV_VOLUME, REPORT_REASON_DEPENDS, "%s", WHY);
+        return;
+    }
+    bool active = false;
+    if (Start(SERVICE_AUDDEV_ACTIVE)) {
+        for (uint32_t i = 0; i < SERVICE_AUDIO_DEVICES; ++i) {
+            memcpy(seen.names[i], names[i].name, sizeof(seen.names[i]));
+            seen.names[i][SERVICE_AUDIO_NAME - 1u] = '\0';
+        }
+        NnAudioName name;
+        memset(&name, 0, sizeof(name));
+        NnAudioGetActiveAudioDeviceName(&name);
+        seen.active_rc = SdkOwnResult();
+        memcpy(seen.active, name.name, sizeof(seen.active));
+        seen.active[SERVICE_AUDIO_NAME - 1u] = '\0';
+        active = seen.active_rc == 0u && seen.active[0] != '\0';
+        const bool passed = ServiceJudgeAudioActive(&seen, detail, sizeof(detail));
+        Report(SERVICE_AUDDEV_ACTIVE, CHECK_EXACT, passed, detail);
+    }
+    if (!active) {
+        Skip(SERVICE_AUDDEV_VOLUME, REPORT_REASON_DEPENDS, "no active device to set a volume on");
+    } else if (Start(SERVICE_AUDDEV_VOLUME)) {
+        NnAudioName name;
+        memcpy(name.name, seen.active, sizeof(name.name));
+        const float before = NnAudioGetAudioDeviceOutputVolume(&name);
+        const uint32_t before_rc = SdkOwnResult();
+        const float asked = before == 0.5f ? 0.25f : 0.5f;
+        NnAudioSetAudioDeviceOutputVolume(&name, asked);
+        const uint32_t set_rc = SdkOwnResult();
+        const float after = NnAudioGetAudioDeviceOutputVolume(&name);
+        const uint32_t after_rc = SdkOwnResult();
+        NnAudioSetAudioDeviceOutputVolume(&name, before >= 0.0f ? before : 1.0f);
+        const uint32_t restore_rc = SdkOwnResult();
+        const bool passed = ServiceJudgeAudioVolume(before_rc, before, set_rc, asked, after_rc,
+                                                    after, restore_rc, detail, sizeof(detail));
+        Report(SERVICE_AUDDEV_VOLUME, CHECK_EXACT, passed, detail);
+    }
+}
+
 static void RunAuddev(void) {
+    if (HooksOn()) {
+        RunAuddevHooks();
+        return;
+    }
     char detail[480];
     bool opens = false;
     if (Start(SERVICE_AUDDEV_OPENS)) {
@@ -2955,7 +3151,131 @@ static int32_t RendererMilli(float v) {
 /// An audio renderer of the program's own, opened as a game's audio library opens one at start
 /// (48 kHz, 24 voices, a final mix of 2 buffers, one sink), asked what it was opened with and two
 /// settings a game may change in play, each put back; closed before the suite returns.
+/// The renderer's cases in hooks mode (hooks.h), through nn::audio's renderer functions on a
+/// renderer opened with the parameter audrenInitialize sends here, at revision 5 as the audio
+/// family's in hooks mode, on a work buffer of the size the SDK gives. A getter's result is the own
+/// code's request, nought where a machine took the function.
+static void RunRendererHooks(void) {
+    char detail[480];
+    const NnAudioRendererParameter param = {
+        .sample_rate = 48000,
+        .sample_count = 240,
+        .mix_buffer_count = 2,
+        .sub_mix_count = 0,
+        .voice_count = 24,
+        .sink_count = 1,
+        .effect_count = 0,
+        .revision = NN_AUDIO_REVISION_5,
+    };
+    (void)SdkOwnResult();
+    const size_t size = NnAudioGetAudioRendererWorkBufferSize(&param);
+    const uint32_t size_rc = SdkOwnResult();
+    const size_t room = (size + 0xFFFu) & ~(size_t)0xFFF;
+    void *const work = size != 0u ? memalign(0x1000, room) : NULL;
+    NnAudioRendererHandle handle;
+    memset(&handle, 0, sizeof(handle));
+    static NnOsSystemEvent event;
+    memset(&event, 0, sizeof(event));
+    const uint32_t opened =
+        work != NULL ? NnAudioOpenAudioRenderer(&handle, &event, &param, work, room) : 0xFFFFFFFFu;
+    if (opened != 0u) {
+        char why[200];
+        if (work == NULL) {
+            snprintf(why, sizeof(why),
+                     "no work buffer: nn::audio::GetAudioRendererWorkBufferSize gave %zu (the own "
+                     "code's request 0x%x)",
+                     size, (unsigned)size_rc);
+        } else {
+            snprintf(why, sizeof(why),
+                     "nn::audio::OpenAudioRenderer returned 0x%x, on a work buffer of %zu bytes",
+                     (unsigned)opened, size);
+        }
+        Skip(SERVICE_RENDERER_PARAMS, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_RENDERER_LIMIT, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_RENDERER_DROP, REPORT_REASON_UNAVAILABLE, "%s", why);
+        Skip(SERVICE_RENDERER_STATE, REPORT_REASON_UNAVAILABLE, "%s", why);
+        free(work);
+        return;
+    }
+    if (Start(SERVICE_RENDERER_PARAMS)) {
+        ServiceRendererParams seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.rate = (uint32_t)NnAudioGetAudioRendererSampleRate(handle);
+        seen.rate_rc = SdkOwnResult();
+        seen.count = (uint32_t)NnAudioGetAudioRendererSampleCount(handle);
+        seen.count_rc = SdkOwnResult();
+        seen.mix = (uint32_t)NnAudioGetAudioRendererMixBufferCount(handle);
+        seen.mix_rc = SdkOwnResult();
+        const bool passed = ServiceJudgeRendererParams(&seen, detail, sizeof(detail));
+        Report(SERVICE_RENDERER_PARAMS, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_RENDERER_LIMIT)) {
+        ServiceRendererSetting seen;
+        memset(&seen, 0, sizeof(seen));
+        const int32_t before = NnAudioGetAudioRendererRenderingTimeLimit(handle);
+        seen.before_rc = SdkOwnResult();
+        const int32_t asked = 70;
+        NnAudioSetAudioRendererRenderingTimeLimit(handle, asked);
+        seen.set_rc = SdkOwnResult();
+        const int32_t after = NnAudioGetAudioRendererRenderingTimeLimit(handle);
+        seen.after_rc = SdkOwnResult();
+        NnAudioSetAudioRendererRenderingTimeLimit(handle,
+                                                  before >= 0 && before <= 100 ? before : 100);
+        seen.restore_rc = SdkOwnResult();
+        seen.before = before;
+        seen.asked = asked;
+        seen.after = after;
+        seen.initial = 100;
+        const bool passed =
+            ServiceJudgeRendererSetting("GetRenderingTimeLimit", &seen, detail, sizeof(detail));
+        Report(SERVICE_RENDERER_LIMIT, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_RENDERER_DROP)) {
+        ServiceRendererSetting seen;
+        memset(&seen, 0, sizeof(seen));
+        const float before = NnAudioGetAudioRendererVoiceDropParameter(handle);
+        seen.before_rc = SdkOwnResult();
+        const float asked = 0.5f;
+        NnAudioSetAudioRendererVoiceDropParameter(handle, asked);
+        seen.set_rc = SdkOwnResult();
+        const float after = NnAudioGetAudioRendererVoiceDropParameter(handle);
+        seen.after_rc = SdkOwnResult();
+        NnAudioSetAudioRendererVoiceDropParameter(handle,
+                                                  before >= 0.0f && before <= 1.0f ? before : 1.0f);
+        seen.restore_rc = SdkOwnResult();
+        seen.before = RendererMilli(before);
+        seen.asked = RendererMilli(asked);
+        seen.after = RendererMilli(after);
+        seen.initial = 1000;
+        const bool passed =
+            ServiceJudgeRendererSetting("GetVoiceDropParameter", &seen, detail, sizeof(detail));
+        Report(SERVICE_RENDERER_DROP, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_RENDERER_STATE)) {
+        ServiceRendererState seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.before = NnAudioGetAudioRendererState(handle);
+        seen.before_rc = SdkOwnResult();
+        seen.start_rc = NnAudioStartAudioRenderer(handle);
+        seen.started = NnAudioGetAudioRendererState(handle);
+        seen.started_rc = SdkOwnResult();
+        NnAudioStopAudioRenderer(handle);
+        seen.stop_rc = SdkOwnResult();
+        seen.stopped = NnAudioGetAudioRendererState(handle);
+        seen.stopped_rc = SdkOwnResult();
+        const bool passed = ServiceJudgeRendererState(&seen, detail, sizeof(detail));
+        Report(SERVICE_RENDERER_STATE, CHECK_EXACT, passed, detail);
+    }
+    NnAudioCloseAudioRenderer(handle);
+    SdkEventClose(&event);
+    free(work);
+}
+
 static void RunRenderer(void) {
+    if (HooksOn()) {
+        RunRendererHooks();
+        return;
+    }
     char detail[480];
     const AudioRendererConfig config = {
         .output_rate = AudioRendererOutputRate_48kHz,
@@ -3733,10 +4053,151 @@ static Result AudoutAppendBoth(void) {
     return rc;
 }
 
+/// Hooks mode (hooks.h): the out the SDK's OpenDefaultAudioOut opened.
+static NnAudioOut g_sdk_out;
+
+/// A bool the SDK gives where the session gives a result: nought for true; for false the own
+/// code's request when it was refused, else 1.
+static uint32_t SdkTrue(bool answered) {
+    const uint32_t own = SdkOwnResult();
+    return answered ? 0u : own != 0u ? own : 1u;
+}
+
+/// The two silent buffers appended through nn::audio::AppendAudioOutBuffer, each by its address.
+static uint32_t AudoutAppendBothSdk(void) {
+    memset(g_audout_pcm, 0, sizeof(g_audout_pcm));
+    uint32_t rc = 0;
+    for (uint32_t i = 0; i < 2u && rc == 0u; ++i) {
+        memset(&g_audout_buffers[i], 0, sizeof(g_audout_buffers[i]));
+        g_audout_buffers[i].buffer = g_audout_pcm[i];
+        g_audout_buffers[i].buffer_size = sizeof(g_audout_pcm[i]);
+        g_audout_buffers[i].data_size = sizeof(g_audout_pcm[i]);
+        rc = SdkTrue(NnAudioAppendAudioOutBuffer(&g_sdk_out, &g_audout_buffers[i]));
+    }
+    return rc;
+}
+
+/// nn::audio::GetReleasedAudioOutBuffer until it gives none, as many as fit: the result of the own
+/// code's last request.
+static uint32_t AudoutReleasedSdk(uint64_t *tags, uint32_t *count) {
+    memset(tags, 0, SERVICE_AUDOUT_TAGS * sizeof(*tags));
+    *count = 0;
+    NnAudioOutBuffer *buffer;
+    while (*count < SERVICE_AUDOUT_TAGS &&
+           (buffer = NnAudioGetReleasedAudioOutBuffer(&g_sdk_out)) != NULL) {
+        tags[(*count)++] = (uint64_t)(uintptr_t)buffer;
+    }
+    return SdkOwnResult();
+}
+
+/// The audout cases in hooks mode (hooks.h), through nn::audio's out functions: the out the SDK's
+/// OpenDefaultAudioOut opened at 48 kHz stereo, its rate, channels, format and state where the
+/// SDK keeps them in the AudioOut, and another opened by a name there is none of. A function the
+/// SDK declares void gives the own code's request as its result, one it declares bool 1 for false
+/// (SdkTrue).
+static void RunAudoutHooks(void) {
+    char detail[480];
+    const NnAudioOutParameter param = { 48000, 2, 0, 0 };
+    memset(&g_sdk_out, 0, sizeof(g_sdk_out));
+    const uint32_t opened = NnAudioOpenDefaultAudioOut(&g_sdk_out, &param);
+    if (opened != 0u) {
+        static const char *const WHY = "nn::audio::OpenDefaultAudioOut returned 0x%x";
+        Skip(SERVICE_AUDOUT_OPENS, REPORT_REASON_UNAVAILABLE, WHY, (unsigned)opened);
+        Skip(SERVICE_AUDOUT_STOPPED, REPORT_REASON_UNAVAILABLE, WHY, (unsigned)opened);
+        Skip(SERVICE_AUDOUT_STARTED, REPORT_REASON_UNAVAILABLE, WHY, (unsigned)opened);
+        return;
+    }
+    if (Start(SERVICE_AUDOUT_OPENS)) {
+        ServiceAudoutOpen seen;
+        memset(&seen, 0, sizeof(seen));
+        static NnAudioName names[4];
+        memset(names, 0, sizeof(names));
+        (void)SdkOwnResult();
+        const int32_t listed = NnAudioListAudioOuts(names, 4);
+        seen.list_rc = SdkOwnResult();
+        seen.listed = listed >= 0 ? (uint32_t)listed : 0u;
+        memcpy(seen.name, names[0].name, sizeof(seen.name) - 1u);
+        static NnAudioOut other;
+        memset(&other, 0, sizeof(other));
+        seen.other_rc = NnAudioOpenAudioOut(&other, "NoSuchOut", &param);
+        if (seen.other_rc == 0u) {
+            NnAudioCloseAudioOut(&other);
+        }
+        seen.rate = g_sdk_out.sample_rate;
+        seen.channels = g_sdk_out.channel_count;
+        seen.format = g_sdk_out.sample_format;
+        seen.state = g_sdk_out.state;
+        const float volume = NnAudioGetAudioOutVolume(&g_sdk_out);
+        seen.volume_rc = SdkOwnResult();
+        NnAudioSetAudioOutVolume(&g_sdk_out, 0.5f);
+        seen.set_rc = SdkOwnResult();
+        const float after = NnAudioGetAudioOutVolume(&g_sdk_out);
+        seen.after_rc = SdkOwnResult();
+        NnAudioSetAudioOutVolume(&g_sdk_out, volume >= 0.0f && volume <= 1.0f ? volume : 1.0f);
+        seen.volume = (int32_t)(volume * 1000.0f + (volume < 0.0f ? -0.5f : 0.5f));
+        seen.after = (int32_t)(after * 1000.0f + (after < 0.0f ? -0.5f : 0.5f));
+        const bool passed = ServiceJudgeAudoutOpen(&seen, detail, sizeof(detail));
+        Report(SERVICE_AUDOUT_OPENS, CHECK_EXACT, passed, detail);
+    }
+    bool appended = false;
+    if (Start(SERVICE_AUDOUT_STOPPED)) {
+        ServiceAudoutStopped seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.append_rc = AudoutAppendBothSdk();
+        appended = seen.append_rc == 0u;
+        seen.count = (uint32_t)NnAudioGetAudioOutBufferCount(&g_sdk_out);
+        seen.count_rc = SdkOwnResult();
+        seen.held = NnAudioContainsAudioOutBuffer(&g_sdk_out, &g_audout_buffers[1]);
+        seen.contains_rc = SdkOwnResult();
+        static NnAudioOutBuffer never;
+        seen.other = NnAudioContainsAudioOutBuffer(&g_sdk_out, &never);
+        seen.contains_rc |= SdkOwnResult();
+        uint64_t tags[SERVICE_AUDOUT_TAGS];
+        seen.released_rc = AudoutReleasedSdk(tags, &seen.released);
+        seen.flushed = NnAudioFlushAudioOutBuffers(&g_sdk_out);
+        seen.flush_rc = SdkOwnResult();
+        seen.after = (uint32_t)NnAudioGetAudioOutBufferCount(&g_sdk_out);
+        seen.after_rc = SdkOwnResult();
+        const bool passed = ServiceJudgeAudoutStopped(&seen, detail, sizeof(detail));
+        Report(SERVICE_AUDOUT_STOPPED, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_AUDOUT_STARTED)) {
+        ServiceAudoutStarted seen;
+        memset(&seen, 0, sizeof(seen));
+        if (!appended || NnAudioGetAudioOutBufferCount(&g_sdk_out) != 2) {
+            // The case above did not leave its two buffers: a flush took them, or it did not run.
+            uint64_t drop[SERVICE_AUDOUT_TAGS];
+            uint32_t dropped = 0;
+            AudoutReleasedSdk(drop, &dropped);
+            AudoutAppendBothSdk();
+        }
+        seen.first = (uint64_t)(uintptr_t)&g_audout_buffers[0];
+        seen.second = (uint64_t)(uintptr_t)&g_audout_buffers[1];
+        seen.start_rc = NnAudioStartAudioOut(&g_sdk_out);
+        seen.started = NnAudioGetAudioOutState(&g_sdk_out);
+        seen.state_rc = SdkOwnResult();
+        seen.again_rc = NnAudioStartAudioOut(&g_sdk_out);
+        NnAudioStopAudioOut(&g_sdk_out);
+        seen.stop_rc = SdkOwnResult();
+        seen.stopped = NnAudioGetAudioOutState(&g_sdk_out);
+        seen.state_rc |= SdkOwnResult();
+        seen.released_rc = AudoutReleasedSdk(seen.tags, &seen.released);
+        seen.count = (uint32_t)NnAudioGetAudioOutBufferCount(&g_sdk_out);
+        const bool passed = ServiceJudgeAudoutStarted(&seen, detail, sizeof(detail));
+        Report(SERVICE_AUDOUT_STARTED, CHECK_EXACT, passed, detail);
+    }
+    NnAudioStopAudioOut(&g_sdk_out);
+    NnAudioCloseAudioOut(&g_sdk_out);
+}
+
 /// audout, the plain PCM output a game without a renderer plays through (a homebrew, a video
 /// player, many ports): the outputs listed and one opened, its volume, and the buffers appended,
 /// held, flushed, played and given back around Start and Stop.
 static void RunAudout(void) {
+    if (HooksOn()) {
+        RunAudoutHooks();
+        return;
+    }
     char detail[480];
     const Result opened = audoutInitialize();
     if (R_FAILED(opened)) {
@@ -3844,6 +4305,92 @@ static void RunAudout(void) {
     }
     audoutStopAudioOut();
     audoutExit();
+}
+
+// ---------------------------------------------------------------------------------------------
+// audin
+
+/// The microphones audin lists: through audin:u's ListAudioIns (0), as the SDK asks it, or
+/// nn::audio::ListAudioIns in hooks mode.
+static void RunAudin(void) {
+    char detail[480];
+    if (!Start(SERVICE_AUDIN_LISTS)) {
+        return;
+    }
+    static ServiceAudinList seen;
+    memset(&seen, 0, sizeof(seen));
+    static NnAudioName names[SERVICE_AUDIN_NAMES];
+    memset(names, 0, sizeof(names));
+    if (HooksOn()) {
+        (void)SdkOwnResult();
+        seen.listed = NnAudioListAudioIns(names, SERVICE_AUDIN_NAMES);
+        seen.list_rc = SdkOwnResult();
+    } else {
+        Service audin;
+        memset(&audin, 0, sizeof(audin));
+        seen.open_rc = smGetService(&audin, "audin:u");
+        if (seen.open_rc == 0u) {
+            uint32_t listed = 0xEEEEu;
+            seen.list_rc = serviceDispatchOut(
+                &audin, 0, listed,
+                .buffer_attrs = { SfBufferAttr_HipcMapAlias | SfBufferAttr_Out },
+                .buffers = { { names, sizeof(names) } }, );
+            seen.listed = (int32_t)listed;
+            serviceClose(&audin);
+        }
+    }
+    for (uint32_t i = 0; i < SERVICE_AUDIN_NAMES; ++i) {
+        memcpy(seen.names[i], names[i].name, sizeof(seen.names[i]));
+    }
+    const bool passed = ServiceJudgeAudinList(&seen, detail, sizeof(detail));
+    Report(SERVICE_AUDIN_LISTS, CHECK_EXACT, passed, detail);
+}
+
+// ---------------------------------------------------------------------------------------------
+// pctl
+
+/// The parental controls a game asks before it lets a player talk to others: through "pctl", as
+/// the SDK opens it, or through nn::pctl's functions in hooks mode.
+static void RunPctl(void) {
+    char detail[480];
+    if (!Start(SERVICE_PCTL_FREE)) {
+        return;
+    }
+    ServicePctl seen;
+    memset(&seen, 0, sizeof(seen));
+    seen.level = 0xEEu;
+    if (HooksOn()) {
+        seen.open_rc = NnPctlInitialize();
+        (void)SdkOwnResult();
+        seen.restricted = NnPctlIsRestrictionEnabled();
+        seen.restriction_rc = SdkOwnResult();
+        seen.free_rc = SdkTrue(NnPctlCheckFreeCommunicationPermission(false));
+        seen.level = NnPctlGetSafetyLevel();
+        seen.level_rc = SdkOwnResult();
+    } else {
+        Service factory, pctl;
+        memset(&factory, 0, sizeof(factory));
+        memset(&pctl, 0, sizeof(pctl));
+        seen.open_rc = smGetService(&factory, "pctl");
+        if (seen.open_rc == 0u) {
+            const u64 pid = 0;
+            seen.open_rc = serviceDispatchIn(&factory, 0, pid, .in_send_pid = true,
+                                             .out_num_objects = 1, .out_objects = &pctl, );
+            serviceClose(&factory);
+        }
+        if (seen.open_rc == 0u) {
+            u8 enabled = 0xEEu;
+            seen.restriction_rc = serviceDispatchOut(&pctl, 1031, enabled);
+            seen.restricted = enabled != 0u;
+            seen.free_rc = serviceDispatch(&pctl, 1001);
+            u32 level = 0xEEu;
+            seen.level_rc = serviceDispatchOut(&pctl, 1032, level);
+            seen.level = level;
+            serviceClose(&pctl);
+        }
+    }
+    const bool passed = ServiceJudgePctl(&seen, detail, sizeof(detail));
+    Report(SERVICE_PCTL_FREE, CHECK_EXACT, passed, detail);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -4131,6 +4678,8 @@ void RunService(void) {
     RunTimeZone();
     RunTimePerm();
     RunAudout();
+    RunAudin();
+    RunPctl();
     RunFsFile();
     RunAccApp();
     RunSdk();

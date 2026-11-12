@@ -11,6 +11,8 @@ static const struct {
     const char *name;
 } CASES[SERVICE_CASES] = {
     [SERVICE_OPUS_OPENS] = { "hwopus", "hwopus opens a decoder for 48 kHz stereo" },
+    [SERVICE_OPUS_DECODES] = { "hwopus",
+                               "a packet of 20 ms of silence decodes to 960 samples of nought" },
     [SERVICE_OPUS_LIMITED] = { "hwopus",
                                "hwopus keeps 24 decoders and refuses the 25th as out of decoders" },
     [SERVICE_OPUS_FREED] = { "hwopus", "a decoder closed makes room for the next one" },
@@ -184,6 +186,9 @@ static const struct {
                                  "buffers appended to a stopped out wait, held and not flushed" },
     [SERVICE_AUDOUT_STARTED] = { "audout",
                                  "an out starts once, and its Stop gives every buffer back" },
+    [SERVICE_AUDIN_LISTS] = { "audin", "the microphones listed are each named" },
+    [SERVICE_PCTL_FREE] = { "pctl", "with no parental controls set nothing is restricted and a "
+                                    "player may talk to others" },
     [SERVICE_FILE_SIZE] = { "fs-file",
                             "a file grown reads nought past what it held, and shrunk ends there" },
     [SERVICE_FILE_RENAME] = { "fs-file",
@@ -244,6 +249,113 @@ bool ServiceJudgeOpusFreed(uint32_t reopened, char *out, size_t out_size) {
     }
     snprintf(out, out_size, "one of %u closed, the next opened", (unsigned)SERVICE_OPUS_LIMIT);
     return true;
+}
+
+bool ServiceJudgeOpusLimitSdk(const int32_t *results, uint32_t tried, char *out,
+                              size_t out_size) {
+    uint32_t opened = 0;
+    while (opened < tried && results[opened] == 0) {
+        ++opened;
+    }
+    if (opened == tried) {
+        snprintf(out, out_size,
+                 "all %u opened: no limit, where reden keeps %u and the SDK gives OpusResult %d "
+                 "for the next",
+                 (unsigned)tried, (unsigned)SERVICE_OPUS_LIMIT, SERVICE_OPUS_SDK_REFUSED);
+        return false;
+    }
+    const int32_t refused = results[opened];
+    if (opened != SERVICE_OPUS_LIMIT) {
+        snprintf(out, out_size,
+                 "%u opened, then decoder %u refused with OpusResult %d; reden keeps %u",
+                 (unsigned)opened, (unsigned)(opened + 1u), (int)refused,
+                 (unsigned)SERVICE_OPUS_LIMIT);
+        return false;
+    }
+    if (refused != SERVICE_OPUS_SDK_REFUSED) {
+        snprintf(out, out_size,
+                 "%u opened, then decoder %u refused with OpusResult %d (0x%x), not %d "
+                 "(OutOfResource)",
+                 (unsigned)opened, (unsigned)(opened + 1u), (int)refused, (unsigned)refused,
+                 SERVICE_OPUS_SDK_REFUSED);
+        return false;
+    }
+    snprintf(out, out_size, "%u opened, decoder %u refused with OpusResult %d (OutOfResource)",
+             (unsigned)opened, (unsigned)(opened + 1u), (int)refused);
+    return true;
+}
+
+const uint8_t SERVICE_OPUS_SILENCE[SERVICE_OPUS_SILENCE_SIZE] = {
+    0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0xF8, 0xFF, 0xFE,
+};
+
+bool ServiceJudgeOpusDecode(const ServiceOpusDecode *seen, char *out, size_t out_size) {
+    const bool decoded = seen->rc == 0u;
+    const bool whole = seen->consumed == SERVICE_OPUS_SILENCE_SIZE;
+    const bool frame = seen->samples == (int32_t)SERVICE_OPUS_FRAME;
+    const bool silent = seen->loud == 0u;
+    const bool passed = decoded && whole && frame && silent;
+    char rc[48];
+    if (seen->sdk) {
+        snprintf(rc, sizeof(rc), "OpusResult %d", (int)seen->rc);
+    } else {
+        snprintf(rc, sizeof(rc), "0x%x", (unsigned)seen->rc);
+    }
+    snprintf(out, out_size,
+             "%s: decode %s, took %llu of %u bytes, gave %d samples a channel (%u for 20 ms), %u "
+             "of them not nought, the first %d",
+             !decoded ? "refused"
+             : !whole ? "the packet not taken whole"
+             : !frame ? "another number of samples"
+             : !silent ? "silence decoded to sound"
+                       : "960 samples of nought a channel",
+             rc, (unsigned long long)seen->consumed, (unsigned)SERVICE_OPUS_SILENCE_SIZE,
+             (int)seen->samples, (unsigned)SERVICE_OPUS_FRAME, (unsigned)seen->loud,
+             (int)seen->first_loud);
+    return passed;
+}
+
+bool ServiceJudgeAudinList(const ServiceAudinList *seen, char *out, size_t out_size) {
+    const bool refused = seen->open_rc != 0u || seen->list_rc != 0u;
+    const bool bounded = seen->listed >= 0 && seen->listed <= (int32_t)SERVICE_AUDIN_NAMES;
+    bool named = true;
+    for (int32_t i = 0; bounded && i < seen->listed; ++i) {
+        const char *const end = memchr(seen->names[i], '\0', SERVICE_AUDIO_NAME);
+        named = named && end != NULL && end != seen->names[i];
+    }
+    const bool passed = !refused && bounded && named;
+    int at = snprintf(out, out_size,
+                      "%s: audin:u 0x%x, ListAudioIns 0x%x, %d listed in room for %u",
+                      refused   ? "refused"
+                      : !bounded ? "a count past the room given"
+                      : !named   ? "a name empty or not ended"
+                      : seen->listed == 0 ? "no microphone listed"
+                                          : "each microphone named",
+                      (unsigned)seen->open_rc, (unsigned)seen->list_rc, (int)seen->listed,
+                      (unsigned)SERVICE_AUDIN_NAMES);
+    for (int32_t i = 0; bounded && i < seen->listed && at > 0 && (size_t)at < out_size; ++i) {
+        at += snprintf(out + at, out_size - (size_t)at, "%s \"%.40s\"", i == 0 ? ":" : ",",
+                       seen->names[i]);
+    }
+    return passed;
+}
+
+bool ServiceJudgePctl(const ServicePctl *seen, char *out, size_t out_size) {
+    const bool refused = seen->open_rc != 0u || seen->restriction_rc != 0u || seen->level_rc != 0u;
+    const bool permitted = seen->free_rc == 0u;
+    const bool passed = !refused && !seen->restricted && permitted && seen->level == 0u;
+    snprintf(out, out_size,
+             "%s: pctl 0x%x, IsRestrictionEnabled 0x%x %s, CheckFreeCommunicationPermission 0x%x, "
+             "GetSafetyLevel 0x%x %u",
+             refused            ? "refused"
+             : seen->restricted ? "a restriction set"
+             : !permitted       ? "free communication not permitted"
+             : seen->level != 0u ? "another safety level"
+                                 : "nothing restricted, free communication permitted, level 0",
+             (unsigned)seen->open_rc, (unsigned)seen->restriction_rc,
+             seen->restricted ? "true" : "false", (unsigned)seen->free_rc,
+             (unsigned)seen->level_rc, (unsigned)seen->level);
+    return passed;
 }
 
 bool ServiceJudgeSaveSize(const ServiceSaveSize *seen, char *out, size_t out_size) {

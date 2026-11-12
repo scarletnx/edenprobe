@@ -76,6 +76,125 @@ static void CheckOpus(void) {
                freed, "\"%.120s\"", said);
 }
 
+static void CheckOpusSdk(void) {
+    int32_t results[SERVICE_OPUS_TRIES];
+    // reden's limit through the SDK: 24 open, the 25th OutOfResource (8).
+    memset(results, 0, sizeof(results));
+    results[24] = SERVICE_OPUS_SDK_REFUSED;
+    const bool reden = ServiceJudgeOpusLimitSdk(results, 25u, said, sizeof(said)) &&
+                       strcmp(said, "24 opened, decoder 25 refused with OpusResult 8 "
+                                    "(OutOfResource)") == 0;
+    // No limit; the limit but the session's result handed on as it is.
+    memset(results, 0, sizeof(results));
+    const bool unlimited = !ServiceJudgeOpusLimitSdk(results, 26u, said, sizeof(said)) &&
+                           strstr(said, "all 26 opened: no limit") == said;
+    results[24] = (int32_t)SERVICE_OPUS_REFUSED;
+    const bool raw = !ServiceJudgeOpusLimitSdk(results, 25u, said, sizeof(said)) &&
+                     strstr(said, "(0x3026f), not 8 (OutOfResource)") != NULL;
+    memset(results, 0, sizeof(results));
+    results[3] = SERVICE_OPUS_SDK_REFUSED;
+    const bool fewer = !ServiceJudgeOpusLimitSdk(results, 4u, said, sizeof(said)) &&
+                       strstr(said, "3 opened, then decoder 4 refused with OpusResult 8") == said;
+    CHECK_TRUE(SUITE,
+               "service: hwopus through the SDK passes 24 decoders and the 25th OutOfResource",
+               CHECK_NONE, reden && unlimited && raw && fewer,
+               "reden %d, unlimited %d, raw %d, fewer %d", reden, unlimited, raw, fewer);
+
+    // The silence packet: its header says 3 bytes, the TOC is CELT fullband 20 ms mono.
+    const bool packet = SERVICE_OPUS_SILENCE[3] == 3u && SERVICE_OPUS_SILENCE[8] == 0xF8u &&
+                        SERVICE_OPUS_SILENCE_SIZE == 8u + 3u;
+    ServiceOpusDecode seen;
+    memset(&seen, 0, sizeof(seen));
+    seen.consumed = 11u;
+    seen.samples = 960;
+    const bool silent = ServiceJudgeOpusDecode(&seen, said, sizeof(said)) &&
+                        strstr(said, "960 samples of nought a channel: decode 0x0") == said;
+    seen.loud = 3u;
+    seen.first_loud = -2;
+    const bool loud = !ServiceJudgeOpusDecode(&seen, said, sizeof(said)) &&
+                      strstr(said, "silence decoded to sound") == said &&
+                      strstr(said, "3 of them not nought, the first -2") != NULL;
+    seen.loud = 0u;
+    seen.samples = 480;
+    const bool shorter = !ServiceJudgeOpusDecode(&seen, said, sizeof(said)) &&
+                         strstr(said, "another number of samples") == said;
+    seen.samples = 960;
+    seen.consumed = 3u;
+    const bool header = !ServiceJudgeOpusDecode(&seen, said, sizeof(said)) &&
+                        strstr(said, "the packet not taken whole") == said;
+    seen.consumed = 11u;
+    seen.sdk = true;
+    seen.rc = 4u;
+    const bool broken = !ServiceJudgeOpusDecode(&seen, said, sizeof(said)) &&
+                        strstr(said, "refused: decode OpusResult 4") == said;
+    CHECK_TRUE(SUITE, "service: a silence packet passes only as 960 samples of nought a channel",
+               CHECK_NONE, packet && silent && loud && shorter && header && broken,
+               "packet %d, silent %d, loud %d, shorter %d, header %d, broken %d", packet, silent,
+               loud, shorter, header, broken);
+}
+
+static void CheckAudin(void) {
+    static ServiceAudinList seen;
+    memset(&seen, 0, sizeof(seen));
+    // No microphone: reden with no capture device, ScarletNX.
+    const bool none = ServiceJudgeAudinList(&seen, said, sizeof(said)) &&
+                      strstr(said, "no microphone listed") == said;
+    // reden with one: Uac.
+    seen.listed = 1;
+    strcpy(seen.names[0], "Uac");
+    const bool uac = ServiceJudgeAudinList(&seen, said, sizeof(said)) &&
+                     strstr(said, "each microphone named") == said &&
+                     strstr(said, ": \"Uac\"") != NULL;
+    // A count past the room given, an empty name, a name with no end, a refusal.
+    seen.listed = (int32_t)SERVICE_AUDIN_NAMES + 1;
+    const bool past = !ServiceJudgeAudinList(&seen, said, sizeof(said)) &&
+                      strstr(said, "a count past the room given") == said;
+    seen.listed = 2;
+    const bool empty = !ServiceJudgeAudinList(&seen, said, sizeof(said)) &&
+                       strstr(said, "a name empty or not ended") == said;
+    memset(seen.names[1], 'x', sizeof(seen.names[1]));
+    const bool unended = !ServiceJudgeAudinList(&seen, said, sizeof(said));
+    seen.listed = 0;
+    seen.list_rc = SERVICE_RESULT(153, 2);
+    const bool refused = !ServiceJudgeAudinList(&seen, said, sizeof(said)) &&
+                         strstr(said, "refused") == said;
+    CHECK_TRUE(SUITE, "service: audin passes none or each named, inside the room given",
+               CHECK_NONE, none && uac && past && empty && unended && refused,
+               "none %d, uac %d, past %d, empty %d, unended %d, refused %d", none, uac, past,
+               empty, unended, refused);
+}
+
+static void CheckPctl(void) {
+    ServicePctl seen;
+    memset(&seen, 0, sizeof(seen));
+    // reden with no PIN: nothing restricted, free communication permitted, level 0.
+    const bool reden = ServiceJudgePctl(&seen, said, sizeof(said)) &&
+                       strstr(said, "nothing restricted, free communication permitted, level 0") ==
+                           said;
+    // A PIN set; free communication refused (pctl 142, 101); another level; the service refused.
+    seen.restricted = true;
+    const bool pin = !ServiceJudgePctl(&seen, said, sizeof(said)) &&
+                     strstr(said, "a restriction set") == said &&
+                     strstr(said, "IsRestrictionEnabled 0x0 true") != NULL;
+    seen.restricted = false;
+    seen.free_rc = SERVICE_RESULT(142, 101);
+    const bool closed = !ServiceJudgePctl(&seen, said, sizeof(said)) &&
+                        strstr(said, "free communication not permitted") == said;
+    seen.free_rc = 0u;
+    seen.level = 3u;
+    const bool level = !ServiceJudgePctl(&seen, said, sizeof(said)) &&
+                       strstr(said, "another safety level") == said &&
+                       strstr(said, "GetSafetyLevel 0x0 3") != NULL;
+    seen.level = 0u;
+    seen.open_rc = SERVICE_RESULT(21, 6);
+    const bool refused = !ServiceJudgePctl(&seen, said, sizeof(said)) &&
+                         strstr(said, "refused: pctl 0xc15") == said;
+    CHECK_TRUE(SUITE, "service: pctl passes only nothing restricted, communication free, level 0",
+               CHECK_NONE, reden && pin && closed && level && refused,
+               "reden %d, pin %d, closed %d, level %d, refused %d", reden, pin, closed, level,
+               refused);
+}
+
 static void CheckSaveSize(void) {
     // reden: 25 keeps the size it is asked for, 26 hands it back.
     ServiceSaveSize seen;
@@ -2557,6 +2676,9 @@ void RunReferenceService(void) {
     CheckTimePerm();
     CheckTimePermSdk();
     CheckAudout();
+    CheckOpusSdk();
+    CheckAudin();
+    CheckPctl();
     CheckFsFile();
     CheckAccApp();
     CheckSdkTail();

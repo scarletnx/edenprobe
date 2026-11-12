@@ -38,6 +38,8 @@
 * [time-zone](#time-zone)
 * [time-perm](#time-perm)
 * [audout](#audout)
+* [audin](#audin)
+* [pctl](#pctl)
 * [fs-file](#fs-file)
 * [acc-app](#acc-app)
 * [sdk](#sdk)
@@ -53,7 +55,7 @@ keeps it whatever the screen changes. One suite per service, each named after it
 
 | suite | cases | what a failure points at |
 |---|---|---|
-| hwopus | 3 | the hardware Opus decoder's limit on live decoders and the result past it (`hle/service/audio/hardware_opus_decoder_manager.cpp`, `audio_core/opus/hardware_opus.cpp`, `RegisterDecoder`) |
+| hwopus | 4 | the hardware Opus decoder: a packet of silence decoded, the limit on live decoders and the result past it (`hle/service/audio/hardware_opus_decoder_manager.cpp`, `audio_core/opus/decoder.cpp`, `audio_core/opus/hardware_opus.cpp`, `RegisterDecoder`) |
 | am | 2 | the size of an application's account save: where the request carries the user, and whether the size is kept (`hle/service/am/service/application_functions.cpp`, `ExtendSaveData`, `GetSaveDataSize`) |
 | fsp | 2 | the temporary storage left as the launch before left it (`core.cpp`, `Load`, and `hle/service/filesystem/filesystem.cpp`, `InitTempStorage`) |
 | account | 2 | the user picked with nobody asked, by the command a game built for 19.0.0 sends (`hle/service/acc/acc.cpp`, `TrySelectUserWithoutInteraction`, and the acc:u0 table) |
@@ -88,13 +90,15 @@ keeps it whatever the screen changes. One suite per service, each named after it
 | time-zone | 3 | time:u's time zone service: every location name it counts listed with the device's, the device's location with when it was set, and a local date turned back (`hle/service/glue/time/time_zone.cpp`, `psc/time/time_zone_service.cpp`) |
 | time-perm | 2 | what time:u, an application's time service, may not write: a clock, automatic correction, the steady clock's offset, the device's location (`hle/service/psc/time/system_clock.cpp`, `steady_clock.cpp`, `static.cpp`, `glue/time/time_zone.cpp`) |
 | audout | 3 | the plain PCM output: one output listed and opened as asked, its volume kept, buffers held while stopped and given back when it stops (`audio_core/out/audio_out_system.cpp`) |
+| audin | 1 | the microphones audin:u lists, each by a name (`hle/service/audio/audio_in_manager.cpp`, `audio_core/audio_in_manager.cpp`, `GetDeviceNames`) |
+| pctl | 1 | the parental controls of a console with none set: nothing restricted, free communication permitted, the safety level (`hle/service/pctl/parental_control_service.cpp`) |
 | fs-file | 5 | a game's own files on the memory card, as a save writer handles them: resized, renamed into place, a directory cleaned, a file's time stamp, the free space (`hle/service/filesystem/fsp/fs_i_file.cpp`, `fs_i_filesystem.cpp`, `filesystem.cpp`) |
 | acc-app | 2 | acc:u0 as a game's save code asks it: the users it may pick, and the thumbnail it stores with a save (`hle/service/acc/acc.cpp`, `ListQualifiedUsers`, `StoreSaveDataThumbnail`) |
 | sdk | 1 | the SDK functions the program exports (`source/sdk.h`): one reached by a tail call as by a call, on a machine that takes a game's SDK functions by their symbols ([The hooks mode](../Hooks.md)) |
 
-In [hooks mode](../Hooks.md) the fsp, fsdir, fs-file, time, time-snap, time-zone, time-perm, pl and
-ngc suites ask the SDK's functions instead of the services, with the same expectations; that page
-says how each one's asking differs.
+In [hooks mode](../Hooks.md) the hwopus, fsp, time, pl, auddev, fsdir, time-snap, renderer, ngc,
+time-zone, time-perm, audout, audin, pctl and fs-file suites ask the SDK's functions instead of the
+services, with the same expectations; that page says how each one's asking differs.
 
 Every expectation is reden's, at 75c12299a6, with the commit that set it; the line of every case
 says what it expected and what came back, passed or not. A case whose question needs one before it
@@ -113,15 +117,30 @@ The suite opens decoders of 48 kHz stereo with libnx's `hwopusDecoderInitialize`
 `GetWorkBufferSize` (1) and then `OpenHardwareOpusDecoder` (0) with the work buffer as transfer
 memory, each decoder an object of its own.
 
+A decoder takes a packet behind hwopus's 8-byte header, its size and the encoder's final range,
+big-endian. The decode case gives it the shortest packet there is, 20 ms of silence: the TOC byte
+0xF8 (CELT, fullband, 20 ms, mono, one frame) and the range coder's two bytes for the silence
+flag, eleven bytes with the header, sent with libnx's `hwopusDecodeInterleaved`. libopus decodes
+the silence flag to silence, and reden decodes with libopus (`audio_core/opus/decoder.cpp`), so the
+stereo decoder gives 960 samples a channel, every one nought, and takes the whole eleven bytes.
+
 | case | what it asks | passes when | tier |
 |---|---|---|---|
 | hwopus opens a decoder for 48 kHz stereo | one decoder | it opens | none |
+| a packet of 20 ms of silence decodes to 960 samples of nought | the first decoder decodes the silence packet into room for 120 ms | it succeeds, takes 11 bytes, gives 960 samples a channel and none of the 1920 written is other than nought | exact |
 | hwopus keeps 24 decoders and refuses the 25th as out of decoders | decoders until one is refused, at most 26 | 24 open and the 25th is refused with `0x3026F` | exact |
 | a decoder closed makes room for the next one | after the refusal, close the first and open again | it opens | exact |
 
-The second case stops at the first refusal, so a machine with no limit opens all 26 and says so,
-and a limit of another size or a refusal with another result says which. The third is skipped when
-the second refused nothing. Every decoder is closed before the suite returns.
+The limit case stops at the first refusal, so a machine with no limit opens all 26 and says so,
+and a limit of another size or a refusal with another result says which. The last is skipped when
+the limit case refused nothing, and the decode case when no decoder opened. Every decoder is closed
+before the suite returns.
+
+In hooks mode the suite asks nn::codec's functions, which give the SDK's OpusResult: a decoder on a
+work buffer of the size GetHardwareOpusDecoderWorkBufferSize gives, the decode through
+DecodeOpusInterleavedWithHardware, and the 25th decoder held to OutOfResource (8), what the
+firmware's InitializeHardwareOpusDecoder makes of `0x3026F` before it falls back to the software
+decoder.
 
 ## am
 
@@ -493,6 +512,11 @@ AudioTvOutput the active one, and keeps the volume set on that one (`audio_devic
 
 The volume is put back as it was before the case returns; the line carries all four answers.
 
+In hooks mode the suite asks nn::audio's device functions, which need nothing opened: the first case
+is the list, and passes when it names at least one output. The SDK gives no result from them; each
+of the line's results is the program's own code's request, nought where the machine took the
+function.
+
 ## fsdir
 
 A game that keeps its own files moves a directory to replace an old one, lists what a directory
@@ -719,6 +743,11 @@ suite opens one of its own, at 48 kHz with a final mix of 2 buffers, and closes 
 
 The four skip as `unavailable` when audrenInitialize fails.
 
+In hooks mode the renderer is opened through nn::audio::OpenAudioRenderer at revision 5, on a work
+buffer of the size GetAudioRendererWorkBufferSize gives, and each case asks the SDK's getter or
+setter (GetAudioRendererSampleRate, SetAudioRendererRenderingTimeLimit and the rest); the four skip
+as `unavailable` when it is refused.
+
 ## ngc
 
 A game runs a name or a message a player typed through the profanity filter before it shows or
@@ -831,6 +860,45 @@ gives every buffer back when it stops (`audio_core/out/audio_out_system.cpp` at 
 The third case appends its own two buffers when the second did not leave them. The volume is put
 back as it was read, the out is stopped and closed before the suite returns, and all three are
 skipped as `unavailable` when `audoutInitialize` fails.
+
+In hooks mode the out is nn::audio::OpenDefaultAudioOut's, opened at 48 kHz stereo, and the first
+case reads its rate, channels, format and state where the SDK keeps them in the AudioOut, as the
+SDK's own accessors do; the other name is OpenAudioOut's. Buffers are taken back through
+GetReleasedAudioOutBuffer, one a call, as the SDK gives them. The SDK gives no result from a void
+function or a bool: a void one's result on the line is the program's own code's request, nought
+where the machine took it, and a bool's false reads 1.
+
+## audin
+
+A game that records its players asks audin:u which microphones there are before it opens one:
+ListAudioIns (0), the names into a buffer, and how many. A console lists the microphones plugged
+in; reden lists one, Uac, when the host has a capture device and none otherwise
+(`audio_core/audio_in_manager.cpp`, GetDeviceNames, at 75c12299a6). So the suite does not hold a
+machine to a number, only to an answer it can be read by.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| the microphones listed are each named | audin:u's ListAudioIns into room for 4 | it is answered, with no more than 4, each name not empty and ended inside its 256 bytes | exact |
+
+In hooks mode it asks nn::audio::ListAudioIns.
+
+## pctl
+
+A game asks the parental controls before it lets a player talk to others, post a picture or play in
+3D: the SDK's start opens "pctl", an application's name for the service, and its CreateService (0)
+makes the process's IParentalControlService. reden answers IsRestrictionEnabled (1031) with whether a
+PIN is set, permits free communication (CheckFreeCommunicationPermission, 1001) when nothing
+restricts it, and gives the safety level 0 (GetSafetyLevel, 1032)
+(`hle/service/pctl/parental_control_service.cpp` at 75c12299a6). A console with no parental controls
+set answers the same.
+
+| case | what it asks | passes when | tier |
+|---|---|---|---|
+| with no parental controls set nothing is restricted and a player may talk to others | "pctl", 0; 1031; 1001; 1032 | every step succeeds, no restriction, communication permitted, level 0 | exact |
+
+In hooks mode it asks nn::pctl's Initialize, IsRestrictionEnabled, CheckFreeCommunicationPermission
+and GetSafetyLevel; the SDK gives no result from the last three, so the line's are the program's own
+code's requests, nought where the machine took the function, and a false permission reads 1.
 
 ## fs-file
 

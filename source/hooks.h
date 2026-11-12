@@ -10,8 +10,8 @@ extern "C" {
 #endif
 
 /// The two ways the console's frontend asks the services a machine may answer in a game's own
-/// code instead (nn::fs, nn::time, nn::pl, nn::ngc and nn::nsd, sdk.h), as the mode file's word
-/// `hooks` chooses (docs/ModeFile.md):
+/// code instead (nn::fs, nn::time, nn::pl, nn::ngc, nn::nsd, nn::pctl, nn::audio and nn::codec,
+/// sdk.h), as the mode file's word `hooks` chooses (docs/ModeFile.md):
 ///
 ///   IPC    the program opens fsp-srv and time:u at its start, as libnx does, and the cases send
 ///          the services their commands: an emulator, or a recompiler that serves the services.

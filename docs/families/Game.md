@@ -35,8 +35,9 @@ Four threads over the three cores the program has, as a game spreads its work:
 | audio | 2, 40 | keeps the audio renderer stepping, one update and a wait per renderer frame (5 ms), a tone looping on a voice |
 | file | 2, 46 | reads the frame's 64 KiB of the big file and hashes it |
 
-In [hooks mode](../Hooks.md) the file thread reads through nn::fs::ReadFile and the main thread asks
-nn::time for the steady clock.
+In [hooks mode](../Hooks.md) the file thread reads through nn::fs::ReadFile, the main thread asks
+nn::time for the steady clock, and the audio thread's renderer is nn::audio's, as the audio
+family's is in that mode.
 
 The main thread is put on core 0 alone for the frames and back where it was after, as the kernel
 family does; the others are made on their cores. The main thread runs at most one frame ahead of
