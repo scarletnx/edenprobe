@@ -12,3 +12,6 @@ with an offset each time, which is the command an emulator serves and where it d
   bytes, one of no bytes returns none. The host's page cache stays warm after the first pass:
   nothing here empties it, since that takes root. On the fork on RADV (25 September) a read costs
   about 8.5 us whatever its place, so the service path, not the host's seek, is where time goes.
+
+In [hooks mode](../Hooks.md) the same cases read through nn::fs::ReadFile, the card mounted through
+nn::fs::MountSdCard.

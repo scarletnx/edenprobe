@@ -29,6 +29,7 @@ speaks costs a failed case, never the run.
   both go to loopback (the host rewriting rules in reden's `docs/OnlineService.md`). The fork signs
   in in the background when the program loads, so the suite asks nsd until it gives the session's
   answer, for at most the fork's fifteen second sign-in budget, and a note says how long it took.
+  In [hooks mode](../Hooks.md) nsd is asked through nn::nsd::Resolve and GetEnvironmentIdentifier.
 - **bsd**, eight cases. Two datagram sockets on loopback send a datagram one way and back, whole
   both ways and each time from the socket that sent it; an empty socket has nothing to read; a
   stream to a listener the suite opens carries bytes both ways; a port nothing listens on refuses; a

@@ -12,6 +12,7 @@
 #include "../fsref.h"
 #include "../gameref.h"
 #include "../gpu.h"
+#include "../hooks.h"
 #include "../mode.h"
 #include "../picture.h"
 #include "../report.h"
@@ -114,8 +115,8 @@ static uint8_t *ubo_cpu[SLOTS];
 static DkGpuAddr ubo_gpu[SLOTS];
 
 // The card.
-static FsFileSystem card;
-static FsFile big;
+static Volume card;
+static VolumeFile big;
 static uint8_t file_buffer[GAME_FILE_CHUNK] __attribute__((aligned(0x1000)));
 
 // The answers, worked out before the first frame, and what the frames left.
@@ -426,8 +427,8 @@ static void FileMain(void *argument) {
         const uint32_t chunk = GameFileChunk(k);
         u64 got = 0;
         const uint64_t start = armGetSystemTick();
-        const Result rc = fsFileRead(&big, (s64)chunk * GAME_FILE_CHUNK, file_buffer,
-                                     GAME_FILE_CHUNK, FsReadOption_None, &got);
+        const Result rc =
+            VolumeFileRead(&big, (s64)chunk * GAME_FILE_CHUNK, file_buffer, GAME_FILE_CHUNK, &got);
         const uint32_t took = Microseconds(armGetSystemTick() - start);
         reads.longest = took > reads.longest ? took : reads.longest;
         ++reads.reads;
@@ -464,7 +465,8 @@ static void AskServices(uint32_t k, PadState *pad, TimeSteadyClockTimePoint *las
     }
     TimeSteadyClockTimePoint point;
     memset(&point, 0, sizeof(point));
-    const Result clock_rc = timeGetStandardSteadyClockTimePoint(&point);
+    const Result clock_rc = HooksOn() ? NnTimeSteadyGetCurrentTimePoint(&point)
+                                      : timeGetStandardSteadyClockTimePoint(&point);
     const bool failed = R_FAILED(clock_rc);
     const bool back = !failed && k > 0u && point.time_point < last->time_point;
     const bool moved_source =
@@ -611,7 +613,7 @@ static bool BringUpDrawing(char *why, size_t why_size) {
 /// The card's big file, made the first time as the fs suite makes it, and opened to read. What
 /// opened is said in @p card_open and @p file_open, for the close.
 static bool BringUpCard(char *why, size_t why_size, bool *card_open, bool *file_open) {
-    Result rc = fsOpenSdCardFileSystem(&card);
+    Result rc = VolumeOpenCard(&card, "edenprobe-game");
     if (R_FAILED(rc)) {
         snprintf(why, why_size, "the memory card: 0x%x", (unsigned)rc);
         return false;
@@ -620,7 +622,7 @@ static bool BringUpCard(char *why, size_t why_size, bool *card_open, bool *file_
     if (!FsPrepareCard(&card, why, why_size)) {
         return false;
     }
-    rc = fsFsOpenFile(&card, FS_BIG_PATH, FsOpenMode_Read, &big);
+    rc = VolumeOpenFile(&card, FS_BIG_PATH, FsOpenMode_Read, &big);
     if (R_FAILED(rc)) {
         snprintf(why, why_size, "opening %s: 0x%x", FS_BIG_PATH, (unsigned)rc);
         return false;
@@ -1085,9 +1087,9 @@ void RunGame(void) {
         AudioClose();
     }
     if (file_open) {
-        fsFileClose(&big);
+        VolumeFileClose(&big);
     }
     if (card_open) {
-        fsFsClose(&card);
+        VolumeClose(&card);
     }
 }

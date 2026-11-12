@@ -14,8 +14,11 @@
 #include <switch.h>
 
 #include "../check.h"
+#include "../hooks.h"
 #include "../report.h"
+#include "../sdk.h"
 #include "../serviceref.h"
+#include "../volume.h"
 #include "tests.h"
 
 // The service family: commands a game sends to the system's services, asked the way a game asks
@@ -271,24 +274,24 @@ static uint64_t ReadPromise(void) {
 }
 
 /// Leaves a marker of its own in the storage and says so on the card, for the next launch.
-static bool LeaveMarker(FsFileSystem *fs, char *said, size_t said_size) {
+static bool LeaveMarker(Volume *fs, char *said, size_t said_size) {
     const uint64_t marker = armGetSystemTick() | 1u;
-    fsFsDeleteFile(fs, TEMP_MARKER);
-    Result rc = fsFsCreateFile(fs, TEMP_MARKER, sizeof(marker), 0);
-    FsFile file;
+    VolumeDeleteFile(fs, TEMP_MARKER);
+    Result rc = VolumeCreateFile(fs, TEMP_MARKER, sizeof(marker));
+    VolumeFile file;
     if (R_SUCCEEDED(rc)) {
-        rc = fsFsOpenFile(fs, TEMP_MARKER, FsOpenMode_Write, &file);
+        rc = VolumeOpenFile(fs, TEMP_MARKER, FsOpenMode_Write, &file);
     }
     if (R_SUCCEEDED(rc)) {
-        rc = fsFileWrite(&file, 0, &marker, sizeof(marker), FsWriteOption_Flush);
-        fsFileClose(&file);
+        rc = VolumeFileWrite(&file, 0, &marker, sizeof(marker), FsWriteOption_Flush);
+        VolumeFileClose(&file);
     }
     if (R_FAILED(rc)) {
         snprintf(said, said_size, "the marker for the next launch was not written: 0x%x",
                  (unsigned)rc);
         return false;
     }
-    fsFsCommit(fs);
+    VolumeCommit(fs);
     mkdir(SERVICE_DIRECTORY, 0777);
     FILE *promise = fopen(TEMP_PROMISE, "wb");
     const bool written = promise != NULL &&
@@ -311,23 +314,23 @@ static void RunFsp(void) {
     uint64_t found = 0;
     bool opens = false;
     if (Start(SERVICE_TEMP_OPENS)) {
-        FsFileSystem fs;
-        memset(&fs, 0, sizeof(fs));
-        const Result rc = fsOpen_TemporaryStorage(&fs);
+        Volume fs;
+        const Result rc = VolumeOpenTemporary(&fs, "edenprobe-temp");
         opens = R_SUCCEEDED(rc);
         char left[200] = "";
         if (opens) {
-            FsFile file;
-            found_rc = fsFsOpenFile(&fs, TEMP_MARKER, FsOpenMode_Read, &file);
+            VolumeFile file;
+            found_rc = VolumeOpenFile(&fs, TEMP_MARKER, FsOpenMode_Read, &file);
             if (R_SUCCEEDED(found_rc)) {
                 u64 read = 0;
-                fsFileRead(&file, 0, &found, sizeof(found), FsReadOption_None, &read);
-                fsFileClose(&file);
+                VolumeFileRead(&file, 0, &found, sizeof(found), &read);
+                VolumeFileClose(&file);
             }
             LeaveMarker(&fs, left, sizeof(left));
-            fsFsClose(&fs);
+            VolumeClose(&fs);
         }
-        snprintf(detail, sizeof(detail), "fsOpen_TemporaryStorage returned 0x%x%s%s",
+        snprintf(detail, sizeof(detail), "%s returned 0x%x%s%s",
+                 HooksOn() ? "nn::fs::MountTemporaryStorage" : "fsOpen_TemporaryStorage",
                  (unsigned)rc, opens ? "; " : "", left);
         Report(SERVICE_TEMP_OPENS, CHECK_NONE, opens, detail);
     }
@@ -1252,11 +1255,137 @@ static Result DateUnder(Service *zones, const TimeZoneRule *rule, int64_t time,
     return rc;
 }
 
+// In hooks mode (hooks.h) the time suites ask nn::time's functions, which keep their sessions to
+// themselves: Initialize stands for time:u and its objects, and a function the SDK declares void
+// answers nought where the IPC mode puts its command's result. The dates have the SDK's layouts.
+_Static_assert(sizeof(ServiceCalendarTime) == sizeof(TimeCalendarTime) &&
+                   sizeof(ServiceCalendarInfo) == sizeof(TimeCalendarAdditionalInfo),
+               "a date and its information as the SDK writes them");
+
+/// One steady clock reading, through nn::time.
+static Result SteadyPointSdk(ServiceTimePoint *point) {
+    TimeSteadyClockTimePoint raw;
+    memset(&raw, 0, sizeof(raw));
+    const Result rc = NnTimeSteadyGetCurrentTimePoint(&raw);
+    point->seconds = raw.time_point;
+    memcpy(point->source, &raw.source_id, sizeof(point->source));
+    return rc;
+}
+
+/// ToCalendarTime of @p time under @p rule, through nn::time.
+static Result DateUnderSdk(const TimeZoneRule *rule, int64_t time, ServiceCalendarTime *date,
+                           ServiceCalendarInfo *info) {
+    TimeCalendarTime got;
+    TimeCalendarAdditionalInfo more;
+    memset(&got, 0, sizeof(got));
+    memset(&more, 0, sizeof(more));
+    const Result rc = NnTimeToCalendarTime(&got, &more, &time, rule);
+    memcpy(date, &got, sizeof(*date));
+    memcpy(info, &more, sizeof(*info));
+    return rc;
+}
+
+/// The time suite in hooks mode: the same clocks and dates as RunTime.
+static void RunTimeHooks(void) {
+    char detail[480];
+    bool opens = false;
+    if (Start(SERVICE_TIME_OPENS)) {
+        const uint32_t rc = NnTimeInitialize();
+        opens = R_SUCCEEDED(rc);
+        snprintf(detail, sizeof(detail), "nn::time::Initialize 0x%x", (unsigned)rc);
+        Report(SERVICE_TIME_OPENS, CHECK_NONE, opens, detail);
+    }
+    if (!opens) {
+        static const char *const WHY = "nn::time::Initialize did not succeed";
+        Skip(SERVICE_TIME_USER, REPORT_REASON_DEPENDS, "%s", WHY);
+        Skip(SERVICE_TIME_STEADY, REPORT_REASON_DEPENDS, "%s", WHY);
+        Skip(SERVICE_TIME_UTC, REPORT_REASON_DEPENDS, "%s", WHY);
+        Skip(SERVICE_TIME_POSIX, REPORT_REASON_DEPENDS, "%s", WHY);
+        Skip(SERVICE_TIME_MY_RULE, REPORT_REASON_DEPENDS, "%s", WHY);
+        return;
+    }
+    if (Start(SERVICE_TIME_USER)) {
+        ServiceUserClock seen;
+        memset(&seen, 0, sizeof(seen));
+        TimeSystemClockContext context;
+        memset(&context, 0, sizeof(context));
+        seen.context_rc = NnTimeUserGetContext(&context);
+        seen.offset = context.offset;
+        seen.context.seconds = context.timestamp.time_point;
+        memcpy(seen.context.source, &context.timestamp.source_id, 16);
+        seen.steady_rc = SteadyPointSdk(&seen.steady);
+        seen.time_rc = NnTimeUserGetCurrentTime(&seen.time);
+        const bool passed = ServiceJudgeUserClock(&seen, detail, sizeof(detail));
+        Report(SERVICE_TIME_USER, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_TIME_STEADY)) {
+        ServiceTimePoint first, second;
+        memset(&first, 0, sizeof(first));
+        memset(&second, 0, sizeof(second));
+        const uint32_t first_rc = SteadyPointSdk(&first);
+        svcSleepThread((s64)SERVICE_TIME_WAIT_NS);
+        const uint32_t second_rc = SteadyPointSdk(&second);
+        const bool passed = ServiceJudgeSteadyClock(first_rc, &first, second_rc, &second, detail,
+                                                    sizeof(detail));
+        Report(SERVICE_TIME_STEADY, CHECK_EXACT, passed, detail);
+    }
+    static TimeZoneRule rule;
+    TimeLocationName utc;
+    memset(&utc, 0, sizeof(utc));
+    strcpy(utc.name, "UTC");
+    if (Start(SERVICE_TIME_UTC)) {
+        ServiceUtcDates seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.load_rc = NnTimeLoadTimeZoneRule(&rule, &utc);
+        seen.rc[0] = DateUnderSdk(&rule, 0, &seen.date[0], &seen.info[0]);
+        seen.rc[1] = DateUnderSdk(&rule, SERVICE_TIME_KNOWN, &seen.date[1], &seen.info[1]);
+        const bool passed = ServiceJudgeUtcDates(&seen, detail, sizeof(detail));
+        Report(SERVICE_TIME_UTC, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_TIME_POSIX)) {
+        const uint32_t utc_rc = NnTimeLoadTimeZoneRule(&rule, &utc);
+        const ServiceCalendarTime date = { 2023, 11, 14, 22, 13, 20, 0 };
+        TimeCalendarTime asked;
+        memcpy(&asked, &date, sizeof(asked));
+        int64_t times[4] = { 0, 0, 0, 0 };
+        int32_t count = -1;
+        const uint32_t rc = NnTimeToPosixTime(&count, times, 4, &asked, &rule);
+        const bool passed =
+            ServiceJudgeUtcPosix(utc_rc, rc, count, times[0], detail, sizeof(detail));
+        Report(SERVICE_TIME_POSIX, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_TIME_MY_RULE)) {
+        ServiceMyRule seen;
+        memset(&seen, 0, sizeof(seen));
+        TimeLocationName name;
+        memset(&name, 0, sizeof(name));
+        NnTimeGetDeviceLocationName(&name);
+        memcpy(seen.name, name.name, sizeof(seen.name));
+        seen.load_rc = NnTimeLoadTimeZoneRule(&rule, &name);
+        seen.time_rc = NnTimeUserGetCurrentTime(&seen.time);
+        TimeCalendarTime date;
+        TimeCalendarAdditionalInfo info;
+        memset(&date, 0, sizeof(date));
+        memset(&info, 0, sizeof(info));
+        seen.mine_rc = NnTimeToCalendarTimeMine(&date, &info, &seen.time);
+        memcpy(&seen.mine_date, &date, sizeof(seen.mine_date));
+        memcpy(&seen.mine_info, &info, sizeof(seen.mine_info));
+        seen.loaded_rc =
+            DateUnderSdk(&rule, seen.time, &seen.loaded_date, &seen.loaded_info);
+        const bool passed = ServiceJudgeMyRule(&seen, detail, sizeof(detail));
+        Report(SERVICE_TIME_MY_RULE, CHECK_EXACT, passed, detail);
+    }
+}
+
 /// time:u of this suite's own, and the clocks a game reads at start: the user clock, the steady
 /// clock and the time zone service. The user clock's time against its context and the steady
 /// clock, the steady clock across a second and a half, and dates under the UTC rule and the
 /// device's own.
 static void RunTime(void) {
+    if (HooksOn()) {
+        RunTimeHooks();
+        return;
+    }
     char detail[480];
     Service timesrv, user, steady, zones;
     memset(&timesrv, 0, sizeof(timesrv));
@@ -1374,10 +1503,107 @@ static void RunTime(void) {
 // ---------------------------------------------------------------------------------------------
 // pl
 
+/// Where the fonts' memory begins in hooks mode, which the SDK does not say: 8 bytes before the
+/// lowest font, the header before it, so each font's offset is from there; nought before the
+/// fonts were asked.
+static uintptr_t pl_base;
+
+/// The pl suite in hooks mode (hooks.h): the six fonts through nn::pl's functions, which map the
+/// memory themselves and give addresses, not offsets, and no result. The memory opens when the
+/// first font's address comes back; offsets count from pl_base.
+static void RunPlHooks(void) {
+    char detail[480];
+    bool opens = false;
+    static const void *addresses[SERVICE_FONTS];
+    if (Start(SERVICE_PL_OPENS)) {
+        NnPlRequestSharedFontLoad(0);
+        addresses[0] = NnPlGetSharedFontAddress(0);
+        opens = addresses[0] != NULL;
+        snprintf(detail, sizeof(detail),
+                 "nn::pl::GetSharedFontAddress(FontStandard) gave %p, the fonts' memory mapped by "
+                 "the SDK's function",
+                 addresses[0]);
+        Report(SERVICE_PL_OPENS, CHECK_NONE, opens, detail);
+    }
+    if (!opens) {
+        static const char *const WHY = "nn::pl gave no address for the first font";
+        Skip(SERVICE_PL_FONTS, REPORT_REASON_DEPENDS, "%s", WHY);
+        Skip(SERVICE_PL_ORDER, REPORT_REASON_DEPENDS, "%s", WHY);
+        return;
+    }
+    static ServiceFont fonts[SERVICE_FONTS];
+    memset(fonts, 0, sizeof(fonts));
+    bool told = false;
+    if (Start(SERVICE_PL_FONTS)) {
+        uintptr_t lowest = UINTPTR_MAX;
+        size_t sizes[SERVICE_FONTS];
+        for (u32 type = 0; type < SERVICE_FONTS; ++type) {
+            NnPlRequestSharedFontLoad((int32_t)type);
+            fonts[type].state = (uint32_t)NnPlGetSharedFontLoadState((int32_t)type);
+            sizes[type] = NnPlGetSharedFontSize((int32_t)type);
+            fonts[type].size = (uint32_t)sizes[type];
+            addresses[type] = NnPlGetSharedFontAddress((int32_t)type);
+            const uintptr_t at = (uintptr_t)addresses[type];
+            lowest = at != 0u && at < lowest ? at : lowest;
+        }
+        pl_base = lowest != UINTPTR_MAX && lowest >= 8u ? lowest - 8u : 0u;
+        for (u32 type = 0; type < SERVICE_FONTS && pl_base != 0u; ++type) {
+            ServiceFont *f = &fonts[type];
+            const uintptr_t at = (uintptr_t)addresses[type];
+            f->offset = at >= pl_base + 8u ? (uint32_t)(at - pl_base) : 0u;
+            if (f->offset >= 8u && f->offset <= SERVICE_FONT_MEMORY - 4u) {
+                memcpy(f->header, (const uint8_t *)at - 8u, sizeof(f->header));
+                memcpy(f->start, (const uint8_t *)at, sizeof(f->start));
+            }
+        }
+        told = true;
+        const bool passed = ServiceJudgeFonts(fonts, detail, sizeof(detail));
+        Report(SERVICE_PL_FONTS, CHECK_EXACT, passed, detail);
+    }
+    if (!told) {
+        Skip(SERVICE_PL_ORDER, REPORT_REASON_DEPENDS, "the fonts were not asked one by one");
+        return;
+    }
+    if (Start(SERVICE_PL_ORDER)) {
+        ServiceFontOrder seen;
+        memset(&seen, 0, sizeof(seen));
+        Service set;
+        memset(&set, 0, sizeof(set));
+        seen.language_rc = smGetService(&set, "set");
+        if (R_SUCCEEDED(seen.language_rc)) {
+            seen.language_rc = serviceDispatchOut(&set, 0, seen.language);
+            serviceClose(&set);
+        }
+        NnSettingsLanguageCode language;
+        memcpy(language.code, &seen.language, sizeof(language.code));
+        int32_t count = 0;
+        int32_t types[SERVICE_FONTS] = { 0 };
+        const void *listed[SERVICE_FONTS] = { NULL };
+        size_t sizes[SERVICE_FONTS] = { 0 };
+        seen.loaded = NnPlGetSharedFontInOrderOfPriority(&count, types, listed, sizes,
+                                                         (int32_t)SERVICE_FONTS, language)
+                          ? 1u
+                          : 0u;
+        seen.count = count > 0 ? (uint32_t)count : 0u;
+        for (uint32_t i = 0; i < SERVICE_FONTS && i < seen.count; ++i) {
+            seen.types[i] = (uint32_t)types[i];
+            const uintptr_t at = (uintptr_t)listed[i];
+            seen.offsets[i] = at >= pl_base ? (uint32_t)(at - pl_base) : 0u;
+            seen.sizes[i] = (uint32_t)sizes[i];
+        }
+        const bool passed = ServiceJudgeFontOrder(&seen, fonts, detail, sizeof(detail));
+        Report(SERVICE_PL_ORDER, CHECK_EXACT, passed, detail);
+    }
+}
+
 /// pl:u of this suite's own, its shared memory mapped as libnx's plInitialize maps it, and the six
 /// shared fonts asked for one by one, as a game's text library asks before it draws, then in the
 /// order of priority for the console's language.
 static void RunPl(void) {
+    if (HooksOn()) {
+        RunPlHooks();
+        return;
+    }
     char detail[480];
     Service pl;
     memset(&pl, 0, sizeof(pl));
@@ -1840,12 +2066,13 @@ static void RunAuddev(void) {
 #define DIR_NEW DIR_PARENT "/b"
 #define DIR_FILE "f"
 
-/// The memory card as libnx mounted it at start, written as a game writes its own files: a
-/// directory with a file renamed in its parent, listed, and deleted with what it holds. What a
-/// run before left there is deleted first.
+/// The memory card as the program's start mounted it (libnx's sdmc, or nn::fs's in hooks mode),
+/// written as a game writes its own files: a directory with a file renamed in its parent, listed,
+/// and deleted with what it holds. What a run before left there is deleted first.
 static void RunFsdir(void) {
     char detail[480];
-    FsFileSystem *const card = fsdevGetDeviceFileSystem("sdmc");
+    Volume sdmc;
+    Volume *const card = VolumeOfSdmc(&sdmc) ? &sdmc : NULL;
     if (card == NULL) {
         const char *const why = "the memory card is not mounted";
         Skip(SERVICE_DIR_RENAME, REPORT_REASON_UNAVAILABLE, "%s", why);
@@ -1857,21 +2084,21 @@ static void RunFsdir(void) {
     if (Start(SERVICE_DIR_RENAME)) {
         ServiceDirRename seen;
         memset(&seen, 0, sizeof(seen));
-        fsFsCreateDirectory(card, "/edenprobe");
-        fsFsCreateDirectory(card, "/edenprobe/service");
-        fsFsDeleteDirectoryRecursively(card, DIR_PARENT);
-        seen.make_rc = fsFsCreateDirectory(card, DIR_PARENT);
+        VolumeCreateDirectory(card, "/edenprobe");
+        VolumeCreateDirectory(card, "/edenprobe/service");
+        VolumeDeleteDirectoryRecursively(card, DIR_PARENT);
+        seen.make_rc = VolumeCreateDirectory(card, DIR_PARENT);
         if (R_SUCCEEDED(seen.make_rc)) {
-            seen.make_rc = fsFsCreateDirectory(card, DIR_OLD);
+            seen.make_rc = VolumeCreateDirectory(card, DIR_OLD);
         }
-        seen.file_rc = fsFsCreateFile(card, DIR_OLD "/" DIR_FILE, SERVICE_DIR_FILE_SIZE, 0);
-        seen.rename_rc = fsFsRenameDirectory(card, DIR_OLD, DIR_NEW);
+        seen.file_rc = VolumeCreateFile(card, DIR_OLD "/" DIR_FILE, SERVICE_DIR_FILE_SIZE);
+        seen.rename_rc = VolumeRenameDirectory(card, DIR_OLD, DIR_NEW);
         FsDirEntryType type = (FsDirEntryType)0xEE;
-        seen.new_rc = fsFsGetEntryType(card, DIR_NEW, &type);
+        seen.new_rc = VolumeGetEntryType(card, DIR_NEW, &type);
         seen.new_type = (uint32_t)type;
-        seen.old_rc = fsFsGetEntryType(card, DIR_OLD, &type);
+        seen.old_rc = VolumeGetEntryType(card, DIR_OLD, &type);
         type = (FsDirEntryType)0xEE;
-        seen.inside_rc = fsFsGetEntryType(card, DIR_NEW "/" DIR_FILE, &type);
+        seen.inside_rc = VolumeGetEntryType(card, DIR_NEW "/" DIR_FILE, &type);
         seen.inside_type = (uint32_t)type;
         renamed = R_SUCCEEDED(seen.rename_rc) && R_SUCCEEDED(seen.new_rc);
         const bool passed = ServiceJudgeDirRename(&seen, detail, sizeof(detail));
@@ -1883,20 +2110,20 @@ static void RunFsdir(void) {
         ServiceDirList seen;
         memset(&seen, 0, sizeof(seen));
         seen.count = seen.read = seen.again = -1;
-        FsDir dir;
+        VolumeDir dir;
         memset(&dir, 0, sizeof(dir));
-        seen.open_rc = fsFsOpenDirectory(card, DIR_NEW,
-                                         FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles, &dir);
+        seen.open_rc = VolumeOpenDirectory(card, DIR_NEW,
+                                           FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles, &dir);
         if (R_SUCCEEDED(seen.open_rc)) {
             static FsDirectoryEntry entries[4];
             memset(entries, 0, sizeof(entries));
-            seen.count_rc = fsDirGetEntryCount(&dir, &seen.count);
-            seen.read_rc = fsDirRead(&dir, &seen.read, 4, entries);
+            seen.count_rc = VolumeDirGetEntryCount(&dir, &seen.count);
+            seen.read_rc = VolumeDirRead(&dir, &seen.read, 4, entries);
             memcpy(seen.name, entries[0].name, sizeof(seen.name));
             seen.type = entries[0].type;
             seen.size = entries[0].file_size;
-            seen.again_rc = fsDirRead(&dir, &seen.again, 4, entries);
-            fsDirClose(&dir);
+            seen.again_rc = VolumeDirRead(&dir, &seen.again, 4, entries);
+            VolumeDirClose(&dir);
         }
         const bool passed = ServiceJudgeDirList(&seen, DIR_FILE, detail, sizeof(detail));
         Report(SERVICE_DIR_LIST, CHECK_EXACT, passed, detail);
@@ -1904,9 +2131,9 @@ static void RunFsdir(void) {
     if (!renamed) {
         Skip(SERVICE_DIR_DELETE, REPORT_REASON_DEPENDS, "no directory made to delete");
     } else if (Start(SERVICE_DIR_DELETE)) {
-        const uint32_t delete_rc = fsFsDeleteDirectoryRecursively(card, DIR_PARENT);
-        FsDirEntryType type;
-        const uint32_t gone_rc = fsFsGetEntryType(card, DIR_PARENT, &type);
+        const uint32_t delete_rc = VolumeDeleteDirectoryRecursively(card, DIR_PARENT);
+        FsDirEntryType type = (FsDirEntryType)0xEE;
+        const uint32_t gone_rc = VolumeGetEntryType(card, DIR_PARENT, &type);
         const bool passed = ServiceJudgeDirDelete(delete_rc, gone_rc, detail, sizeof(detail));
         Report(SERVICE_DIR_DELETE, CHECK_EXACT, passed, detail);
     }
@@ -2534,9 +2761,60 @@ static uint32_t SnapSpan(Service *timesrv, const u8 *a, const u8 *b, s64 *span) 
         .buffers = { { a, SERVICE_SNAP_SIZE }, { b, SERVICE_SNAP_SIZE } }, );
 }
 
+/// The time-snap suite in hooks mode (hooks.h): the snapshot through
+/// nn::time::ClockSnapshot::CreateWithStandardSystemClock and the span through
+/// CalculateSpanBetween, which answers false where the IPC mode has a result (SERVICE_SDK_FALSE).
+static void RunTimeSnapHooks(void) {
+    char detail[480];
+    static NnTimeClockSnapshot snapshot, later;
+    if (Start(SERVICE_SNAP_COHERENT)) {
+        ServiceSnapshot seen;
+        memset(&seen, 0, sizeof(seen));
+        memset(&snapshot, 0, sizeof(snapshot));
+        NnTimeSnapshotCreate(&snapshot);
+        const u8 *const bytes = snapshot.bytes;
+        TimeSystemClockContext context;
+        memset(&context, 0, sizeof(context));
+        seen.context_rc = NnTimeUserGetContext(&context);
+        TimeLocationName name;
+        memset(&name, 0, sizeof(name));
+        NnTimeGetDeviceLocationName(&name);
+        seen.same_context = memcmp(bytes, &context, sizeof(context)) == 0;
+        memcpy(&seen.user_time, bytes + SERVICE_SNAP_USER_TIME, 8);
+        memcpy(&seen.offset, bytes, 8);
+        memcpy(&seen.steady, bytes + SERVICE_SNAP_STEADY, 8);
+        seen.same_source = memcmp(bytes + 0x10, bytes + SERVICE_SNAP_STEADY + 8, 16) == 0;
+        seen.same_name = memcmp(bytes + SERVICE_SNAP_LOCATION, &name, sizeof(name)) == 0;
+        seen.type = bytes[SERVICE_SNAP_TYPE];
+        const bool passed = ServiceJudgeSnapshot(&seen, detail, sizeof(detail));
+        Report(SERVICE_SNAP_COHERENT, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_SNAP_SPAN)) {
+        memset(&snapshot, 0, sizeof(snapshot));
+        NnTimeSnapshotCreate(&snapshot);
+        later = snapshot;
+        s64 steady = 0;
+        memcpy(&steady, later.bytes + SERVICE_SNAP_STEADY, 8);
+        steady += 5;
+        memcpy(later.bytes + SERVICE_SNAP_STEADY, &steady, 8);
+        int64_t same = -1, ahead = -1;
+        const uint32_t same_rc =
+            NnTimeCalculateSpanBetween(&same, &snapshot, &snapshot) ? 0u : SERVICE_SDK_FALSE;
+        const uint32_t later_rc =
+            NnTimeCalculateSpanBetween(&ahead, &snapshot, &later) ? 0u : SERVICE_SDK_FALSE;
+        const bool passed =
+            ServiceJudgeSnapSpan(0u, same_rc, same, later_rc, ahead, detail, sizeof(detail));
+        Report(SERVICE_SNAP_SPAN, CHECK_EXACT, passed, detail);
+    }
+}
+
 /// time:u of this suite's own, and the snapshot of the clocks a game takes to date a save or
 /// time a wait across a sleep: what it holds, and the span between two.
 static void RunTimeSnap(void) {
+    if (HooksOn()) {
+        RunTimeSnapHooks();
+        return;
+    }
     char detail[480];
     Service timesrv, user, zones;
     memset(&timesrv, 0, sizeof(timesrv));
@@ -2814,10 +3092,61 @@ static void NgcMask(Service *s, uint32_t cmd, ServiceNgcText *seen) {
         .buffers = { { g_ngc_text, sizeof(g_ngc_text) }, { seen->back, sizeof(seen->back) } }, );
 }
 
+/// The ngc suite in hooks mode (hooks.h): a nn::ngc::ProfanityFilter of the SDK's from 20.0.0,
+/// its work buffer the smallest the SDK takes, asked about the clean name as one word and to mask
+/// it in place. The SDK functions over ngct:u are not among the program's, so that case is not
+/// asked.
+static void RunNgcHooks(void) {
+    char detail[480];
+    static NnNgcProfanityFilter filter;
+    static uint8_t work[NN_NGC_WORK_MIN] __attribute__((aligned(0x1000)));
+    uint32_t initialize_rc = SERVICE_SDK_FALSE;
+    // Inside each case that needs it, so a machine that ends the program there ends it in a case.
+    if (Start(SERVICE_NGC_CHECK)) {
+        memset(&filter, 0, sizeof(filter));
+        initialize_rc = NnNgcInitialize(&filter, work, sizeof(work), false);
+        ServiceNgcSdkCheck seen = { initialize_rc, SERVICE_SDK_FALSE, 0u, 0xEEEEu };
+        if (R_SUCCEEDED(initialize_rc)) {
+            seen.version = NnNgcGetContentVersion(&filter);
+            const char *words[1] = { kNgcText };
+            seen.check_rc =
+                NnNgcCheckProfanityWords(&filter, &seen.found, SERVICE_NGC_LANGUAGES, words, 1u);
+        }
+        const bool passed = ServiceJudgeNgcSdkCheck(&seen, detail, sizeof(detail));
+        Report(SERVICE_NGC_CHECK, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_NGC_MASK)) {
+        if (R_FAILED(initialize_rc)) {
+            memset(&filter, 0, sizeof(filter));
+            initialize_rc = NnNgcInitialize(&filter, work, sizeof(work), false);
+        }
+        ServiceNgcText mask;
+        memset(&mask, 0, sizeof(mask));
+        memcpy(mask.back, kNgcText, sizeof(kNgcText));
+        int32_t count = 0xEEEE;
+        mask.rc = R_SUCCEEDED(initialize_rc)
+                      ? NnNgcMaskProfanityWordsInText(&filter, &count, (char *)mask.back,
+                                                      SERVICE_NGC_LANGUAGES)
+                      : initialize_rc;
+        mask.count = (uint32_t)count;
+        const bool passed = ServiceJudgeNgcSdkMask(kNgcText, &mask, detail, sizeof(detail));
+        Report(SERVICE_NGC_MASK, CHECK_EXACT, passed, detail);
+    }
+    if (R_SUCCEEDED(initialize_rc)) {
+        NnNgcFinalize(&filter);
+    }
+    Skip(SERVICE_NGCT_CLEAN, REPORT_REASON_UNAVAILABLE,
+         "hooks mode: the program exports no SDK function over ngct:u");
+}
+
 /// The profanity filter a game runs a player's name or message through before it shows it or
 /// sends it: ngc:u, asked as a game asks, and ngct:u, the newer one with one word list. A clean
 /// name is checked, masked and filtered.
 static void RunNgc(void) {
+    if (HooksOn()) {
+        RunNgcHooks();
+        return;
+    }
     char detail[480];
     memset(g_ngc_text, 0, sizeof(g_ngc_text));
     memcpy(g_ngc_text, kNgcText, sizeof(kNgcText));
@@ -3059,10 +3388,89 @@ static void RunSetSys(void) {
 // ---------------------------------------------------------------------------------------------
 // time-zone
 
+/// The time-zone suite in hooks mode (hooks.h): the same names, location and date through
+/// nn::time's functions; the ones the SDK declares void answer nought where the IPC mode puts its
+/// command's result.
+static void RunTimeZoneHooks(void) {
+    char detail[480];
+    TimeLocationName device;
+    memset(&device, 0, sizeof(device));
+    NnTimeGetDeviceLocationName(&device);
+    if (Start(SERVICE_TZ_LIST)) {
+        static ServiceTzList seen;
+        memset(&seen, 0, sizeof(seen));
+        memcpy(seen.device, device.name, sizeof(device.name));
+        seen.count = NnTimeGetTotalLocationNameCount();
+        static TimeLocationName names[SERVICE_TZ_CHUNK];
+        for (uint32_t ask = 0; ask < SERVICE_TZ_ASKS; ++ask) {
+            memset(names, 0, sizeof(names));
+            int32_t got = -1;
+            NnTimeLoadLocationNameList(&got, names, (int32_t)SERVICE_TZ_CHUNK, seen.listed);
+            if (got < 0 || got > (int32_t)SERVICE_TZ_CHUNK) {
+                seen.list_rc = 0xFFFFFFFFu;
+                break;
+            }
+            for (int32_t i = 0; i < got; ++i) {
+                seen.empty += names[i].name[0] == '\0' ? 1u : 0u;
+                seen.found = seen.found || (device.name[0] != '\0' &&
+                                            strncmp(names[i].name, device.name,
+                                                    sizeof(device.name)) == 0);
+            }
+            seen.listed += got;
+            if (got < (int32_t)SERVICE_TZ_CHUNK) {
+                break;
+            }
+        }
+        const bool passed = ServiceJudgeTzList(&seen, detail, sizeof(detail));
+        Report(SERVICE_TZ_LIST, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_TZ_UPDATED)) {
+        ServiceTzUpdated seen;
+        memset(&seen, 0, sizeof(seen));
+        memcpy(seen.name, device.name, sizeof(device.name));
+        TimeLocationName name;
+        TimeSteadyClockTimePoint point;
+        memset(&name, 0, sizeof(name));
+        memset(&point, 0, sizeof(point));
+        NnTimeGetDeviceLocationNameAndUpdatedTime(&name, &point);
+        memcpy(seen.updated, name.name, sizeof(name.name));
+        seen.seconds = point.time_point;
+        memcpy(seen.source, &point.source_id, sizeof(seen.source));
+        const bool passed = ServiceJudgeTzUpdated(&seen, detail, sizeof(detail));
+        Report(SERVICE_TZ_UPDATED, CHECK_EXACT, passed, detail);
+    }
+    if (Start(SERVICE_TZ_BACK)) {
+        ServiceTzBack seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.now_rc = NnTimeUserGetCurrentTime(&seen.now);
+        TimeCalendarTime date;
+        TimeCalendarAdditionalInfo info;
+        memset(&date, 0, sizeof(date));
+        memset(&info, 0, sizeof(info));
+        seen.date_rc = NnTimeToCalendarTimeMine(&date, &info, &seen.now);
+        int32_t count = -1;
+        int64_t times[2] = { -1, -1 };
+        seen.back_rc = NnTimeToPosixTimeMine(&count, times, 2, &date);
+        seen.count = count;
+        seen.times[0] = times[0];
+        seen.times[1] = times[1];
+        char version[0x10];
+        memset(version, 0, sizeof(version));
+        NnTimeGetTimeZoneRuleVersion(version);
+        memcpy(seen.version, version, sizeof(version));
+        const bool passed = ServiceJudgeTzBack(&seen, detail, sizeof(detail));
+        Report(SERVICE_TZ_BACK, CHECK_EXACT, passed, detail);
+    }
+}
+
 /// time:u's time zone service as a game's clock and calendar reach it: the location names a
 /// settings screen lists, the device's location and when it was set, and a local date turned
 /// back into the time it came from under the device's rule.
 static void RunTimeZone(void) {
+    if (HooksOn()) {
+        RunTimeZoneHooks();
+        return;
+    }
     char detail[480];
     Service timesrv, user, zones;
     memset(&timesrv, 0, sizeof(timesrv));
@@ -3179,10 +3587,43 @@ static void RunTimeZone(void) {
 // ---------------------------------------------------------------------------------------------
 // time-perm
 
+/// The time-perm suite in hooks mode (hooks.h): the clocks through the SDK's setters an
+/// application links, each asked for what is there already. The settings and the location are
+/// not asked: their setters answer nothing and stop the program on a refusal, so a refusal leaves
+/// no answer to judge.
+static void RunTimePermHooks(void) {
+    char detail[480];
+    if (Start(SERVICE_TIME_PERM_CLOCKS)) {
+        ServiceTimeWrites seen;
+        memset(&seen, 0, sizeof(seen));
+        seen.count = SERVICE_TIME_SDK_CLOCK_WRITES;
+        int64_t before = 0, after = 0, network_now = 0;
+        TimeSystemClockContext context;
+        memset(&context, 0, sizeof(context));
+        const uint32_t read_rc = NnTimeUserGetCurrentTime(&before);
+        NnTimeUserGetContext(&context);
+        NnTimeNetworkGetCurrentTime(&network_now);
+        seen.rc[0] = NnTimeSetLocalCurrentTime(&before);
+        seen.rc[1] = NnTimeSetLocalContext(&context);
+        seen.rc[2] = NnTimeSetNetworkCurrentTime(&network_now);
+        const uint32_t after_rc = NnTimeUserGetCurrentTime(&after);
+        seen.same = read_rc == 0u && after_rc == 0u && after >= before && after - before <= 2;
+        const bool passed = ServiceJudgeTimeSdkClocks(&seen, detail, sizeof(detail));
+        Report(SERVICE_TIME_PERM_CLOCKS, CHECK_EXACT, passed, detail);
+    }
+    Skip(SERVICE_TIME_PERM_SETTINGS, REPORT_REASON_UNAVAILABLE,
+         "hooks mode: the SDK's setters of the clock settings and the location answer nothing and "
+         "stop the program on a refusal, so there is no answer to judge");
+}
+
 /// time:u, the time service an application has, asked to write what only the system may: a
 /// clock, the clock settings and the device's location. Each write asks for what is there
 /// already, so a machine that takes it changes nothing a later suite reads.
 static void RunTimePerm(void) {
+    if (HooksOn()) {
+        RunTimePermHooks();
+        return;
+    }
     char detail[480];
     Service timesrv, user, network, steady, zones;
     memset(&timesrv, 0, sizeof(timesrv));
@@ -3411,16 +3852,16 @@ static void RunAudout(void) {
 
 /// A file of SIZE bytes made at PATH on the card with the bytes given, or none. It is made at its
 /// size and written inside it: a write past the end needs a file opened to append.
-static Result FileMake(FsFileSystem *card, const char *path, const void *bytes, s64 size) {
-    Result rc = fsFsCreateFile(card, path, size, 0);
+static Result FileMake(Volume *card, const char *path, const void *bytes, s64 size) {
+    Result rc = VolumeCreateFile(card, path, size);
     if (R_FAILED(rc) || size == 0) {
         return rc;
     }
-    FsFile f;
-    rc = fsFsOpenFile(card, path, FsOpenMode_Write, &f);
+    VolumeFile f;
+    rc = VolumeOpenFile(card, path, FsOpenMode_Write, &f);
     if (R_SUCCEEDED(rc)) {
-        rc = fsFileWrite(&f, 0, bytes, (u64)size, FsWriteOption_Flush);
-        fsFileClose(&f);
+        rc = VolumeFileWrite(&f, 0, bytes, (u64)size, FsWriteOption_Flush);
+        VolumeFileClose(&f);
     }
     return rc;
 }
@@ -3430,7 +3871,8 @@ static Result FileMake(FsFileSystem *card, const char *path, const void *bytes, 
 /// and the card's free space. Everything is made under FILE_PARENT and deleted with it.
 static void RunFsFile(void) {
     char detail[480];
-    FsFileSystem *const card = fsdevGetDeviceFileSystem("sdmc");
+    Volume sdmc;
+    Volume *const card = VolumeOfSdmc(&sdmc) ? &sdmc : NULL;
     if (card == NULL) {
         const char *const why = "the memory card is not mounted";
         Skip(SERVICE_FILE_SIZE, REPORT_REASON_UNAVAILABLE, "%s", why);
@@ -3440,42 +3882,40 @@ static void RunFsFile(void) {
         Skip(SERVICE_FILE_SPACE, REPORT_REASON_UNAVAILABLE, "%s", why);
         return;
     }
-    fsFsCreateDirectory(card, "/edenprobe");
-    fsFsCreateDirectory(card, "/edenprobe/service");
-    fsFsDeleteDirectoryRecursively(card, FILE_PARENT);
-    const Result parent_rc = fsFsCreateDirectory(card, FILE_PARENT);
+    VolumeCreateDirectory(card, "/edenprobe");
+    VolumeCreateDirectory(card, "/edenprobe/service");
+    VolumeDeleteDirectoryRecursively(card, FILE_PARENT);
+    const Result parent_rc = VolumeCreateDirectory(card, FILE_PARENT);
     static const char bytes[4] = { 'a', 'b', 'c', 'd' };
     if (Start(SERVICE_FILE_SIZE)) {
         ServiceFileSize seen;
         memset(&seen, 0, sizeof(seen));
         seen.make_rc =
-            R_FAILED(parent_rc) ? parent_rc : fsFsCreateFile(card, FILE_PARENT "/size", 4, 0);
-        FsFile f;
+            R_FAILED(parent_rc) ? parent_rc : VolumeCreateFile(card, FILE_PARENT "/size", 4);
+        VolumeFile f;
         if (R_SUCCEEDED(seen.make_rc)) {
-            seen.make_rc = fsFsOpenFile(card, FILE_PARENT "/size",
-                                        FsOpenMode_Read | FsOpenMode_Write, &f);
+            seen.make_rc = VolumeOpenFile(card, FILE_PARENT "/size",
+                                          FsOpenMode_Read | FsOpenMode_Write, &f);
         }
         if (R_SUCCEEDED(seen.make_rc)) {
             uint8_t back[16];
-            seen.write_rc = fsFileWrite(&f, 0, bytes, sizeof(bytes), FsWriteOption_Flush);
-            seen.grow_rc = fsFileSetSize(&f, 16);
-            seen.grown_rc = fsFileGetSize(&f, &seen.grown);
+            seen.write_rc = VolumeFileWrite(&f, 0, bytes, sizeof(bytes), FsWriteOption_Flush);
+            seen.grow_rc = VolumeFileSetSize(&f, 16);
+            seen.grown_rc = VolumeFileGetSize(&f, &seen.grown);
             memset(back, 0xEE, sizeof(back));
             if (R_SUCCEEDED(seen.grown_rc)) {
-                seen.grown_rc = fsFileRead(&f, 0, back, sizeof(back), FsReadOption_None,
-                                           &seen.grown_read);
+                seen.grown_rc = VolumeFileRead(&f, 0, back, sizeof(back), &seen.grown_read);
             }
             static const uint8_t zeros[12] = { 0 };
             seen.grown_bytes = memcmp(back, bytes, 4) == 0 && memcmp(back + 4, zeros, 12) == 0;
-            seen.cut_rc = fsFileSetSize(&f, 2);
-            seen.cut_size_rc = fsFileGetSize(&f, &seen.cut);
+            seen.cut_rc = VolumeFileSetSize(&f, 2);
+            seen.cut_size_rc = VolumeFileGetSize(&f, &seen.cut);
             memset(back, 0xEE, sizeof(back));
             if (R_SUCCEEDED(seen.cut_size_rc)) {
-                seen.cut_size_rc = fsFileRead(&f, 0, back, sizeof(back), FsReadOption_None,
-                                              &seen.cut_read);
+                seen.cut_size_rc = VolumeFileRead(&f, 0, back, sizeof(back), &seen.cut_read);
             }
             seen.cut_bytes = memcmp(back, bytes, 2) == 0;
-            fsFileClose(&f);
+            VolumeFileClose(&f);
         }
         const bool passed = ServiceJudgeFileSize(&seen, detail, sizeof(detail));
         Report(SERVICE_FILE_SIZE, CHECK_EXACT, passed, detail);
@@ -3488,22 +3928,22 @@ static void RunFsFile(void) {
         if (R_SUCCEEDED(seen.make_rc)) {
             seen.make_rc = FileMake(card, FILE_PARENT "/other", NULL, 0);
         }
-        seen.rename_rc = fsFsRenameFile(card, FILE_PARENT "/old", FILE_PARENT "/new");
+        seen.rename_rc = VolumeRenameFile(card, FILE_PARENT "/old", FILE_PARENT "/new");
         FsDirEntryType type = (FsDirEntryType)0xEE;
-        seen.old_rc = fsFsGetEntryType(card, FILE_PARENT "/old", &type);
+        seen.old_rc = VolumeGetEntryType(card, FILE_PARENT "/old", &type);
         type = (FsDirEntryType)0xEE;
-        seen.new_rc = fsFsGetEntryType(card, FILE_PARENT "/new", &type);
+        seen.new_rc = VolumeGetEntryType(card, FILE_PARENT "/new", &type);
         seen.new_type = (uint32_t)type;
-        FsFile f;
+        VolumeFile f;
         seen.size = -1;
-        seen.size_rc = fsFsOpenFile(card, FILE_PARENT "/new", FsOpenMode_Read, &f);
+        seen.size_rc = VolumeOpenFile(card, FILE_PARENT "/new", FsOpenMode_Read, &f);
         if (R_SUCCEEDED(seen.size_rc)) {
-            seen.size_rc = fsFileGetSize(&f, &seen.size);
-            fsFileClose(&f);
+            seen.size_rc = VolumeFileGetSize(&f, &seen.size);
+            VolumeFileClose(&f);
         }
-        seen.onto_rc = fsFsRenameFile(card, FILE_PARENT "/other", FILE_PARENT "/new");
+        seen.onto_rc = VolumeRenameFile(card, FILE_PARENT "/other", FILE_PARENT "/new");
         type = (FsDirEntryType)0xEE;
-        seen.other_rc = fsFsGetEntryType(card, FILE_PARENT "/other", &type);
+        seen.other_rc = VolumeGetEntryType(card, FILE_PARENT "/other", &type);
         seen.other_type = (uint32_t)type;
         const bool passed = ServiceJudgeFileRename(&seen, detail, sizeof(detail));
         Report(SERVICE_FILE_RENAME, CHECK_EXACT, passed, detail);
@@ -3512,39 +3952,45 @@ static void RunFsFile(void) {
         ServiceFileClean seen;
         memset(&seen, 0, sizeof(seen));
         seen.make_rc =
-            R_FAILED(parent_rc) ? parent_rc : fsFsCreateDirectory(card, FILE_PARENT "/d");
+            R_FAILED(parent_rc) ? parent_rc : VolumeCreateDirectory(card, FILE_PARENT "/d");
         if (R_SUCCEEDED(seen.make_rc)) {
             seen.make_rc = FileMake(card, FILE_PARENT "/d/f", bytes, 4);
         }
-        seen.delete_rc = fsFsDeleteDirectory(card, FILE_PARENT "/d");
+        seen.delete_rc = VolumeDeleteDirectory(card, FILE_PARENT "/d");
         FsDirEntryType type = (FsDirEntryType)0xEE;
-        seen.file_rc = fsFsGetEntryType(card, FILE_PARENT "/d/f", &type);
+        seen.file_rc = VolumeGetEntryType(card, FILE_PARENT "/d/f", &type);
         seen.file_type = (uint32_t)type;
-        seen.clean_rc = fsFsCleanDirectoryRecursively(card, FILE_PARENT "/d");
+        seen.clean_rc = VolumeCleanDirectoryRecursively(card, FILE_PARENT "/d");
         type = (FsDirEntryType)0xEE;
-        seen.dir_rc = fsFsGetEntryType(card, FILE_PARENT "/d", &type);
+        seen.dir_rc = VolumeGetEntryType(card, FILE_PARENT "/d", &type);
         seen.dir_type = (uint32_t)type;
-        FsDir dir;
+        VolumeDir dir;
         seen.count = -1;
-        seen.count_rc = fsFsOpenDirectory(card, FILE_PARENT "/d",
-                                          FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles, &dir);
+        seen.count_rc = VolumeOpenDirectory(
+            card, FILE_PARENT "/d", FsDirOpenMode_ReadDirs | FsDirOpenMode_ReadFiles, &dir);
         if (R_SUCCEEDED(seen.count_rc)) {
-            seen.count_rc = fsDirGetEntryCount(&dir, &seen.count);
-            fsDirClose(&dir);
+            seen.count_rc = VolumeDirGetEntryCount(&dir, &seen.count);
+            VolumeDirClose(&dir);
         }
-        seen.again_rc = fsFsDeleteDirectory(card, FILE_PARENT "/d");
+        seen.again_rc = VolumeDeleteDirectory(card, FILE_PARENT "/d");
         const bool passed = ServiceJudgeFileClean(&seen, detail, sizeof(detail));
         Report(SERVICE_FILE_CLEAN, CHECK_EXACT, passed, detail);
     }
     if (Start(SERVICE_FILE_STAMP)) {
         ServiceFileStamp seen;
         memset(&seen, 0, sizeof(seen));
-        seen.clock_rc = timeGetCurrentTime(TimeType_UserSystemClock, &seen.now);
+        if (card->hooks) {
+            int64_t now = 0;
+            seen.clock_rc = NnTimeUserGetCurrentTime(&now);
+            seen.now = (u64)now;
+        } else {
+            seen.clock_rc = timeGetCurrentTime(TimeType_UserSystemClock, &seen.now);
+        }
         seen.make_rc =
             R_FAILED(parent_rc) ? parent_rc : FileMake(card, FILE_PARENT "/stamp", bytes, 4);
         FsTimeStampRaw stamp;
         memset(&stamp, 0, sizeof(stamp));
-        seen.stamp_rc = fsFsGetFileTimeStampRaw(card, FILE_PARENT "/stamp", &stamp);
+        seen.stamp_rc = VolumeGetTimeStamp(card, FILE_PARENT "/stamp", &stamp);
         seen.created = stamp.created;
         seen.modified = stamp.modified;
         seen.accessed = stamp.accessed;
@@ -3553,13 +3999,13 @@ static void RunFsFile(void) {
     }
     if (Start(SERVICE_FILE_SPACE)) {
         s64 free_size = -1, total_size = -1;
-        const uint32_t free_rc = fsFsGetFreeSpace(card, "/", &free_size);
-        const uint32_t total_rc = fsFsGetTotalSpace(card, "/", &total_size);
+        const uint32_t free_rc = VolumeGetFreeSpace(card, "/", &free_size);
+        const uint32_t total_rc = VolumeGetTotalSpace(card, "/", &total_size);
         const bool passed = ServiceJudgeFileSpace(free_rc, free_size, total_rc, total_size, detail,
                                                   sizeof(detail));
         Report(SERVICE_FILE_SPACE, CHECK_EXACT, passed, detail);
     }
-    fsFsDeleteDirectoryRecursively(card, FILE_PARENT);
+    VolumeDeleteDirectoryRecursively(card, FILE_PARENT);
 }
 
 // ---------------------------------------------------------------------------------------------

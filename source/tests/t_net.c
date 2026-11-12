@@ -20,8 +20,10 @@
 
 #include "../check.h"
 #include "../hang.h"
+#include "../hooks.h"
 #include "../netref.h"
 #include "../report.h"
+#include "../sdk.h"
 #include "tests.h"
 
 // The net family: the services a program reaches the network through, asked the way a game asks
@@ -382,12 +384,21 @@ static bool LibcAddress(const char *name, uint8_t out[4], int *error) {
     return true;
 }
 
-/// nsd Resolve, command 20: a name in, a name out, both 0x100 bytes.
+/// nsd Resolve, command 20: a name in, a name out, both 0x100 bytes. In hooks mode (hooks.h),
+/// nn::nsd::Resolve.
 static Result NsdResolve(Service *nsd, const char *name, char out[0x100]) {
     char in[0x100];
     memset(in, 0, sizeof(in));
     memset(out, 0, 0x100);
     strncpy(in, name, sizeof(in) - 1u);
+    if (HooksOn()) {
+        static NnNsdFqdn asked, got;
+        memcpy(asked.name, in, sizeof(asked.name));
+        memset(&got, 0, sizeof(got));
+        const Result rc = NnNsdResolve(&got, &asked);
+        memcpy(out, got.name, sizeof(got.name));
+        return rc;
+    }
     return serviceDispatch(nsd, 20,
                            .buffer_attrs = { SfBufferAttr_HipcAutoSelect | SfBufferAttr_In,
                                              SfBufferAttr_HipcAutoSelect | SfBufferAttr_Out },
@@ -439,9 +450,10 @@ static void RunDns(const char *sockets_why) {
         }
     }
 
+    // In hooks mode nn::nsd's functions keep their session to themselves: none is opened here.
     Service nsd;
     memset(&nsd, 0, sizeof(nsd));
-    const Result nsd_opened = smGetService(&nsd, "nsd:u");
+    const Result nsd_opened = HooksOn() ? 0 : smGetService(&nsd, "nsd:u");
     char nsd_why[200] = "";
     if (R_FAILED(nsd_opened)) {
         snprintf(nsd_why, sizeof(nsd_why),
@@ -459,10 +471,18 @@ static void RunDns(const char *sockets_why) {
     } else if (ReportStart(S, ENVIRONMENT)) {
         char field[8];
         memset(field, 0x7F, sizeof(field));
-        const Result rc = serviceDispatch(
-            &nsd, 11,
-            .buffer_attrs = { SfBufferAttr_HipcAutoSelect | SfBufferAttr_Out },
-            .buffers = { { field, sizeof(field) } }, );
+        Result rc = 0;
+        if (HooksOn()) {
+            // The SDK's GetEnvironmentIdentifier answers nothing but the name.
+            NnNsdEnvironmentIdentifier identifier;
+            memset(identifier.name, 0x7F, sizeof(identifier.name));
+            NnNsdGetEnvironmentIdentifier(&identifier);
+            memcpy(field, identifier.name, sizeof(field));
+        } else {
+            rc = serviceDispatch(&nsd, 11,
+                                 .buffer_attrs = { SfBufferAttr_HipcAutoSelect | SfBufferAttr_Out },
+                                 .buffers = { { field, sizeof(field) } }, );
+        }
         size_t length = 0;
         while (length < sizeof(field) && field[length] != '\0') {
             ++length;
@@ -648,7 +668,7 @@ static void RunDns(const char *sockets_why) {
         }
     }
 
-    if (R_SUCCEEDED(nsd_opened)) {
+    if (R_SUCCEEDED(nsd_opened) && serviceIsActive(&nsd)) {
         serviceClose(&nsd);
     }
 }

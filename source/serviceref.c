@@ -1929,6 +1929,34 @@ bool ServiceJudgeNgcCheck(const ServiceNgcCheck *seen, char *out, size_t out_siz
     return passed;
 }
 
+bool ServiceJudgeNgcSdkCheck(const ServiceNgcSdkCheck *seen, char *out, size_t out_size) {
+    const bool refused = seen->initialize_rc != 0u || seen->check_rc != 0u;
+    const bool passed = !refused && seen->version > 0u && seen->found == 0u;
+    snprintf(out, out_size,
+             "%s: Initialize 0x%x, GetContentVersion %u, CheckProfanityWords 0x%x flags 0x%x",
+             refused                  ? "refused"
+             : seen->version == 0u    ? "no version"
+             : seen->found != 0u      ? "a word found"
+                                      : "nothing found",
+             (unsigned)seen->initialize_rc, (unsigned)seen->version, (unsigned)seen->check_rc,
+             (unsigned)seen->found);
+    return passed;
+}
+bool ServiceJudgeNgcSdkMask(const char *text, const ServiceNgcText *mask, char *out,
+                            size_t out_size) {
+    const bool refused = mask->rc != 0u;
+    const bool masked = mask->count != 0u;
+    const bool same = NgcSame(text, mask->back);
+    char shown[24];
+    NgcShown(mask->back, shown, sizeof(shown));
+    snprintf(out, out_size, "%s: sent \"%s\"; MaskProfanityWordsInText 0x%x masked %u, back \"%s\"",
+             refused  ? "refused"
+             : masked ? "a word masked"
+             : !same  ? "another text back"
+                      : "the text back as sent",
+             text, (unsigned)mask->rc, (unsigned)mask->count, shown);
+    return !refused && !masked && same;
+}
 bool ServiceJudgeNgcMask(const char *text, const ServiceNgcText *mask, const ServiceNgcText *mask2,
                          char *out, size_t out_size) {
     const bool refused = mask->rc != 0u || mask2->rc != 0u;
@@ -2192,6 +2220,18 @@ bool ServiceJudgeTimeClocks(const ServiceTimeWrites *seen, char *out, size_t out
     return TimeVerdict(denied, seen, out, out_size);
 }
 
+bool ServiceJudgeTimeSdkClocks(const ServiceTimeWrites *seen, char *out, size_t out_size) {
+    static const char *const names[SERVICE_TIME_SDK_CLOCK_WRITES] = {
+        "SetStandardLocalSystemClockCurrentTime", "SetStandardLocalSystemClockContext",
+        "SetStandardNetworkSystemClockCurrentTime"
+    };
+    ServiceTimeWrites asked = *seen;
+    asked.count = asked.count < SERVICE_TIME_SDK_CLOCK_WRITES ? asked.count
+                                                              : SERVICE_TIME_SDK_CLOCK_WRITES;
+    const bool denied = TimeWrites(names, &asked, out, out_size) &&
+                        asked.count == SERVICE_TIME_SDK_CLOCK_WRITES;
+    return TimeVerdict(denied, seen, out, out_size);
+}
 bool ServiceJudgeTimeSettings(const ServiceTimeWrites *seen, char *out, size_t out_size) {
     static const char *const names[SERVICE_TIME_SETTING_WRITES] = {
         "SetStandardUserSystemClockAutomaticCorrectionEnabled",

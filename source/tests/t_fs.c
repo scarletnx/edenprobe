@@ -8,8 +8,10 @@
 
 #include "../check.h"
 #include "../fsref.h"
+#include "../hooks.h"
 #include "../perf.h"
 #include "../report.h"
+#include "../volume.h"
 #include "fscard.h"
 #include "tests.h"
 
@@ -19,6 +21,7 @@
 // An emulator does the seek on its side of each read, so how much a seek costs shows as the
 // difference between the patterns: sequential, random, backwards, the same place again.
 // The host's page cache is warm after the first pass; nothing here can empty it without root.
+// In hooks mode (hooks.h) the same reads go through nn::fs::ReadFile on a mount of the card.
 
 static const char *const SUITE = "fs";
 
@@ -56,21 +59,21 @@ static void Fill(u8 *data, u64 offset, u64 size) {
 
 /// Makes the big file and the small ones unless they are already there with the right size,
 /// so only the first pass of a timed run writes.
-static bool Prepare(FsFileSystem *fs, char *why, size_t why_size) {
-    fsFsCreateDirectory(fs, "/edenprobe");
-    fsFsCreateDirectory(fs, DIRECTORY);
-    fsFsCreateDirectory(fs, SMALL_DIRECTORY);
-    FsFile file;
+static bool Prepare(Volume *fs, char *why, size_t why_size) {
+    VolumeCreateDirectory(fs, "/edenprobe");
+    VolumeCreateDirectory(fs, DIRECTORY);
+    VolumeCreateDirectory(fs, SMALL_DIRECTORY);
+    VolumeFile file;
     s64 size = -1;
-    if (R_SUCCEEDED(fsFsOpenFile(fs, BIG_PATH, FsOpenMode_Read, &file))) {
-        fsFileGetSize(&file, &size);
-        fsFileClose(&file);
+    if (R_SUCCEEDED(VolumeOpenFile(fs, BIG_PATH, FsOpenMode_Read, &file))) {
+        VolumeFileGetSize(&file, &size);
+        VolumeFileClose(&file);
     }
     if (size != (s64)BIG_SIZE) {
-        fsFsDeleteFile(fs, BIG_PATH);
-        Result rc = fsFsCreateFile(fs, BIG_PATH, BIG_SIZE, 0);
+        VolumeDeleteFile(fs, BIG_PATH);
+        Result rc = VolumeCreateFile(fs, BIG_PATH, BIG_SIZE);
         if (R_SUCCEEDED(rc)) {
-            rc = fsFsOpenFile(fs, BIG_PATH, FsOpenMode_Write, &file);
+            rc = VolumeOpenFile(fs, BIG_PATH, FsOpenMode_Write, &file);
         }
         if (R_FAILED(rc)) {
             snprintf(why, why_size, "could not make %s: 0x%x", BIG_PATH, (unsigned)rc);
@@ -79,10 +82,10 @@ static bool Prepare(FsFileSystem *fs, char *why, size_t why_size) {
         const u32 chunk = 1024u * 1024u;
         for (u64 offset = 0; offset < BIG_SIZE && R_SUCCEEDED(rc); offset += chunk) {
             Fill(buffer, offset, chunk);
-            rc = fsFileWrite(&file, (s64)offset, buffer, chunk, FsWriteOption_None);
+            rc = VolumeFileWrite(&file, (s64)offset, buffer, chunk, FsWriteOption_None);
         }
-        fsFileFlush(&file);
-        fsFileClose(&file);
+        VolumeFileFlush(&file);
+        VolumeFileClose(&file);
         if (R_FAILED(rc)) {
             snprintf(why, why_size, "writing %s failed: 0x%x", BIG_PATH, (unsigned)rc);
             return false;
@@ -92,24 +95,24 @@ static bool Prepare(FsFileSystem *fs, char *why, size_t why_size) {
     for (u32 i = 0; i < SMALL_COUNT; ++i) {
         snprintf(path, sizeof(path), SMALL_DIRECTORY "/%03u.bin", (unsigned)i);
         size = -1;
-        if (R_SUCCEEDED(fsFsOpenFile(fs, path, FsOpenMode_Read, &file))) {
-            fsFileGetSize(&file, &size);
-            fsFileClose(&file);
+        if (R_SUCCEEDED(VolumeOpenFile(fs, path, FsOpenMode_Read, &file))) {
+            VolumeFileGetSize(&file, &size);
+            VolumeFileClose(&file);
         }
         if (size == (s64)SMALL_SIZE) {
             continue;
         }
-        fsFsDeleteFile(fs, path);
-        Result rc = fsFsCreateFile(fs, path, SMALL_SIZE, 0);
+        VolumeDeleteFile(fs, path);
+        Result rc = VolumeCreateFile(fs, path, SMALL_SIZE);
         if (R_SUCCEEDED(rc)) {
-            rc = fsFsOpenFile(fs, path, FsOpenMode_Write, &file);
+            rc = VolumeOpenFile(fs, path, FsOpenMode_Write, &file);
         }
         if (R_SUCCEEDED(rc)) {
             for (u32 b = 0; b < SMALL_SIZE; ++b) {
                 buffer[b] = SmallByte(i, b);
             }
-            rc = fsFileWrite(&file, 0, buffer, SMALL_SIZE, FsWriteOption_None);
-            fsFileClose(&file);
+            rc = VolumeFileWrite(&file, 0, buffer, SMALL_SIZE, FsWriteOption_None);
+            VolumeFileClose(&file);
         }
         if (R_FAILED(rc)) {
             snprintf(why, why_size, "could not make %s: 0x%x", path, (unsigned)rc);
@@ -128,10 +131,10 @@ typedef struct {
 } Tally;
 
 /// One timed read of @p size bytes at @p offset, checked against the pattern.
-static void Read(FsFile *file, u64 offset, u64 size, Tally *t) {
+static void Read(VolumeFile *file, u64 offset, u64 size, Tally *t) {
     u64 got = 0;
     const u64 start = armGetSystemTick();
-    const Result rc = fsFileRead(file, (s64)offset, buffer, size, FsReadOption_None, &got);
+    const Result rc = VolumeFileRead(file, (s64)offset, buffer, size, &got);
     PerfAddWork(armTicksToNs(armGetSystemTick() - start));
     ++t->calls;
     t->bytes += got;
@@ -161,7 +164,7 @@ static void Judge(const char *name, const Tally *t) {
                (unsigned long long)t->short_reads, (long long)t->wrong_at);
 }
 
-static void Sequential(FsFile *file, const char *name, u64 block, u64 total) {
+static void Sequential(VolumeFile *file, const char *name, u64 block, u64 total) {
     if (!ReportStart(SUITE, name)) {
         return;
     }
@@ -178,7 +181,7 @@ static u32 Next(u32 *state) {
     return *state;
 }
 
-static void Random(FsFile *file, const char *name, bool aligned) {
+static void Random(VolumeFile *file, const char *name, bool aligned) {
     if (!ReportStart(SUITE, name)) {
         return;
     }
@@ -192,7 +195,7 @@ static void Random(FsFile *file, const char *name, bool aligned) {
     Judge(name, &t);
 }
 
-static void Backwards(FsFile *file) {
+static void Backwards(VolumeFile *file) {
     static const char *const NAME = "64 KiB reads walk the file backwards";
     if (!ReportStart(SUITE, NAME)) {
         return;
@@ -205,7 +208,7 @@ static void Backwards(FsFile *file) {
     Judge(NAME, &t);
 }
 
-static void SamePlace(FsFile *file) {
+static void SamePlace(VolumeFile *file) {
     static const char *const NAME = "4096 reads of the same 4 KiB";
     if (!ReportStart(SUITE, NAME)) {
         return;
@@ -217,7 +220,7 @@ static void SamePlace(FsFile *file) {
     Judge(NAME, &t);
 }
 
-static void SmallFiles(FsFileSystem *fs) {
+static void SmallFiles(Volume *fs) {
     static const char *const NAME = "256 small files are opened, read and closed";
     if (!ReportStart(SUITE, NAME)) {
         return;
@@ -227,13 +230,13 @@ static void SmallFiles(FsFileSystem *fs) {
     char path[64];
     for (u32 i = 0; i < SMALL_COUNT; ++i) {
         snprintf(path, sizeof(path), SMALL_DIRECTORY "/%03u.bin", (unsigned)i);
-        FsFile file;
+        VolumeFile file;
         u64 got = 0;
         const u64 start = armGetSystemTick();
-        Result rc = fsFsOpenFile(fs, path, FsOpenMode_Read, &file);
+        Result rc = VolumeOpenFile(fs, path, FsOpenMode_Read, &file);
         if (R_SUCCEEDED(rc)) {
-            rc = fsFileRead(&file, 0, buffer, SMALL_SIZE, FsReadOption_None, &got);
-            fsFileClose(&file);
+            rc = VolumeFileRead(&file, 0, buffer, SMALL_SIZE, &got);
+            VolumeFileClose(&file);
         }
         PerfAddWork(armTicksToNs(armGetSystemTick() - start));
         if (R_FAILED(rc)) {
@@ -255,7 +258,7 @@ static void SmallFiles(FsFileSystem *fs) {
 }
 
 /// The reads at and past the end, which every one of the above stays clear of.
-static void Edges(FsFile *file) {
+static void Edges(VolumeFile *file) {
     static const char *const PAST =
         "a read that runs past the end returns only the bytes that are there";
     static const char *const AT_END = "a read that starts at the end returns no bytes";
@@ -263,7 +266,7 @@ static void Edges(FsFile *file) {
     u64 got = 12345;
     Result rc = 0;
     if (ReportStart(SUITE, PAST)) {
-        rc = fsFileRead(file, BIG_SIZE - 100u, buffer, SMALL_SIZE, FsReadOption_None, &got);
+        rc = VolumeFileRead(file, BIG_SIZE - 100u, buffer, SMALL_SIZE, &got);
         const bool tail_right =
             R_SUCCEEDED(rc) && got == 100u && FirstWrong(buffer, BIG_SIZE - 100u, 100u) < 0;
         CHECK_TRUE(SUITE, PAST, CHECK_EXACT, tail_right, "result 0x%x, %llu bytes (100 are there)",
@@ -272,20 +275,20 @@ static void Edges(FsFile *file) {
 
     if (ReportStart(SUITE, AT_END)) {
         got = 12345;
-        rc = fsFileRead(file, BIG_SIZE, buffer, SMALL_SIZE, FsReadOption_None, &got);
+        rc = VolumeFileRead(file, BIG_SIZE, buffer, SMALL_SIZE, &got);
         CHECK_TRUE(SUITE, AT_END, CHECK_EXACT, R_SUCCEEDED(rc) && got == 0u,
                    "result 0x%x, %llu bytes", (unsigned)rc, (unsigned long long)got);
     }
 
     if (ReportStart(SUITE, EMPTY)) {
         got = 12345;
-        rc = fsFileRead(file, 4096u, buffer, 0u, FsReadOption_None, &got);
+        rc = VolumeFileRead(file, 4096u, buffer, 0u, &got);
         CHECK_TRUE(SUITE, EMPTY, CHECK_EXACT, R_SUCCEEDED(rc) && got == 0u,
                    "result 0x%x, %llu bytes", (unsigned)rc, (unsigned long long)got);
     }
 }
 
-bool FsPrepareCard(FsFileSystem *fs, char *why, size_t why_size) {
+bool FsPrepareCard(Volume *fs, char *why, size_t why_size) {
     if (buffer == NULL) {
         buffer = malloc(BUFFER_SIZE);
     }
@@ -306,24 +309,25 @@ void RunFs(void) {
     if (!ReportStart(SUITE, OPENS)) {
         return;
     }
-    FsFileSystem fs;
-    const Result opened = buffer != NULL ? fsOpenSdCardFileSystem(&fs)
+    Volume fs;
+    const Result opened = buffer != NULL ? VolumeOpenCard(&fs, "edenprobe-fs")
                                          : MAKERESULT(Module_Libnx, LibnxError_OutOfMemory);
-    CHECK_TRUE(SUITE, OPENS, CHECK_NONE, R_SUCCEEDED(opened), "result 0x%x", (unsigned)opened);
+    CHECK_TRUE(SUITE, OPENS, CHECK_NONE, R_SUCCEEDED(opened), "result 0x%x%s", (unsigned)opened,
+               HooksOn() ? ", nn::fs::MountSdCard" : "");
     if (R_FAILED(opened)) {
         return;
     }
     if (!ReportStart(SUITE, HOLDS)) {
-        fsFsClose(&fs);
+        VolumeClose(&fs);
         return;
     }
     char why[160] = "";
     const bool ready = Prepare(&fs, why, sizeof(why));
     CHECK_TRUE(SUITE, HOLDS, CHECK_NONE, ready, "%s", why);
-    FsFile file;
-    const Result big = ready ? fsFsOpenFile(&fs, BIG_PATH, FsOpenMode_Read, &file) : opened;
+    VolumeFile file;
+    const Result big = ready ? VolumeOpenFile(&fs, BIG_PATH, FsOpenMode_Read, &file) : opened;
     if (!ready || R_FAILED(big)) {
-        fsFsClose(&fs);
+        VolumeClose(&fs);
         return;
     }
     Sequential(&file, "sequential reads of 512 bytes cover 4 MiB", 512u, 4u * 1024u * 1024u);
@@ -337,6 +341,6 @@ void RunFs(void) {
     SamePlace(&file);
     SmallFiles(&fs);
     Edges(&file);
-    fsFileClose(&file);
-    fsFsClose(&fs);
+    VolumeFileClose(&file);
+    VolumeClose(&fs);
 }
