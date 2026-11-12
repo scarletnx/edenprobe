@@ -194,6 +194,7 @@ extern "C" {
 
 typedef enum {
     SERVICE_OPUS_OPENS,   ///< hwopus: one decoder, 48 kHz stereo (none tier)
+    SERVICE_OPUS_DECODES, ///< hwopus: a packet of 20 ms of silence decodes to 960 samples of nought
     SERVICE_OPUS_LIMITED, ///< hwopus: 24 live, the 25th refused
     SERVICE_OPUS_FREED,   ///< hwopus: one closed, the next one opens
     SERVICE_AM_OPENS,     ///< am: the application's functions and a user (none tier)
@@ -307,6 +308,8 @@ typedef enum {
     SERVICE_AUDOUT_OPENS,   ///< audout: one output, opened at 48 kHz stereo, stopped, volume kept
     SERVICE_AUDOUT_STOPPED, ///< audout: buffers on a stopped out wait, held and not flushed
     SERVICE_AUDOUT_STARTED, ///< audout: an out starts once, and its Stop gives every buffer back
+    SERVICE_AUDIN_LISTS,    ///< audin: the microphones listed, each by a name
+    SERVICE_PCTL_FREE,      ///< pctl: no restriction set, free communication permitted, level 0
     SERVICE_FILE_SIZE,   ///< fs-file: a file grown reads nought past its bytes, shrunk ends there
     SERVICE_FILE_RENAME, ///< fs-file: a file renamed is found by its new name alone
     SERVICE_FILE_CLEAN,  ///< fs-file: a directory with a file not deleted; cleaned, kept empty
@@ -331,6 +334,40 @@ bool ServiceJudgeOpusLimit(const uint32_t *results, uint32_t tried, char *out, s
 /// After the limit case's refusal and one live decoder closed: @p reopened is what the next open
 /// answered. Passes when it opened.
 bool ServiceJudgeOpusFreed(uint32_t reopened, char *out, size_t out_size);
+
+/// The limit case in hooks mode (hooks.h), through nn::codec::InitializeHardwareOpusDecoder,
+/// which gives nn::codec's OpusResult: @p results as ServiceJudgeOpusLimit's. Passes when the
+/// first 24 opened (0) and the 25th was refused with SERVICE_OPUS_SDK_REFUSED, what the SDK makes
+/// of hwopus's SERVICE_OPUS_REFUSED: OutOfResource, after which it falls back to its software
+/// decoder (the note above SERVICE_OPUS_REFUSED).
+#define SERVICE_OPUS_SDK_REFUSED 8
+bool ServiceJudgeOpusLimitSdk(const int32_t *results, uint32_t tried, char *out,
+                              size_t out_size);
+
+/// A 20 ms packet of silence, the 8 bytes of hwopus's header (its size and the encoder's final
+/// range, big-endian) and the 3 of the packet: TOC 0xF8 (CELT, fullband, 20 ms, mono, one frame)
+/// and the range coder's bytes for the silence flag.
+#define SERVICE_OPUS_SILENCE_SIZE 11u
+extern const uint8_t SERVICE_OPUS_SILENCE[SERVICE_OPUS_SILENCE_SIZE];
+/// The samples a channel 20 ms holds at 48 kHz.
+#define SERVICE_OPUS_FRAME 960u
+
+/// The silence packet decoded by the decoder the opens case opened (48 kHz stereo): what the
+/// decode answered (a result through hwopus's DecodeInterleaved, nn::codec's OpusResult through
+/// DecodeOpusInterleavedWithHardware in hooks mode, @p sdk), the bytes it took, the samples a
+/// channel it gave, and of the samples written for both channels how many are not nought and the
+/// first such. Passes when it succeeded, took the whole packet with its header, gave 960 samples a
+/// channel, and every one of them is nought: libopus decodes the silence flag to silence, and
+/// reden decodes with libopus (`audio_core/opus/decoder.cpp`).
+typedef struct {
+    bool sdk;
+    uint32_t rc;
+    uint64_t consumed;
+    int32_t samples;
+    uint32_t loud;
+    int32_t first_loud;
+} ServiceOpusDecode;
+bool ServiceJudgeOpusDecode(const ServiceOpusDecode *seen, char *out, size_t out_size);
 
 /// ExtendSaveData (25) and GetSaveDataSize (26) of IApplicationFunctions, both for the account
 /// save of one user: what 26 said before, what 25 was asked and answered, and what 26 said after.
@@ -1358,6 +1395,36 @@ typedef struct {
     uint64_t first, second;
 } ServiceAudoutStarted;
 bool ServiceJudgeAudoutStarted(const ServiceAudoutStarted *seen, char *out, size_t out_size);
+
+/// audin:u's ListAudioIns (0), or nn::audio::ListAudioIns in hooks mode, into room for
+/// SERVICE_AUDIN_NAMES names: whether audin:u opened and the list was answered (the own code's
+/// request in hooks mode, nought when a machine took the function), how many were listed and the
+/// names. Passes when it was answered with no more names than there was room for, each one not
+/// empty and ended inside its 0x100 bytes. How many depends on the machine: reden lists one, Uac,
+/// when the host has a capture device and none otherwise (`audio_core/audio_in_manager.cpp`,
+/// `GetDeviceNames`); a console lists the microphones plugged in.
+#define SERVICE_AUDIN_NAMES 4u
+typedef struct {
+    uint32_t open_rc, list_rc;
+    int32_t listed;
+    char names[SERVICE_AUDIN_NAMES][SERVICE_AUDIO_NAME];
+} ServiceAudinList;
+bool ServiceJudgeAudinList(const ServiceAudinList *seen, char *out, size_t out_size);
+
+/// The parental controls of a console with none set, as a game asks them before it lets a player
+/// talk to others: "pctl" and its CreateService (0), IsRestrictionEnabled (1031),
+/// CheckFreeCommunicationPermission (1001) and GetSafetyLevel (1032); in hooks mode nn::pctl's
+/// Initialize, IsRestrictionEnabled, CheckFreeCommunicationPermission and GetSafetyLevel, each
+/// result the own code's request (a false permission 1 where it has none). Passes when every
+/// step succeeds, nothing is restricted and the level is 0: reden answers whether a PIN is set,
+/// permits free communication when nothing restricts it, and gives the level 0
+/// (`hle/service/pctl/parental_control_service.cpp`).
+typedef struct {
+    uint32_t open_rc, restriction_rc, free_rc, level_rc;
+    bool restricted;
+    uint32_t level;
+} ServicePctl;
+bool ServiceJudgePctl(const ServicePctl *seen, char *out, size_t out_size);
 
 /// A file made of four bytes, grown to 16 (IFile SetSize, 3) and cut to 2: what each step answered,
 /// the sizes GetSize (4) gave after each, how much each read of 16 from 0 read, and whether the

@@ -10,6 +10,8 @@
 
 #include "audio.h"
 #include "audioref.h"
+#include "hooks.h"
+#include "sdk.h"
 
 // The renderer's parameters as the renderer reads them, field for field. libnx's structures
 // stop at what its driver uses; these carry the rest.
@@ -319,7 +321,25 @@ static struct {
     uint32_t ring_bytes[SINKS];
     uint8_t *limiter_work;
     char error[160];
+    // Hooks mode: the renderer the SDK's functions opened, its frame event, the config they update
+    // through, the managers that config holds (each over its section of the layout above), the
+    // update the managers write, the work buffer and the frames rendered so far.
+    bool hooks;
+    NnAudioRendererHandle handle;
+    NnOsSystemEvent event;
+    NnAudioRendererConfig config;
+    NnAudioManager managers[8];
+    void *sdk_in;
+    void *work;
+    uint64_t frames;
 } r;
+
+// In hooks mode the update's revision: 5, the first whose answer ends with the frames rendered,
+// which an SDK from 6.0.0 reads back through the config (sdk.h) and a machine answering
+// RequestUpdateAudioRenderer in its place writes; libnx's driver asks 4 on any firmware from
+// 4.0.0. Of what 5 adds, nothing the cases ask changes: a looping voice's played count starts
+// over at its loop point, and every case that waits on one waits for less than a loop.
+#define HOOKS_REVISION NN_AUDIO_REVISION_5
 
 static void Fail(const char *what) {
     if (r.error[0] == '\0') {
@@ -488,8 +508,87 @@ static void Layout(void) {
 
 static bool Update(void);
 
+/// Hooks mode: the renderer through the SDK's functions, with the parameter audrenInitialize
+/// sends but the revision, its work buffer as large as the SDK asks, and its frame event.
+static bool OpenSdk(char *error, size_t error_size) {
+    const NnAudioRendererParameter param = {
+        .sample_rate = AUDIO_RATE,
+        .sample_count = AUDIO_FRAME,
+        .mix_buffer_count = MIX_BUFFERS,
+        .sub_mix_count = MIXES - 1,
+        .voice_count = AUDIO_VOICES,
+        .sink_count = SINKS,
+        .effect_count = EFFECTS,
+        .revision = HOOKS_REVISION,
+    };
+    const size_t size = NnAudioGetAudioRendererWorkBufferSize(&param);
+    if (size == 0u) {
+        snprintf(error, error_size,
+                 "nn::audio::GetAudioRendererWorkBufferSize gave 0 (the own code's request 0x%x)",
+                 (unsigned)SdkOwnResult());
+        return false;
+    }
+    const size_t room = (size + 0xFFFu) & ~(size_t)0xFFF;
+    r.work = memalign(0x1000, room);
+    if (r.work == NULL) {
+        snprintf(error, error_size, "no memory for the renderer's work buffer of %zu bytes", size);
+        return false;
+    }
+    const uint32_t rc = NnAudioOpenAudioRenderer(&r.handle, &r.event, &param, r.work, room);
+    if (rc != 0u) {
+        snprintf(error, error_size, "nn::audio::OpenAudioRenderer returned 0x%x", (unsigned)rc);
+        return false;
+    }
+    r.open = true;
+    if (!r.event.attached) {
+        snprintf(error, error_size,
+                 "nn::audio::OpenAudioRenderer attached no handle to its SystemEvent");
+        return false;
+    }
+    return true;
+}
+
+/// Hooks mode: each manager the config holds, over its section of the layout, so the update the
+/// SDK's RequestUpdateAudioRenderer writes is the one the IPC mode sends.
+static void Managers(void) {
+    enum { VOICES, MIX, EFFECT, SINK, PERFORMANCE, POOL, BEHAVIOUR, SPLITTER };
+    NnAudioManager *const m = r.managers;
+    m[BEHAVIOUR] = (NnAudioManager){ .in = r.behaviour, .in_size = sizeof(BehaviourIn),
+                                     .out_size = sizeof(BehaviourOut), .revision = r.revision };
+    m[POOL] = (NnAudioManager){ .in = r.pools, .in_size = sizeof(PoolIn) * POOLS,
+                                .out_size = sizeof(PoolOut) * POOLS };
+    m[VOICES] = (NnAudioManager){ .first = r.resources,
+                                  .first_size = sizeof(ResourceIn) * AUDIO_VOICES,
+                                  .in = r.voices, .in_size = sizeof(VoiceIn) * AUDIO_VOICES,
+                                  .out_size = sizeof(VoiceOut) * AUDIO_VOICES };
+    m[EFFECT] = (NnAudioManager){ .in = r.effects, .in_size = sizeof(EffectIn) * EFFECTS,
+                                  .out_size = sizeof(EffectOut) * EFFECTS };
+    m[SPLITTER] = (NnAudioManager){ .in = NULL };
+    m[MIX] = (NnAudioManager){ .in = r.mixes, .in_size = sizeof(MixIn) * MIXES };
+    m[SINK] = (NnAudioManager){ .in = r.sinks, .in_size = sizeof(SinkIn) * SINKS,
+                                .out_size = sizeof(SinkOut) * SINKS };
+    m[PERFORMANCE] = (NnAudioManager){ .in = r.performance, .in_size = sizeof(PerformanceIn),
+                                       .out_size = sizeof(PerformanceOut) };
+    r.config = (NnAudioRendererConfig){
+        .voices = &m[VOICES],
+        .mixes = &m[MIX],
+        .effects = &m[EFFECT],
+        .sinks = &m[SINK],
+        .performance = &m[PERFORMANCE],
+        .pools = &m[POOL],
+        .behaviour = &m[BEHAVIOUR],
+        .splitters = &m[SPLITTER],
+        .frames = &r.frames,
+        .in = r.sdk_in,
+        .in_size = r.in_size,
+        .out = r.out,
+        .out_size = r.out_size,
+    };
+}
+
 bool AudioOpen(char *error, size_t error_size) {
     memset(&r, 0, sizeof(r));
+    r.hooks = HooksOn();
     const AudioRendererConfig config = {
         .output_rate = AudioRendererOutputRate_48kHz,
         .num_voices = AUDIO_VOICES,
@@ -498,12 +597,17 @@ bool AudioOpen(char *error, size_t error_size) {
         .num_mix_objs = MIXES,
         .num_mix_buffers = MIX_BUFFERS,
     };
-    Result rc = audrenInitialize(&config);
-    if (R_FAILED(rc)) {
-        snprintf(error, error_size, "audrenInitialize returned 0x%x", (unsigned)rc);
-        return false;
+    Result rc = 0;
+    if (r.hooks) {
+        r.revision = HOOKS_REVISION;
+    } else {
+        rc = audrenInitialize(&config);
+        if (R_FAILED(rc)) {
+            snprintf(error, error_size, "audrenInitialize returned 0x%x", (unsigned)rc);
+            return false;
+        }
+        r.revision = audrenGetRevision();
     }
-    r.revision = audrenGetRevision();
     // The output grows a renderer information section from revision 5.
     const unsigned number = (r.revision >> 24) - '0';
     r.in_size = sizeof(UpdateHeader) + sizeof(BehaviourIn) + sizeof(PoolIn) * POOLS +
@@ -516,13 +620,20 @@ bool AudioOpen(char *error, size_t error_size) {
     r.in = memalign(AUDREN_INPUT_PARAM_ALIGNMENT, (r.in_size + 0xFFFu) & ~(size_t)0xFFF);
     r.out = memalign(AUDREN_OUTPUT_PARAM_ALIGNMENT, r.out_size);
     r.pool = memalign(AUDREN_MEMPOOL_ALIGNMENT, POOL_BYTES);
-    if (r.in == NULL || r.out == NULL || r.pool == NULL) {
+    r.sdk_in = r.hooks ? memalign(AUDREN_INPUT_PARAM_ALIGNMENT,
+                                  (r.in_size + 0xFFFu) & ~(size_t)0xFFF)
+                       : NULL;
+    if (r.in == NULL || r.out == NULL || r.pool == NULL || (r.hooks && r.sdk_in == NULL)) {
         snprintf(error, error_size, "no memory for the renderer's buffers");
         AudioClose();
         return false;
     }
     memset(r.in, 0, r.in_size);
     memset(r.pool, 0, POOL_BYTES);
+    if (r.hooks && !OpenSdk(error, error_size)) {
+        AudioClose();
+        return false;
+    }
 
     r.limiter_work = Take(0x1000, 0x1000);
     r.aux_send = Take(0x80 + AUX_COUNT * sizeof(int32_t), 64u);
@@ -532,6 +643,9 @@ bool AudioOpen(char *error, size_t error_size) {
     r.rings[AUDIO_SINK_LISTEN] = Take(r.ring_bytes[AUDIO_SINK_LISTEN], 64u);
     r.rings[AUDIO_SINK_CASES] = Take(r.ring_bytes[AUDIO_SINK_CASES], 64u);
     Layout();
+    if (r.hooks) {
+        Managers();
+    }
     AudioSync(r.pool, POOL_BYTES);
     r.open = true;
 
@@ -547,9 +661,11 @@ bool AudioOpen(char *error, size_t error_size) {
         AudioClose();
         return false;
     }
-    rc = audrenStartAudioRenderer();
+    rc = r.hooks ? NnAudioStartAudioRenderer(r.handle) : audrenStartAudioRenderer();
     if (R_FAILED(rc)) {
-        snprintf(error, error_size, "audrenStartAudioRenderer returned 0x%x", (unsigned)rc);
+        snprintf(error, error_size, "%s returned 0x%x",
+                 r.hooks ? "nn::audio::StartAudioRenderer" : "audrenStartAudioRenderer",
+                 (unsigned)rc);
         AudioClose();
         return false;
     }
@@ -557,10 +673,20 @@ bool AudioOpen(char *error, size_t error_size) {
 }
 
 void AudioClose(void) {
-    if (r.open) {
-        audrenStopAudioRenderer();
+    if (r.hooks) {
+        if (r.open) {
+            NnAudioStopAudioRenderer(r.handle);
+            NnAudioCloseAudioRenderer(r.handle);
+        }
+        SdkEventClose(&r.event);
+        free(r.work);
+        free(r.sdk_in);
+    } else {
+        if (r.open) {
+            audrenStopAudioRenderer();
+        }
+        audrenExit();
     }
-    audrenExit();
     free(r.in);
     free(r.out);
     free(r.pool);
@@ -684,10 +810,17 @@ static bool Update(void) {
             r.voices[i].sort_order = (int32_t)order++;
         }
     }
-    const Result rc = audrenRequestUpdateAudioRenderer(r.in, r.in_size, r.out, r.out_size, NULL, 0);
+    // A frame the renderer finished before this update says nothing of it (AudioStep).
+    if (r.hooks) {
+        SdkEventClear(&r.event);
+    }
+    const Result rc =
+        r.hooks ? NnAudioRequestUpdateAudioRenderer(r.handle, &r.config)
+                : audrenRequestUpdateAudioRenderer(r.in, r.in_size, r.out, r.out_size, NULL, 0);
     if (R_FAILED(rc)) {
-        char what[64];
-        snprintf(what, sizeof(what), "an update returned 0x%x", (unsigned)rc);
+        char what[96];
+        snprintf(what, sizeof(what), "an update returned 0x%x%s", (unsigned)rc,
+                 r.hooks ? " (nn::audio::RequestUpdateAudioRenderer)" : "");
         Fail(what);
         return false;
     }
@@ -743,7 +876,9 @@ bool AudioStep(void) {
     // parameters. The limiter depends on it: the update that restarts it has to reach a frame.
     // With a real output the first frames wait for the host's stream to open, which can take
     // seconds; a null output never waits. So the limit is generous, not a frame period.
-    if (R_FAILED(eventWait(audrenGetFrameEvent(), 5000000000ull))) {
+    const bool rendered = r.hooks ? SdkEventWait(&r.event, 5000000000ull)
+                                  : R_SUCCEEDED(eventWait(audrenGetFrameEvent(), 5000000000ull));
+    if (!rendered) {
         Fail("no frame was rendered for 5 s");
         return false;
     }

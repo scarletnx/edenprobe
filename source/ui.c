@@ -602,6 +602,8 @@ static const struct {
     { "time-zone", UI_FAMILY_SERVICE },
     { "time-perm", UI_FAMILY_SERVICE },
     { "audout", UI_FAMILY_SERVICE },
+    { "audin", UI_FAMILY_SERVICE },
+    { "pctl", UI_FAMILY_SERVICE },
     { "fs-file", UI_FAMILY_SERVICE },
     { "acc-app", UI_FAMILY_SERVICE },
     { "sdk", UI_FAMILY_SERVICE },

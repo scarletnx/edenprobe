@@ -25,6 +25,11 @@ buffers feeding the final mix at a gain the family sets, with a limiter and then
 it. The aux records the submix's first two buffers into a ring the program reads, and returns into
 the other two, which go nowhere.
 
+In [hooks mode](../Hooks.md#the-renderer) the renderer is opened through nn::audio's
+OpenAudioRenderer at revision 5, and each update goes through RequestUpdateAudioRenderer: the
+config the program hands it holds a manager for each section of the same layout, so the update is
+the one above, byte for byte, whoever answers the call. audren:u is not opened.
+
 Every tone loops over a whole second and fills each 240-sample frame with whole periods (1 kHz, 1.6
 kHz, 11 kHz; the voices at other rates loop over 48000 of their own samples, whole periods too, and
 come out at 10, 15 and 18 kHz), so once it has played 100 frames, every frame of a 40-frame ring
