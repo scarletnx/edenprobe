@@ -49,6 +49,14 @@ void main()
     float tiny = uintBitsToFloat(((x >> 1u) << 23u) | (y << 17u) | 1u);
     float sixtyfourths = float(x) - 32.0 + float(y) * (1.0 / 64.0);
     float quarters = float(x) - 32.0 + float(y & 3u) * 0.25;
+    // The rounding modes' operands, as source/fmathref.c's FMathRounding* build them: a full
+    // mantissa from one to two, the same mantissa with x and y swapped from a half down to 2^-8,
+    // and one plus a number of 64ths.
+    uint swapped = ((y << 17u) ^ (x << 11u) ^ (y << 5u) ^ (x << 1u) ^ 0x5A5A5Au) & 0x7FFFFFu;
+    swapped |= 1u;
+    float rounding = uintBitsToFloat(0x3F800000u | mantissa);
+    float summand = uintBitsToFloat(((126u - (y & 7u)) << 23u) | swapped);
+    float multiplier = uintBitsToFloat(0x3F800000u | ((x & 63u) << 17u));
 
     float result;
     switch (params.mode) {
@@ -108,6 +116,8 @@ void main()
         case 19u: result = floor(sixtyfourths); break;
         case 20u: result = fract(sixtyfourths); break;
         case 21u: result = round(quarters); break;
+        case 23u: result = rounding + summand; break;
+        case 24u: result = rounding * multiplier; break;
         default: result = roundEven(quarters); break;
     }
     outValue = result;

@@ -84,7 +84,13 @@ typedef enum {
     FMATH_FRACT = 20,
     FMATH_ROUND = 21,
     FMATH_ROUND_EVEN = 22,
-    FMATH_MODE_COUNT = 23,
+    /// Addition and multiplication of operands whose answer needs rounding at every pixel (the
+    /// first two modes' sums and products are all exact, so they judge no rounding), ties among
+    /// them: a full mantissa from one to two plus one from a half down to 2^-8, and the same full
+    /// mantissa times one plus a 64th to 63 64ths. Built from bits, as the logarithm's operands.
+    FMATH_ADD_ROUNDS = 23,
+    FMATH_MULTIPLY_ROUNDS = 24,
+    FMATH_MODE_COUNT = 25,
 } FMathMode;
 
 /// The tolerance a case allows, in whichever of the three shapes the tables state it.
@@ -125,6 +131,11 @@ float FMathArgument(FMathMode mode, uint32_t x, uint32_t y);
 /// The product the cancellation mode subtracts: a third of the operand, rounded to single
 /// precision, with its low twelve mantissa bits cleared.
 float FMathCancelledProduct(uint32_t x);
+/// The rounding modes' operands: the wide summand and multiplicand, the narrow summand, and the
+/// multiplier of seven significant bits.
+float FMathRoundingWide(uint32_t x, uint32_t y);
+float FMathRoundingSummand(uint32_t x, uint32_t y);
+float FMathRoundingMultiplier(uint32_t x);
 
 /// The answer the tables would allow and the console's binary never gives, where there is one:
 /// the multiply and add done apart, denormals kept, a half rounded away from nought. Never

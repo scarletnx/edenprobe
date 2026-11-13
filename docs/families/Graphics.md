@@ -439,14 +439,14 @@ that serves the second draw what the first one read.
 
 ## fmath
 
-Twenty nine cases. Addition, multiplication, a fused multiply and add, division, the
+Thirty one cases. Addition, multiplication, a fused multiply and add, division, the
 square root, powers and logarithms of two, the sine and the cosine, into an R32_Float target,
 against the same arithmetic in double precision; and the edges: a fused multiply and add that
 nearly cancels its own product, the minimum and the maximum against infinities and NaNs, mix
 carrying them through, denormal products, sums and operands, the power of two from -128 to nearly
 128, the logarithm from the smallest normal to nearly the largest float, square roots and inverse
-square roots of denormals and tiny normals, and floor, fract, round and roundEven on negatives and
-halves. Units in the last place, with a budget per case, because the tables give each operation
+square roots of denormals and tiny normals, floor, fract, round and roundEven on negatives and
+halves, and an addition and a multiplication that have to round at every pixel. Units in the last place, with a budget per case, because the tables give each operation
 its own figure and two of them are not even the same shape. They all come from one place, named in
 `source/fmathref.h`: the Vulkan precision tables, core for core instructions and GLSL.std.450 for
 the rest. The shading language's own specification leaves the trigonometric functions undefined,
@@ -454,7 +454,7 @@ so it would give no figure for two of these nine operations; the Vulkan tables c
 
 | operation | the table | what the case allows |
 |---|---|---|
-| addition, multiplication | correctly rounded | nought |
+| addition, multiplication, plain and needing rounding | correctly rounded | nought |
 | a multiply and an add | inherited from a multiply and an add; the console's FFMA fuses | nought |
 | division | 2.5 | 3 |
 | the square root | inherited from one over the inverse square root, which is 2 and 2.5 | 5 |
@@ -481,6 +481,13 @@ function, `FMathJudge`, pinned case by case by the reference suite: a NaN expect
 NaN, a nought by the same nought with its sign, anything else by the budget. The NaN and infinity
 cases hold an emulator to the console, not to the Vulkan tables, which let a host assume neither
 arrives, and the budget line says so.
+
+The first addition and multiplication take whole 64ths, so every sum and product there is exact
+and no rounding is judged: a machine that truncated would pass them. The two rounding cases take
+a full mantissa from one to two, plus one from a half down to 2^-8 or times one plus some 64ths,
+built from bits as the logarithm's operands are, so every sum and nearly every product needs
+rounding, and some land exactly halfway: a machine that truncates fails over two thousand pixels
+of each, one that takes a tie away from nought 57 of the sum's and 32 of the product's.
 
 Most budgets carry half a unit on top of the table's figure, for the reference being a double
 precision answer rounded to single. Three do not, and each says why on its own line: addition and
