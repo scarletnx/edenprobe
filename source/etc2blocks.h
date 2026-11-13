@@ -9,7 +9,10 @@
 extern "C" {
 #endif
 
-/// The ETC2 colour blocks the etc2 suite samples, one per mode and per punch-through rule, built
+/// The ETC2 colour blocks the etc2 suite samples, one per mode and per punch-through rule, then
+/// one per rule a decoder gets wrong and the first ten let through (the pixel indices' order, the
+/// H mode's order of equal and nearly equal bases, a second base at the edges of its range, a
+/// six bit colour's low bits, a see-through H block, an alpha multiplier of nought), built
 /// from their fields by source/etc2ref.c's builders (Etc2BuildTestBlock), and what Mesa's decoder
 /// (26.1.6, src/mesa/main/texcompress_etc.c) makes of each. `kind` is 0 for RGB8, 1 for RGB8A1
 /// and 2 for RGBA8, whose first eight bytes are the alpha block; `hash` is FNV-1a over Mesa's
@@ -23,7 +26,7 @@ typedef struct {
     uint32_t hash;
 } Etc2TestBlock;
 
-#define ETC2_TEST_BLOCKS 10u
+#define ETC2_TEST_BLOCKS 18u
 
 extern const Etc2TestBlock ETC2_TEST_BLOCK[ETC2_TEST_BLOCKS];
 
