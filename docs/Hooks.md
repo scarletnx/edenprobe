@@ -202,3 +202,45 @@ crashed: nn::ngc's two cases, nsd's environment and the tail call pass, and of t
 stamp still fails, nn::fs::GetFileTimeStampForDebug having no hook there.
 
 The game family's six cases pass on every column.
+
+The audio, the Opus decoder and pctl were run with 3fab85d on ScarletNX's native nnSdk at the top of its stack,
+#1860 at 679bcf9, which answers the audio outs, the audio device, the renderer, the hardware Opus decoder and the
+audio ins in the SDK's functions and stops a program that opens audout:u, audren:u, hwopus or audin:u, with `hooks`;
+on ScarletNX main (its build at a4a1a34) with and without it; both recompiling the program at opt 0 and running it
+headless on lavapipe, `quick notime cpu fs video display kernel audio service net libc game frames=120`; and on Eden
+6a9235c22d, `quick notime audio service fs net` and the game family apart, each way. v0.13.0 with `hooks` stops on
+#1860 at the audio family's start (audren:u) and again at the service family's first suite (hwopus).
+
+| family | #1860 hooks | main IPC | main IPC, v0.13.0 | main hooks |
+|---|---|---|---|---|
+| audio | 12/0/0 | 12/0/0 | 12/0/0 | 12/0/0 |
+| cpu | 36/0/2 | 36/0/2 | 36/0/2 | 36/0/2 |
+| display | 4/0/0 | 4/0/0 | 4/0/0 | 4/0/0 |
+| fs | 15/0/0 | 15/0/0 | 15/0/0 | 15/0/0 |
+| game | 6/0/0 | 6/0/0 | 6/0/0 | 6/0/0 |
+| judge | 672/0/0 | 672/0/0 | 668/0/0 | 672/0/0 |
+| kernel | 29/0/0 | 29/0/0 | 29/0/0 | 29/0/0 |
+| libc | 14/0/0 | 14/0/0 | 14/0/0 | 14/0/0 |
+| net | 23/0/30 | 23/0/30 | 23/0/30 | 23/0/30 |
+| service | 121/1/3 | 124/0/1 | 121/0/1 | 121/1/3 |
+| video | 27/0/0 | 27/0/0 | 27/0/0 | 26/1/0 |
+
+Each cell is passed, failed and skipped; the cpu skips are the ban list's, the net ones need a backend no net file
+names. On #1860 the run ends in one launch with no case crashed: no family reaches sm, nor do graphics and nvn
+(`quick notime graphics nvn hooks`, one launch, every case as on main without `hooks`, lavapipe's fifty failures
+the same on both). Its service family passes as
+main's does in IPC mode but for what the hooks mode skips (ngct, time-perm's settings, the fsp case a launch before
+has to set up) and the file's time stamp, nn::fs::GetFileTimeStampForDebug having no native answer there. The
+judge's four new cases pass everywhere, as do the hwopus decode, audin and pctl cases, and in IPC mode v0.13.0 and
+3fab85d agree on every case they share.
+
+Main with `hooks` answers the program's calls through its own code, as an emulator does, but for one function:
+nn::codec::FinalizeHardwareOpusDecoder, which its hooks for the Ounce SDK's decoder manager take in any module and
+which lets go only a decoder of that manager. The program's decoders stay open, and the hwopus case that closes one
+for the next fails there; #1860's native Opus decoder hands such a decoder to its own code. Main's video failure
+with `hooks` is a VP9 job that did not finish within its second on a loaded machine, in a family `hooks` does not
+touch; the video family alone with `hooks` passes every case.
+
+On Eden the two modes agree but for the cases the hooks mode skips, and the game family's six cases pass both ways;
+the audio family goes through the program's managers and own RequestUpdateAudioRenderer at revision 5 and ends as
+it does at libnx's 4, and as v0.13.0's does: six of its twelve cases fail on Eden, the same six each way.
