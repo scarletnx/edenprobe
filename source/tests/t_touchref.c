@@ -163,14 +163,20 @@ static void CheckTargets(void) {
     Tap(&w, 1u, 96u, 624u, 96u, 624u);
     const bool flipped = !TouchTargetJudge(p, &w, detail, sizeof(detail)) &&
                          strstr(detail, "+0 +528") != NULL;
+    // A coordinate with its top bit set is that far right, not 97 pixels left of the target: its
+    // distance is taken in 64 bits and said at the most an int32 holds.
+    Tap(&w, 1u, 96u, 96u, 0xFFFFFFFFu, 96u);
+    const bool wild = !TouchTargetJudge(p, &w, detail, sizeof(detail)) &&
+                      strstr(detail, "+2147483647 +0 from the target") != NULL &&
+                      strstr(detail, "2147483647 pixels off, past 48") != NULL;
     TouchWatchBegin(&w, 0u, 0u);
     (void)TouchWatchStep(&w, State(0u, 0u, 0u, 0u), TOUCH_PROMPT_NANOSECONDS,
                          TOUCH_PROMPT_NANOSECONDS);
     const bool timed_out = !TouchTargetJudge(p, &w, detail, sizeof(detail));
     CHECK_TRUE(SUITE, "touch: a tap passes within 48 pixels of its target, judged where it lifted",
-               CHECK_NONE, on && edge && diagonal && past && flipped && timed_out,
-               "on %d \"%s\"; edge %d diagonal %d past %d flipped %d timed out %d", on, on_said,
-               edge, diagonal, past, flipped, timed_out);
+               CHECK_NONE, on && edge && diagonal && past && flipped && wild && timed_out,
+               "on %d \"%s\"; edge %d diagonal %d past %d flipped %d wild %d timed out %d", on,
+               on_said, edge, diagonal, past, flipped, wild, timed_out);
 }
 
 static void CheckTwoAndDrag(void) {
