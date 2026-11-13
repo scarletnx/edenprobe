@@ -105,7 +105,14 @@ typedef enum {
     INTMATH_MAX_UNSIGNED = 40,
     INTMATH_CLAMP_SIGNED = 41,
     INTMATH_CLAMP_UNSIGNED = 42,
-    INTMATH_MODE_COUNT = 43,
+    /// A multiply of two full words, the mix and its swap, and the high word of their 64-bit
+    /// product, unsigned (umulExtended) and signed (imulExtended). Every multiply above has a
+    /// coordinate under two to the 16 as one operand, so a 32-bit multiply built from 16-bit
+    /// halves that loses the term of that operand's high half passes all of them; these cannot.
+    INTMATH_MULTIPLY = 43,
+    INTMATH_MULTIPLY_HIGH_UNSIGNED = 44,
+    INTMATH_MULTIPLY_HIGH_SIGNED = 45,
+    INTMATH_MODE_COUNT = 46,
 } IntMathMode;
 
 /// The divisor the last two modes use. A prime near a million, so the quotient varies across the
@@ -154,6 +161,8 @@ uint32_t IntMathFindLsb(uint32_t value);
 uint32_t IntMathShiftLeft(uint32_t value, uint32_t count);
 uint32_t IntMathShiftRight(uint32_t value, uint32_t count);
 uint32_t IntMathShiftArithmetic(uint32_t value, uint32_t count);
+/// The high word of the 64-bit product of @p a and @p b, both read as signed when @p sign.
+uint32_t IntMathMultiplyHigh(uint32_t a, uint32_t b, bool sign);
 
 /// The answer for the pixel at @p x, @p y, with @p probe as whatever the uniform buffer carries.
 uint32_t IntMathReference(IntMathMode mode, uint32_t x, uint32_t y, uint32_t probe);
