@@ -23,7 +23,8 @@ concurrency:
 jobs:
   # The NRO in devkitPro's container, pinned by its tag and its digest so every build uses one toolchain:
   # devkitA64 r29.2 (GCC 15.2), libnx 4.12.0, deko3d 0.5.0, uam 1.1.0, switch-tools 1.13.1. A newer image is a
-  # change of its own, its build checked like any other
+  # change of its own, its build checked like any other. uam 1.1.0 with Mesa's fix of a multisample fetch's registers
+  # is built here (tools/uam.sh)
   nro:
     name: NRO (devkitA64)
     runs-on: ubuntu-26.04
@@ -56,8 +57,26 @@ jobs:
         run: |
           version=$(cat VERSION)
           [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "::error::$GITHUB_REF_NAME is tagged, VERSION says $version"; exit 1; }
+      # The shaders that fetch a multisample texture through a handle are built by uam with Mesa's fix (tools/uam.sh):
+      # its build, kept between runs while its script and patches stay the same, and what builds it when they change
+      - name: Keep the fixed uam
+        id: uam
+        uses: actions/cache@v6
+        with:
+          path: |
+            build/uam/uam
+            build/uam/uam.stamp
+          key: uam-${{ hashFiles('tools/uam.sh', 'tools/uam/*') }}
+      - name: Install what builds uam
+        if: steps.uam.outputs.cache-hit != 'true'
+        run: |
+          apt-get update > /dev/null
+          apt-get install -y --no-install-recommends meson ninja-build bison flex python3-mako g++ > /dev/null
       - name: Build the NRO
         run: make -j"$(nproc)"
+      # Each multisample fetch through a handle reads the handle where the console does: the order the fixed uam gives
+      - name: Check the fetches' handle registers
+        run: python3 tools/dksh-handles.py build/shaders/*.dksh
       # The build names this commit, clean, described from a version tag or alone: what a report opens with and the
       # folder it sits in, so a report can be matched with its source
       - name: Check the NRO names its commit

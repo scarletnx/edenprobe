@@ -793,7 +793,11 @@ emulator a failure points at the dynamic descriptor arrays the shader translator
 `DynamicDescriptorCount`). The sixth reaches four sample textures the same way: two R32_Uint
 images whose sample s holds 0x100 + s and 0x200 + s, each written by a draw under the sample mask
 1 << s, through four handles alternating between them, each fetch naming its sample; a translator
-that keeps the image and drops its being multisampled, or the sample, reads another word.
+that keeps the image and drops its being multisampled, or the sample, reads another word. Its
+program is built by uam with Mesa's f9d385d77716 ([Build](../Build.md)): the console reads the
+handle in the fetch's Rb and the sample after it, and uam 1.1.0 put them the other way round, so
+up to 0.15.0 the program asked the console for texture y's sample h[x] and the case failed there
+too.
 
 ## astc
 

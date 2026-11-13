@@ -1,0 +1,19 @@
+Mesa f9d385d77716d8ca48aa549ffd5832c323f68421 (2023-01-30, MIT, part of Mesa MR 24327), on uam 1.1.0's copy of
+nouveau's codegen: "nouveau/codegen: Handle/indirect goes before sample index". A multisample fetch through a handle
+takes the handle in Rb and the sample after it; uam put the sample first.
+
+diff --git a/mesa-imported/codegen/nv50_ir_lowering_nvc0.cpp b/mesa-imported/codegen/nv50_ir_lowering_nvc0.cpp
+index a3ff9a6..a42931c 100644
+--- a/mesa-imported/codegen/nv50_ir_lowering_nvc0.cpp
++++ b/mesa-imported/codegen/nv50_ir_lowering_nvc0.cpp
+@@ -960,8 +960,8 @@ bool
+ NVC0LoweringPass::handleTEX(TexInstruction *i)
+ {
+    const int dim = i->tex.target.getDim() + i->tex.target.isCube();
+-   const int arg = i->tex.target.getArgCount();
+-   const int lyr = arg - (i->tex.target.isMS() ? 2 : 1);
++   const int arg = i->tex.target.getArgCount() - i->tex.target.isMS();
++   const int lyr = arg - 1;
+    const int chipset = prog->getTarget()->getChipset();
+ 
+    /* Only normalize in the non-explicit derivatives case. For explicit
