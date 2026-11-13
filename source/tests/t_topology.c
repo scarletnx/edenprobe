@@ -21,7 +21,7 @@
 // never an edge drawn as one.
 //
 // Every case draws flat colours, its geometry on whole pixel corners and its diagonals at slopes
-// that keep every pixel centre a seventh of a pixel or more from an edge where the colour
+// that keep every pixel centre 0.139 of a pixel or more from an edge where the colour
 // changes, and reads all 4096 pixels back: exact. Which triangles and segments a draw makes, the
 // vertex each takes its colour from and where an index list restarts are topologyref.c's, pinned
 // by the reference suite. Two things only a console settles are notes: the vertex a polygon takes
