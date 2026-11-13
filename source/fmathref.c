@@ -44,6 +44,20 @@ static uint32_t LogMantissa(uint32_t x, uint32_t y) {
     return (((x << 17) ^ (y << 11) ^ (x << 5) ^ (y << 1) ^ 0x5A5A5Au) & 0x7FFFFFu) | 1u;
 }
 
+float FMathRoundingWide(uint32_t x, uint32_t y) {
+    return BitsFloat(0x3F800000u | LogMantissa(x, y));
+}
+
+float FMathRoundingSummand(uint32_t x, uint32_t y) {
+    // Exponent fields 126 down to 119: the sum drops one to eight of this operand's bits, and
+    // where it drops only the lowest, which is set, the exact sum lies halfway.
+    return BitsFloat(((126u - (y & 7u)) << 23) | LogMantissa(y, x));
+}
+
+float FMathRoundingMultiplier(uint32_t x) {
+    return BitsFloat(0x3F800000u | ((x & 63u) << 17));
+}
+
 float FMathArgument(FMathMode mode, uint32_t x, uint32_t y) {
     const float a = FMathInputA(x);
     switch (mode) {
@@ -193,6 +207,12 @@ float FMathReference(FMathMode mode, uint32_t x, uint32_t y, float probe) {
         // Rounding keeps the sign, so -0.25 rounds to minus nought, not to nought.
         return rounded == 0.0f ? copysignf(0.0f, argument) : rounded;
     }
+    // Exact in double precision (the exponents differ by at most nine, and the product has 31
+    // significant bits), so rounding that to single precision rounds once, to nearest even.
+    case FMATH_ADD_ROUNDS:
+        return (float)((double)FMathRoundingWide(x, y) + (double)FMathRoundingSummand(x, y));
+    case FMATH_MULTIPLY_ROUNDS:
+        return (float)((double)FMathRoundingWide(x, y) * (double)FMathRoundingMultiplier(x));
     case FMATH_MODE_COUNT:
         break;
     }
@@ -458,6 +478,15 @@ FMathBudget FMathBudgetFor(FMathMode mode) {
                               "half away from nought differs from the console. So does one that "
                               "rounds -0.25 to plus nought, where the console's F2F keeps the "
                               "sign" };
+    case FMATH_ADD_ROUNDS:
+    case FMATH_MULTIPLY_ROUNDS:
+        return (FMathBudget){ false, 0.0f, 0.0f, 0.0f,
+                              "0 units in the last place: the core table requires addition and "
+                              "multiplication to be correctly rounded, and these need rounding at "
+                              "every pixel (the product where the multiplier is not one), ties to "
+                              "even among them, so a machine that truncates or rounds a tie away "
+                              "from nought differs. The reference is exact in double precision "
+                              "before its one rounding" };
     case FMATH_MODE_COUNT:
         break;
     }
@@ -525,6 +554,10 @@ const char *FMathName(FMathMode mode) {
         return "round of negatives and halves, halves to even as the console's";
     case FMATH_ROUND_EVEN:
         return "roundEven of halves goes to the even neighbour";
+    case FMATH_ADD_ROUNDS:
+        return "addition that has to round, rounds to nearest even";
+    case FMATH_MULTIPLY_ROUNDS:
+        return "multiplication that has to round, rounds to nearest even";
     case FMATH_MODE_COUNT:
         break;
     }

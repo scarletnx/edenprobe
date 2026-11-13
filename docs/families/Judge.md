@@ -42,7 +42,7 @@ family reports can be believed without them.
   its cases skipped as asked, the next step run, and a name no case came up for said; and the same
   run with a runner's `timeout` after the first launch: the case skipped as timeout with the
   runner's two numbers, off the crash list, and started again by the next run.
-- **reference**, four hundred and seventy three cases, no hardware involved either: the other half
+- **reference**, four hundred and seventy four cases, no hardware involved either: the other half
   of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -62,9 +62,10 @@ family reports can be believed without them.
   - twelve on intmath: 64 answers at two pixels worked out with exact rationals away from this
     program's code, each rule against a second algorithm over the whole sweep, and the wide
     multiplies against 64-bit products, with a multiply missing a high half caught by them alone;
-  - five on fmath: 54 answers worked out with exact rationals and sixty digit decimals, the float
+  - six on fmath: 58 answers worked out with exact rationals and sixty digit decimals, the float
     judge's decisions one at a time, the answer the console never gives refused at every pixel where
-    it differs, where the edge operands sit, and a budget written down for every mode;
+    it differs, where the edge operands sit, a budget written down for every mode, and that the
+    rounding cases round, ties among them, where the first sum and product are always exact;
   - twenty four on the net family's judge, `source/netref.c`: the net file, what each service is
     expected to answer from it, and every format a service answers in, each fixture written out by
     hand from the format rather than captured (the resolver's two serialisations, a certificate in

@@ -839,6 +839,9 @@ static void CheckFloatArithmetic(void) {
         { FMATH_FRACT, false, 0.0f, 0.0f },
         { FMATH_ROUND, false, 0.0f, 0.0f },
         { FMATH_ROUND_EVEN, false, 0.0f, 0.0f },
+        // Correctly rounded, as the first two, now with something to round.
+        { FMATH_ADD_ROUNDS, false, 0.0f, 0.0f },
+        { FMATH_MULTIPLY_ROUNDS, false, 0.0f, 0.0f },
     };
     CHECK_TRUE(SUITE, "every float mode has its budget written down here", CHECK_NONE,
                sizeof(EXPECTED_BUDGETS) / sizeof(EXPECTED_BUDGETS[0]) == FMATH_MODE_COUNT,
@@ -987,6 +990,66 @@ static void CheckFloatArithmetic(void) {
                (unsigned)libm_wrong,
                (unsigned)(sizeof(LIBM_BY_HAND) / sizeof(LIBM_BY_HAND[0])), first_libm,
                (unsigned)libm_got, (unsigned)libm_want);
+
+    // The rounding modes, by hand: the third and fourth are exact ties, the even neighbour kept.
+    // 0x3F8A5F5B plus 0x3F5B1A0B is 1.93690115213394165 exactly, halfway between 0x3FF7EC60 and
+    // 0x3FF7EC61; 0x3F9A5E5B times 1.5 is halfway between 0x3FE78D88 and 0x3FE78D89.
+    static const struct {
+        FMathMode mode;
+        uint32_t x;
+        uint32_t y;
+        uint32_t expected;
+    } ROUNDS_BY_HAND[] = {
+        { FMATH_ADD_ROUNDS, 37, 23, 0x3F91DC46u },
+        { FMATH_MULTIPLY_ROUNDS, 37, 23, 0x3FE4AC48u },
+        { FMATH_ADD_ROUNDS, 40, 0, 0x3FF7EC60u },
+        { FMATH_MULTIPLY_ROUNDS, 32, 0, 0x3FE78D88u },
+    };
+    uint32_t rounds_wrong = 0;
+    for (size_t i = 0; i < sizeof(ROUNDS_BY_HAND) / sizeof(ROUNDS_BY_HAND[0]); ++i) {
+        const float value = FMathReference(ROUNDS_BY_HAND[i].mode, ROUNDS_BY_HAND[i].x,
+                                           ROUNDS_BY_HAND[i].y, 0.0f);
+        uint32_t pattern;
+        memcpy(&pattern, &value, sizeof(pattern));
+        rounds_wrong += pattern != ROUNDS_BY_HAND[i].expected ? 1u : 0u;
+    }
+
+    // And what they are for: over every pixel, a sum or a product the first two modes make is
+    // exact, so a machine that truncates passes them; the rounding modes' are not, and a machine
+    // that truncates, or takes a tie away from nought, fails them.
+    uint32_t inexact_plain = 0;
+    uint32_t truncated = 0;
+    uint32_t ties = 0;
+    for (uint32_t y = 0; y < 64u; ++y) {
+        for (uint32_t x = 0; x < 64u; ++x) {
+            const double sum = (double)FMathInputA(x) + (double)FMathInputB(y);
+            const double product = (double)FMathInputA(x) * (double)FMathInputB(y);
+            inexact_plain +=
+                (double)(float)sum != sum || (double)(float)product != product ? 1u : 0u;
+            const double exact[2] = {
+                (double)FMathRoundingWide(x, y) + (double)FMathRoundingSummand(x, y),
+                (double)FMathRoundingWide(x, y) * (double)FMathRoundingMultiplier(x),
+            };
+            for (uint32_t k = 0; k < 2u; ++k) {
+                // Every operand is positive, so truncating is taking the float below.
+                const float nearest = (float)exact[k];
+                const bool rounded_up = (double)nearest > exact[k];
+                const float below = rounded_up ? nextafterf(nearest, 0.0f) : nearest;
+                const float above = rounded_up ? nearest : nextafterf(nearest, INFINITY);
+                truncated += below != nearest ? 1u : 0u;
+                // A tie the even rule took down, which a tie away from nought takes up.
+                const bool tie = (double)above - exact[k] == exact[k] - (double)below;
+                ties += tie && nearest == below ? 1u : 0u;
+            }
+        }
+    }
+    CHECK_TRUE(SUITE, "the rounding modes round where the first two never do, ties among them",
+               CHECK_NONE,
+               rounds_wrong == 0 && inexact_plain == 0 && truncated > 0 && ties > 0,
+               "%u of 4 hand values differed; %u plain sums or products were inexact; truncation "
+               "differs at %u rounding pixels and a tie goes the other way at %u",
+               (unsigned)rounds_wrong, (unsigned)inexact_plain, (unsigned)truncated,
+               (unsigned)ties);
 }
 
 static int CompareWords(const void *a, const void *b) {
