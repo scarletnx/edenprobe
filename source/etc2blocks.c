@@ -9,6 +9,10 @@
 // Every pixel index in every row, column and subblock (row major).
 static const uint8_t ALL_FOUR[16] = { 0, 1, 2, 3, 1, 2, 3, 0, 2, 3, 0, 1, 3, 0, 1, 2 };
 
+// Each row runs through the four indices and each column holds one: the block a decoder that
+// reads the indices along the rows gets wrong. ALL_FOUR is the same read either way.
+static const uint8_t ACROSS[16] = { 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3 };
+
 // Bytes printed from Etc2BuildTestBlock, and the hash of what Mesa decodes from them
 // (notas, tasks/ryubing-gpu/artifacts/part2/etc2/, make_etc2_table.c).
 const Etc2TestBlock ETC2_TEST_BLOCK[ETC2_TEST_BLOCKS] = {
@@ -55,6 +59,39 @@ const Etc2TestBlock ETC2_TEST_BLOCK[ETC2_TEST_BLOCKS] = {
       { 0x80, 0xf0, 0x10, 0x43, 0x4d, 0x59, 0x67, 0xdf,
         0x3a, 0xcd, 0x60, 0x5e, 0x93, 0x6c, 0x5a, 0x5a },
       0xb98999f1u },
+    { "columns", "a block's pixel indices run down its columns, not along its rows", 0,
+      { 0x4c, 0xb2, 0x79, 0x54, 0xff, 0x00, 0xf0, 0xf0,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+      0xc181be95u },
+    { "H-equal", "an H mode block whose two bases are the same adds 1 to the distance index", 0,
+      { 0x35, 0x05, 0xb5, 0x1b, 0x93, 0x6c, 0x5a, 0x5a,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+      0x6e68dda5u },
+    { "H-green", "an H mode block orders its bases by red, then green, then blue", 0,
+      { 0x41, 0xeb, 0xc1, 0x87, 0x93, 0x6c, 0x5a, 0x5a,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+      0x8d5c2119u },
+    { "edge-high", "a differential block whose second base is 31 0 0 stays differential", 0,
+      { 0xe3, 0x1d, 0x0f, 0x0e, 0x93, 0x6c, 0x5a, 0x5a,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+      0x002215edu },
+    { "edge-low", "a differential block whose second base is 0 31 31 stays differential", 0,
+      { 0x1d, 0xe3, 0xf1, 0x63, 0x93, 0x6c, 0x5a, 0x5a,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+      0x28c0a015u },
+    { "planar-bits", "a planar block's six bit colours repeat their top bits, 44 for 11 and "
+                     "not 45", 0,
+      { 0x17, 0x1b, 0x15, 0x1b, 0xc9, 0x8e, 0x80, 0xce,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+      0xacbec35du },
+    { "pta-h", "a see-through punch-through H block is transparent at index 2", 1,
+      { 0x6a, 0x14, 0x95, 0x71, 0x93, 0x6c, 0x5a, 0x5a,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+      0xdf635ebdu },
+    { "rgba-flat", "an RGBA block whose alpha multiplier is 0 is its base alpha throughout", 2,
+      { 0x5a, 0x0d, 0x10, 0x43, 0x4d, 0x59, 0x67, 0xdf,
+        0x67, 0x4a, 0xa3, 0xa7, 0x93, 0x6c, 0x5a, 0x5a },
+      0x388a73e5u },
 };
 
 void Etc2BuildTestBlock(uint32_t index, uint8_t bytes[16]) {
@@ -116,7 +153,7 @@ void Etc2BuildTestBlock(uint32_t index, uint8_t bytes[16]) {
         Etc2BuildPlanar(bytes, origin, horizontal, vertical, false);
         break;
     }
-    default: {
+    case 9: {
         uint8_t alpha[16];
         for (uint32_t i = 0; i < 16u; ++i) {
             alpha[i] = (uint8_t)(i & 7u);
@@ -125,6 +162,64 @@ void Etc2BuildTestBlock(uint32_t index, uint8_t bytes[16]) {
         const uint8_t base[3] = { 7, 25, 12 };
         const int8_t delta[3] = { 2, -3, 0 };
         Etc2BuildDifferential(bytes + 8, base, delta, 2, 7, false, true, ALL_FOUR);
+        break;
+    }
+    case 10: {
+        const uint8_t base1[3] = { 0x4, 0xB, 0x7 };
+        const uint8_t base2[3] = { 0xC, 0x2, 0x9 };
+        Etc2BuildIndividual(bytes, base1, base2, 2, 5, false, ACROSS);
+        break;
+    }
+    case 11: {
+        // The same base twice: (66, aa, 33) >= itself, so the index is (1 << 1) | 1, distance 16.
+        const uint8_t base[3] = { 0x6, 0xA, 0x3 };
+        Etc2BuildH(bytes, base, base, 1, true, ALL_FOUR);
+        break;
+    }
+    case 12: {
+        // Red the same, green smaller and blue larger in the first base: (88, 22, ff) is below
+        // (88, 33, 00), so the index stays (3 << 1), distance 41.
+        const uint8_t base1[3] = { 0x8, 0x2, 0xF };
+        const uint8_t base2[3] = { 0x8, 0x3, 0x0 };
+        Etc2BuildH(bytes, base1, base2, 3, true, ALL_FOUR);
+        break;
+    }
+    case 13: {
+        const uint8_t base[3] = { 28, 3, 1 };
+        const int8_t delta[3] = { 3, -3, -1 };
+        Etc2BuildDifferential(bytes, base, delta, 0, 3, false, true, ALL_FOUR);
+        break;
+    }
+    case 14: {
+        const uint8_t base[3] = { 3, 28, 30 };
+        const int8_t delta[3] = { -3, 3, 1 };
+        Etc2BuildDifferential(bytes, base, delta, 3, 0, true, true, ALL_FOUR);
+        break;
+    }
+    case 15: {
+        // Six bit codes 11 to 15 and 48 to 52 are the ones whose bits repeated are not the code
+        // over 63 rounded: 11 is 44 where that is 45, 50 is 203 where it is 202.
+        const uint8_t origin[3] = { 11, 77, 50 };
+        const uint8_t horizontal[3] = { 13, 100, 49 };
+        const uint8_t vertical[3] = { 52, 3, 14 };
+        Etc2BuildPlanar(bytes, origin, horizontal, vertical, true);
+        break;
+    }
+    case 16: {
+        const uint8_t base1[3] = { 0xD, 0x5, 0x1 };
+        const uint8_t base2[3] = { 0x2, 0xA, 0xE };
+        Etc2BuildH(bytes, base1, base2, 1, false, ALL_FOUR);
+        break;
+    }
+    default: {
+        uint8_t alpha[16];
+        for (uint32_t i = 0; i < 16u; ++i) {
+            alpha[i] = (uint8_t)(i & 7u);
+        }
+        Etc2BuildAlpha(bytes, 0x5A, 0, 13, alpha);
+        const uint8_t base[3] = { 12, 9, 20 };
+        const int8_t delta[3] = { -1, 2, 3 };
+        Etc2BuildDifferential(bytes + 8, base, delta, 5, 1, true, true, ALL_FOUR);
         break;
     }
     }

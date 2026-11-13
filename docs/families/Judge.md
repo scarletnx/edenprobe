@@ -42,7 +42,7 @@ family reports can be believed without them.
   its cases skipped as asked, the next step run, and a name no case came up for said; and the same
   run with a runner's `timeout` after the first launch: the case skipped as timeout with the
   runner's two numbers, off the crash list, and started again by the next run.
-- **reference**, four hundred and forty five cases, no hardware involved either: the other half
+- **reference**, four hundred and fifty nine cases, no hardware involved either: the other half
   of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -117,10 +117,11 @@ family reports can be believed without them.
     it to, the linear footprints both ways (to FP16 and to eight bits) and the sRGB ones once;
   - four on the eac suite's answers, against values worked out by hand from the specification's
     formula;
-  - eighteen on the etc2 suite's answers: the block builders held to the bytes the suite samples,
+  - thirty two on the etc2 suite's answers: the block builders held to the bytes the suite samples,
     the ETC2 reference decoder, `source/etc2ref.c`, held block by block to hashes of what Mesa's
-    decoder (26.1.6) makes of the same ten blocks, five texels worked out by hand, and the test
-    that names a block uploaded as it is, which every block's bytes meet and no block's colours do;
+    decoder (26.1.6) makes of the same eighteen blocks, eleven sets of texels worked out by hand,
+    and the test that names a block uploaded as it is, which every block's bytes meet and no
+    block's colours do;
   - four on the bcn suite's layout, `source/bcnref.c`: where deko3d puts each level and layer of
     a block linear array, against offsets worked out by hand from its layout rules, and the solid
     BC4 block;
