@@ -12,7 +12,8 @@
 uint32_t IntMathMix(uint32_t x, uint32_t y) {
     // The second product overflows 32 bits on every row from the fifth and the sum wraps again
     // at 22 pixels, so anything that quietly widens or narrows the arithmetic disagrees nearly
-    // everywhere. The first never does: 63 times 1664525 is under 2^27.
+    // everywhere. The first never does (63 times 1664525 is under 2^27): INTMATH_MULTIPLY is
+    // the case that multiplies two full words.
     return x * 1664525u + y * 1013904223u;
 }
 
@@ -283,6 +284,16 @@ uint32_t IntMathShiftArithmetic(uint32_t value, uint32_t count) {
     return negative ? (shifted | (0xFFFFFFFFu << (32u - count))) : shifted;
 }
 
+uint32_t IntMathMultiplyHigh(uint32_t a, uint32_t b, bool sign) {
+    const uint32_t high = (uint32_t)(((uint64_t)a * b) >> 32);
+    if (!sign) {
+        return high;
+    }
+    // A negative operand is its unsigned reading less two to the 32, which takes the other
+    // operand once from the high word: the signed answer with no signed shift.
+    return high - ((a & 0x80000000u) != 0u ? b : 0u) - ((b & 0x80000000u) != 0u ? a : 0u);
+}
+
 static uint32_t SignedDivide(int32_t a, int32_t b) {
     // Towards nought, written as the magnitudes' quotient with the sign put back.
     const uint32_t magnitude_a = a < 0 ? 0u - (uint32_t)a : (uint32_t)a;
@@ -434,6 +445,12 @@ uint32_t IntMathReference(IntMathMode mode, uint32_t x, uint32_t y, uint32_t pro
                : a > INTMATH_CLAMP_UNSIGNED_HIGH ? INTMATH_CLAMP_UNSIGNED_HIGH
                                                  : a;
     }
+    case INTMATH_MULTIPLY:
+        return v * IntMathSecond(x, y);
+    case INTMATH_MULTIPLY_HIGH_UNSIGNED:
+        return IntMathMultiplyHigh(v, IntMathSecond(x, y), false);
+    case INTMATH_MULTIPLY_HIGH_SIGNED:
+        return IntMathMultiplyHigh(v, IntMathSecond(x, y), true);
     case INTMATH_MODE_COUNT:
         break;
     }
@@ -528,6 +545,12 @@ const char *IntMathName(IntMathMode mode) {
         return "a signed clamp";
     case INTMATH_CLAMP_UNSIGNED:
         return "an unsigned clamp";
+    case INTMATH_MULTIPLY:
+        return "a multiply of two full words keeps the low word";
+    case INTMATH_MULTIPLY_HIGH_UNSIGNED:
+        return "umulExtended's high word of two full words";
+    case INTMATH_MULTIPLY_HIGH_SIGNED:
+        return "imulExtended's high word of two full words, both signs";
     case INTMATH_MODE_COUNT:
         break;
     }

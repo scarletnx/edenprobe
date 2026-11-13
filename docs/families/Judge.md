@@ -42,7 +42,7 @@ family reports can be believed without them.
   its cases skipped as asked, the next step run, and a name no case came up for said; and the same
   run with a runner's `timeout` after the first launch: the case skipped as timeout with the
   runner's two numbers, off the crash list, and started again by the next run.
-- **reference**, four hundred and seventy two cases, no hardware involved either: the other half
+- **reference**, four hundred and seventy three cases, no hardware involved either: the other half
   of the judge, where the rules the cases judge by are pinned. Where clip space lands on the target,
   which pixels a triangle covers and which of two triangles owns the centres on their shared edge,
   projected from the very numbers the rasterisation cases hand the hardware, so it proves the
@@ -59,8 +59,9 @@ family reports can be believed without them.
     rectangle. The format reference rounds its halves by hand: under Eden, `rint` (one `frintx`)
     rounds 1024.5 to 1025 at nearest, where the architecture gives 1024; the cpu suite checks that
     instruction;
-  - eleven on intmath: 58 answers at two pixels worked out with exact rationals away from this
-    program's code, and each rule against a second algorithm over the whole sweep;
+  - twelve on intmath: 64 answers at two pixels worked out with exact rationals away from this
+    program's code, each rule against a second algorithm over the whole sweep, and the wide
+    multiplies against 64-bit products, with a multiply missing a high half caught by them alone;
   - five on fmath: 54 answers worked out with exact rationals and sixty digit decimals, the float
     judge's decisions one at a time, the answer the console never gives refused at every pixel where
     it differs, where the edge operands sit, and a budget written down for every mode;
