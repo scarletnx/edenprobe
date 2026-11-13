@@ -458,13 +458,22 @@ static void CheckTimeout(void) {
                (unsigned)later.crash_count, resumed, anew, run);
 
     // What the launch after decides for the case: skipped as timeout with both numbers, retry or
-    // not, and counted with the skips. The run's own settings and crashes are handed back.
+    // not, and counted with the skips. The run's own settings and crashes are handed back, its
+    // skip= suites among them: a run with skip=tex8k left "a draw" out as asked.
     const uint32_t crashes = ReportCrashedMark();
     static CrashList saved;
     saved = *ReportCrashList();
     char saved_path[64];
     snprintf(saved_path, sizeof(saved_path), "%s", ReportCrashListPath());
     const bool saved_retry = ReportRetrying();
+    char run_skips[REPORT_SKIP_SUITES_MAX][JOURNAL_SUITE_MAX];
+    const char *run_skip[REPORT_SKIP_SUITES_MAX];
+    const size_t run_skip_count = ReportSkipSuiteCount();
+    for (size_t i = 0; i < run_skip_count && i < REPORT_SKIP_SUITES_MAX; ++i) {
+        snprintf(run_skips[i], sizeof(run_skips[i]), "%s", ReportSkipSuite(i));
+        run_skip[i] = run_skips[i];
+    }
+    ReportSetSkipSuites(NULL, 0u);
     ReportSetCrashList(NULL, NULL, true);
     ReportAddCrashed(&plan.crash);
     ReportReason reason = REPORT_REASON_CRASHED;
@@ -473,6 +482,7 @@ static void CheckTimeout(void) {
     const bool next_runs = ReportWouldRun("tex8k", "a draw", NULL, NULL, 0);
     ReportCrashedRewind(crashes);
     ReportSetCrashList(&saved, saved_path, saved_retry);
+    ReportSetSkipSuites(run_skip, run_skip_count);
     CHECK_TRUE(SUITE, "a case a runner stopped the program inside is skipped as timeout, with "
                       "the limit and how long it ran",
                CHECK_NONE,
@@ -2061,6 +2071,13 @@ static void CheckSkipSuites(void) {
 }
 
 void RunSupportJournal(const char *scratch) {
+#ifdef EDENPROBE_HOST
+    // A suite skip= leaves out, as a run with the word has one, from the first check on: a check
+    // that asks whether a case runs and does not set the suites aside fails here too, not only in
+    // a run that named some.
+    static const char *const HOST_SKIPS[] = { "tex8k" };
+    ReportSetSkipSuites(HOST_SKIPS, 1u);
+#endif
     CheckRecords();
     CheckReading();
     CheckTimeout();
@@ -2083,10 +2100,6 @@ void RunSupportJournal(const char *scratch) {
     snprintf(host_machine, sizeof(host_machine), "%s", ReportMachine());
     snprintf(host_version, sizeof(host_version), "%s", ReportMachineVersion());
     ReportSetMachine("scarletnx", "10ed344");
-    // And a suite skip= leaves out, as a run with the word has one: a check that borrows the
-    // suites and does not hand them back fails here too, not only in a run that named some.
-    static const char *const HOST_SKIPS[] = { "tex8k" };
-    ReportSetSkipSuites(HOST_SKIPS, 1u);
 #endif
     CheckDecisions();
     CheckBookkeeping();
