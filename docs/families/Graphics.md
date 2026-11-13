@@ -115,9 +115,10 @@ or not at all shows it there.
 
 ## intmath
 
-Forty six cases. Fragment shaders doing integer arithmetic on their own coordinate
+Forty nine cases. Fragment shaders doing integer arithmetic on their own coordinate
 into an R32_Uint target: add, multiply, the three shifts, and, or, exclusive or, bit counting, bit
-scanning, division and remainder; conversions between integers and floats both ways, above two to
+scanning, division and remainder; a multiply of two full words, and the high word of their product
+unsigned and signed (umulExtended, imulExtended); conversions between integers and floats both ways, above two to
 the 31 included; packUnorm4x8, packSnorm2x16, packHalf2x16 and their round trips, 0x8000 coming
 back as 0x8001; shifts by 31, 32, 33 and every count up to 63; signed division and remainder with
 every combination of signs; findMSB and findLSB of nought and minus one; bitfieldExtract and
@@ -139,9 +140,15 @@ and never a multiple of the divisor, which keeps the true quotient at least a pa
 whole number, where a float error of a few units cannot move the truncation. The reference suite
 measures both.
 
-The modes are spread over six shaders by family (the original fourteen, conversions and packing,
-shifts, division, remainder, bit operations), so an instruction an emulator cannot translate fails
-only its own family's shader, and a case whose every pixel still holds the sentinel says so. The
+Every other multiply here has a coordinate, under two to the 16, as one operand, so a 32-bit
+multiply built from 16-bit halves that drops the term of that operand's high half gets all of them
+right; the wide multiplies take the mix and its swap, two full words, and the reference suite
+checks that such a multiply keeps the mix at every pixel and loses the wide product.
+
+The modes are spread over seven shaders by family (the original fourteen, conversions and packing,
+shifts, division, remainder, bit operations, wide multiplies), so an instruction an emulator cannot
+translate fails only its own family's shader, and a case whose every pixel still holds the sentinel
+says so. The
 first three cases are the fragment coordinate and the uniform buffer, which every later case reads
 its operands and its instructions out of.
 

@@ -1419,6 +1419,11 @@ static void CheckIntegerArithmeticGrown(void) {
         { INTMATH_MAX_UNSIGNED, 37, 23, 0xBE5157E6u },
         { INTMATH_CLAMP_SIGNED, 37, 23, 0x20000000u },
         { INTMATH_CLAMP_UNSIGNED, 37, 23, 0x71A39D6Au },
+        // 0x71A39D6A times 0xBE5157E6 is 0x547B8A9E2E08733C; read as signed, 1906548074 times
+        // -1101965338 is -0x1D2812CBD1F78CC4, whose high word is 0xE2D7ED34.
+        { INTMATH_MULTIPLY, 37, 23, 0x2E08733Cu },
+        { INTMATH_MULTIPLY_HIGH_UNSIGNED, 37, 23, 0x547B8A9Eu },
+        { INTMATH_MULTIPLY_HIGH_SIGNED, 37, 23, 0xE2D7ED34u },
         // -1136920363 as a float rounds to -1136920320.
         { INTMATH_INT_TO_FLOAT, 2, 37, 0xCE87880Eu },
         { INTMATH_UINT_TO_FLOAT, 2, 37, 0x4F3C3BF9u },
@@ -1453,13 +1458,20 @@ static void CheckIntegerArithmeticGrown(void) {
         { INTMATH_MAX_UNSIGNED, 2, 37, 0xBC3BF8D5u },
         { INTMATH_CLAMP_SIGNED, 2, 37, 0xF0000000u },
         { INTMATH_CLAMP_UNSIGNED, 2, 37, 0xBC3BF8D5u },
+        // 0xBC3BF8D5 times 0x7C89A69F is 0x5B9243232296AA4B; signed, the first is negative, so
+        // the high word is 0x5B924323 less 0x7C89A69F: 0xDF089C84.
+        { INTMATH_MULTIPLY, 2, 37, 0x2296AA4Bu },
+        { INTMATH_MULTIPLY_HIGH_UNSIGNED, 2, 37, 0x5B924323u },
+        { INTMATH_MULTIPLY_HIGH_SIGNED, 2, 37, 0xDF089C84u },
     };
     uint32_t wrong = 0;
-    uint32_t covered = 0;
+    // 64 bits: the modes from INTMATH_INT_TO_FLOAT on are 32 of them, and a shift by 32 of a
+    // 32-bit one is undefined.
+    uint64_t covered = 0;
     size_t first = 0;
     uint32_t first_got = 0;
     for (size_t i = 0; i < sizeof(BY_HAND) / sizeof(BY_HAND[0]); ++i) {
-        covered |= 1u << (BY_HAND[i].mode - INTMATH_INT_TO_FLOAT);
+        covered |= 1ull << (BY_HAND[i].mode - INTMATH_INT_TO_FLOAT);
         const uint32_t got = IntMathReference(BY_HAND[i].mode, BY_HAND[i].x, BY_HAND[i].y, 0u);
         if (got != BY_HAND[i].expected) {
             if (wrong == 0) {
@@ -1471,13 +1483,13 @@ static void CheckIntegerArithmeticGrown(void) {
     }
     const uint32_t grown = INTMATH_MODE_COUNT - INTMATH_INT_TO_FLOAT;
     CHECK_TRUE(SUITE, "the grown integer reference matches the values worked out by hand",
-               CHECK_NONE, wrong == 0 && covered == (1u << grown) - 1u,
+               CHECK_NONE, wrong == 0 && covered == (1ull << grown) - 1u,
                "%u of %u disagreed, first \"%s\" at (%u,%u) gave 0x%08x, expected 0x%08x; "
-               "modes covered 0x%08x",
+               "modes covered 0x%016llx",
                (unsigned)wrong, (unsigned)(sizeof(BY_HAND) / sizeof(BY_HAND[0])),
                IntMathName(BY_HAND[first].mode), (unsigned)BY_HAND[first].x,
                (unsigned)BY_HAND[first].y, (unsigned)first_got,
-               (unsigned)BY_HAND[first].expected, (unsigned)covered);
+               (unsigned)BY_HAND[first].expected, (unsigned long long)covered);
 
     // Sweeps over every pixel the suite draws, each against a second way of saying the rule.
     uint32_t conversion = 0;
@@ -1720,6 +1732,41 @@ static void CheckIntegerArithmeticGrown(void) {
     CHECK_TRUE(SUITE, "the half precision patterns agree with the format reference both ways",
                CHECK_NONE, half_patterns == 0, "%u normal and infinite halves disagreed",
                (unsigned)half_patterns);
+
+    // The wide multiplies against the 64-bit product, and what they are for: a 32-bit multiply
+    // built from 16-bit halves that drops the term of the first operand's high half gives the
+    // mix right at every pixel, since a coordinate has no high half, and the full product wrong.
+    uint32_t products = 0;
+    uint32_t mix_kept = 0;
+    uint32_t wide_lost = 0;
+    for (uint32_t y = 0; y < 64u; ++y) {
+        for (uint32_t x = 0; x < 64u; ++x) {
+            const uint32_t v = IntMathMix(x, y);
+            const uint32_t w = IntMathSecond(x, y);
+            const uint64_t unsigned_product = (uint64_t)v * w;
+            const int64_t signed_product = (int64_t)(int32_t)v * (int32_t)w;
+            if (IntMathReference(INTMATH_MULTIPLY, x, y, 0u) != (uint32_t)unsigned_product ||
+                IntMathReference(INTMATH_MULTIPLY_HIGH_UNSIGNED, x, y, 0u) !=
+                    (uint32_t)(unsigned_product >> 32) ||
+                IntMathReference(INTMATH_MULTIPLY_HIGH_SIGNED, x, y, 0u) !=
+                    (uint32_t)((uint64_t)signed_product >> 32)) {
+                ++products;
+            }
+            const uint32_t x_lost =
+                x * (1664525u & 0xFFFFu) + ((x * (1664525u >> 16)) << 16);
+            const uint32_t y_lost =
+                y * (1013904223u & 0xFFFFu) + ((y * (1013904223u >> 16)) << 16);
+            mix_kept += x_lost + y_lost == v ? 1u : 0u;
+            const uint32_t vw_lost =
+                (v & 0xFFFFu) * (w & 0xFFFFu) + (((v & 0xFFFFu) * (w >> 16)) << 16);
+            wide_lost += vw_lost != v * w ? 1u : 0u;
+        }
+    }
+    CHECK_TRUE(SUITE, "the wide multiplies agree with 64 bit products, and catch a lost high half",
+               CHECK_NONE, products == 0 && mix_kept == 4096u && wide_lost > 0,
+               "%u of 4096 pixels disagreed; the multiply missing a high half kept the mix at %u "
+               "pixels and got the full product wrong at %u",
+               (unsigned)products, (unsigned)mix_kept, (unsigned)wide_lost);
 }
 
 /// The float edge modes: hand values from exact rationals and 60 digit decimals, and the judge's
