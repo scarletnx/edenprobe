@@ -108,6 +108,18 @@ $(BUILD)/shaders/%.tese.dksh: $(SHADER_DIR)/%.tese.glsl
 	@mkdir -p $(dir $@)
 	$(TOOLS)/uam -s tess_eval -o $@ $<
 
+# uam as the toolchain ships it (1.1.0) predates Mesa's f9d385d77716: a multisample fetch through a handle gets its
+# sample in the register the console reads the handle from. The shaders that make one are built by that uam with the
+# fix (tools/uam.sh, tools/uam/), every other by the toolchain's, as before. Its first build clones uam's source.
+UAM_FIXED := $(BUILD)/uam/uam
+
+$(UAM_FIXED): tools/uam.sh $(wildcard tools/uam/*.patch)
+	tools/uam.sh $(dir $@)
+
+$(BUILD)/shaders/bindless_ms.frag.dksh: $(SHADER_DIR)/bindless_ms.frag.glsl $(UAM_FIXED)
+	@mkdir -p $(dir $@)
+	$(UAM_FIXED) -s frag -o $@ $<
+
 # One grouped target, because one run of bin2s produces both files: with a rule each, deleting
 # only the header leaves make with no recipe that makes it alone. Grouped targets need GNU make
 # 4.3 or newer. The alignment is what the graphics library's paired load of a program header
