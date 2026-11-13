@@ -26,12 +26,20 @@
 // floats: BC1's four and three colour modes, BC2's four bit alphas, BC3's eight and six alpha
 // modes, BC4 and BC5 unsigned and signed, BC6H's mode 11 unsigned and signed and a reserved mode,
 // and BC7's modes 6 and 5 and a block with no mode. The interpolants are NVIDIA's, which differ
-// from the specification's thirds and fifths: BC1's 2/3 point of 31 and 0 is 170 and 85, its
-// midpoint 127; BC3's six-value alpha at index 2 is 48, where a fifth of 255 is 51; BC4's index 2
-// between 255 and 0 is 56355 of 65535, where six sevenths is 56172. ScarletNX's BCn decoder test
-// holds its decoder to these. Each listed texel's channels, times 255 for the eight bit formats,
-// 65535 or 32767 for BC4 and BC5, rounded, must be the decoded integer; BC6H's halves are exact
-// floats. A host that samples the blocks natively gives its own GPU's interpolants.
+// from the specification's thirds, fifths and sevenths: BC1's midpoint of 31 and 0 is 127; BC3's
+// six-value alpha at index 2 is 48, where a fifth of 255 is 51; BC4's index 2 between 255 and 0 is
+// 56355 of 65535, where six sevenths is 56173. BC1's thirds of 31 and 0, 170 and 85, are the
+// specification's too, so a second pair of blocks has endpoints whose thirds are not (31 and 2:
+// 176, where two thirds is 175 and another vendor's GPU gives 177), with a green channel, which
+// NVIDIA weighs by 80/256 from its eight bit ends, and a midpoint that comes out above the half
+// where the first comes out below. BC3 and BC4 then run through every weight of both of their
+// modes between 255 and 4, where each of the ten differs from the rounded fraction. ScarletNX's
+// BCn decoder test holds its decoder to the same formulas. A BC7 block of mode 1 has two subsets
+// and the second one's anchor at texel 2, so its indices only line up for a decoder that takes
+// the partition and the anchor from the tables. Each listed texel's channels, times 255 for the
+// eight bit formats, 65535 or 32767 for BC4 and BC5, rounded, must be the decoded integer; BC6H's
+// halves are exact floats. A host that samples the blocks natively gives its own GPU's
+// interpolants.
 
 static const char *const SUITE = "bcn";
 
@@ -401,6 +409,26 @@ static void RunBcnDecode(void) {
                (const DecodedTexel[]){ { 2, 0, { 127, 0, 127, 255 } },
                                        { 3, 0, { 0, 0, 0, 0 } } },
                2);
+    // BC1 again, with endpoints whose interpolants are NVIDIA's alone: red 31 and 2, green 9 and
+    // 0, blue 2 and 31. Red's and blue's thirds come from the five bit codes, (2a + b) * 22 / 8;
+    // green's from its eight bit ends, 36 and 0, a third weighing 80 of 256. Swapped, the midpoint
+    // of 2 and 31 is 33 * 33 / 8, 136, above the half of 16 and 255 where 127 above is below it.
+    Bc1(block, 0xF922u, 0x101Fu, 0xE4u);
+    DecodeCase(&gpu, &vertex_shader, &fetch,
+               "a BC1 block of four colours decodes its thirds as 176 25 96 and 96 11 176",
+               DkImageFormat_RGBA_BC1, block, 8, SCALE_BYTE,
+               (const DecodedTexel[]){ { 0, 0, { 255, 36, 16, 255 } },
+                                       { 1, 0, { 16, 0, 255, 255 } },
+                                       { 2, 0, { 176, 25, 96, 255 } },
+                                       { 3, 0, { 96, 11, 176, 255 } } },
+               4);
+    Bc1(block, 0x101Fu, 0xF922u, 0xE4u);
+    DecodeCase(&gpu, &vertex_shader, &fetch,
+               "a BC1 block of three colours decodes the midpoint of 16 and 255 as 136",
+               DkImageFormat_RGBA_BC1, block, 8, SCALE_BYTE,
+               (const DecodedTexel[]){ { 2, 0, { 136, 18, 136, 255 } },
+                                       { 3, 0, { 0, 0, 0, 0 } } },
+               2);
     // BC2: alpha nibbles 15, 8, 0 for the first three texels, then the colour block above taken
     // as four colours, as BC2 always takes it.
     memset(block, 0, sizeof(block));
@@ -430,6 +458,31 @@ static void RunBcnDecode(void) {
                                        { 1, 0, { 255, 0, 0, 0 } },
                                        { 2, 0, { 255, 0, 0, 255 } } },
                3);
+    // BC3 through every weight: 255 above 4, the first six texels at indices 2 to 7, three steps
+    // of 289, 578 and 892 of 2048 from each end; 4 below 255, the first four at indices 2 to 5,
+    // steps of 385 and 770. Rounded sevenths would be 219, 183, 147, 112, 76 and 40, rounded fifths
+    // 54, 104, 155 and 205.
+    PutWord64(block, 7ull << 31 | 6ull << 28 | 5ull << 25 | 4ull << 22 | 3ull << 19 | 2ull << 16 |
+                         0x04FFu);
+    DecodeCase(&gpu, &vertex_shader, &fetch,
+               "a BC3 block of eight alphas between 255 and 4 decodes 220 184 146 113 75 39",
+               DkImageFormat_RGBA_BC3, block, 16, SCALE_BYTE,
+               (const DecodedTexel[]){ { 0, 0, { 255, 0, 0, 220 } },
+                                       { 1, 0, { 255, 0, 0, 184 } },
+                                       { 2, 0, { 255, 0, 0, 146 } },
+                                       { 3, 0, { 255, 0, 0, 113 } },
+                                       { 0, 1, { 255, 0, 0, 75 } },
+                                       { 1, 1, { 255, 0, 0, 39 } } },
+               6);
+    PutWord64(block, 5ull << 25 | 4ull << 22 | 3ull << 19 | 2ull << 16 | 0xFF04u);
+    DecodeCase(&gpu, &vertex_shader, &fetch,
+               "a BC3 block of six alphas between 4 and 255 decodes 51 98 161 208",
+               DkImageFormat_RGBA_BC3, block, 16, SCALE_BYTE,
+               (const DecodedTexel[]){ { 0, 0, { 255, 0, 0, 51 } },
+                                       { 1, 0, { 255, 0, 0, 98 } },
+                                       { 2, 0, { 255, 0, 0, 161 } },
+                                       { 3, 0, { 255, 0, 0, 208 } } },
+               4);
     // BC4: 255 above 0, the first texel at index 2, the second at 0. Signed: 127 above -128,
     // which reads as -127, at indices 2 and 1.
     memset(block, 0, sizeof(block));
@@ -440,6 +493,33 @@ static void RunBcnDecode(void) {
                (const DecodedTexel[]){ { 0, 0, { 56355, 0, 0, 65535 } },
                                        { 1, 0, { 65535, 0, 0, 65535 } } },
                2);
+    // BC4 through every weight, the same two blocks: 36, 72, 113, 144, 185 and 221 of 257 of the
+    // second endpoint, then 48, 96, 161 and 209, and the six-value mode's 0 and 65535 at indices
+    // 6 and 7.
+    PutWord64(block, 7ull << 31 | 6ull << 28 | 5ull << 25 | 4ull << 22 | 3ull << 19 | 2ull << 16 |
+                         0x04FFu);
+    DecodeCase(&gpu, &vertex_shader, &fetch,
+               "a BC4 block of eight values between 255 and 4 decodes each in 257ths",
+               DkImageFormat_R_BC4_Unorm, block, 8, SCALE_SHORT,
+               (const DecodedTexel[]){ { 0, 0, { 56499, 0, 0, 65535 } },
+                                       { 1, 0, { 47463, 0, 0, 65535 } },
+                                       { 2, 0, { 37172, 0, 0, 65535 } },
+                                       { 3, 0, { 29391, 0, 0, 65535 } },
+                                       { 0, 1, { 19100, 0, 0, 65535 } },
+                                       { 1, 1, { 10064, 0, 0, 65535 } } },
+               6);
+    PutWord64(block, 7ull << 31 | 6ull << 28 | 5ull << 25 | 4ull << 22 | 3ull << 19 | 2ull << 16 |
+                         0xFF04u);
+    DecodeCase(&gpu, &vertex_shader, &fetch,
+               "a BC4 block of six values between 4 and 255 decodes each in 257ths, then 0 and 1",
+               DkImageFormat_R_BC4_Unorm, block, 8, SCALE_SHORT,
+               (const DecodedTexel[]){ { 0, 0, { 13076, 0, 0, 65535 } },
+                                       { 1, 0, { 25124, 0, 0, 65535 } },
+                                       { 2, 0, { 41439, 0, 0, 65535 } },
+                                       { 3, 0, { 53487, 0, 0, 65535 } },
+                                       { 0, 1, { 0, 0, 0, 65535 } },
+                                       { 1, 1, { 65535, 0, 0, 65535 } } },
+               6);
     PutWord64(block, 1ull << 19 | 2ull << 16 | 0x807Fu);
     DecodeCase(&gpu, &vertex_shader, &fetch,
                "a signed BC4 block decodes index 2 as 23623 of 32767 and -128 as -1",
@@ -540,6 +620,42 @@ static void RunBcnDecode(void) {
                    "a BC7 mode 5 block with rotation 1 swaps alpha and red",
                    DkImageFormat_RGBA_BC7_Unorm, b.bytes, 16, SCALE_BYTE,
                    (const DecodedTexel[]){ { 0, 0, { 200, 0, 0, 0 } } }, 1);
+    }
+    // BC7 mode 1: two subsets, six bit endpoints with a p-bit a subset, three bit indices.
+    // Partition 17 puts texels 1, 2, 3 and 7 in the second subset, whose anchor is texel 2, so
+    // texels 0 and 2 store two bits and every texel after 2 is read a bit early by a decoder
+    // that anchors the second subset at texel 15. The first subset runs from 255 2 2 to 2 255 2
+    // (codes 63 and 0 over a p-bit of 1), the second from 40 80 253 to 253 161 20 (codes 10 20 63
+    // and 63 40 5 over a p-bit of 0); indices 3, 4 and 5 weigh the far end 27, 37 and 46 of 64.
+    {
+        BlockBits b;
+        memset(&b, 0, sizeof(b));
+        Put(&b, 1u << 1, 2);
+        Put(&b, 17, 6);
+        static const uint8_t ENDS[3][4] = { { 63, 0, 10, 63 }, { 0, 63, 20, 40 }, { 0, 0, 63, 5 } };
+        for (uint32_t c = 0; c < 3u; ++c) {
+            for (uint32_t e = 0; e < 4u; ++e) {
+                Put(&b, ENDS[c][e], 6);
+            }
+        }
+        Put(&b, 1, 1);
+        Put(&b, 0, 1);
+        static const uint8_t INDEX[8] = { 0, 7, 3, 0, 7, 4, 0, 5 };
+        for (uint32_t t = 0; t < 8u; ++t) {
+            Put(&b, INDEX[t], t == 0u || t == 2u ? 2u : 3u);
+        }
+        DecodeCase(&gpu, &vertex_shader, &fetch,
+                   "a BC7 mode 1 block reads its two subsets around an anchor at texel 2",
+                   DkImageFormat_RGBA_BC7_Unorm, b.bytes, 16, SCALE_BYTE,
+                   (const DecodedTexel[]){ { 0, 0, { 255, 2, 2, 255 } },
+                                           { 1, 0, { 253, 161, 20, 255 } },
+                                           { 2, 0, { 130, 114, 155, 255 } },
+                                           { 3, 0, { 40, 80, 253, 255 } },
+                                           { 0, 1, { 2, 255, 2, 255 } },
+                                           { 1, 1, { 109, 148, 2, 255 } },
+                                           { 2, 1, { 255, 2, 2, 255 } },
+                                           { 3, 1, { 193, 138, 86, 255 } } },
+                   8);
     }
     // No mode bit in the first byte: transparent black, whatever the rest holds.
     memset(block, 0, sizeof(block));

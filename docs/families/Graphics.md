@@ -859,7 +859,7 @@ that every block's bytes read that way and that no block's colours do.
 
 ## bcn
 
-Twenty one cases. BC4 arrays whose levels or layers do not end on a block boundary: six
+Twenty eight cases. BC4 arrays whose levels or layers do not end on a block boundary: six
 layers with levels down to 1x1, the shape of every mipmapped cube map; two layers six texels
 tall; and a 4x16 texture whose second level is two texels wide and two blocks tall. Every block
 is one value unique to its layer, level and position, written by the processor where
@@ -877,12 +877,18 @@ BC4 and BC5 unsigned and signed, BC6H mode 11 unsigned and signed and a reserved
 black), BC7 modes 6 and 5 (with the rotation that swaps alpha and red) and a block with no mode
 (transparent black). The interpolants are the ones NVIDIA's GPUs decode, which ScarletNX's BCn
 decoder test holds its decoder to, and which differ from the specification's fractions where a
-case can tell: BC1's two thirds of 31 and 0 are 170 and 85 and its midpoint 127, BC3's six-value
-alpha at index 2 is 48 (a fifth of 255 is 51), BC4's index 2 between 255 and 0 is 56355 of 65535
-(six sevenths is 56172), BC6H's index 8 in mode 11 is the half 0x41df. A channel times 255, 65535
-or 32767, rounded, must be the decoded integer; a BC6H channel must be the half exactly. A host
-that samples BCn natively answers with its own GPU's interpolants, which is the question these
-ask of it.
+case can tell: BC1's midpoint of 31 and 0 is 127, BC3's six-value alpha at index 2 is 48 (a fifth
+of 255 is 51), BC4's index 2 between 255 and 0 is 56355 of 65535 (six sevenths is 56173), BC6H's
+index 8 in mode 11 is the half 0x41df. BC1's two thirds of 31 and 0, 170 and 85, are the
+specification's as well, so seven more cases take endpoints where each formula gives its own
+number: a BC1 block between 31 9 2 and 2 0 31, whose thirds are 176 25 96 and 96 11 176 (rounded
+thirds give 175 24 96, an RX 6700 XT 177 24 94) and whose midpoint, 136, is above the half where
+127 is below it; BC3 and BC4 through every weight of both modes between 255 and 4, where all ten
+differ from the rounded sevenths and fifths; and a BC7 block of mode 1 with two subsets and the
+second one's anchor at texel 2, whose indices line up only for a decoder that reads the partition
+and the anchor from the tables. A channel times 255, 65535 or 32767, rounded, must be the decoded
+integer; a BC6H channel must be the half exactly. A host that samples BCn natively answers with
+its own GPU's interpolants, which is the question these ask of it.
 
 ## zeta
 
@@ -1272,8 +1278,9 @@ whether the machine does.
 - **Q18, bcn.** Do the BCn blocks decode with the interpolants the cases expect, NVIDIA's as
   ScarletNX's decoder has them (BC1's thirds 170 and 85, its midpoint 127, BC3's six-value index 2
   48, BC4's index 2 56355 of 65535)? Both emulators sample BCn on the host GPU (an RX 6700 XT here)
-  and give its interpolants, alike in every case: 171 and 84, 128, 52, 56320. BC5, BC6H and BC7 and
-  the endpoints pass on both.
+  and give its interpolants, alike in every case: 171 and 84, 128, 52, 56320, and 177 24 94 where
+  the second BC1 block expects 176 25 96. BC5, BC6H and BC7, the mode 1 block among them, and the
+  endpoints pass on both. ScarletNX decoding BCn itself (`native_bc=0`) passes all twenty eight.
 - **Q19, order.** Does a compute program's barrier as uam compiles it (BAR.SYNC with RZ for its
   barrier and its count) hold 64 invocations until all have written their shared words? Neither
   emulator runs the dispatch: ScarletNX says `BAR f0a803800ff7ff00` is not translated, and Eden
