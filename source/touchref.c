@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 edenprobe contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -127,10 +128,17 @@ TouchReady TouchReadyJudge(const TouchWatch *watch, uint64_t states, uint64_t sa
     return TOUCH_READY_UNANSWERED;
 }
 
+/// How far @p at is from @p target, held to what an int32 holds: a coordinate is whatever 32 bits
+/// the touch screen handed over, and one past 2^31 is neither a negative place nor near anything.
+static int32_t Offset(uint32_t at, uint32_t target) {
+    const int64_t off = (int64_t)at - (int64_t)target;
+    return off > INT32_MAX ? INT32_MAX : off < INT32_MIN ? INT32_MIN : (int32_t)off;
+}
+
 bool TouchTargetJudge(const TouchPrompt *prompt, const TouchWatch *watch, char *detail,
                       size_t detail_size) {
-    const int32_t dx = (int32_t)watch->last.x - (int32_t)prompt->x;
-    const int32_t dy = (int32_t)watch->last.y - (int32_t)prompt->y;
+    const int32_t dx = Offset(watch->last.x, prompt->x);
+    const int32_t dy = Offset(watch->last.y, prompt->y);
     const uint32_t off = PadRadius(dx, dy);
     const bool passed = watch->state == TOUCH_DONE && off <= TOUCH_TOLERANCE;
     snprintf(detail, detail_size,
