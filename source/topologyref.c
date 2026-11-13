@@ -340,7 +340,7 @@ const TopologyPoint TOPOLOGY_POLYGON_AT[TOPOLOGY_POLYGON_POINTS] = {
 // factor, passes q * i - p * j + (q - p) / 2 from the line through a centre, in units of the
 // direction's length: half of one over that length when q - p is odd, and through centres when
 // it is even. The diagonals here go 1 across for 2 down (a fifth of a pixel and more), and the
-// fan's 2 across for 1 down and 2 for 3 (a seventh).
+// fan's 2 across for 1 down and 2 for 3 (0.139, one over twice the square root of 13).
 const TopologyPoint TOPOLOGY_STRIP_AT[TOPOLOGY_STRIP_POINTS] = {
     { 4.0, 8.0 }, { 4.0, 56.0 }, { 28.0, 8.0 }, { 28.0, 56.0 }, { 52.0, 8.0 }, { 52.0, 56.0 },
 };
