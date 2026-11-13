@@ -842,12 +842,19 @@ host.
 
 ## etc2
 
-Twelve cases. The ETC2 colour formats (the library's RGB_ETC2, RGB_PTA_ETC2 and
+Twenty cases. The ETC2 colour formats (the library's RGB_ETC2, RGB_PTA_ETC2 and
 RGBA_ETC2), one 4x4 block each written by the processor and fetched texel by texel: an individual,
 a flipped differential, a T mode, two H mode blocks (the first base the larger and the smaller,
 which sets the distance index's last bit), a planar block, three punch-through blocks (index 2
 transparent in differential and T mode, and planar always opaque), and an RGBA block whose 8-bit
-alpha reaches both clamps. Every block is built from its fields by `source/etc2ref.c`, whose
+alpha reaches both clamps. Then eight blocks, each for one rule a decoder can have wrong and still
+pass those ten: pixel indices that differ along a row, where the others' are the same read down
+the columns or along the rows; an H mode block with the same base twice, which counts as not
+smaller, and one whose bases share their red; two differential blocks whose second base is
+exactly 31 0 0 and 0 31 31, the edges of the range past which the T, H and planar modes begin; a
+planar block of six bit colours whose top bits repeated are not the code over 63 rounded (11 is
+44, not 45); a see-through punch-through H block; and an RGBA block whose alpha multiplier is
+nought. Every block is built from its fields by `source/etc2ref.c`, whose
 decoder says what each texel must be; the reference suite holds it to Mesa's. ETC2 decodes to
 exact bytes, so the tier is exact. A host without ETC2 textures has to decode them itself; in an
 emulator a failure points at whether it does (`renderer_vulkan/maxwell_to_vk.cpp`,
@@ -1220,7 +1227,7 @@ Questions only a console answers, asked about the cases both emulators fail in t
 case's expectation already follows the specification or the library, and the console says
 whether the machine does.
 
-- **Q1, etc2.** Do the ten blocks give exactly the specification's texels? Expected yes.
+- **Q1, etc2.** Do the eighteen blocks give exactly the specification's texels? Expected yes.
 - **Q2, zeta.** Does a Z24S8 word 0x00ff005a written by the processor sample as 1 (depth in the
   top 24 bits, as the case expects) or 254 (the low 24)? And 0x80808080 as 128?
 - **Q3, query.** In one list, with a full barrier between the reports and the render enable, does

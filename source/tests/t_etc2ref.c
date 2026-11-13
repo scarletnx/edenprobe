@@ -16,6 +16,8 @@
 // the bytes the suite samples, etc2ref.c to what Mesa's decoder (26.1.6) makes of each block,
 // and a few texels to values worked out by hand. etc2ref.c, Mesa and Ryubing's decoder agreed
 // on 306 million blocks when it was written (notas, tasks/ryubing-gpu/artifacts/part2/etc2).
+// The blocks from "columns" on each catch a decoder with one rule changed that the ten before
+// them let through.
 
 static const char *const SUITE = "reference";
 
@@ -53,7 +55,14 @@ static const struct {
     { "pta-diff", { { 0x53, 0xa6, 0xf1, 0x94 }, { 0x93, 0x6c, 0x5a, 0x5a } } },
     { "pta-t", { { 0x05, 0xe7, 0x84, 0xb5 }, { 0x93, 0x6c, 0x5a, 0x5a } } },
     { "pta-planar", { { 0x0b, 0x49, 0xfa, 0x50 }, { 0x28, 0x1f, 0xff, 0xd1 } } },
-    { "rgba", { { 0x80, 0xf0, 0x10, 0x43 }, { 0x4d, 0x59, 0x67, 0xdf } } },
+    { "rgba", { { 0x80, 0xf0, 0x10, 0x43 }, { 0x4d, 0x59, 0x67, 0xdf } } },    { "columns", { { 0x4c, 0xb2, 0x79, 0xff }, { 0xff, 0x00, 0xf0, 0xff } } },
+    { "H-equal", { { 0x35, 0x05, 0xb5, 0xff }, { 0x93, 0x6c, 0x5a, 0xff } } },
+    { "H-green", { { 0x41, 0xeb, 0xc1, 0xff }, { 0x93, 0x6c, 0x5a, 0xff } } },
+    { "edge-high", { { 0xe3, 0x1d, 0x0f, 0xff }, { 0x93, 0x6c, 0x5a, 0xff } } },
+    { "edge-low", { { 0x1d, 0xe3, 0xf1, 0xff }, { 0x93, 0x6c, 0x5a, 0xff } } },
+    { "planar-bits", { { 0x17, 0x1b, 0x15, 0xff }, { 0xc9, 0x8e, 0x80, 0xff } } },
+    { "pta-h", { { 0x6a, 0x14, 0x95, 0x71 }, { 0x93, 0x6c, 0x5a, 0x5a } } },
+    { "rgba-flat", { { 0x5a, 0x0d, 0x10, 0x43 }, { 0x4d, 0x59, 0x67, 0xdf } } },
 };
 // clang-format on
 
@@ -123,6 +132,59 @@ void RunReferenceEtc2(void) {
     CHECK_TRUE(SUITE, "ETC2 RGBA alpha is base plus modifier times multiplier, clamped",
                CHECK_NONE, t[3][3] == 0u && t[7][3] == 255u && t[0][3] == 83u,
                "alpha at (3, 0), (3, 1) and (0, 0) is %u, %u and %u", t[3][3], t[7][3], t[0][3]);
+
+    // Individual, not flipped, indices 0 to 3 along each row: column 0 is the left subblock's
+    // base (44, bb, 77) plus table 2's 9, column 1 plus its 29, and (3, 0) the right subblock's
+    // (cc, 22, 99) minus table 5's 80, clamped. Read along the rows the block would hold one
+    // index a row.
+    Decode(Find("columns"), t);
+    CHECK_TRUE(SUITE, "ETC2 pixel indices run down the columns", CHECK_NONE,
+               Rgba(t[0]) == 0x4dc480ffu && Rgba(t[12]) == 0x4dc480ffu &&
+                   Rgba(t[1]) == 0x61d894ffu && Rgba(t[3]) == 0x7c0049ffu,
+               "texels (0, 0), (0, 3), (1, 0) and (3, 0) are %08x %08x %08x %08x",
+               (unsigned)Rgba(t[0]), (unsigned)Rgba(t[12]), (unsigned)Rgba(t[1]),
+               (unsigned)Rgba(t[3]));
+    // H mode with (66, aa, 33) twice: equal counts as not smaller, index (1 << 1) | 1 = 3,
+    // distance 16, where index 2 would be 11. And (88, 22, ff) against (88, 33, 00): the same
+    // red, less green, so index 3 << 1 = 6, distance 41, where 7 would be 64.
+    Decode(Find("H-equal"), t);
+    const uint32_t equal = Rgba(t[0]);
+    Decode(Find("H-green"), t);
+    CHECK_TRUE(SUITE, "an ETC2 H mode base that is equal is not smaller, and red alone does "
+                      "not order two", CHECK_NONE,
+               equal == 0x76ba43ffu && Rgba(t[0]) == 0xb14bffffu, "got %08x and %08x",
+               (unsigned)equal, (unsigned)Rgba(t[0]));
+    // Differential with a second base of exactly (31, 0, 0), from (28, 3, 1) + (3, -3, -1): in
+    // range, so no T, H or planar mode. (2, 0) is the right subblock at index 2: (ff, 00, 00)
+    // minus table 3's 13. And (0, 31, 31) from (3, 28, 30) + (-3, 3, 1), flipped: (2, 2) is the
+    // bottom subblock at index 0, (00, ff, ff) plus table 0's 2.
+    Decode(Find("edge-high"), t);
+    const uint32_t edge_high = Rgba(t[2]);
+    Decode(Find("edge-low"), t);
+    CHECK_TRUE(SUITE, "an ETC2 second base of 31 or 0 is still inside the range", CHECK_NONE,
+               edge_high == 0xf20000ffu && Rgba(t[10]) == 0x02ffffffu, "got %08x and %08x",
+               (unsigned)edge_high, (unsigned)Rgba(t[10]));
+    // Planar: the origin (11, 77, 50) at 6, 7 and 6 bits is (2c, 9b, cb) at (0, 0); the codes
+    // over 63 rounded would be (2d, 9b, ca).
+    Decode(Find("planar-bits"), t);
+    CHECK_TRUE(SUITE, "an ETC2 planar colour of six bits repeats its top two bits below",
+               CHECK_NONE, Rgba(t[0]) == 0x2c9bcbffu, "texel (0, 0) is %08x",
+               (unsigned)Rgba(t[0]));
+    // A see-through H block: index 2 at (2, 0) transparent, index 3 at (3, 0) the second base
+    // (22, aa, ee) minus distance 16.
+    Decode(Find("pta-h"), t);
+    CHECK_TRUE(SUITE, "a see-through ETC2 punch-through H block is transparent at index 2",
+               CHECK_NONE, Rgba(t[2]) == 0u && Rgba(t[3]) == 0x129adeffu,
+               "texels (2, 0) and (3, 0) are %08x and %08x", (unsigned)Rgba(t[2]),
+               (unsigned)Rgba(t[3]));
+    // RGBA alpha with a multiplier of nought: the base, 0x5a, at every index.
+    Decode(Find("rgba-flat"), t);
+    uint32_t flat = 0;
+    for (uint32_t i = 0; i < 16u; ++i) {
+        flat += t[i][3] == 0x5Au;
+    }
+    CHECK_TRUE(SUITE, "ETC2 RGBA alpha with a multiplier of nought is its base", CHECK_NONE,
+               flat == 16u, "%u of 16 texels have alpha 0x5a", (unsigned)flat);
 
     // The etc2 suite names an upload of the blocks as they are when it sees one: every block's
     // own bytes must read as one, and no block's colours may, or the note would land on a pass.
