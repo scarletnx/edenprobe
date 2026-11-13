@@ -10,8 +10,9 @@
 // the answer is in terms a reader can check by hand, not how the hardware gets there.
 
 uint32_t IntMathMix(uint32_t x, uint32_t y) {
-    // Both products overflow 32 bits over most of the target and the sum overflows again, so
-    // anything that quietly widens or narrows the arithmetic disagrees nearly everywhere.
+    // The second product overflows 32 bits on every row from the fifth and the sum wraps again
+    // at 22 pixels, so anything that quietly widens or narrows the arithmetic disagrees nearly
+    // everywhere. The first never does: 63 times 1664525 is under 2^27.
     return x * 1664525u + y * 1013904223u;
 }
 
@@ -60,7 +61,7 @@ uint32_t IntMathSecond(uint32_t x, uint32_t y) {
 
 float IntMathSmallFloat(uint32_t x, uint32_t y) {
     // Every step here is exact in single precision: a half integer times 3.25 is a multiple of
-    // an eighth under 110, and so is the sum. Fused or not, there is one answer.
+    // an eighth under 103, and the sum one under 111. Fused or not, there is one answer.
     return ((float)x - 31.5f) * 3.25f + (float)y * 0.125f;
 }
 
