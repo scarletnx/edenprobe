@@ -75,6 +75,46 @@ void RunReferenceAstc(void) {
                    (unsigned)hash, (unsigned)b->hash);
     }
 
+    // Three of the blocks built for one rule each, by hand. Endpoint mode 1 with 0xe7 and 0xff:
+    // L0 = (0xe7 >> 2) | (0xff & 0xc0) = 0xf9 and L1 = 0xf9 + 0x3f, clamped to 0xff; texels 0
+    // and 15 have weights 0 and 64.
+    for (uint32_t i = 0; i < ASTC_TEST_BLOCKS; ++i) {
+        const AstcTestBlock *const b = &ASTC_TEST_BLOCK[i];
+        if (strcmp(b->name, "lumdelta") == 0) {
+            AstcDecodeBlock(b->bytes, b->width, b->height, texels);
+            CHECK_TRUE(SUITE, "a luminance base 0xe7 and offset 0xff run from 0xf9 to a clamped 0xff",
+                       CHECK_NONE, texels[0][0] == 0xF9F9u && texels[15][0] == 0xFFFFu,
+                       "texels 0 and 15 are %04x and %04x", texels[0][0], texels[15][0]);
+        }
+        // Endpoint mode 13: each colour offset 0x40 is -32 after the bit transfer, so the sum is
+        // negative, the endpoints swap and blue contracts both: base plus offset 68 28 88 228
+        // becomes 78 58 88 228 on texel 0, the base 100 60 120 218 becomes 110 90 120 218 on
+        // texel 3. Alpha's base took 0x94's top bit and its offset is 10.
+        if (strcmp(b->name, "contract13") == 0) {
+            AstcDecodeBlock(b->bytes, b->width, b->height, texels);
+            const bool right = texels[0][0] == 0x4E4Eu && texels[0][1] == 0x3A3Au &&
+                               texels[0][2] == 0x5858u && texels[0][3] == 0xE4E4u &&
+                               texels[3][0] == 0x6E6Eu && texels[3][1] == 0x5A5Au &&
+                               texels[3][2] == 0x7878u && texels[3][3] == 0xDADAu;
+            CHECK_TRUE(SUITE, "RGBA base and offset endpoints with a negative sum swap, blue "
+                              "contracted, alpha with them", CHECK_NONE, right,
+                       "texels 0 and 3 are %04x %04x %04x %04x and %04x %04x %04x %04x",
+                       texels[0][0], texels[0][1], texels[0][2], texels[0][3], texels[3][0],
+                       texels[3][1], texels[3][2], texels[3][3]);
+        }
+        // Two quints with Q[2:0] = 110 and the rest of the group not there: both are 4, so with
+        // plain bits 00000 and 00001 the endpoints are 6 and 249 (160 levels: 4 * 6 >> 2, and
+        // (4 * 6 ^ 0x1ff) >> 2 | 0x80). Read from the weights that follow, Q[6:5] = 11 would make
+        // both quints 0 and the endpoints 0 and 255. Texel 0 has weight 0, texel 23 weight 64.
+        if (strcmp(b->name, "cutquints") == 0) {
+            AstcDecodeBlock(b->bytes, b->width, b->height, texels);
+            CHECK_TRUE(SUITE, "a group of quints cut after two values takes its missing bits as "
+                              "nought", CHECK_NONE,
+                       texels[0][0] == 0x0606u && texels[23][0] == 0xF9F9u,
+                       "texels 0 and 23 are %04x and %04x", texels[0][0], texels[23][0]);
+        }
+    }
+
     // The astcimage suite's picture, every block of each footprint, both ways astcenc decoded it:
     // to FP16 and to eight bits (the same for an sRGB image, so checked once).
     static uint8_t picture[ASTC_IMAGE_SIZE * ASTC_IMAGE_SIZE * 4];
