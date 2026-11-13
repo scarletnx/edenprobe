@@ -16,8 +16,11 @@ extern "C" {
 ///
 /// Four are built by hand (tools/astc-blocks.py prints them with their fields): a void extent, a
 /// block whose sixteen 4-bit weights run 0 to 15 between endpoints 0 and 255, and two whose 5-bit
-/// weights cover all 32 values. The rest are the first block of a seeded random set, per
-/// footprint, that has the feature, chosen by source/astcref.c's reading of their fields.
+/// weights cover all 32 values. The next twelve are the first block of a seeded random set, per
+/// footprint, that has the feature, chosen by source/astcref.c's reading of their fields. The
+/// last ten are built by hand again, each for a rule of the decoder that neither those sixteen
+/// nor the astcimage suite's pictures reach: a decoder with that rule changed decodes all of
+/// them as before.
 /// `hash` is FNV-1a over astcenc's 16-bit texels (commit 9fbec680, the LDR profile), row major,
 /// RGBA little endian: the reference suite holds astcref.c to it block by block.
 typedef struct {
@@ -29,7 +32,7 @@ typedef struct {
     uint32_t hash;
 } AstcTestBlock;
 
-#define ASTC_TEST_BLOCKS 16u
+#define ASTC_TEST_BLOCKS 26u
 
 extern const AstcTestBlock ASTC_TEST_BLOCK[ASTC_TEST_BLOCKS];
 
