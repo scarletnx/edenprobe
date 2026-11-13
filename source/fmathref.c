@@ -419,7 +419,7 @@ FMathBudget FMathBudgetFor(FMathMode mode) {
     case FMATH_EXP2_EDGES:
         return (FMathBudget){ false, 3.5f, 2.0f, 0.0f,
                               "3.5 plus 2 per unit of the argument: the power of two's own "
-                              "figure, over -128 to nearly 128, which reaches 259.5 at the top. "
+                              "figure, over -128 to nearly 128, which reaches 259.375 at the top. "
                               "Below two to the -126 the console's MUFU flushes the answer, so "
                               "nought is the answer there" };
     case FMATH_LOG2_EDGES:
