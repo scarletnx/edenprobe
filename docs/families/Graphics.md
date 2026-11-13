@@ -783,11 +783,20 @@ that keeps the image and drops its being multisampled, or the sample, reads anot
 
 ## astc
 
-Eighteen cases. ASTC textures of one block each, the block written by the processor
+Twenty eight cases. ASTC textures of one block each, the block written by the processor
 into image memory and every texel fetched onto its own pixel: a void extent, 4-bit weights 0 to
 15 and every 5-bit weight between endpoints 0 and 255 (built by hand, `tools/astc-blocks.py`),
 trit and quint weights, trit and quint endpoints, two, three and four partitions, a dual plane,
 weight infill on 8x8 and 12x12 blocks, an HDR partition before an LDR one, and an illegal block.
+Then ten blocks built by hand, each for a rule of the decoder that those sixteen and the
+astcimage suite's pictures never reach, so that a decoder with the rule changed passed them all:
+6x10 and 10x6 weight grids on a 10x10 block, the one footprint size where the infill's step,
+(1024 + 5) / 9, is not 1024 / 9; endpoint mode 1, a luminance base and offset, clamped; endpoint
+mode 13 with a negative sum, where the endpoints swap, blue contracts them and the alphas go
+with them; two partitions on a 6x5 block, which is a small block as 4x4 is (under 31 texels)
+and 6x6 is not; a last group of quints, and one of trits, cut short by the end of the endpoints,
+whose missing bits read as nought and not as the weights stored there; and three more illegal
+blocks, a reserved mode, over 96 bits of weights, and two planes with four partitions.
 What each texel must be is `source/astcref.c`, an LDR profile decoder written from the Khronos
 Data Format Specification's ASTC chapter, which the reference suite holds block by block to ARM's
 reference decoder (astcenc 9fbec680) and which agreed with it on 458,752 random blocks over

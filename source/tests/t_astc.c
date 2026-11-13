@@ -36,11 +36,17 @@ static DkImageFormat FormatFor(uint32_t width, uint32_t height) {
     if (width == 4u && height == 4u) {
         return DkImageFormat_RGBA_ASTC_4x4;
     }
+    if (width == 6u && height == 5u) {
+        return DkImageFormat_RGBA_ASTC_6x5;
+    }
     if (width == 6u && height == 6u) {
         return DkImageFormat_RGBA_ASTC_6x6;
     }
     if (width == 8u && height == 8u) {
         return DkImageFormat_RGBA_ASTC_8x8;
+    }
+    if (width == 10u && height == 10u) {
+        return DkImageFormat_RGBA_ASTC_10x10;
     }
     if (width == 12u && height == 12u) {
         return DkImageFormat_RGBA_ASTC_12x12;
