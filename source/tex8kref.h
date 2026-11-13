@@ -111,9 +111,11 @@ uint32_t Tex8kRgba8Salt(uint32_t salt);
 /// The bytes of block (@p bx, @p by) of level 0 as @p salt writes it, block_bytes of them: an
 /// RGBA8 texel is x | y << 13 | Tex8kRgba8Salt(salt) << 26, little endian, so every texel of an
 /// 8192x8192 texture differs; a BC1 block is one colour (indices nought) from the mix; a BC7
-/// block is mode 6, both endpoints and the p-bits from the mix, texel t taking index t, so every
-/// texel of a block differs; an ASTC block is the picture's, from a tile of the picture shifted
-/// by its position and the salt (Tex8kAstcSource).
+/// block is mode 6, both endpoints and the p-bits from the mix, texel t taking index t, so the
+/// texels of a block differ wherever its two ends are apart (in some 45 of a texture's four
+/// million blocks every channel's ends nearly meet and two neighbours come out the same: the
+/// upload's block (1698, 31) has texels 5 and 6 both 7f7e8080); an ASTC block is the picture's,
+/// from a tile of the picture shifted by its position and the salt (Tex8kAstcSource).
 void Tex8kBlock(const Tex8kFormat *format, uint32_t bx, uint32_t by, uint32_t salt,
                 uint8_t *out);
 
